@@ -41,7 +41,7 @@ services:
       target: development
     command: npm run dev
     ports:
-      - "3000:3000"
+      - "3001:3000"     # host:3001 → container:3000 (avoids conflicts with other services)
     environment:
       DATABASE_URL: postgres://erp_lite:erp_lite@db:5432/erp_lite
       NODE_ENV:     development
@@ -55,5 +55,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Backoffice (React + Vite — hot-reload) ─────────────────────────────────
+  backoffice:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    ports:
+      - "5173:5173"
+    environment:
+      # When running inside Docker the proxy must target the Compose service name.
+      # When running on the host (npm run dev) vite.config.ts falls back to localhost:3001.
+      API_PROXY_TARGET: "http://api-core:3000"
+    volumes:
+      - ./apps/backoffice:/app
+      - backoffice_nm:/app/node_modules
+    depends_on:
+      - api-core
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  backoffice_nm:

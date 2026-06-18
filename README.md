@@ -18,16 +18,141 @@
 > Iniciar abordagem para rodar localmente no Docker e estrutura para rodar na AWS
 > com menor custo possível. Atualizar README como prompt para IA."
 
+### v0.3 — Backoffice + Auth
+> "Adicionar tela de login e cadastro básico para rodar localmente. Iniciar o
+> cadastro de materiais e demais funcionalidades de backoffice. Auth integrada
+> no api-core (login/register com bcrypt + JWT). React SPA em apps/backoffice
+> com React Router, contexto de auth e páginas: Login, Register, Dashboard,
+> Materials (lista + formulário). Docker Compose inclui o serviço backoffice."
+
+### v0.4 — Identidade visual GAX + Módulo Clientes (PJ/PF)
+> "Empresa se chama GAX. Criar logo moderno para a tela de login. Implementar
+> migrations básico para rodar localmente. No cadastro de clientes prever que
+> uma empresa pode emitir NF-e para CNPJ e CPF seguindo regras do governo
+> brasileiro — adicionar campos necessários. Atualizar README."
+
 ---
 
 ## Visão Geral
 
-ERP Lite é um ERP SaaS multi-tenant construído em Node.js/Fastify, com frontend
-React, banco PostgreSQL, deployado na AWS com custo mínimo.
+**GAX Enterprise** é um ERP SaaS multi-tenant construído em Node.js/Fastify,
+com frontend React (identidade visual GAX), banco PostgreSQL, deployado na AWS
+com custo mínimo.
 
 **Modelo multi-tenant:** shared database, shared schema — todas as tabelas ERP
 carregam `tenant_id`. O `tenant_id` é sempre extraído do JWT (nunca do body da
 requisição), garantindo isolamento por camada de aplicação.
+
+---
+
+## Diagramas de Arquitetura
+
+### Contexto da Aplicação (C4 Nível 1)
+
+```mermaid
+flowchart LR
+    saas_admin(["SaaS Admin\n(Operações internas)"])
+    tenant_user(["Usuário do Tenant\n(Funcionário da empresa)"])
+
+    subgraph erp["ERP Lite  ·  SaaS Multi-tenant"]
+        direction TB
+        backoffice["Backoffice\nReact SPA  :5173"]
+        api_core["API Core\nFastify / ECS  :3000"]
+        auth_lambda["Lambda  auth"]
+        fiscal_lambda["Lambda  fiscal"]
+        notif_lambda["Lambda  notifications"]
+        db[("PostgreSQL\nRDS")]
+        sqs[["SQS\nFila de eventos"]]
+    end
+
+    sefaz(["SEFAZ\nNF-e"])
+    meta(["Meta\nWhatsApp"])
+    ses(["AWS SES\nEmail"])
+
+    saas_admin -- gerencia tenants --> backoffice
+    tenant_user -- usa o ERP --> backoffice
+    backoffice -- REST API --> api_core
+    backoffice -- login JWT --> auth_lambda
+    auth_lambda -- token --> backoffice
+    api_core -- queries --> db
+    api_core -- enfileira eventos --> sqs
+    sqs --> fiscal_lambda
+    sqs --> notif_lambda
+    fiscal_lambda -- XML/SOAP --> sefaz
+    notif_lambda --> meta
+    notif_lambda --> ses
+```
+
+---
+
+### Infraestrutura AWS
+
+```mermaid
+flowchart TD
+    internet(("Internet"))
+
+    internet -->|HTTPS| cf["CloudFront + S3\nReact SPA"]
+    internet -->|HTTP/HTTPS| alb["Application\nLoad Balancer"]
+
+    subgraph vpc["VPC  10.0.0.0/16"]
+        direction TB
+        subgraph pub["Subnets Públicas  ·  AZ-a / AZ-b"]
+            ecs["ECS Fargate\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true"]
+        end
+        subgraph priv["Subnets Privadas  ·  AZ-a / AZ-b"]
+            rds[("RDS PostgreSQL 16\ndev: db.t3.micro\nprod: db.t3.small")]
+        end
+    end
+
+    subgraph srvless["Serverless"]
+        direction LR
+        authl["Lambda\nauth"]
+        fiscall["Lambda\nfiscal"]
+        notifl["Lambda\nnotif"]
+        sqs[["SQS"]]
+    end
+
+    ecr["ECR\nDocker images"]
+    cw["CloudWatch\nLogs"]
+
+    alb --> ecs
+    ecs --> rds
+    ecs --> sqs
+    sqs --> fiscall
+    sqs --> notifl
+    ecr -.->|image pull| ecs
+    ecs -.->|logs| cw
+```
+
+> **Sem NAT Gateway:** ECS tasks ficam em subnet pública com `assign_public_ip = true`.
+> Isso elimina o custo do NAT Gateway (~$30/mês).
+
+---
+
+### Fluxo de uma Requisição Autenticada
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant SPA as Backoffice SPA
+    participant API as API Core :3000
+    participant DB as PostgreSQL
+
+    U->>SPA: acessa /login
+    SPA->>API: POST /v1/auth/login
+    API->>DB: SELECT user WHERE email=?
+    DB-->>API: user + password_hash
+    API-->>SPA: { token: JWT }
+    SPA->>SPA: salva token (localStorage)
+
+    U->>SPA: acessa /materials
+    SPA->>API: GET /v1/materials\nAuthorization: Bearer JWT
+    API->>API: verifica JWT → extrai tenant_id
+    API->>DB: SELECT WHERE tenant_id = ?
+    DB-->>API: rows
+    API-->>SPA: { data: [...] }
+    SPA-->>U: lista de materiais
+```
 
 ---
 
@@ -94,15 +219,18 @@ erp-lite/
 │       │   ├── config.ts           variáveis de ambiente
 │       │   ├── db/pool.ts          pg.Pool singleton
 │       │   ├── routes/
-│       │   │   ├── customers.ts    CRUD /v1/customers (tenants)
-│       │   │   └── materials.ts    CRUD /v1/materials + stock
+│       │   │   ├── auth.ts         POST /v1/auth/login|register, GET /v1/auth/me
+│       │   │   ├── customers.ts    CRUD /v1/customers (tenants SaaS)
+│       │   │   ├── materials.ts    CRUD /v1/materials + stock
+│       │   │   └── clients.ts      CRUD /v1/clients (PJ/PF — NF-e ready)
 │       │   └── scripts/
 │       │       └── migrate.ts      runner de migrations SQL
 │       └── db/migrations/
 │           ├── 0001_tenants.sql
 │           ├── 0002_users.sql
 │           ├── 0003_materials.sql
-│           └── 0004_inventory.sql
+│           ├── 0004_inventory.sql
+│           └── 0005_clients.sql
 │
 ├── apps/
 │   └── backoffice/                 ← React + Vite SPA (próximo sprint)
@@ -198,6 +326,43 @@ erp-lite/
 | `min_qty` | DECIMAL(15,3) | Alerta de estoque mínimo |
 | `max_qty` | DECIMAL(15,3) | Teto de reposição |
 
+### `clients` — Clientes comerciais do tenant (PJ ou PF)
+
+Suporta emissão de NF-e para Pessoa Jurídica (CNPJ) e Pessoa Física (CPF)
+conforme regras da SEFAZ / DANFE.
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | UUID PK | |
+| `tenant_id` | UUID FK | Isolamento multi-tenant |
+| `person_type` | VARCHAR(2) | `PJ` \| `PF` |
+| **PJ** | | |
+| `company_name` | VARCHAR(255) | Razão Social *(obrigatório para PJ)* |
+| `trade_name` | VARCHAR(255) | Nome Fantasia |
+| `cnpj` | VARCHAR(14) | Somente dígitos. Único por tenant |
+| `state_reg` | VARCHAR(30) | Inscrição Estadual (IE) |
+| `municipal_reg` | VARCHAR(30) | Inscrição Municipal (IM) |
+| `suframa` | VARCHAR(20) | SUFRAMA — Zona Franca de Manaus |
+| **PF** | | |
+| `full_name` | VARCHAR(255) | Nome completo *(obrigatório para PF)* |
+| `cpf` | VARCHAR(11) | Somente dígitos. Único por tenant |
+| `birth_date` | DATE | Data de nascimento |
+| `rg` | VARCHAR(20) | Registro Geral |
+| `rg_issuer` | VARCHAR(30) | Órgão emissor (SSP/SP etc.) |
+| **Contato** | | |
+| `email` | VARCHAR(255) | |
+| `phone` / `mobile` | VARCHAR(20) | Somente dígitos |
+| **Endereço** | | |
+| `zip_code` | VARCHAR(8) | CEP somente dígitos |
+| `street`, `street_number`, `complement` | | |
+| `neighborhood`, `city`, `state` (UF), `country` | | |
+| **NF-e — Classificação fiscal** | | |
+| `icms_taxpayer` | CHAR(1) | `1`=Contribuinte ICMS · `2`=Contribuinte Isento · `9`=Não Contribuinte |
+| `consumer_type` | CHAR(1) | `0`=Normal (B2B) · `1`=Consumidor Final (B2C). PF sempre `1` |
+
+> **Regras automáticas para PF:** `icms_taxpayer = '9'` e `consumer_type = '1'`
+> são aplicados automaticamente — PF é sempre Não Contribuinte e Consumidor Final.
+
 ### `inventory_movements` — Auditoria de estoque (imutável)
 
 | Campo | Tipo | Descrição |
@@ -211,10 +376,28 @@ erp-lite/
 
 ## API Reference
 
-Base URL local: `http://localhost:3000`
+Base URL local: `http://localhost:3001`
 Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 
-### Customers (tenants)
+### Auth
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/auth/register` | Criar empresa + usuário owner (retorna JWT) |
+| `POST` | `/v1/auth/login` | Login com email + senha (retorna JWT) |
+| `GET` | `/v1/auth/me` | Dados do usuário autenticado (requer Bearer token) |
+
+### Clients (clientes comerciais — PJ/PF)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/clients` | Criar cliente PJ ou PF |
+| `GET` | `/v1/clients?tenant_id=&person_type=&search=` | Listar (filtro tipo/busca, paginado) |
+| `GET` | `/v1/clients/:id` | Buscar por ID |
+| `PATCH` | `/v1/clients/:id` | Atualizar |
+| `DELETE` | `/v1/clients/:id` | Desativar (soft delete) |
+
+### Customers (tenants SaaS)
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
@@ -249,49 +432,147 @@ Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 ## Desenvolvimento Local
 
 ### Pré-requisitos
-- Docker Desktop
-- Node.js 20+ (opcional, para rodar sem Docker)
 
-### Subir com Docker (recomendado)
+| Ferramenta | Versão mínima | Para quê |
+|------------|--------------|----------|
+| Docker Desktop | qualquer recente | banco + API + backoffice |
+| Node.js | 20+ | opcional — apenas se rodar fora do Docker |
+| npm | 10+ | gerenciamento de workspaces |
+
+---
+
+### Subir tudo com Docker (recomendado)
 
 ```bash
 # 1. Instalar dependências do monorepo
 npm install
 
-# 2. Subir PostgreSQL + API com hot-reload
+# 2. Subir PostgreSQL + API Core + Backoffice (hot-reload)
 docker compose up
 
-# 3. Rodar migrations (outra aba ou primeira vez)
+# 3. Rodar migrations (primeira vez ou após novas migrations)
 docker compose run --rm migrate
-
-# API disponível em http://localhost:3000
 ```
 
-### Rodar sem Docker
+| Serviço | URL local |
+|---------|-----------|
+| Backoffice (React SPA) | http://localhost:5173 |
+| API Core (Fastify) | http://localhost:3001 |
+| PostgreSQL | localhost:5432 |
+
+> O Vite (backoffice) faz proxy de `/v1/*` e `/health` para o api-core em `:3000`,
+> então a SPA não precisa configurar CORS — acesse tudo por `:5173`.
+
+---
+
+### Primeiro acesso — criar conta
+
+1. Abra **http://localhost:5173**
+2. Clique em **"Create your company"**
+3. Preencha razão social, CNPJ, e-mail e senha (mínimo 8 caracteres)
+4. Ao confirmar você já estará logado e verá o Dashboard
+
+Para logins subsequentes acesse **http://localhost:5173/login**.
+
+---
+
+### Subir apenas a API (sem Docker)
 
 ```bash
+# Pré-requisito: PostgreSQL acessível localmente
 cd services/api-core
-cp .env.example .env          # edite com sua conexão PostgreSQL
-npm run migrate               # cria tabelas
+cp .env.example .env          # edite DATABASE_URL e JWT_SECRET
+npm run migrate               # cria/atualiza tabelas
 npm run dev                   # hot-reload com ts-node-dev
+
+# Subir o backoffice separadamente (outra aba)
+cd apps/backoffice
+npm run dev                   # Vite em http://localhost:5173
 ```
+
+---
 
 ### Comandos úteis
 
 ```bash
-# Testar health
+# Health check da API
 curl http://localhost:3000/health
 
-# Criar cliente
-curl -X POST http://localhost:3000/v1/customers \
+# Registrar empresa via API (cria tenant + usuário owner)
+curl -X POST http://localhost:3000/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"company_name":"Acme Ltda","tax_id":"12345678000195","tax_id_type":"CNPJ"}'
+  -d '{
+    "company_name": "Acme Ltda",
+    "tax_id": "12345678000195",
+    "tax_id_type": "CNPJ",
+    "email": "admin@acme.com",
+    "password": "senha123"
+  }'
+# → retorna { token, user, tenantId }
 
-# Criar produto
+# Login
+curl -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@acme.com","password":"senha123"}'
+
+# Criar material (use o tenantId retornado acima)
 curl -X POST http://localhost:3000/v1/materials \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"<UUID>","sku":"PROD-001","name":"Produto Teste","type":"product","sale_price":99.90,"unit":"UN"}'
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "sku": "PROD-001",
+    "name": "Produto Teste",
+    "type": "product",
+    "sale_price": 99.90,
+    "unit": "UN",
+    "tracks_inventory": true
+  }'
+
+# Criar cliente PJ
+curl -X POST http://localhost:3000/v1/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "person_type": "PJ",
+    "company_name": "Acme Distribuidora Ltda",
+    "cnpj": "12345678000195",
+    "state_reg": "110042490114",
+    "icms_taxpayer": "1",
+    "consumer_type": "0",
+    "zip_code": "01310100",
+    "city": "São Paulo", "state": "SP"
+  }'
+
+# Criar cliente PF
+curl -X POST http://localhost:3000/v1/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "person_type": "PF",
+    "full_name": "João da Silva",
+    "cpf": "12345678901",
+    "email": "joao@email.com"
+  }'
+# ↑ icms_taxpayer e consumer_type são definidos automaticamente para PF
+
+# Ver estoque de um material
+curl http://localhost:3000/v1/materials/<ID>/stock
+
+# Alertas de estoque mínimo
+curl "http://localhost:3000/v1/stock/alerts?tenant_id=<TENANT_ID>"
 ```
+
+---
+
+### Variáveis de ambiente (api-core)
+
+| Variável | Padrão (dev) | Descrição |
+|----------|-------------|-----------|
+| `DATABASE_URL` | `postgres://erp_lite:erp_lite@db:5432/erp_lite` | Connection string PostgreSQL |
+| `JWT_SECRET` | `local-dev-secret` | Segredo para assinar JWTs |
+| `PORT` | `3000` | Porta HTTP |
+| `NODE_ENV` | `development` | Modo de execução |
 
 ---
 
@@ -376,9 +657,10 @@ terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
 | ✅ | **Materials** | Produtos/serviços + controle de estoque |
 | ✅ | **Docker** | Ambiente local com hot-reload |
 | ✅ | **Terraform** | Infra AWS mínima (ECS + RDS + ECR + ALB) |
-| 🔜 | **Auth** | Lambda JWT — login, refresh token, middleware Fastify |
+| ✅ | **Auth** | Login + registro via api-core (bcrypt + JWT HS256 24h) |
+| ✅ | **Backoffice** | React SPA — logo GAX, login, registro, dashboard, materiais |
+| ✅ | **Clients** | Cadastro PJ/PF com CNPJ/CPF, endereço, campos NF-e (icms_taxpayer, consumer_type) |
 | 🔜 | **Users** | CRUD de usuários por tenant com roles |
-| 🔜 | **Backoffice** | React SPA — cadastros e dashboards |
 | 🔜 | **CI/CD** | GitHub Actions — build, push ECR, deploy ECS |
 | 🔜 | **Orders** | Pedidos de venda com baixa automática de estoque |
 | 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |
