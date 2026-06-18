@@ -1,17 +1,21 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --primary:   #2563eb;
-  --primary-h: #1d4ed8;
+  --primary:   #6366f1;   /* indigo-500 — GAX brand */
+  --primary-h: #4f46e5;   /* indigo-600 — hover */
+  --accent:    #06b6d4;   /* cyan-500   — gradient end */
   --danger:    #dc2626;
   --success:   #16a34a;
+  --warning:   #d97706;
   --bg:        #f8fafc;
   --surface:   #ffffff;
   --border:    #e2e8f0;
   --text:      #0f172a;
   --muted:     #64748b;
-  --sidebar-w: 220px;
-  --radius:    6px;
+  --sidebar-w: 232px;
+  --radius:    8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md: 0 4px 24px rgba(0,0,0,.09), 0 2px 8px rgba(0,0,0,.06);
 }
 
 body {
@@ -30,32 +34,45 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  background: linear-gradient(140deg, #eef2ff 0%, #e0f7fa 55%, #f0fdf4 100%);
+  padding: 24px;
 }
 
 .auth-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 40px;
+  border-radius: 16px;
+  padding: 44px 40px 36px;
   width: 100%;
-  max-width: 400px;
-  box-shadow: 0 4px 24px rgba(0,0,0,.07);
+  max-width: 420px;
+  box-shadow: var(--shadow-md);
 }
 
-.auth-card h1 {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-bottom: 4px;
-}
+.auth-logo { display: flex; justify-content: center; margin-bottom: 28px; }
 
-.auth-card h2 {
-  font-size: 16px;
-  font-weight: 500;
+.auth-heading { text-align: center; margin-bottom: 28px; }
+.auth-heading h2 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.auth-heading p  { font-size: 13px; color: var(--muted); }
+
+/* password field wrapper */
+.pwd-wrap { position: relative; }
+.pwd-wrap input { padding-right: 52px; }
+.pwd-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
   color: var(--muted);
-  margin-bottom: 28px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
 }
+.pwd-toggle:hover { color: var(--primary); background: #eef2ff; }
 
 /* ── Form elements ───────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
@@ -94,8 +111,20 @@ textarea { resize: vertical; min-height: 72px; }
   transition: background .15s, opacity .15s;
 }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
-.btn-primary  { background: var(--primary);  color: #fff; border-color: var(--primary); width: 100%; justify-content: center; padding: 10px; }
-.btn-primary:hover:not(:disabled) { background: var(--primary-h); border-color: var(--primary-h); }
+.btn-primary  {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-h) 100%);
+  color: #fff;
+  border-color: var(--primary);
+  width: 100%;
+  justify-content: center;
+  padding: 10px;
+  box-shadow: 0 2px 8px rgba(99,102,241,.30);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--primary-h) 0%, #3730a3 100%);
+  border-color: var(--primary-h);
+  box-shadow: 0 4px 12px rgba(99,102,241,.40);
+}
 .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--bg); }
 .btn-danger   { background: var(--danger); color: #fff; border-color: var(--danger); }
@@ -111,19 +140,19 @@ textarea { resize: vertical; min-height: 72px; }
 
 .sidebar {
   width: var(--sidebar-w);
-  background: #1e293b;
+  background: #0f172a;
   color: #cbd5e1;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  border-right: 1px solid #1e293b;
 }
 
 .sidebar-logo {
-  padding: 20px 18px 16px;
-  font-size: 17px;
-  font-weight: 700;
-  color: #fff;
-  border-bottom: 1px solid #334155;
+  padding: 20px 18px 18px;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
 }
 
 .sidebar-nav { flex: 1; padding: 12px 0; }

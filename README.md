@@ -25,12 +25,19 @@
 > com React Router, contexto de auth e páginas: Login, Register, Dashboard,
 > Materials (lista + formulário). Docker Compose inclui o serviço backoffice."
 
+### v0.4 — Identidade visual GAX + Módulo Clientes (PJ/PF)
+> "Empresa se chama GAX. Criar logo moderno para a tela de login. Implementar
+> migrations básico para rodar localmente. No cadastro de clientes prever que
+> uma empresa pode emitir NF-e para CNPJ e CPF seguindo regras do governo
+> brasileiro — adicionar campos necessários. Atualizar README."
+
 ---
 
 ## Visão Geral
 
-ERP Lite é um ERP SaaS multi-tenant construído em Node.js/Fastify, com frontend
-React, banco PostgreSQL, deployado na AWS com custo mínimo.
+**GAX Enterprise** é um ERP SaaS multi-tenant construído em Node.js/Fastify,
+com frontend React (identidade visual GAX), banco PostgreSQL, deployado na AWS
+com custo mínimo.
 
 **Modelo multi-tenant:** shared database, shared schema — todas as tabelas ERP
 carregam `tenant_id`. O `tenant_id` é sempre extraído do JWT (nunca do body da
@@ -212,15 +219,18 @@ erp-lite/
 │       │   ├── config.ts           variáveis de ambiente
 │       │   ├── db/pool.ts          pg.Pool singleton
 │       │   ├── routes/
-│       │   │   ├── customers.ts    CRUD /v1/customers (tenants)
-│       │   │   └── materials.ts    CRUD /v1/materials + stock
+│       │   │   ├── auth.ts         POST /v1/auth/login|register, GET /v1/auth/me
+│       │   │   ├── customers.ts    CRUD /v1/customers (tenants SaaS)
+│       │   │   ├── materials.ts    CRUD /v1/materials + stock
+│       │   │   └── clients.ts      CRUD /v1/clients (PJ/PF — NF-e ready)
 │       │   └── scripts/
 │       │       └── migrate.ts      runner de migrations SQL
 │       └── db/migrations/
 │           ├── 0001_tenants.sql
 │           ├── 0002_users.sql
 │           ├── 0003_materials.sql
-│           └── 0004_inventory.sql
+│           ├── 0004_inventory.sql
+│           └── 0005_clients.sql
 │
 ├── apps/
 │   └── backoffice/                 ← React + Vite SPA (próximo sprint)
@@ -316,6 +326,43 @@ erp-lite/
 | `min_qty` | DECIMAL(15,3) | Alerta de estoque mínimo |
 | `max_qty` | DECIMAL(15,3) | Teto de reposição |
 
+### `clients` — Clientes comerciais do tenant (PJ ou PF)
+
+Suporta emissão de NF-e para Pessoa Jurídica (CNPJ) e Pessoa Física (CPF)
+conforme regras da SEFAZ / DANFE.
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | UUID PK | |
+| `tenant_id` | UUID FK | Isolamento multi-tenant |
+| `person_type` | VARCHAR(2) | `PJ` \| `PF` |
+| **PJ** | | |
+| `company_name` | VARCHAR(255) | Razão Social *(obrigatório para PJ)* |
+| `trade_name` | VARCHAR(255) | Nome Fantasia |
+| `cnpj` | VARCHAR(14) | Somente dígitos. Único por tenant |
+| `state_reg` | VARCHAR(30) | Inscrição Estadual (IE) |
+| `municipal_reg` | VARCHAR(30) | Inscrição Municipal (IM) |
+| `suframa` | VARCHAR(20) | SUFRAMA — Zona Franca de Manaus |
+| **PF** | | |
+| `full_name` | VARCHAR(255) | Nome completo *(obrigatório para PF)* |
+| `cpf` | VARCHAR(11) | Somente dígitos. Único por tenant |
+| `birth_date` | DATE | Data de nascimento |
+| `rg` | VARCHAR(20) | Registro Geral |
+| `rg_issuer` | VARCHAR(30) | Órgão emissor (SSP/SP etc.) |
+| **Contato** | | |
+| `email` | VARCHAR(255) | |
+| `phone` / `mobile` | VARCHAR(20) | Somente dígitos |
+| **Endereço** | | |
+| `zip_code` | VARCHAR(8) | CEP somente dígitos |
+| `street`, `street_number`, `complement` | | |
+| `neighborhood`, `city`, `state` (UF), `country` | | |
+| **NF-e — Classificação fiscal** | | |
+| `icms_taxpayer` | CHAR(1) | `1`=Contribuinte ICMS · `2`=Contribuinte Isento · `9`=Não Contribuinte |
+| `consumer_type` | CHAR(1) | `0`=Normal (B2B) · `1`=Consumidor Final (B2C). PF sempre `1` |
+
+> **Regras automáticas para PF:** `icms_taxpayer = '9'` e `consumer_type = '1'`
+> são aplicados automaticamente — PF é sempre Não Contribuinte e Consumidor Final.
+
 ### `inventory_movements` — Auditoria de estoque (imutável)
 
 | Campo | Tipo | Descrição |
@@ -332,7 +379,25 @@ erp-lite/
 Base URL local: `http://localhost:3000`
 Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 
-### Customers (tenants)
+### Auth
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/auth/register` | Criar empresa + usuário owner (retorna JWT) |
+| `POST` | `/v1/auth/login` | Login com email + senha (retorna JWT) |
+| `GET` | `/v1/auth/me` | Dados do usuário autenticado (requer Bearer token) |
+
+### Clients (clientes comerciais — PJ/PF)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/clients` | Criar cliente PJ ou PF |
+| `GET` | `/v1/clients?tenant_id=&person_type=&search=` | Listar (filtro tipo/busca, paginado) |
+| `GET` | `/v1/clients/:id` | Buscar por ID |
+| `PATCH` | `/v1/clients/:id` | Atualizar |
+| `DELETE` | `/v1/clients/:id` | Desativar (soft delete) |
+
+### Customers (tenants SaaS)
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
@@ -464,6 +529,33 @@ curl -X POST http://localhost:3000/v1/materials \
     "tracks_inventory": true
   }'
 
+# Criar cliente PJ
+curl -X POST http://localhost:3000/v1/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "person_type": "PJ",
+    "company_name": "Acme Distribuidora Ltda",
+    "cnpj": "12345678000195",
+    "state_reg": "110042490114",
+    "icms_taxpayer": "1",
+    "consumer_type": "0",
+    "zip_code": "01310100",
+    "city": "São Paulo", "state": "SP"
+  }'
+
+# Criar cliente PF
+curl -X POST http://localhost:3000/v1/clients \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "person_type": "PF",
+    "full_name": "João da Silva",
+    "cpf": "12345678901",
+    "email": "joao@email.com"
+  }'
+# ↑ icms_taxpayer e consumer_type são definidos automaticamente para PF
+
 # Ver estoque de um material
 curl http://localhost:3000/v1/materials/<ID>/stock
 
@@ -565,8 +657,9 @@ terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
 | ✅ | **Materials** | Produtos/serviços + controle de estoque |
 | ✅ | **Docker** | Ambiente local com hot-reload |
 | ✅ | **Terraform** | Infra AWS mínima (ECS + RDS + ECR + ALB) |
-| 🚧 | **Auth** | Login + registro via api-core (bcrypt + JWT); migrar para Lambda |
-| 🚧 | **Backoffice** | React SPA — login, registro, materiais |
+| ✅ | **Auth** | Login + registro via api-core (bcrypt + JWT HS256 24h) |
+| ✅ | **Backoffice** | React SPA — logo GAX, login, registro, dashboard, materiais |
+| ✅ | **Clients** | Cadastro PJ/PF com CNPJ/CPF, endereço, campos NF-e (icms_taxpayer, consumer_type) |
 | 🔜 | **Users** | CRUD de usuários por tenant com roles |
 | 🔜 | **CI/CD** | GitHub Actions — build, push ECR, deploy ECS |
 | 🔜 | **Orders** | Pedidos de venda com baixa automática de estoque |

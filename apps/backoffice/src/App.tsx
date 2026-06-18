@@ -5,6 +5,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { Layout }       from './components/Layout';
 import { DashboardPage }    from './pages/DashboardPage';
 import { MaterialsPage }    from './pages/materials/MaterialsPage';
+import { ClientsPage }      from './pages/clients/ClientsPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -15,6 +16,7 @@ function GuardedRoutes() {
       <Routes>
         <Route path="/"         element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard"  element={<DashboardPage />} />
+        <Route path="/clients"    element={<ClientsPage />} />
         <Route path="/materials"  element={<MaterialsPage />} />
         <Route path="*"           element={<Navigate to="/dashboard" replace />} />
       </Routes>
