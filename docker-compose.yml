@@ -1,0 +1,59 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       erp_lite
+      POSTGRES_USER:     erp_lite
+      POSTGRES_PASSWORD: erp_lite
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp_lite -d erp_lite"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Migrations (run once then exit) ────────────────────────────────────────
+  # Usage: docker compose run --rm migrate
+  migrate:
+    build:
+      context: ./services/api-core
+      target: development
+    command: npm run migrate
+    environment:
+      DATABASE_URL: postgres://erp_lite:erp_lite@db:5432/erp_lite
+    volumes:
+      - ./services/api-core/src:/app/src
+      - ./services/api-core/db:/app/db
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: [migrate]
+
+  # ── API Core (Fastify — hot-reload via ts-node-dev) ─────────────────────────
+  api-core:
+    build:
+      context: ./services/api-core
+      target: development
+    command: npm run dev
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://erp_lite:erp_lite@db:5432/erp_lite
+      NODE_ENV:     development
+      PORT:         3000
+      JWT_SECRET:   local-dev-secret
+    volumes:
+      - ./services/api-core/src:/app/src   # hot-reload: changes reflect immediately
+      - ./services/api-core/db:/app/db
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,297 +1,387 @@
 # ERP Lite — SaaS Multi-tenant ERP on AWS
 
-## Original Prompt
+> **Este README é o prompt principal para geração de código por IA.**
+> Ao solicitar alterações, referencie este arquivo para que a IA entenda o contexto completo do projeto.
 
-> "Novo projeto num diretório `D:\repos\erp-lite`. ERP SaaS, multitenant, ambiente AWS.
-> Arquitetura monorepo com Fastify + Node, frontend React, abordagem Lambda para serviços pontuais.
-> Cadastro de clientes com os campos:
-> - Empresa / CNPJ / Endereço / Telefone
-> - Contato compras (tel, email)
-> - Contato manutenção (tel, email)
-> - Contato fiscal (tel, email)
+---
+
+## Histórico de Prompts
+
+### v0.1 — Kickoff
+> "Novo projeto ERP SaaS, multitenant, AWS. Monorepo Fastify + Node + React.
+> Lambda para serviços pontuais. Cadastro de clientes com campos: Empresa, CNPJ,
+> Endereço, Telefone, Contatos (compras/manutenção/fiscal) com tel e email.
 > Campos em inglês para venda global. Banco PostgreSQL."
 
----
-
-## Architecture
-
-### Multi-tenancy Model
-
-**Strategy: Shared Database, Shared Schema**
-
-Every table carries a `tenant_id` UUID foreign key referencing the `tenants` table.
-Access control is enforced at two levels:
-
-| Layer | Mechanism |
-|-------|-----------|
-| API | `tenant_id` extracted from JWT claim, injected into every query |
-| Database | PostgreSQL Row Level Security (RLS) as defense-in-depth |
-
-```
-SaaS Customer (Company)
-       │
-       ▼
-  tenants (id, company_name, tax_id, …)
-       │
-       ├── users          (employees of that company)
-       ├── products       (future)
-       ├── inventory      (future)
-       ├── orders         (future)
-       └── …              (all ERP tables carry tenant_id)
-```
-
-### Service Decomposition
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  ERP Lite — AWS Architecture                            │
-│                                                         │
-│  CloudFront ──► S3                                      │
-│      (backoffice React SPA)                             │
-│                                                         │
-│  ALB ──► ECS Fargate                                    │
-│              api-core  (Fastify — CRUD ERP)             │
-│                  │                                      │
-│                  └──► RDS PostgreSQL (Multi-AZ prod)    │
-│                                                         │
-│  Lambda (event-driven / stateless)                      │
-│    ├── auth          JWT login / token validation       │
-│    ├── fiscal        NF-e, SEFAZ, async XML             │
-│    ├── notifications Email / WhatsApp                   │
-│    └── reports       Async heavy exports                │
-│                                                         │
-│  SQS ─► Lambda (notifications, reports)                 │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend API | Node.js 20 + Fastify 4 + TypeScript |
-| Frontend | React 18 + Vite + TypeScript |
-| Database | PostgreSQL 16 (AWS RDS) |
-| Auth | Lambda + JWT (HS256) |
-| IaC | Terraform |
-| CI/CD | GitHub Actions |
-| Container | ECS Fargate (api-core) |
-| Static hosting | S3 + CloudFront |
-| Messaging | SQS |
-| Secrets | AWS Parameter Store |
-
-### Why Lambda for Some Services?
-
-| Service | Justification |
-|---------|--------------|
-| `auth` | Stateless, low frequency, zero idle cost |
-| `fiscal` | NF-e emission is async, spiky, up to 14 min |
-| `notifications` | Event-driven, SQS-triggered, no baseline traffic |
-| `reports` | Heavy computation, runs on demand, suits 15-min Lambda limit |
-| `api-core` | Continuous CRUD traffic → ECS Fargate keeps latency predictable |
+### v0.2 — Materiais + Docker + AWS
+> "Adicionar cadastro de materiais para venda de produtos e serviços com estoque.
+> Iniciar abordagem para rodar localmente no Docker e estrutura para rodar na AWS
+> com menor custo possível. Atualizar README como prompt para IA."
 
 ---
 
-## Directory Structure
+## Visão Geral
+
+ERP Lite é um ERP SaaS multi-tenant construído em Node.js/Fastify, com frontend
+React, banco PostgreSQL, deployado na AWS com custo mínimo.
+
+**Modelo multi-tenant:** shared database, shared schema — todas as tabelas ERP
+carregam `tenant_id`. O `tenant_id` é sempre extraído do JWT (nunca do body da
+requisição), garantindo isolamento por camada de aplicação.
+
+---
+
+## Stack Tecnológica
+
+| Camada | Tecnologia | Justificativa |
+|--------|-----------|---------------|
+| API principal | Node.js 20 + Fastify 4 + TypeScript | Alto throughput, baixo overhead |
+| Banco de dados | PostgreSQL 16 (AWS RDS) | ACID, JSON nativo, custo previsível |
+| Frontend | React 18 + Vite + TypeScript | (próximo sprint) |
+| Auth | Lambda + JWT HS256 | Stateless, zero custo idle |
+| Infra | Terraform + ECS Fargate | IaC reproducível |
+| CI/CD | GitHub Actions | (próximo sprint) |
+| Secrets | AWS Parameter Store | Nunca em env vars no ECS |
+
+---
+
+## Decisões de Arquitetura
+
+### Onde usar ECS Fargate vs Lambda
+
+| Serviço | Runtime | Motivo |
+|---------|---------|--------|
+| `api-core` | ECS Fargate | CRUD contínuo, latência previsível, pool de conexão DB |
+| `auth` | Lambda | Stateless, baixa frequência, zero idle cost |
+| `fiscal` | Lambda | NF-e é assíncrono, spiky, até 14 min — cabe em Lambda |
+| `notifications` | Lambda | SQS-triggered, sem tráfego baseline |
+| `reports` | Lambda | Pesado, on-demand, cabe no limite de 15 min |
+
+### Custo mínimo AWS (sem NAT Gateway)
+
+```
+VPC (10.0.0.0/16)
+├── Public Subnets  AZ-a/b  → ECS tasks + ALB
+│     ECS tasks têm public IP → acessam ECR e internet sem NAT Gateway
+│     Economia: ~$30/mês (sem NAT Gateway)
+└── Private Subnets AZ-a/b  → RDS (sem acesso externo)
+
+Estimativa mensal prod:
+  RDS t3.micro single-AZ   ~$13
+  ECS Fargate 256/512       ~$9  (1 task)
+  ALB                       ~$16
+  CloudFront + S3           ~$1
+  CloudWatch logs           ~$2
+  ──────────────────────────────
+  Total mínimo              ~$41/mês
+```
+
+---
+
+## Estrutura do Projeto
 
 ```
 erp-lite/
+├── docker-compose.yml              ← ambiente local completo
+├── package.json                    ← monorepo npm workspaces
+│
 ├── services/
-│   ├── api-core/               ← ECS Fargate — main ERP API (Fastify)
-│   │   ├── src/
-│   │   │   ├── index.ts        server entry
-│   │   │   ├── app.ts          Fastify factory + plugins
-│   │   │   ├── config.ts       env-based config
-│   │   │   ├── db/
-│   │   │   │   └── pool.ts     pg Pool singleton
-│   │   │   ├── routes/
-│   │   │   │   ├── index.ts    route registry
-│   │   │   │   └── customers.ts CRUD /v1/customers
-│   │   │   └── middleware/
-│   │   │       └── auth.ts     JWT tenant extraction
-│   │   ├── db/
-│   │   │   └── migrations/
-│   │   │       ├── 0001_tenants.sql
-│   │   │       └── 0002_users.sql
-│   │   ├── Dockerfile
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   └── auth/                   ← Lambda — JWT auth (future)
-│       └── src/
-│           └── handler.ts
+│   └── api-core/                   ← ECS Fargate — API principal Fastify
+│       ├── Dockerfile              ← multi-stage: development | builder | production
+│       ├── src/
+│       │   ├── index.ts            entry point
+│       │   ├── app.ts              Fastify factory + registro de rotas
+│       │   ├── config.ts           variáveis de ambiente
+│       │   ├── db/pool.ts          pg.Pool singleton
+│       │   ├── routes/
+│       │   │   ├── customers.ts    CRUD /v1/customers (tenants)
+│       │   │   └── materials.ts    CRUD /v1/materials + stock
+│       │   └── scripts/
+│       │       └── migrate.ts      runner de migrations SQL
+│       └── db/migrations/
+│           ├── 0001_tenants.sql
+│           ├── 0002_users.sql
+│           ├── 0003_materials.sql
+│           └── 0004_inventory.sql
 │
 ├── apps/
-│   └── backoffice/             ← React + Vite SPA (future)
-│       └── src/
-│           └── main.tsx
+│   └── backoffice/                 ← React + Vite SPA (próximo sprint)
 │
-├── terraform/                  ← AWS infrastructure (future)
-│   ├── main.tf
-│   ├── ecs.tf
-│   ├── rds.tf
-│   └── lambda.tf
+├── terraform/                      ← AWS Infrastructure as Code
+│   ├── variables.tf                parâmetros de custo (instance class, desired_count)
+│   ├── main.tf                     VPC, subnets, IGW, CloudWatch
+│   ├── security.tf                 security groups (ALB, ECS, RDS)
+│   ├── rds.tf                      RDS PostgreSQL 16
+│   ├── ecs.tf                      ECS cluster, task definition, serviço, ALB
+│   ├── ecr.tf                      repositório de imagens Docker
+│   └── outputs.tf
 │
-├── scripts/                    ← Operational scripts (future)
-│
-├── package.json                ← monorepo root (npm workspaces)
-└── README.md
+└── scripts/                        ← scripts operacionais (próximo sprint)
 ```
 
 ---
 
-## Database Schema
+## Schema do Banco de Dados
 
-### `tenants` — SaaS Customers (Companies)
+### Convenções
+- Todo campo texto longo usa `TEXT`, campos curtos com limite real usam `VARCHAR(n)`
+- UUIDs como PKs (`gen_random_uuid()`)
+- `created_at / updated_at` em todas as tabelas; `updated_at` atualizado via trigger
+- Toda tabela ERP tem `tenant_id UUID NOT NULL REFERENCES tenants(id)`
+- Campos em inglês sempre (mercado global)
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | UUID PK | Auto-generated |
-| `company_name` | VARCHAR(255) | Legal company name |
-| `trade_name` | VARCHAR(255) | Doing-business-as name |
-| `tax_id` | VARCHAR(50) | CNPJ / EIN / VAT number |
+### `tenants` — Clientes SaaS (empresas)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | UUID PK | |
+| `company_name` | VARCHAR(255) | Razão social |
+| `trade_name` | VARCHAR(255) | Nome fantasia |
+| `tax_id` | VARCHAR(50) | CNPJ / EIN / VAT |
 | `tax_id_type` | VARCHAR(10) | `CNPJ` \| `EIN` \| `VAT` \| `OTHER` |
-| `street` | VARCHAR(255) | Street address |
-| `street_number` | VARCHAR(20) | House/building number |
-| `complement` | VARCHAR(100) | Apt, suite, floor |
-| `neighborhood` | VARCHAR(100) | District / bairro |
-| `city` | VARCHAR(100) | City |
-| `state` | VARCHAR(100) | State / province |
-| `postal_code` | VARCHAR(20) | CEP / ZIP / postcode |
-| `country` | CHAR(2) | ISO 3166-1 alpha-2 (default `BR`) |
-| `phone` | VARCHAR(30) | Main company phone |
-| `website` | VARCHAR(255) | Company website |
-| `purchasing_contact_name` | VARCHAR(255) | Purchasing dept contact |
-| `purchasing_contact_phone` | VARCHAR(30) | |
-| `purchasing_contact_email` | VARCHAR(255) | |
-| `maintenance_contact_name` | VARCHAR(255) | IT/maintenance contact |
-| `maintenance_contact_phone` | VARCHAR(30) | |
-| `maintenance_contact_email` | VARCHAR(255) | |
-| `fiscal_contact_name` | VARCHAR(255) | Tax / fiscal contact |
-| `fiscal_contact_phone` | VARCHAR(30) | |
-| `fiscal_contact_email` | VARCHAR(255) | |
+| `street` | VARCHAR(255) | |
+| `street_number` | VARCHAR(20) | |
+| `complement` | VARCHAR(100) | |
+| `neighborhood` | VARCHAR(100) | |
+| `city` | VARCHAR(100) | |
+| `state` | VARCHAR(100) | |
+| `postal_code` | VARCHAR(20) | CEP / ZIP |
+| `country` | CHAR(2) | ISO 3166-1 (padrão `BR`) |
+| `phone` | VARCHAR(30) | Telefone principal |
+| `website` | VARCHAR(255) | |
+| `purchasing_contact_name/phone/email` | | Contato de compras |
+| `maintenance_contact_name/phone/email` | | Contato de manutenção |
+| `fiscal_contact_name/phone/email` | | Contato fiscal |
 | `status` | VARCHAR(20) | `trial` \| `active` \| `suspended` \| `cancelled` |
 | `plan` | VARCHAR(30) | `starter` \| `professional` \| `enterprise` |
-| `trial_ends_at` | TIMESTAMPTZ | Trial expiry date |
-| `created_at` | TIMESTAMPTZ | |
-| `updated_at` | TIMESTAMPTZ | Auto-updated via trigger |
+| `trial_ends_at` | TIMESTAMPTZ | |
 
-### `users` — Tenant Employees
+### `users` — Funcionários por tenant
 
-| Column | Type | Description |
-|--------|------|-------------|
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
 | `id` | UUID PK | |
-| `tenant_id` | UUID FK → tenants | Tenant isolation key |
-| `email` | VARCHAR(255) | Unique per tenant |
+| `tenant_id` | UUID FK | Isolamento multi-tenant |
+| `email` | VARCHAR(255) | Único por tenant (não global) |
 | `name` | VARCHAR(255) | |
-| `password_hash` | TEXT | bcrypt |
+| `password_hash` | TEXT | bcrypt (implementar no módulo auth) |
 | `role` | VARCHAR(20) | `owner` \| `admin` \| `manager` \| `user` |
 | `status` | VARCHAR(20) | `active` \| `disabled` |
-| `created_at` | TIMESTAMPTZ | |
-| `updated_at` | TIMESTAMPTZ | |
+
+### `materials` — Produtos e Serviços
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | UUID PK | |
+| `tenant_id` | UUID FK | |
+| `sku` | VARCHAR(100) | Único por tenant |
+| `name` | VARCHAR(255) | |
+| `description` | TEXT | |
+| `type` | VARCHAR(20) | `product` \| `service` \| `raw_material` \| `asset` |
+| `category` | VARCHAR(100) | |
+| `brand` | VARCHAR(100) | |
+| `unit` | VARCHAR(20) | `UN`, `KG`, `L`, `M`, `CX`, etc. |
+| `sale_price` | DECIMAL(15,2) | Preço de venda |
+| `cost_price` | DECIMAL(15,2) | Custo |
+| `ncm_code` | VARCHAR(10) | NCM (BR) / HS Code (internacional) |
+| `tax_group` | VARCHAR(50) | Grupo fiscal (uso futuro módulo fiscal) |
+| `weight_kg` | DECIMAL(10,3) | Peso em kg |
+| `is_active` | BOOLEAN | |
+| `tracks_inventory` | BOOLEAN | `false` para serviços |
+
+### `inventory` — Estoque atual (1 linha por material)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `material_id` | UUID FK | |
+| `quantity` | DECIMAL(15,3) | Estoque atual |
+| `min_qty` | DECIMAL(15,3) | Alerta de estoque mínimo |
+| `max_qty` | DECIMAL(15,3) | Teto de reposição |
+
+### `inventory_movements` — Auditoria de estoque (imutável)
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `movement_type` | VARCHAR(20) | `in` \| `out` \| `adjustment` \| `return` \| `transfer` |
+| `quantity` | DECIMAL(15,3) | Positivo = entrada, negativo = saída |
+| `quantity_before/after` | DECIMAL(15,3) | Snapshot do estoque |
+| `reference_id/type` | UUID / VARCHAR | Pedido, NF, ajuste que originou o movimento |
 
 ---
 
-## API Reference — Customers
+## API Reference
 
-Base URL: `http://localhost:3000`
+Base URL local: `http://localhost:3000`
+Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/v1/customers` | Create new customer (tenant) |
-| `GET` | `/v1/customers` | List customers (paginated) |
-| `GET` | `/v1/customers/:id` | Get customer by ID |
-| `PATCH` | `/v1/customers/:id` | Update customer |
-| `DELETE` | `/v1/customers/:id` | Deactivate customer |
+### Customers (tenants)
 
-### POST /v1/customers
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/customers` | Criar cliente |
+| `GET` | `/v1/customers` | Listar clientes (paginado, filtro status/search) |
+| `GET` | `/v1/customers/:id` | Buscar por ID |
+| `PATCH` | `/v1/customers/:id` | Atualizar |
+| `DELETE` | `/v1/customers/:id` | Cancelar (soft delete) |
 
-```json
-{
-  "company_name": "Acme Corp Ltda",
-  "trade_name": "Acme",
-  "tax_id": "12345678000195",
-  "tax_id_type": "CNPJ",
-  "street": "Av. Paulista",
-  "street_number": "1000",
-  "complement": "10º andar",
-  "neighborhood": "Bela Vista",
-  "city": "São Paulo",
-  "state": "SP",
-  "postal_code": "01310-100",
-  "country": "BR",
-  "phone": "+55 11 99999-9999",
-  "purchasing_contact_name": "João Silva",
-  "purchasing_contact_phone": "+55 11 98888-8888",
-  "purchasing_contact_email": "compras@acme.com",
-  "maintenance_contact_name": "Maria Souza",
-  "maintenance_contact_phone": "+55 11 97777-7777",
-  "maintenance_contact_email": "ti@acme.com",
-  "fiscal_contact_name": "Carlos Lima",
-  "fiscal_contact_phone": "+55 11 96666-6666",
-  "fiscal_contact_email": "fiscal@acme.com",
-  "plan": "starter"
-}
-```
+### Materials + Stock
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/v1/materials` | Criar material (cria inventory automaticamente) |
+| `GET` | `/v1/materials?tenant_id=` | Listar (filtro: type, category, active, search) |
+| `GET` | `/v1/materials/:id` | Buscar por ID |
+| `PATCH` | `/v1/materials/:id` | Atualizar |
+| `DELETE` | `/v1/materials/:id` | Desativar (soft delete) |
+| `GET` | `/v1/materials/:id/stock` | Estoque atual |
+| `POST` | `/v1/materials/:id/stock/movements` | Registrar movimento (in/out/adjustment) |
+| `GET` | `/v1/materials/:id/stock/movements` | Histórico de movimentos |
+| `GET` | `/v1/stock/alerts?tenant_id=` | Materiais abaixo do estoque mínimo |
+
+### Sistema
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/health` | Health check (usado pelo ECS) |
 
 ---
 
-## Local Development
+## Desenvolvimento Local
 
-### Prerequisites
+### Pré-requisitos
+- Docker Desktop
+- Node.js 20+ (opcional, para rodar sem Docker)
 
-- Node.js 20+
-- Docker + Docker Compose
-- PostgreSQL 16 (or use Docker)
-
-### Setup
+### Subir com Docker (recomendado)
 
 ```bash
-# Install all workspace dependencies
+# 1. Instalar dependências do monorepo
 npm install
 
-# Start PostgreSQL
-docker compose up -d db
+# 2. Subir PostgreSQL + API com hot-reload
+docker compose up
 
-# Copy and fill env vars
-cp services/api-core/.env.example services/api-core/.env
+# 3. Rodar migrations (outra aba ou primeira vez)
+docker compose run --rm migrate
 
-# Run migrations
-npm run migrate --workspace=services/api-core
-
-# Start API in dev mode
-npm run dev --workspace=services/api-core
+# API disponível em http://localhost:3000
 ```
 
-### Environment Variables (`services/api-core/.env`)
+### Rodar sem Docker
 
+```bash
+cd services/api-core
+cp .env.example .env          # edite com sua conexão PostgreSQL
+npm run migrate               # cria tabelas
+npm run dev                   # hot-reload com ts-node-dev
 ```
-DATABASE_URL=postgres://erp_lite:erp_lite@localhost:5432/erp_lite
-PORT=3000
-NODE_ENV=development
-JWT_SECRET=change-me-before-production
+
+### Comandos úteis
+
+```bash
+# Testar health
+curl http://localhost:3000/health
+
+# Criar cliente
+curl -X POST http://localhost:3000/v1/customers \
+  -H "Content-Type: application/json" \
+  -d '{"company_name":"Acme Ltda","tax_id":"12345678000195","tax_id_type":"CNPJ"}'
+
+# Criar produto
+curl -X POST http://localhost:3000/v1/materials \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"<UUID>","sku":"PROD-001","name":"Produto Teste","type":"product","sale_price":99.90,"unit":"UN"}'
 ```
+
+---
+
+## Deploy AWS
+
+### Pré-requisitos
+- AWS CLI configurado
+- Terraform >= 1.5
+- Criar bucket S3 para estado Terraform: `erp-lite-terraform-state`
+
+### Primeira vez
+
+```bash
+# 1. Build e push da imagem
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
+
+docker build -t erp-lite/api-core --target production services/api-core
+docker tag  erp-lite/api-core <ECR_URL>:latest
+docker push <ECR_URL>:latest
+
+# 2. Deploy infra
+cd terraform
+terraform init
+terraform plan  -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
+terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
+
+# 3. Rodar migrations na AWS (usar ECS run-task — script será criado)
+# terraform output api_url  →  URL pública da API
+```
+
+### Variáveis de custo (terraform/variables.tf)
+
+| Variável | Dev | Prod | Impacto |
+|----------|-----|------|---------|
+| `db_instance_class` | `db.t3.micro` | `db.t3.small` | ~$14/mês |
+| `api_desired_count` | `1` | `2` | HA |
+| `api_cpu` | `256` | `512` | Fargate |
+| `api_memory` | `512` | `1024` | Fargate |
+
+---
+
+## Padrões de Código
+
+### Adicionando um novo módulo ERP
+
+1. Criar migration em `services/api-core/db/migrations/000N_nome.sql`
+   - Sempre incluir `tenant_id UUID NOT NULL REFERENCES tenants(id)`
+   - Sempre incluir trigger `updated_at`
+   - Adicionar índice em `(tenant_id, ...)` para toda query frequente
+
+2. Criar rota em `services/api-core/src/routes/nome.ts`
+   - Fastify JSON Schema em todas as rotas (body, params, querystring, response)
+   - Paginação padrão: `page`, `per_page` (default 20, max 100)
+   - Soft delete: marcar `is_active = false`, nunca deletar fisicamente
+   - Transações (`pool.connect()` + BEGIN/COMMIT/ROLLBACK) para operações compostas
+
+3. Registrar em `services/api-core/src/app.ts`
+   ```typescript
+   await app.register(novoModuloRoutes, { prefix: '/v1' });
+   ```
+
+4. Adicionar migration ao array em `services/api-core/src/scripts/migrate.ts`
+
+5. Atualizar este README: schema, endpoints, roadmap
+
+### Regras de segurança
+
+- `tenant_id` **nunca** vem do body — sempre do JWT (`request.user.tenantId`)
+  > Temporariamente no body enquanto auth Lambda não está implementado
+- Senhas: bcrypt com salt rounds ≥ 12
+- Segredos: AWS Parameter Store — nunca em variáveis de ambiente ECS em texto claro
+- Queries: sempre `$1, $2, ...` (parametrized) — jamais concatenação de strings SQL
 
 ---
 
 ## Roadmap
 
-- [x] Tenant (Customer) registration — CRUD
-- [ ] User management per tenant
-- [ ] JWT Authentication (Lambda `auth`)
-- [ ] Products module
-- [ ] Inventory module
-- [ ] Orders module
-- [ ] Fiscal / NF-e module (Lambda `fiscal`)
-- [ ] Reports module (Lambda `reports`)
-- [ ] Terraform — AWS infrastructure
-- [ ] CI/CD — GitHub Actions pipeline
-- [ ] React backoffice SPA
-
----
-
-## Security Notes
-
-- `tenant_id` is always sourced from the verified JWT, never from user input
-- PostgreSQL RLS enforces tenant isolation at the DB layer
-- Secrets are stored in AWS Parameter Store (never in environment variables on ECS)
-- `tax_id` uniqueness is scoped to `(tax_id, tax_id_type)` to support global customers
+| Status | Módulo | Descrição |
+|--------|--------|-----------|
+| ✅ | **Customers** | Cadastro de clientes/tenants |
+| ✅ | **Materials** | Produtos/serviços + controle de estoque |
+| ✅ | **Docker** | Ambiente local com hot-reload |
+| ✅ | **Terraform** | Infra AWS mínima (ECS + RDS + ECR + ALB) |
+| 🔜 | **Auth** | Lambda JWT — login, refresh token, middleware Fastify |
+| 🔜 | **Users** | CRUD de usuários por tenant com roles |
+| 🔜 | **Backoffice** | React SPA — cadastros e dashboards |
+| 🔜 | **CI/CD** | GitHub Actions — build, push ECR, deploy ECS |
+| 🔜 | **Orders** | Pedidos de venda com baixa automática de estoque |
+| 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |
+| 🔜 | **Fiscal** | NF-e, SEFAZ, Lambda fiscal |
+| 🔜 | **Reports** | Relatórios async via Lambda + S3 |
+| 🔜 | **Notifications** | Email/WhatsApp via Lambda + SQS |

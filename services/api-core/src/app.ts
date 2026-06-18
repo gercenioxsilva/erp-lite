@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import { customersRoutes } from './routes/customers';
+import { materialsRoutes } from './routes/materials';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -16,6 +17,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
   await app.register(customersRoutes, { prefix: '/v1' });
+  await app.register(materialsRoutes,  { prefix: '/v1' });
 
   return app;
 }

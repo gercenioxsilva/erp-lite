@@ -16,6 +16,8 @@ const pool = process.env.DATABASE_URL
 const migrations = [
   '0001_tenants.sql',
   '0002_users.sql',
+  '0003_materials.sql',
+  '0004_inventory.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
