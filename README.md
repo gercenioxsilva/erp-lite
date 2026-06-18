@@ -376,7 +376,7 @@ conforme regras da SEFAZ / DANFE.
 
 ## API Reference
 
-Base URL local: `http://localhost:3000`
+Base URL local: `http://localhost:3001`
 Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 
 ### Auth
@@ -457,7 +457,7 @@ docker compose run --rm migrate
 | Serviço | URL local |
 |---------|-----------|
 | Backoffice (React SPA) | http://localhost:5173 |
-| API Core (Fastify) | http://localhost:3000 |
+| API Core (Fastify) | http://localhost:3001 |
 | PostgreSQL | localhost:5432 |
 
 > O Vite (backoffice) faz proxy de `/v1/*` e `/health` para o api-core em `:3000`,
