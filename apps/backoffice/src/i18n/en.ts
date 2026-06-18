@@ -161,7 +161,9 @@ const en: Record<TKey, string> = {
   'l.loading':   'Signing in…',
   'l.noAccount': 'No account?',
   'l.register':  'Create your company →',
-  'l.errCreds':  'Invalid email or password. No account? Create your company first.',
+  'l.errCreds':   'Invalid email or password. No account? Create your company first.',
+  'l.errNetwork': 'Cannot reach the server. Is Docker running?',
+  'l.errServer':  'Internal server error. Please try again shortly.',
 };
 
 export default en;

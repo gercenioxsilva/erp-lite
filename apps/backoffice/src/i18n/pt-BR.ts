@@ -159,7 +159,9 @@ const ptBR = {
   'l.loading':   'Entrando…',
   'l.noAccount': 'Sem conta?',
   'l.register':  'Criar sua empresa →',
-  'l.errCreds':  'E-mail ou senha incorretos. Sem conta? Crie sua empresa primeiro.',
+  'l.errCreds':   'E-mail ou senha incorretos. Sem conta? Crie sua empresa primeiro.',
+  'l.errNetwork': 'Sem conexão com o servidor. Verifique se o Docker está rodando.',
+  'l.errServer':  'Erro interno do servidor. Tente novamente em instantes.',
 } as const;
 
 export type TKey = keyof typeof ptBR;

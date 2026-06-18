@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GaxLogo } from '../components/GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
+import { ApiError } from '../lib/api';
 
 const FEATURES_PT = [
   'Controle de estoque e inventário em tempo real',
@@ -50,8 +51,14 @@ export function LoginPage() {
     try {
       await login(email, password);
       navigate('/dashboard');
-    } catch {
-      setError(t('l.errCreds'));
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 0) {
+        setError(t('l.errNetwork'));
+      } else if (err instanceof ApiError && err.status >= 500) {
+        setError(t('l.errServer'));
+      } else {
+        setError(t('l.errCreds'));
+      }
     } finally {
       setLoading(false);
     }
