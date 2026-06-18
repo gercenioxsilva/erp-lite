@@ -18,6 +18,13 @@
 > Iniciar abordagem para rodar localmente no Docker e estrutura para rodar na AWS
 > com menor custo possível. Atualizar README como prompt para IA."
 
+### v0.3 — Backoffice + Auth
+> "Adicionar tela de login e cadastro básico para rodar localmente. Iniciar o
+> cadastro de materiais e demais funcionalidades de backoffice. Auth integrada
+> no api-core (login/register com bcrypt + JWT). React SPA em apps/backoffice
+> com React Router, contexto de auth e páginas: Login, Register, Dashboard,
+> Materials (lista + formulário). Docker Compose inclui o serviço backoffice."
+
 ---
 
 ## Visão Geral
@@ -28,6 +35,117 @@ React, banco PostgreSQL, deployado na AWS com custo mínimo.
 **Modelo multi-tenant:** shared database, shared schema — todas as tabelas ERP
 carregam `tenant_id`. O `tenant_id` é sempre extraído do JWT (nunca do body da
 requisição), garantindo isolamento por camada de aplicação.
+
+---
+
+## Diagramas de Arquitetura
+
+### Contexto da Aplicação (C4 Nível 1)
+
+```mermaid
+flowchart LR
+    saas_admin(["SaaS Admin\n(Operações internas)"])
+    tenant_user(["Usuário do Tenant\n(Funcionário da empresa)"])
+
+    subgraph erp["ERP Lite  ·  SaaS Multi-tenant"]
+        direction TB
+        backoffice["Backoffice\nReact SPA  :5173"]
+        api_core["API Core\nFastify / ECS  :3000"]
+        auth_lambda["Lambda  auth"]
+        fiscal_lambda["Lambda  fiscal"]
+        notif_lambda["Lambda  notifications"]
+        db[("PostgreSQL\nRDS")]
+        sqs[["SQS\nFila de eventos"]]
+    end
+
+    sefaz(["SEFAZ\nNF-e"])
+    meta(["Meta\nWhatsApp"])
+    ses(["AWS SES\nEmail"])
+
+    saas_admin -- gerencia tenants --> backoffice
+    tenant_user -- usa o ERP --> backoffice
+    backoffice -- REST API --> api_core
+    backoffice -- login JWT --> auth_lambda
+    auth_lambda -- token --> backoffice
+    api_core -- queries --> db
+    api_core -- enfileira eventos --> sqs
+    sqs --> fiscal_lambda
+    sqs --> notif_lambda
+    fiscal_lambda -- XML/SOAP --> sefaz
+    notif_lambda --> meta
+    notif_lambda --> ses
+```
+
+---
+
+### Infraestrutura AWS
+
+```mermaid
+flowchart TD
+    internet(("Internet"))
+
+    internet -->|HTTPS| cf["CloudFront + S3\nReact SPA"]
+    internet -->|HTTP/HTTPS| alb["Application\nLoad Balancer"]
+
+    subgraph vpc["VPC  10.0.0.0/16"]
+        direction TB
+        subgraph pub["Subnets Públicas  ·  AZ-a / AZ-b"]
+            ecs["ECS Fargate\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true"]
+        end
+        subgraph priv["Subnets Privadas  ·  AZ-a / AZ-b"]
+            rds[("RDS PostgreSQL 16\ndev: db.t3.micro\nprod: db.t3.small")]
+        end
+    end
+
+    subgraph srvless["Serverless"]
+        direction LR
+        authl["Lambda\nauth"]
+        fiscall["Lambda\nfiscal"]
+        notifl["Lambda\nnotif"]
+        sqs[["SQS"]]
+    end
+
+    ecr["ECR\nDocker images"]
+    cw["CloudWatch\nLogs"]
+
+    alb --> ecs
+    ecs --> rds
+    ecs --> sqs
+    sqs --> fiscall
+    sqs --> notifl
+    ecr -.->|image pull| ecs
+    ecs -.->|logs| cw
+```
+
+> **Sem NAT Gateway:** ECS tasks ficam em subnet pública com `assign_public_ip = true`.
+> Isso elimina o custo do NAT Gateway (~$30/mês).
+
+---
+
+### Fluxo de uma Requisição Autenticada
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant SPA as Backoffice SPA
+    participant API as API Core :3000
+    participant DB as PostgreSQL
+
+    U->>SPA: acessa /login
+    SPA->>API: POST /v1/auth/login
+    API->>DB: SELECT user WHERE email=?
+    DB-->>API: user + password_hash
+    API-->>SPA: { token: JWT }
+    SPA->>SPA: salva token (localStorage)
+
+    U->>SPA: acessa /materials
+    SPA->>API: GET /v1/materials\nAuthorization: Bearer JWT
+    API->>API: verifica JWT → extrai tenant_id
+    API->>DB: SELECT WHERE tenant_id = ?
+    DB-->>API: rows
+    API-->>SPA: { data: [...] }
+    SPA-->>U: lista de materiais
+```
 
 ---
 
@@ -249,49 +367,120 @@ Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
 ## Desenvolvimento Local
 
 ### Pré-requisitos
-- Docker Desktop
-- Node.js 20+ (opcional, para rodar sem Docker)
 
-### Subir com Docker (recomendado)
+| Ferramenta | Versão mínima | Para quê |
+|------------|--------------|----------|
+| Docker Desktop | qualquer recente | banco + API + backoffice |
+| Node.js | 20+ | opcional — apenas se rodar fora do Docker |
+| npm | 10+ | gerenciamento de workspaces |
+
+---
+
+### Subir tudo com Docker (recomendado)
 
 ```bash
 # 1. Instalar dependências do monorepo
 npm install
 
-# 2. Subir PostgreSQL + API com hot-reload
+# 2. Subir PostgreSQL + API Core + Backoffice (hot-reload)
 docker compose up
 
-# 3. Rodar migrations (outra aba ou primeira vez)
+# 3. Rodar migrations (primeira vez ou após novas migrations)
 docker compose run --rm migrate
-
-# API disponível em http://localhost:3000
 ```
 
-### Rodar sem Docker
+| Serviço | URL local |
+|---------|-----------|
+| Backoffice (React SPA) | http://localhost:5173 |
+| API Core (Fastify) | http://localhost:3000 |
+| PostgreSQL | localhost:5432 |
+
+> O Vite (backoffice) faz proxy de `/v1/*` e `/health` para o api-core em `:3000`,
+> então a SPA não precisa configurar CORS — acesse tudo por `:5173`.
+
+---
+
+### Primeiro acesso — criar conta
+
+1. Abra **http://localhost:5173**
+2. Clique em **"Create your company"**
+3. Preencha razão social, CNPJ, e-mail e senha (mínimo 8 caracteres)
+4. Ao confirmar você já estará logado e verá o Dashboard
+
+Para logins subsequentes acesse **http://localhost:5173/login**.
+
+---
+
+### Subir apenas a API (sem Docker)
 
 ```bash
+# Pré-requisito: PostgreSQL acessível localmente
 cd services/api-core
-cp .env.example .env          # edite com sua conexão PostgreSQL
-npm run migrate               # cria tabelas
+cp .env.example .env          # edite DATABASE_URL e JWT_SECRET
+npm run migrate               # cria/atualiza tabelas
 npm run dev                   # hot-reload com ts-node-dev
+
+# Subir o backoffice separadamente (outra aba)
+cd apps/backoffice
+npm run dev                   # Vite em http://localhost:5173
 ```
+
+---
 
 ### Comandos úteis
 
 ```bash
-# Testar health
+# Health check da API
 curl http://localhost:3000/health
 
-# Criar cliente
-curl -X POST http://localhost:3000/v1/customers \
+# Registrar empresa via API (cria tenant + usuário owner)
+curl -X POST http://localhost:3000/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"company_name":"Acme Ltda","tax_id":"12345678000195","tax_id_type":"CNPJ"}'
+  -d '{
+    "company_name": "Acme Ltda",
+    "tax_id": "12345678000195",
+    "tax_id_type": "CNPJ",
+    "email": "admin@acme.com",
+    "password": "senha123"
+  }'
+# → retorna { token, user, tenantId }
 
-# Criar produto
+# Login
+curl -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@acme.com","password":"senha123"}'
+
+# Criar material (use o tenantId retornado acima)
 curl -X POST http://localhost:3000/v1/materials \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"<UUID>","sku":"PROD-001","name":"Produto Teste","type":"product","sale_price":99.90,"unit":"UN"}'
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{
+    "tenant_id": "<TENANT_ID>",
+    "sku": "PROD-001",
+    "name": "Produto Teste",
+    "type": "product",
+    "sale_price": 99.90,
+    "unit": "UN",
+    "tracks_inventory": true
+  }'
+
+# Ver estoque de um material
+curl http://localhost:3000/v1/materials/<ID>/stock
+
+# Alertas de estoque mínimo
+curl "http://localhost:3000/v1/stock/alerts?tenant_id=<TENANT_ID>"
 ```
+
+---
+
+### Variáveis de ambiente (api-core)
+
+| Variável | Padrão (dev) | Descrição |
+|----------|-------------|-----------|
+| `DATABASE_URL` | `postgres://erp_lite:erp_lite@db:5432/erp_lite` | Connection string PostgreSQL |
+| `JWT_SECRET` | `local-dev-secret` | Segredo para assinar JWTs |
+| `PORT` | `3000` | Porta HTTP |
+| `NODE_ENV` | `development` | Modo de execução |
 
 ---
 
@@ -376,9 +565,9 @@ terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
 | ✅ | **Materials** | Produtos/serviços + controle de estoque |
 | ✅ | **Docker** | Ambiente local com hot-reload |
 | ✅ | **Terraform** | Infra AWS mínima (ECS + RDS + ECR + ALB) |
-| 🔜 | **Auth** | Lambda JWT — login, refresh token, middleware Fastify |
+| 🚧 | **Auth** | Login + registro via api-core (bcrypt + JWT); migrar para Lambda |
+| 🚧 | **Backoffice** | React SPA — login, registro, materiais |
 | 🔜 | **Users** | CRUD de usuários por tenant com roles |
-| 🔜 | **Backoffice** | React SPA — cadastros e dashboards |
 | 🔜 | **CI/CD** | GitHub Actions — build, push ECR, deploy ECS |
 | 🔜 | **Orders** | Pedidos de venda com baixa automática de estoque |
 | 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |

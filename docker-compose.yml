@@ -55,5 +55,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Backoffice (React + Vite — hot-reload) ─────────────────────────────────
+  backoffice:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: ""        # empty = proxy via Vite (see vite.config.ts)
+    volumes:
+      - ./apps/backoffice:/app
+      - backoffice_nm:/app/node_modules
+    depends_on:
+      - api-core
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  backoffice_nm:
