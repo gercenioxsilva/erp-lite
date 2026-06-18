@@ -1,0 +1,18 @@
+{
+  "name": "erp-lite",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=services/api-core",
+    "build:all": "npm run build --workspaces --if-present",
+    "test:all": "npm run test --workspaces --if-present",
+    "migrate": "npm run migrate --workspace=services/api-core"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

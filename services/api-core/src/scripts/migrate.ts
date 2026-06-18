@@ -1,0 +1,123 @@
+import { Pool } from 'pg';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 })
+  : new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT || 5432),
+      database: process.env.DB_NAME || 'erp_lite',
+      user: process.env.DB_USER || 'erp_lite',
+      password: process.env.DB_PASSWORD || 'erp_lite',
+      connectionTimeoutMillis: 5000,
+    });
+
+const migrations = [
+  '0001_tenants.sql',
+  '0002_users.sql',
+];
+
+// Splits SQL into individual statements, correctly handling:
+// dollar-quoted strings ($$...$$), single-quoted strings, -- comments, /* */ comments
+function splitSqlStatements(sql: string): string[] {
+  const stmts: string[] = [];
+  let buf = '';
+  let i = 0;
+  const len = sql.length;
+
+  while (i < len) {
+    const ch = sql[i];
+
+    if (ch === '$') {
+      const tagMatch = sql.slice(i).match(/^\$([^$]*)\$/);
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        const closeIdx = sql.indexOf(tag, i + tag.length);
+        if (closeIdx !== -1) { buf += sql.slice(i, closeIdx + tag.length); i = closeIdx + tag.length; continue; }
+      }
+    }
+    if (ch === "'") {
+      let j = i + 1;
+      while (j < len) {
+        if (sql[j] === "'" && j + 1 < len && sql[j + 1] === "'") { j += 2; }
+        else if (sql[j] === "'") { j++; break; }
+        else { j++; }
+      }
+      buf += sql.slice(i, j); i = j; continue;
+    }
+    if (ch === '-' && i + 1 < len && sql[i + 1] === '-') {
+      const eol = sql.indexOf('\n', i);
+      buf += eol === -1 ? sql.slice(i) : sql.slice(i, eol + 1);
+      i = eol === -1 ? len : eol + 1; continue;
+    }
+    if (ch === '/' && i + 1 < len && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      buf += end === -1 ? sql.slice(i) : sql.slice(i, end + 2);
+      i = end === -1 ? len : end + 2; continue;
+    }
+    if (ch === ';') {
+      const stmt = buf.trim();
+      if (stmt) stmts.push(stmt);
+      buf = ''; i++; continue;
+    }
+    buf += ch; i++;
+  }
+  const last = buf.trim();
+  if (last) stmts.push(last);
+  return stmts.filter(s => s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim().length > 0);
+}
+
+async function ensureMigrationsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration   TEXT        PRIMARY KEY,
+      applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function isApplied(migration: string) {
+  const { rowCount } = await pool.query(
+    'SELECT 1 FROM schema_migrations WHERE migration = $1', [migration]
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+async function runMigrations() {
+  const migrationsDir = existsSync('/app/db/migrations')
+    ? '/app/db/migrations'
+    : join(process.cwd(), 'db', 'migrations');
+
+  await ensureMigrationsTable();
+
+  for (const file of migrations) {
+    if (await isApplied(file)) { console.log(`  skip  ${file}`); continue; }
+
+    console.log(`  run   ${file}`);
+    const sql = readFileSync(join(migrationsDir, file), 'utf8');
+    const statements = splitSqlStatements(sql);
+    let idx = 0;
+    for (const stmt of statements) {
+      idx++;
+      try {
+        await pool.query(stmt);
+      } catch (err: any) {
+        const msg = String(err?.message || '').toLowerCase();
+        if (msg.includes('already exists') || msg.includes('duplicate key')) {
+          console.log(`    [${file}:${idx}] skipped (already exists)`);
+        } else {
+          console.error(`    [${file}:${idx}] FAILED: ${stmt.replace(/\s+/g, ' ').slice(0, 150)}`);
+          throw err;
+        }
+      }
+    }
+    await pool.query('INSERT INTO schema_migrations (migration) VALUES ($1)', [file]);
+    console.log(`  done  ${file}`);
+  }
+  console.log('All migrations applied.');
+}
+
+runMigrations()
+  .catch(err => { console.error('Migration failed:', err); process.exit(1); })
+  .finally(() => pool.end());
