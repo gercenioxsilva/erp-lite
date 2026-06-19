@@ -8,8 +8,8 @@
     "build": "tsc -p .",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "start": "node dist/index.js",
-    "migrate": "node -r ts-node/register src/scripts/migrate.ts",
-    "seed":    "node -r ts-node/register src/scripts/seed.ts",
+    "migrate": "node dist/scripts/migrate.js",
+    "seed":    "node dist/scripts/seed.js",
     "test": "jest"
   },
   "dependencies": {
