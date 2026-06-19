@@ -17,7 +17,7 @@ interface OrderItemRow {
   id: string; material_id: string | null; name: string; sku: string | null;
   unit: string; quantity: number; unit_price: number; total: number; notes: string | null;
 }
-interface ClientOption  { id: string; company_name: string | null; full_name: string | null; }
+interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
 interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; }
 interface FormItem {
   _key: string; material_id: string; name: string; sku: string;
@@ -67,7 +67,6 @@ export function OrdersPage() {
   /* dropdown data */
   const [clients,   setClients]   = useState<ClientOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
-  const [ddLoading, setDdLoading] = useState(false);
 
   const perPage = 20;
 
@@ -87,19 +86,31 @@ export function OrdersPage() {
   }
   useEffect(() => { void load(); }, [tenantId, page, statusFilter, search]);
 
-  /* ── Load dropdown data ── */
-  async function loadDropdowns() {
-    if (!tenantId || ddLoading) return;
-    setDdLoading(true);
-    try {
-      const [cl, mt] = await Promise.all([
-        api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=500`),
-        api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
-      ]);
-      setClients(cl.data ?? []);
-      setMaterials(mt.data ?? []);
-    } catch { /**/ } finally { setDdLoading(false); }
-  }
+  /* ── Load dropdown data when drawer opens ──────────────────────────────
+     Runs as a proper side-effect so it re-fires if tenantId resolves after
+     the drawer is already open, and errors are always surfaced to the user. */
+  useEffect(() => {
+    if (!drawerOpen || !tenantId) return;
+
+    let cancelled = false;
+    setFormError('');
+
+    Promise.all([
+      api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
+    ])
+      .then(([cl, mt]) => {
+        if (cancelled) return;
+        setClients(cl.data ?? []);
+        setMaterials(mt.data ?? []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setFormError(err instanceof Error ? err.message : t('cl.errSave'));
+      });
+
+    return () => { cancelled = true; };
+  }, [drawerOpen, tenantId]);
 
   /* ── Drawer open helpers ── */
   function openCreate() {
@@ -108,7 +119,6 @@ export function OrdersPage() {
     setFormItems([newItem()]);
     setFormError('');
     setDrawerOpen(true);
-    void loadDropdowns();
   }
 
   async function openEdit(o: Order) {
@@ -118,7 +128,6 @@ export function OrdersPage() {
     setFormItems([]);
     setFormError('');
     setDrawerOpen(true);
-    void loadDropdowns();
     try {
       const detail = await api.get<OrderDetail>(`/v1/orders/${o.id}`);
       setFormItems(detail.items.map(it => ({
@@ -126,7 +135,9 @@ export function OrdersPage() {
         material_id: it.material_id ?? '', name: it.name, sku: it.sku ?? '',
         unit: it.unit, quantity: String(it.quantity), unit_price: String(it.unit_price),
       })));
-    } catch { setFormError(t('c.loading')); }
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : t('c.loading'));
+    }
   }
 
   /* ── Item helpers ── */
@@ -146,21 +157,22 @@ export function OrdersPage() {
   }
 
   /* ── Computed totals ── */
-  const subtotal   = formItems.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
-  const totalCalc  = subtotal - (Number(formDiscount) || 0) + (Number(formShipping) || 0);
+  const subtotal  = formItems.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
+  const totalCalc = subtotal - (Number(formDiscount) || 0) + (Number(formShipping) || 0);
 
   /* ── Save ── */
   async function handleSave(e: FormEvent) {
     e.preventDefault();
     if (!tenantId) return;
     if (!formClientId) { setFormError(t('o.errNoClient')); return; }
-    if (!formItems.length || formItems.every(it => !it.name)) { setFormError(t('o.errNoItems')); return; }
+    const namedItems = formItems.filter(it => it.name);
+    if (!namedItems.length) { setFormError(t('o.errNoItems')); return; }
     setSaving(true); setFormError('');
     try {
       const payload = {
         tenant_id: tenantId, client_id: formClientId, notes: formNotes || null,
         discount: Number(formDiscount) || 0, shipping: Number(formShipping) || 0,
-        items: formItems.filter(it => it.name).map(it => ({
+        items: namedItems.map(it => ({
           material_id: it.material_id || undefined, name: it.name, sku: it.sku || undefined,
           unit: it.unit, quantity: Number(it.quantity), unit_price: Number(it.unit_price),
         })),
@@ -321,14 +333,19 @@ export function OrdersPage() {
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
-            <form onSubmit={handleSave} style={{ display: 'contents' }}>
+            <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
-                {formError && <div className="alert alert-error">{formError}</div>}
+                {formError && <div className="alert alert-error" role="alert">{formError}</div>}
 
                 {/* Client */}
                 <div className="field">
-                  <label>{t('o.client')} *</label>
-                  <select value={formClientId} onChange={e => setFormClientId(e.target.value)} required>
+                  <label htmlFor="order-client">{t('o.client')} *</label>
+                  <select
+                    id="order-client"
+                    value={formClientId}
+                    onChange={e => setFormClientId(e.target.value)}
+                    required
+                  >
                     <option value="">{t('o.selectClient')}</option>
                     {clients.map(c => (
                       <option key={c.id} value={c.id}>
@@ -371,6 +388,7 @@ export function OrdersPage() {
                                   value={item.material_id}
                                   onChange={e => updateItem(idx, 'material_id', e.target.value)}
                                   style={{ width: '100%', fontSize: 12 }}
+                                  aria-label={t('o.material')}
                                 >
                                   <option value="">{t('o.selectMat')}</option>
                                   {materials.map(m => (
@@ -392,6 +410,7 @@ export function OrdersPage() {
                                   value={item.quantity}
                                   onChange={e => updateItem(idx, 'quantity', e.target.value)}
                                   style={{ fontSize: 12 }}
+                                  aria-label={t('o.qty')}
                                 />
                               </td>
                               <td style={{ padding: '6px 8px' }}>
@@ -400,6 +419,7 @@ export function OrdersPage() {
                                   value={item.unit_price}
                                   onChange={e => updateItem(idx, 'unit_price', e.target.value)}
                                   style={{ fontSize: 12 }}
+                                  aria-label={t('o.unitPrice')}
                                 />
                               </td>
                               <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 12 }}>
@@ -410,7 +430,8 @@ export function OrdersPage() {
                                   type="button"
                                   onClick={() => removeItem(idx)}
                                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 8px' }}
-                                  title={t('c.del')}
+                                  aria-label={`${t('c.del')} item ${idx + 1}`}
+                                  data-testid={`remove-item-${idx}`}
                                 >
                                   ×
                                 </button>
@@ -425,19 +446,19 @@ export function OrdersPage() {
 
                 {/* Notes + financial adjustments */}
                 <div className="field">
-                  <label>{t('o.notes')}</label>
-                  <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={2} />
+                  <label htmlFor="order-notes">{t('o.notes')}</label>
+                  <textarea id="order-notes" value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={2} />
                 </div>
 
                 <div className="field-row">
                   <div className="field">
-                    <label>{t('o.discount')}</label>
-                    <input type="number" min="0" step="0.01" value={formDiscount}
+                    <label htmlFor="order-discount">{t('o.discount')}</label>
+                    <input id="order-discount" type="number" min="0" step="0.01" value={formDiscount}
                       onChange={e => setFormDiscount(e.target.value)} />
                   </div>
                   <div className="field">
-                    <label>{t('o.shipping')}</label>
-                    <input type="number" min="0" step="0.01" value={formShipping}
+                    <label htmlFor="order-shipping">{t('o.shipping')}</label>
+                    <input id="order-shipping" type="number" min="0" step="0.01" value={formShipping}
                       onChange={e => setFormShipping(e.target.value)} />
                   </div>
                 </div>
@@ -458,7 +479,10 @@ export function OrdersPage() {
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-                    <span>{t('o.total')}</span><span style={{ color: 'var(--primary)' }}>{BRL.format(totalCalc)}</span>
+                    <span>{t('o.total')}</span>
+                    <span style={{ color: 'var(--primary)' }} data-testid="total-value">
+                      {BRL.format(totalCalc)}
+                    </span>
                   </div>
                 </div>
               </div>
