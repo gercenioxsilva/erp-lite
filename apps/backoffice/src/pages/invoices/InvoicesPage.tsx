@@ -11,14 +11,6 @@ interface Invoice {
   subtotal: number; total: number; notes: string | null;
   issue_date: string | null; created_at: string;
 }
-interface InvoiceDetail extends Invoice {
-  items: InvItemRow[]; client_id: string;
-}
-interface InvItemRow {
-  id: string; material_id: string | null; name: string;
-  ncm_code: string | null; cfop: string | null;
-  quantity: number; unit_price: number; total: number;
-}
 interface ClientOption  { id: string; company_name: string | null; full_name: string | null; }
 interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; }
 interface OrderOption   { id: string; number: string; client_id: string; client_name: string; }
