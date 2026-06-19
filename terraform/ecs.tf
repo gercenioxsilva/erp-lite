@@ -114,9 +114,10 @@ resource "aws_lb_target_group" "api_core" {
   health_check {
     protocol            = "HTTP"
     path                = "/health"
-    healthy_threshold   = 2
-    unhealthy_threshold = 3
+    healthy_threshold   = 3
+    unhealthy_threshold = 3  # NLB requires healthy == unhealthy for HTTP health checks
     interval            = 30
+    # timeout omitted: NLB ignores explicit timeout for HTTP health checks
   }
 
   tags = { Environment = var.environment }

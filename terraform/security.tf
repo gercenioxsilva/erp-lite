@@ -25,7 +25,7 @@ resource "aws_security_group" "alb" {
 # ── ECS / API Core Security Group ────────────────────────────────────────────
 resource "aws_security_group" "api_core" {
   name        = "erp-lite-api-core-${var.environment}"
-  description = "API Core - accept traffic from NLB only"
+  description = "API Core - accept traffic from ALB only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
