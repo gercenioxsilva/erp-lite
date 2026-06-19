@@ -34,6 +34,8 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em todas as rotas de listagem. Valores maiores são silenciosamente truncados para 100.
 
+13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import`. Nunca fazer upload de arquivo binário para o servidor — isso evita adicionar dependência de parser Excel no backend Fastify. O endpoint de importação usa `ON CONFLICT DO NOTHING RETURNING id` para detectar duplicatas sem lançar exceção.
+
 ---
 
 ## Histórico de Prompts
@@ -95,6 +97,19 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > Economia estimada: **$9–14/mês** (~$38 → ~$24–29).
 > **Nota:** `terraform apply` destrói o ALB e recria como NLB — ~2 min de downtime
 > esperado durante o apply. Aceitável para MVP.
+
+### v1.0 — Importação de clientes via planilha Excel
+> Funcionalidade de importação em lote no módulo de Clientes.
+> Estratégia: parsing do `.xlsx` no browser via SheetJS (`xlsx` 0.18.x) — sem upload de
+> arquivo no servidor. O frontend converte as linhas em JSON e envia para o novo endpoint
+> `POST /v1/clients/import` (máx 500 linhas). O backend processa linha a linha, com
+> `ON CONFLICT DO NOTHING` para ignorar duplicados (CNPJ/CPF já cadastrados) sem
+> interromper o restante. Retorna `{ imported, skipped, errors: [{ row, message }] }`.
+> Frontend: botão "↑ Importar" no page-header da ClientsPage. Modal centralizado com
+> 4 fases: `idle` (layout das colunas + download do modelo) → `preview` (tabela com
+> N linhas encontradas) → `importing` (spinner) → `done` (resultado por linha).
+> Modelo de planilha com 23 colunas gerado pelo próprio frontend via SheetJS.
+> Regra 13 adicionada ao Protocolo Anti-alucinação.
 
 ### v0.8 — Fix dropdowns OrdersPage + InvoicesPage + testes unitários
 > Causa raiz dos dropdowns vazios em ambas as telas: `loadDropdowns()` era chamado
@@ -465,6 +480,28 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 | GET    | `/v1/clients/:id` | Buscar |
 | PATCH  | `/v1/clients/:id` | Atualizar |
 | DELETE | `/v1/clients/:id` | Soft delete (is_active=false) |
+| POST   | `/v1/clients/import` | Importação em lote via planilha (máx 500 linhas) |
+
+**Body de importação:**
+```json
+{
+  "tenant_id": "uuid",
+  "clients": [
+    {
+      "person_type": "PJ",
+      "company_name": "ACME Ltda",
+      "cnpj": "11444777000161",
+      "email": "contato@acme.com.br",
+      "city": "São Paulo",
+      "state": "SP"
+    }
+  ]
+}
+```
+**Response:** `{ "imported": N, "skipped": N, "errors": [{ "row": 2, "message": "..." }] }`
+- Duplicados (CNPJ/CPF já cadastrado no tenant) são ignorados automaticamente — não falham a importação.
+- Erros de validação retornam por linha, sem interromper as demais.
+- O frontend parseia o `.xlsx` no browser (SheetJS) e envia JSON — sem upload de arquivo no servidor.
 
 ### Materials + Stock
 | Método | Rota | Descrição |

@@ -1,4 +1,5 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useRef, useState, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
@@ -6,6 +7,8 @@ import {
   maskCNPJ, maskCPF, maskPhone, maskCEP, digits,
   isValidCNPJ, isValidCPF, fetchAddressByCEP, UF_LIST,
 } from '../../lib/brazil';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Client {
   id:            string;
@@ -27,6 +30,119 @@ interface Client {
 
 interface ListResp { data: Client[]; total: number; page: number; per_page: number; }
 
+interface ImportRow {
+  person_type:   string;
+  company_name?: string;
+  trade_name?:   string;
+  cnpj?:         string;
+  state_reg?:    string;
+  municipal_reg?:string;
+  suframa?:      string;
+  full_name?:    string;
+  cpf?:          string;
+  birth_date?:   string;
+  email?:        string;
+  phone?:        string;
+  mobile?:       string;
+  zip_code?:     string;
+  street?:       string;
+  street_number?:string;
+  complement?:   string;
+  neighborhood?: string;
+  city?:         string;
+  state?:        string;
+  icms_taxpayer?:string;
+  consumer_type?:string;
+  notes?:        string;
+}
+
+interface ImportResult {
+  imported: number;
+  skipped:  number;
+  errors:   { row: number; message: string }[];
+}
+
+type ImportPhase = 'idle' | 'preview' | 'importing' | 'done';
+
+// ── Excel column headers (must match the template downloaded by the user) ──────
+
+const XLSX_COLS = [
+  'tipo_pessoa', 'razao_social', 'nome_fantasia', 'cnpj',
+  'inscricao_estadual', 'inscricao_municipal', 'suframa',
+  'nome_completo', 'cpf', 'data_nascimento',
+  'email', 'telefone', 'celular',
+  'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf',
+  'contribuinte_icms', 'tipo_consumidor', 'observacoes',
+] as const;
+
+// ── Helpers (defined outside component to avoid recreating on every render) ───
+
+function mapXlsxRow(raw: Record<string, unknown>): ImportRow {
+  const s  = (v: unknown) => { const x = String(v ?? '').trim(); return x || undefined; };
+  const d  = (v: unknown) => { const x = String(v ?? '').replace(/\D/g, ''); return x || undefined; };
+  const dt = (v: unknown): string | undefined => {
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    const x = String(v ?? '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : undefined;
+  };
+  return {
+    person_type:   String(raw['tipo_pessoa']         ?? '').trim().toUpperCase(),
+    company_name:  s(raw['razao_social']),
+    trade_name:    s(raw['nome_fantasia']),
+    cnpj:          d(raw['cnpj']),
+    state_reg:     s(raw['inscricao_estadual']),
+    municipal_reg: s(raw['inscricao_municipal']),
+    suframa:       s(raw['suframa']),
+    full_name:     s(raw['nome_completo']),
+    cpf:           d(raw['cpf']),
+    birth_date:    dt(raw['data_nascimento']),
+    email:         s(raw['email']),
+    phone:         d(raw['telefone']),
+    mobile:        d(raw['celular']),
+    zip_code:      d(raw['cep']),
+    street:        s(raw['logradouro']),
+    street_number: s(raw['numero']),
+    complement:    s(raw['complemento']),
+    neighborhood:  s(raw['bairro']),
+    city:          s(raw['cidade']),
+    state:         s(raw['uf']),
+    icms_taxpayer: s(raw['contribuinte_icms']),
+    consumer_type: s(raw['tipo_consumidor']),
+    notes:         s(raw['observacoes']),
+  };
+}
+
+function downloadTemplate() {
+  const example_pj: (string | number)[] = [
+    'PJ', 'ACME Materiais Ltda', 'ACME', '11444777000161',
+    '123456789', '', '',
+    '', '', '',
+    'contato@acme.com.br', '1199990000', '',
+    '01310100', 'Av Paulista', '1000', 'Sala 10', 'Bela Vista', 'São Paulo', 'SP',
+    '9', '0', 'Exemplo PJ',
+  ];
+  const example_pf: (string | number)[] = [
+    'PF', '', '', '',
+    '', '', '',
+    'Maria da Silva', '12345678901', '1985-06-15',
+    'maria@email.com', '1188880000', '',
+    '01310100', 'Rua das Flores', '200', '', 'Centro', 'São Paulo', 'SP',
+    '9', '1', 'Exemplo PF',
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet([[...XLSX_COLS], example_pj, example_pf]);
+  // Column widths: wider for name fields
+  ws['!cols'] = [...XLSX_COLS].map((col) => ({
+    wch: ['razao_social', 'nome_completo', 'logradouro', 'email'].includes(col) ? 30 : 18,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+  XLSX.writeFile(wb, 'modelo_importacao_clientes.xlsx');
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
 const EMPTY_FORM = {
   person_type:   'PJ' as 'PJ' | 'PF',
   company_name: '', trade_name: '', cnpj: '', state_reg: '', municipal_reg: '', suframa: '',
@@ -41,12 +157,16 @@ const EMPTY_FORM = {
 export function ClientsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+
+  // ── List state ─────────────────────────────────────────────────────────────
   const [items,      setItems]      = useState<Client[]>([]);
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
   const [search,     setSearch]     = useState('');
   const [filter,     setFilter]     = useState('');
   const [loading,    setLoading]    = useState(true);
+
+  // ── Drawer (create / edit) state ───────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing,    setEditing]    = useState<Client | null>(null);
   const [form,       setForm]       = useState({ ...EMPTY_FORM });
@@ -54,7 +174,17 @@ export function ClientsPage() {
   const [formError,  setFormError]  = useState('');
   const [cepLoading, setCepLoading] = useState(false);
 
+  // ── Import state ───────────────────────────────────────────────────────────
+  const [importOpen,   setImportOpen]   = useState(false);
+  const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
+  const [importRows,   setImportRows]   = useState<ImportRow[]>([]);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError,  setImportError]  = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const perPage = 20;
+
+  // ── Data loading ───────────────────────────────────────────────────────────
 
   async function load() {
     if (!tenantId) return;
@@ -72,6 +202,8 @@ export function ClientsPage() {
   }
 
   useEffect(() => { void load(); }, [tenantId, page, search, filter]);
+
+  // ── Drawer helpers ─────────────────────────────────────────────────────────
 
   function openCreate() {
     setEditing(null);
@@ -182,18 +314,86 @@ export function ClientsPage() {
     try { await api.delete(`/v1/clients/${id}`); void load(); } catch { /**/ }
   }
 
+  // ── Import handlers ────────────────────────────────────────────────────────
+
+  function closeImport() {
+    setImportOpen(false);
+    setImportPhase('idle');
+    setImportRows([]);
+    setImportResult(null);
+    setImportError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError('');
+    try {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+      const mapped  = rawRows
+        .map(mapXlsxRow)
+        .filter(r => r.person_type === 'PJ' || r.person_type === 'PF');
+
+      if (mapped.length === 0) {
+        setImportError(t('cl.importEmpty'));
+        return;
+      }
+      setImportRows(mapped);
+      setImportPhase('preview');
+    } catch {
+      setImportError(t('cl.importParseErr'));
+    }
+  }
+
+  async function runImport() {
+    if (!tenantId || importRows.length === 0) return;
+    setImportPhase('importing');
+    try {
+      const result = await api.post<ImportResult>('/v1/clients/import', {
+        tenant_id: tenantId,
+        clients:   importRows,
+      });
+      setImportResult(result);
+      setImportPhase('done');
+      void load(); // refresh list in background
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : t('cl.errSave'));
+      setImportPhase('preview');
+    }
+  }
+
+  // ── Derived values ─────────────────────────────────────────────────────────
+
   const totalPages = Math.ceil(total / perPage);
   const isPJ = form.person_type === 'PJ';
+  const PREVIEW_LIMIT = 5;
+
+  // ── JSX ───────────────────────────────────────────────────────────────────
 
   return (
     <div>
+      {/* ── Page header ──────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('cl.title')}</h1>
-        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('cl.new')}
-        </button>
+        <div className="flex-gap">
+          <button
+            className="btn btn-secondary"
+            style={{ width: 'auto' }}
+            onClick={() => { setImportOpen(true); setImportPhase('idle'); }}
+          >
+            ↑ {t('cl.import')}
+          </button>
+          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('cl.new')}
+          </button>
+        </div>
       </div>
 
+      {/* ── Filters ──────────────────────────────────────────────────── */}
       <div className="flex-gap" style={{ marginBottom: 16 }}>
         <input
           placeholder={t('cl.searchPH')}
@@ -208,6 +408,7 @@ export function ClientsPage() {
         </select>
       </div>
 
+      {/* ── Table ────────────────────────────────────────────────────── */}
       <div className="card">
         {loading ? (
           <div className="spinner">{t('c.loading')}</div>
@@ -272,6 +473,7 @@ export function ClientsPage() {
         )}
       </div>
 
+      {/* ── Pagination ───────────────────────────────────────────────── */}
       {totalPages > 1 && (
         <div className="flex-gap mt-16" style={{ justifyContent: 'flex-end' }}>
           <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
@@ -286,7 +488,7 @@ export function ClientsPage() {
         </div>
       )}
 
-      {/* ── Drawer ─────────────────────────────────────────────────── */}
+      {/* ── Drawer — create / edit ────────────────────────────────────── */}
       {drawerOpen && (
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()}>
@@ -294,11 +496,10 @@ export function ClientsPage() {
               <h2>{editing ? t('cl.edit') : t('cl.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
-            <form onSubmit={handleSave} style={{ display: 'contents' }}>
+            <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
                 {formError && <div className="alert alert-error">{formError}</div>}
 
-                {/* Tipo de pessoa */}
                 <div className="field">
                   <label>{t('cl.personType')} *</label>
                   <div className="flex-gap">
@@ -320,7 +521,6 @@ export function ClientsPage() {
                   </div>
                 </div>
 
-                {/* Campos PJ */}
                 {isPJ ? (
                   <>
                     <div className="field">
@@ -353,7 +553,6 @@ export function ClientsPage() {
                     </div>
                   </>
                 ) : (
-                  /* Campos PF */
                   <>
                     <div className="field">
                       <label>{t('cl.fullName')} *</label>
@@ -382,7 +581,6 @@ export function ClientsPage() {
                   </>
                 )}
 
-                {/* Contato */}
                 <SectionLabel label={t('cl.contact')} />
                 <div className="field-row">
                   <div className="field">
@@ -395,7 +593,6 @@ export function ClientsPage() {
                   </div>
                 </div>
 
-                {/* Endereço */}
                 <SectionLabel label={t('cl.address')} />
                 <div className="field-row">
                   <div className="field">
@@ -439,7 +636,6 @@ export function ClientsPage() {
                   </div>
                 </div>
 
-                {/* NF-e */}
                 <SectionLabel label={t('cl.nfe')} />
                 <div className="field-row">
                   <div className="field">
@@ -479,9 +675,235 @@ export function ClientsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Import modal ──────────────────────────────────────────────── */}
+      {importOpen && (
+        <div className="overlay" onClick={closeImport}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'white',
+              borderRadius: 12,
+              width: 'min(680px, 95vw)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,.25)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* Header */}
+            <div className="drawer-header">
+              <h2>{t('cl.importTitle')}</h2>
+              <button className="btn btn-secondary btn-sm" onClick={closeImport}>✕</button>
+            </div>
+
+            <div className="drawer-body">
+
+              {/* ── idle: instrutions + file picker ──────────────────── */}
+              {importPhase === 'idle' && (
+                <>
+                  <p style={{ color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
+                    {t('cl.importDesc')}
+                  </p>
+
+                  {/* Layout reference table */}
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <table style={{ fontSize: 12, minWidth: 400 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: 28, textAlign: 'center' }}>#</th>
+                          <th>{t('cl.importColHeader')}</th>
+                          <th>{t('cl.importColReq')}</th>
+                          <th>{t('cl.importColExample')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {IMPORT_LAYOUT.map((row, i) => (
+                          <tr key={row.col}>
+                            <td style={{ textAlign: 'center', color: 'var(--muted)' }}>{i + 1}</td>
+                            <td><code style={{ fontFamily: 'monospace', fontSize: 11 }}>{row.col}</code></td>
+                            <td style={{ color: row.req ? 'var(--primary)' : 'var(--muted)' }}>
+                              {row.req ? '✓' : '—'}
+                            </td>
+                            <td style={{ color: 'var(--muted)' }}>{row.ex}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex-gap" style={{ marginBottom: 20, flexWrap: 'wrap' }}>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ width: 'auto' }}
+                      onClick={downloadTemplate}
+                    >
+                      ↓ {t('cl.importTemplate')}
+                    </button>
+                  </div>
+
+                  {importError && (
+                    <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>
+                      {importError}
+                    </div>
+                  )}
+
+                  <div className="field">
+                    <label>{t('cl.importFile')}</label>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                      style={{ padding: '8px 0' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* ── preview: show first N rows ───────────────────────── */}
+              {importPhase === 'preview' && (
+                <>
+                  <p style={{ marginBottom: 12 }}>
+                    <strong>{importRows.length}</strong> {t('cl.importRows')}
+                  </p>
+
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <table style={{ fontSize: 12, minWidth: 400 }}>
+                      <thead>
+                        <tr>
+                          <th>{t('c.type')}</th>
+                          <th>{t('cl.name')}</th>
+                          <th>{t('cl.doc')}</th>
+                          <th>{t('c.email')}</th>
+                          <th>{t('cl.city')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.slice(0, PREVIEW_LIMIT).map((r, i) => (
+                          <tr key={i}>
+                            <td>
+                              <span className={`badge badge-${r.person_type === 'PJ' ? 'product' : 'service'}`}>
+                                {r.person_type}
+                              </span>
+                            </td>
+                            <td>{r.company_name ?? r.full_name ?? '—'}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                              {r.person_type === 'PJ'
+                                ? (r.cnpj ? maskCNPJ(r.cnpj) : '—')
+                                : (r.cpf  ? maskCPF(r.cpf)   : '—')}
+                            </td>
+                            <td>{r.email ?? '—'}</td>
+                            <td>{r.city && r.state ? `${r.city}/${r.state}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {importRows.length > PREVIEW_LIMIT && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+                      {t('cl.importMore')} {importRows.length - PREVIEW_LIMIT} {t('cl.importMoreRows')}
+                    </p>
+                  )}
+
+                  {importError && (
+                    <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>
+                      {importError}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── importing: spinner ───────────────────────────────── */}
+              {importPhase === 'importing' && (
+                <div className="spinner" style={{ margin: '32px auto' }}>
+                  {t('cl.importDoing')}
+                </div>
+              )}
+
+              {/* ── done: results ────────────────────────────────────── */}
+              {importPhase === 'done' && importResult && (
+                <>
+                  <div
+                    className="alert alert-success"
+                    role="alert"
+                    style={{ marginBottom: 16 }}
+                  >
+                    <strong>{importResult.imported}</strong> {t('cl.importSuccess')}
+                    {importResult.skipped > 0 && (
+                      <span style={{ marginLeft: 12, color: 'var(--muted)' }}>
+                        · {importResult.skipped} {t('cl.importSkipped')}
+                      </span>
+                    )}
+                  </div>
+
+                  {importResult.errors.length > 0 && (
+                    <>
+                      <p style={{ fontWeight: 600, marginBottom: 8 }}>{t('cl.importErrors')}</p>
+                      <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 12, lineHeight: 1.8 }}>
+                        {importResult.errors.map((e, i) => (
+                          <div key={i} style={{ color: 'var(--danger)' }}>
+                            <strong>{t('cl.importErrRow')} {e.row}:</strong> {e.message}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer buttons — vary by phase */}
+            <div className="drawer-footer">
+              {importPhase === 'idle' && (
+                <button className="btn btn-secondary" onClick={closeImport}>
+                  {t('c.cancel')}
+                </button>
+              )}
+
+              {importPhase === 'preview' && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => {
+                    setImportPhase('idle');
+                    setImportRows([]);
+                    setImportError('');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}>
+                    ← {t('c.cancel')}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: 'auto' }}
+                    onClick={() => void runImport()}
+                  >
+                    {t('cl.importBtn')} {importRows.length} {t('cl.importClients')}
+                  </button>
+                </>
+              )}
+
+              {importPhase === 'importing' && (
+                <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('cl.importDoing')}</span>
+              )}
+
+              {importPhase === 'done' && (
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={closeImport}>
+                  {t('cl.importClose')}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function SectionLabel({ label }: { label: string }) {
   return (
@@ -495,4 +917,30 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
+// ── Import column layout (drives the reference table in the modal) ─────────────
 
+const IMPORT_LAYOUT: { col: string; req: boolean; ex: string }[] = [
+  { col: 'tipo_pessoa',       req: true,  ex: 'PJ ou PF' },
+  { col: 'razao_social',      req: false, ex: 'ACME Ltda  (obrigatório para PJ)' },
+  { col: 'nome_fantasia',     req: false, ex: 'ACME' },
+  { col: 'cnpj',              req: false, ex: '11444777000161' },
+  { col: 'inscricao_estadual',req: false, ex: '123456789' },
+  { col: 'inscricao_municipal',req: false,ex: '987654' },
+  { col: 'suframa',           req: false, ex: '123456789' },
+  { col: 'nome_completo',     req: false, ex: 'Maria Silva  (obrigatório para PF)' },
+  { col: 'cpf',               req: false, ex: '12345678901' },
+  { col: 'data_nascimento',   req: false, ex: '1985-06-15' },
+  { col: 'email',             req: false, ex: 'contato@acme.com.br' },
+  { col: 'telefone',          req: false, ex: '1199990000' },
+  { col: 'celular',           req: false, ex: '11999990001' },
+  { col: 'cep',               req: false, ex: '01310100' },
+  { col: 'logradouro',        req: false, ex: 'Av Paulista' },
+  { col: 'numero',            req: false, ex: '1000' },
+  { col: 'complemento',       req: false, ex: 'Sala 10' },
+  { col: 'bairro',            req: false, ex: 'Bela Vista' },
+  { col: 'cidade',            req: false, ex: 'São Paulo' },
+  { col: 'uf',                req: false, ex: 'SP' },
+  { col: 'contribuinte_icms', req: false, ex: '9  (1=Contrib · 2=Isento · 9=Não Contrib)' },
+  { col: 'tipo_consumidor',   req: false, ex: '0  (0=B2B · 1=Consumidor Final)' },
+  { col: 'observacoes',       req: false, ex: 'texto livre' },
+];
