@@ -24,7 +24,7 @@ resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
-  tags = { Name = "erp-lite-vpc-${var.environment}", Environment = var.environment }
+  tags                 = { Name = "erp-lite-vpc-${var.environment}", Environment = var.environment }
 }
 
 resource "aws_internet_gateway" "main" {
@@ -42,7 +42,7 @@ resource "aws_subnet" "public" {
   cidr_block              = "10.0.${count.index + 1}.0/24"
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  tags = { Name = "erp-lite-public-${count.index + 1}-${var.environment}", Environment = var.environment }
+  tags                    = { Name = "erp-lite-public-${count.index + 1}-${var.environment}", Environment = var.environment }
 }
 
 # ── Private subnets — RDS only (no NAT Gateway needed) ───────────────────────
@@ -51,13 +51,16 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.${count.index + 10}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags = { Name = "erp-lite-private-${count.index + 1}-${var.environment}", Environment = var.environment }
+  tags              = { Name = "erp-lite-private-${count.index + 1}-${var.environment}", Environment = var.environment }
 }
 
 # ── Route tables ──────────────────────────────────────────────────────────────
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  route { cidr_block = "0.0.0.0/0"; gateway_id = aws_internet_gateway.main.id }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
   tags = { Name = "erp-lite-public-rt-${var.environment}" }
 }
 
@@ -83,5 +86,5 @@ resource "aws_route_table_association" "private" {
 resource "aws_cloudwatch_log_group" "api_core" {
   name              = "/ecs/erp-lite-${var.environment}/api-core"
   retention_in_days = var.environment == "prod" ? 30 : 7
-  tags = { Environment = var.environment }
+  tags              = { Environment = var.environment }
 }

@@ -1,23 +1,23 @@
-name: Deploy to AWS (Terraform)
+name: Deploy to AWS — prod
 
 on:
   push:
     branches: [main]
 
-# AWS_REGION is the only hardcoded value here — it matches terraform/variables.tf default.
-# All other runtime values (ECR registry, S3 bucket, CloudFront ID, API URL) are
-# derived from Terraform state so no extra secrets are needed beyond credentials.
+# AWS_REGION matches terraform/variables.tf default (us-east-1).
+# All other runtime values come from Terraform outputs — no extra secrets needed.
 env:
-  AWS_REGION:   us-east-1
-  API_ECR_REPO: erp-lite/api-core
+  AWS_REGION:        us-east-1
+  API_ECR_REPO:      erp-lite/api-core
+  TF_STATE_BUCKET:   erp-lite-terraform-state
 
 jobs:
   deploy:
-    name: Build → ECR → Migrate → Terraform Deploy
+    name: Build → ECR → Migrate → Terraform → S3
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # needed for OIDC auth if switching from long-lived keys
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,17 +30,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
-      # ── Compute ECR registry from the caller's AWS account ────────────────────
-      # Format: {account_id}.dkr.ecr.{region}.amazonaws.com
-      # This avoids storing ECR_REGISTRY as a secret — it's deterministic.
-      - name: Compute ECR registry URL
-        id: ecr
+      # ── Bootstrap: S3 state bucket ────────────────────────────────────────────
+      # Terraform needs this bucket to exist BEFORE terraform init.
+      # On every run we check and create if missing — idempotent.
+      - name: Ensure Terraform state bucket exists
         run: |
-          ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text)
-          echo "registry=${ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+          if aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+            echo "State bucket already exists."
+          else
+            echo "Creating state bucket $TF_STATE_BUCKET..."
+            aws s3api create-bucket \
+              --bucket "$TF_STATE_BUCKET" \
+              --region "$AWS_REGION"
+            aws s3api put-bucket-versioning \
+              --bucket "$TF_STATE_BUCKET" \
+              --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption \
+              --bucket "$TF_STATE_BUCKET" \
+              --server-side-encryption-configuration \
+                '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+            echo "State bucket created."
+          fi
 
       # ── Terraform init ────────────────────────────────────────────────────────
-      # terraform_wrapper: false so that "terraform output" returns raw values
+      # terraform_wrapper: false so "terraform output" returns raw values
       # without the wrapper's extra stderr that breaks variable capture.
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -52,18 +65,39 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      # ── Read current state (pre-deploy, no apply) ─────────────────────────────
-      # Captures cluster/subnet/SG for the migration ECS run-task that must run
-      # BEFORE the new service version goes live. Falls back to empty string on
-      # the very first deploy when no Terraform state exists yet.
+      # ── Bootstrap: ensure ECR repo exists before Docker push ─────────────────
+      # On first deploy the ECR repository doesn't exist yet.
+      # We target only the ECR resources so the ECS service is not touched.
+      # On subsequent runs this is a fast no-op (resources already in state).
+      - name: Terraform Apply — bootstrap ECR
+        working-directory: terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_jwt_secret:  ${{ secrets.TF_VAR_JWT_SECRET }}
+        run: |
+          terraform apply -auto-approve \
+            -target=aws_ecr_repository.api_core \
+            -target=aws_ecr_lifecycle_policy.api_core
+
+      # ── Read current-state values for migration step (pre-deploy) ────────────
+      # Reads subnet/SG/cluster needed to run the migration ECS task.
+      # Returns empty strings on first deploy (handled by the if condition below).
       - name: Read pre-deploy Terraform outputs
         id: tf-pre
         working-directory: terraform
         run: |
-          echo "cluster=$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"          >> $GITHUB_OUTPUT
+          echo "cluster=$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"              >> $GITHUB_OUTPUT
           echo "task_family=$(terraform output -raw ecs_task_definition_family 2>/dev/null || true)" >> $GITHUB_OUTPUT
-          echo "subnets=$(terraform output -raw public_subnet_ids 2>/dev/null || true)"         >> $GITHUB_OUTPUT
-          echo "sg=$(terraform output -raw api_security_group_id 2>/dev/null || true)"         >> $GITHUB_OUTPUT
+          echo "subnets=$(terraform output -raw public_subnet_ids 2>/dev/null || true)"             >> $GITHUB_OUTPUT
+          echo "sg=$(terraform output -raw api_security_group_id 2>/dev/null || true)"             >> $GITHUB_OUTPUT
+
+      # ── Compute ECR registry URL from current AWS account ─────────────────────
+      # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
+      - name: Compute ECR registry URL
+        id: ecr
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text)
+          echo "registry=${ACCOUNT}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
       # ── Build & push api-core Docker image ───────────────────────────────────
       - name: Log in to Amazon ECR
@@ -85,60 +119,66 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ── Run DB migrations BEFORE new service version goes live ───────────────
-      # Uses the existing task definition (for IAM roles + env vars) but overrides
-      # the container image to the new SHA so new migration files are included.
-      # Skipped on first deploy when no Terraform state exists yet.
+      # Uses the existing task definition (IAM roles + env vars) but overrides
+      # the container image with the new SHA so new migration files run.
+      # Skipped on first deploy when there is no ECS cluster in state yet.
       - name: Run migrations via ECS run-task
-        if: steps.tf-pre.outputs.cluster != ''
+        if: ${{ steps.tf-pre.outputs.cluster != '' }}
         run: |
           IMAGE="${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:${{ github.sha }}"
+          OVERRIDES=$(jq -n --arg img "$IMAGE" \
+            '{"containerOverrides":[{"name":"api-core","image":$img,"command":["npm","run","migrate"]}]}')
+
           TASK_ARN=$(aws ecs run-task \
             --cluster "${{ steps.tf-pre.outputs.cluster }}" \
             --task-definition "${{ steps.tf-pre.outputs.task_family }}" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.tf-pre.outputs.subnets }}],securityGroups=[${{ steps.tf-pre.outputs.sg }}],assignPublicIp=ENABLED}" \
-            --overrides "{\"containerOverrides\":[{\"name\":\"api-core\",\"image\":\"${IMAGE}\",\"command\":[\"npm\",\"run\",\"migrate\"]}]}" \
+            --overrides "$OVERRIDES" \
             --count 1 \
             --query 'tasks[0].taskArn' \
             --output text)
+
           echo "Migration task ARN: $TASK_ARN"
+
           aws ecs wait tasks-stopped \
             --cluster "${{ steps.tf-pre.outputs.cluster }}" \
             --tasks "$TASK_ARN"
+
           EXIT=$(aws ecs describe-tasks \
             --cluster "${{ steps.tf-pre.outputs.cluster }}" \
             --tasks "$TASK_ARN" \
             --query 'tasks[0].containers[0].exitCode' \
             --output text)
+
           if [ "$EXIT" != "0" ]; then
-            echo "Migration failed with exit code $EXIT"; exit 1
+            echo "::error::Migration failed with exit code $EXIT"
+            exit 1
           fi
           echo "Migrations completed successfully."
 
-      # ── Terraform apply ───────────────────────────────────────────────────────
-      # Passing image_tag=$SHA causes Terraform to:
-      #   1. Register a new ECS task definition revision with the new image
-      #   2. Update aws_ecs_service to point to the new revision → rolling deploy
-      # Also creates S3 bucket + CloudFront distribution on first deploy.
+      # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
+      # TF_VAR_image_tag sets var.image_tag → new task definition revision →
+      # aws_ecs_service updates to the new revision → rolling deploy starts.
+      # Also creates VPC, RDS, ALB, S3 bucket and CloudFront on first run.
       - name: Terraform Apply
         working-directory: terraform
         env:
           TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
           TF_VAR_jwt_secret:  ${{ secrets.TF_VAR_JWT_SECRET }}
-        run: |
-          terraform apply -auto-approve \
-            -var="image_tag=${{ github.sha }}"
+          TF_VAR_image_tag:   ${{ github.sha }}
+        run: terraform apply -auto-approve
 
       # ── Read post-deploy outputs ──────────────────────────────────────────────
-      # S3 bucket and CloudFront are now guaranteed to exist after the apply above.
+      # S3 bucket + CloudFront are guaranteed to exist after the apply above.
       - name: Read post-deploy Terraform outputs
         id: tf-post
         working-directory: terraform
         run: |
-          echo "s3_bucket=$(terraform output -raw s3_bucket_name)"            >> $GITHUB_OUTPUT
-          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"    >> $GITHUB_OUTPUT
-          echo "api_url=$(terraform output -raw api_url)"                     >> $GITHUB_OUTPUT
-          echo "cf_domain=$(terraform output -raw cloudfront_domain)"         >> $GITHUB_OUTPUT
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)"           >> $GITHUB_OUTPUT
+          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"   >> $GITHUB_OUTPUT
+          echo "api_url=$(terraform output -raw api_url)"                    >> $GITHUB_OUTPUT
+          echo "cf_domain=$(terraform output -raw cloudfront_domain)"        >> $GITHUB_OUTPUT
 
       # ── Build backoffice ──────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
@@ -172,6 +212,7 @@ jobs:
             --distribution-id "${{ steps.tf-post.outputs.cf_id }}" \
             --paths "/*"
 
+      # ── Summary ───────────────────────────────────────────────────────────────
       - name: Print deployment URLs
         run: |
           echo "API:        ${{ steps.tf-post.outputs.api_url }}"
