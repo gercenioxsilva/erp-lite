@@ -1,18 +1,14 @@
-# ── ALB Security Group ────────────────────────────────────────────────────────
+# ── NLB Security Group ────────────────────────────────────────────────────────
+# NLBs now support security groups (Nov 2023). Restricts inbound to HTTP 80
+# only — HTTPS is terminated at CloudFront before reaching the NLB.
 resource "aws_security_group" "alb" {
-  name        = "erp-lite-alb-${var.environment}"
-  description = "ALB - accept HTTP/HTTPS from internet"
+  name        = "erp-lite-nlb-${var.environment}"
+  description = "NLB - accept HTTP from internet (HTTPS terminated at CloudFront)"
   vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 80
     to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    from_port   = 443
-    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -23,13 +19,13 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "erp-lite-alb-sg-${var.environment}", Environment = var.environment }
+  tags = { Name = "erp-lite-nlb-sg-${var.environment}", Environment = var.environment }
 }
 
 # ── ECS / API Core Security Group ────────────────────────────────────────────
 resource "aws_security_group" "api_core" {
   name        = "erp-lite-api-core-${var.environment}"
-  description = "API Core - accept traffic from ALB only"
+  description = "API Core - accept traffic from NLB only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
