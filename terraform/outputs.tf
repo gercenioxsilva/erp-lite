@@ -36,3 +36,23 @@ output "api_security_group_id" {
   description = "Security group ID for api-core ECS tasks"
   value       = aws_security_group.api_core.id
 }
+
+output "ecr_registry" {
+  description = "ECR registry hostname (account.dkr.ecr.region.amazonaws.com)"
+  value       = split("/", aws_ecr_repository.api_core.repository_url)[0]
+}
+
+output "s3_bucket_name" {
+  description = "S3 bucket for the backoffice SPA"
+  value       = aws_s3_bucket.backoffice.bucket
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for the backoffice"
+  value       = aws_cloudfront_distribution.backoffice.id
+}
+
+output "cloudfront_domain" {
+  description = "CloudFront domain where the backoffice is served"
+  value       = "https://${aws_cloudfront_distribution.backoffice.domain_name}"
+}
