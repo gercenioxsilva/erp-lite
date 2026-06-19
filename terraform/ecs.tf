@@ -155,11 +155,6 @@ resource "aws_ecs_service" "api_core" {
   deployment_minimum_healthy_percent = var.environment == "prod" ? 50 : 0
   deployment_maximum_percent         = 200
 
-  # Let Terraform manage task definition updates
-  lifecycle {
-    ignore_changes = [task_definition]
-  }
-
   depends_on = [aws_lb_listener.http]
 
   tags = { Environment = var.environment }

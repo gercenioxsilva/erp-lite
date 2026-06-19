@@ -21,3 +21,18 @@ output "ecs_cluster_name" {
 output "ecs_service_name" {
   value = aws_ecs_service.api_core.name
 }
+
+output "ecs_task_definition_family" {
+  description = "ECS task definition family name (used for run-task in CI)"
+  value       = aws_ecs_task_definition.api_core.family
+}
+
+output "public_subnet_ids" {
+  description = "Comma-separated public subnet IDs (used for ECS run-task in CI)"
+  value       = join(",", aws_subnet.public[*].id)
+}
+
+output "api_security_group_id" {
+  description = "Security group ID for api-core ECS tasks"
+  value       = aws_security_group.api_core.id
+}

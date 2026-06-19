@@ -1,4 +1,4 @@
-name: Deploy to AWS
+name: Deploy to AWS (Terraform)
 
 on:
   push:
@@ -7,23 +7,20 @@ on:
 env:
   AWS_REGION:   ${{ secrets.AWS_REGION }}
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-  ECS_CLUSTER:  erp-lite-prod
-  API_SERVICE:  erp-lite-api-core-prod
-  API_TASK_DEF: erp-lite-api-core-prod
   API_ECR_REPO: erp-lite/api-core
 
 jobs:
   deploy:
-    name: Build → ECR → ECS
+    name: Build → ECR → Migrate → Terraform Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # needed if using OIDC auth (recommended over long-lived keys)
+      id-token: write   # required for OIDC (use instead of long-lived keys when possible)
 
     steps:
       - uses: actions/checkout@v4
 
-      # ── AWS Credentials ────────────────────────────────────────────────
+      # ── AWS credentials ───────────────────────────────────────────────────────
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -31,12 +28,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
-      # ── ECR Login ──────────────────────────────────────────────────────
+      # ── Terraform init ────────────────────────────────────────────────────────
+      # terraform_wrapper: false so that "terraform output" prints raw values
+      # without the wrapper's extra stderr lines that break variable capture.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      # ── Read current infra state (pre-deploy, no apply yet) ───────────────────
+      # This gives us subnet/SG IDs for the migration ECS run-task without
+      # needing to store them as GitHub secrets. Falls back to empty string on
+      # first deploy (when no Terraform state exists yet).
+      - name: Read Terraform outputs
+        id: tf
+        working-directory: terraform
+        run: |
+          echo "cluster=$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"         >> $GITHUB_OUTPUT
+          echo "task_family=$(terraform output -raw ecs_task_definition_family 2>/dev/null || true)" >> $GITHUB_OUTPUT
+          echo "subnets=$(terraform output -raw public_subnet_ids 2>/dev/null || true)"        >> $GITHUB_OUTPUT
+          echo "sg=$(terraform output -raw api_security_group_id 2>/dev/null || true)"        >> $GITHUB_OUTPUT
+
+      # ── Build & push api-core Docker image ───────────────────────────────────
       - name: Log in to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ── Build & Push api-core ──────────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -52,22 +73,29 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Run database migrations ────────────────────────────────────────
+      # ── Run DB migrations BEFORE new service version goes live ───────────────
+      # Uses the existing task definition (for its IAM roles + env vars) but
+      # overrides the image to the newly built SHA so new migration files run.
+      # Skipped on the very first deploy when no Terraform state exists yet.
       - name: Run migrations via ECS run-task
+        if: steps.tf.outputs.cluster != ''
         run: |
+          IMAGE="${{ env.ECR_REGISTRY }}/${{ env.API_ECR_REPO }}:${{ github.sha }}"
           TASK_ARN=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" \
-            --task-definition "$API_TASK_DEF" \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --task-definition "${{ steps.tf.outputs.task_family }}" \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.ECS_SUBNET_IDS }}],securityGroups=[${{ secrets.ECS_SECURITY_GROUP_ID }}],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"api-core","command":["npm","run","migrate"]}]}' \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.tf.outputs.subnets }}],securityGroups=[${{ steps.tf.outputs.sg }}],assignPublicIp=ENABLED}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"api-core\",\"image\":\"${IMAGE}\",\"command\":[\"npm\",\"run\",\"migrate\"]}]}" \
             --count 1 \
             --query 'tasks[0].taskArn' \
             --output text)
-          echo "Migration task: $TASK_ARN"
-          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+          echo "Migration task ARN: $TASK_ARN"
+          aws ecs wait tasks-stopped \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --tasks "$TASK_ARN"
           EXIT=$(aws ecs describe-tasks \
-            --cluster "$ECS_CLUSTER" \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
             --tasks "$TASK_ARN" \
             --query 'tasks[0].containers[0].exitCode' \
             --output text)
@@ -75,23 +103,22 @@ jobs:
             echo "Migration failed with exit code $EXIT"
             exit 1
           fi
+          echo "Migrations completed successfully."
 
-      # ── Rolling deploy api-core ────────────────────────────────────────
-      - name: Update ECS service (rolling deploy)
+      # ── Terraform apply: register new task definition + rolling deploy ────────
+      # Passing image_tag as a variable causes Terraform to register a new ECS
+      # task definition revision and update the service to use it. The service
+      # performs a rolling deployment automatically (no manual ecs update-service).
+      - name: Terraform Apply
+        working-directory: terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+          TF_VAR_jwt_secret:  ${{ secrets.TF_VAR_JWT_SECRET }}
         run: |
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$API_SERVICE" \
-            --force-new-deployment \
-            --no-cli-pager
+          terraform apply -auto-approve \
+            -var="image_tag=${{ github.sha }}"
 
-      - name: Wait for service to stabilize
-        run: |
-          aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$API_SERVICE"
-
-      # ── Build & Deploy backoffice to S3 / CloudFront ──────────────────
+      # ── Build & deploy backoffice (S3 + CloudFront) ───────────────────────────
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
