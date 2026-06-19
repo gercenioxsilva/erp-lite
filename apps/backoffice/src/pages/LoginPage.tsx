@@ -2,19 +2,32 @@ import { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GaxLogo } from '../components/GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
+import { useI18n }  from '../i18n';
+import { ApiError } from '../lib/api';
 
-/* ── Feature list shown in the hero panel ────────────────────────────────── */
-const FEATURES = [
+const FEATURES_PT = [
+  'Controle de estoque e inventário em tempo real',
+  'Emissão de NF-e para clientes PJ e PF (SEFAZ)',
+  'Multi-tenant com controle de acesso por perfil',
+  'Gestão financeira integrada',
+];
+
+const FEATURES_EN = [
   'Real-time inventory & stock control',
   'NF-e emission for PJ & PF clients (SEFAZ)',
   'Multi-tenant with role-based access',
   'Integrated financial management',
 ];
 
-/* ── Mock KPI cards that preview the product ─────────────────────────────── */
-const METRICS = [
+const METRICS_PT = [
+  { label: 'Receita no Mês',    value: 'R$ 245.8k', trend: '↑ 18,4%',         cls: 'up'   },
+  { label: 'Clientes Ativos',   value: '142',        trend: '+12 este mês',     cls: 'up'   },
+  { label: 'Alertas de Estoque',value: '4 itens',    trend: '⚠ Precisa revisar', cls: 'warn' },
+];
+
+const METRICS_EN = [
   { label: 'Revenue MTD',    value: 'R$ 245.8k', trend: '↑ 18.4%',     cls: 'up'   },
-  { label: 'Active Clients', value: '142',        trend: '+12 this mo.',  cls: 'up'   },
+  { label: 'Active Clients', value: '142',        trend: '+12 this mo.', cls: 'up'   },
   { label: 'Stock Alerts',   value: '4 items',    trend: '⚠ Needs review', cls: 'warn' },
 ];
 
@@ -24,8 +37,12 @@ export function LoginPage() {
   const [showPwd,  setShowPwd]  = useState(false);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
-  const { login } = useAuth();
-  const navigate  = useNavigate();
+  const { login }  = useAuth();
+  const navigate   = useNavigate();
+  const { t, lang }= useI18n();
+
+  const features = lang === 'pt-BR' ? FEATURES_PT : FEATURES_EN;
+  const metrics  = lang === 'pt-BR' ? METRICS_PT  : METRICS_EN;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -35,7 +52,13 @@ export function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid email or password');
+      if (err instanceof ApiError && err.status === 0) {
+        setError(t('l.errNetwork'));
+      } else if (err instanceof ApiError && err.status >= 500) {
+        setError(t('l.errServer'));
+      } else {
+        setError(t('l.errCreds'));
+      }
     } finally {
       setLoading(false);
     }
@@ -44,44 +67,33 @@ export function LoginPage() {
   return (
     <div className="ls-shell">
 
-      {/* ══════════════════════════════════════════════════════════════════
-          LEFT — Hero panel  (hidden below 960 px)
-      ══════════════════════════════════════════════════════════════════ */}
+      {/* ══ LEFT — Hero panel (hidden < 960 px) ════════════════════════ */}
       <section className="ls-hero" aria-hidden="true">
-
-        {/* Animated gradient orbs */}
         <div className="ls-orb ls-orb-1" />
         <div className="ls-orb ls-orb-2" />
         <div className="ls-orb ls-orb-3" />
-
-        {/* Dot-grid overlay sits on top of orbs, below content */}
         <div className="ls-dots" />
-
-        {/* Decorative top-edge glow line */}
         <div className="ls-top-line" />
 
         <div className="ls-hero-body">
-
-          {/* Brand */}
           <div className="ls-hero-logo">
             <GaxLogo size="md" variant="full" theme="dark" />
           </div>
 
-          {/* Headline */}
           <h1 className="ls-headline">
-            Manage your entire<br />
-            business{' '}
-            <span className="ls-grad-text">smarter</span>
+            {lang === 'pt-BR'
+              ? <>Gerencie todo seu negócio<br />com muito mais <span className="ls-grad-text">inteligência</span></>
+              : <>Manage your entire<br />business <span className="ls-grad-text">smarter</span></>}
           </h1>
 
           <p className="ls-subline">
-            A complete multi-tenant ERP platform to control inventory,
-            manage clients, handle finances and issue NF-e — all in one place.
+            {lang === 'pt-BR'
+              ? 'Uma plataforma ERP SaaS completa para controlar estoque, gerenciar clientes, finanças e emitir NF-e — tudo em um só lugar.'
+              : 'A complete multi-tenant ERP platform to control inventory, manage clients, handle finances and issue NF-e — all in one place.'}
           </p>
 
-          {/* Feature checklist */}
           <ul className="ls-features">
-            {FEATURES.map(f => (
+            {features.map(f => (
               <li key={f}>
                 <span className="ls-check" aria-hidden="true">✓</span>
                 {f}
@@ -89,9 +101,8 @@ export function LoginPage() {
             ))}
           </ul>
 
-          {/* KPI preview cards */}
           <div className="ls-metrics">
-            {METRICS.map(m => (
+            {metrics.map(m => (
               <div key={m.label} className="ls-kpi">
                 <span className="ls-kpi-label">{m.label}</span>
                 <span className="ls-kpi-value">{m.value}</span>
@@ -100,33 +111,31 @@ export function LoginPage() {
             ))}
           </div>
 
-          {/* Social proof */}
           <div className="ls-social-proof">
             <div className="ls-avatars">
               {['#6366f1','#06b6d4','#8b5cf6','#ec4899'].map((c, i) => (
                 <span key={i} className="ls-avatar" style={{ background: c, zIndex: 4 - i }} />
               ))}
             </div>
-            <span>Trusted by <strong>500+</strong> companies across Brazil</span>
+            <span>
+              {lang === 'pt-BR'
+                ? <>Confiado por <strong>500+</strong> empresas no Brasil</>
+                : <>Trusted by <strong>500+</strong> companies across Brazil</>}
+            </span>
           </div>
-
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          RIGHT — Login form panel
-      ══════════════════════════════════════════════════════════════════ */}
+      {/* ══ RIGHT — Form panel ════════════════════════════════════════ */}
       <section className="ls-form-panel">
         <div className="ls-form-body">
-
-          {/* Logo — shown here on mobile (hero is hidden) */}
           <div className="ls-form-logo">
             <GaxLogo size="lg" variant="full" theme="light" />
           </div>
 
           <div className="ls-form-heading">
-            <h2>Welcome back</h2>
-            <p>Sign in to continue to GAX ERP</p>
+            <h2>{t('l.welcome')}</h2>
+            <p>{t('l.subtitle')}</p>
           </div>
 
           {error && (
@@ -135,13 +144,13 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} noValidate>
             <div className="field">
-              <label htmlFor="lf-email">Email</label>
+              <label htmlFor="lf-email">{t('l.email')}</label>
               <input
                 id="lf-email"
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="you@company.com"
+                placeholder="voce@empresa.com"
                 required
                 autoFocus
                 autoComplete="username"
@@ -149,7 +158,7 @@ export function LoginPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="lf-password">Password</label>
+              <label htmlFor="lf-password">{t('l.password')}</label>
               <div className="pwd-wrap">
                 <input
                   id="lf-password"
@@ -165,9 +174,9 @@ export function LoginPage() {
                   className="pwd-toggle"
                   onClick={() => setShowPwd(s => !s)}
                   tabIndex={-1}
-                  aria-label={showPwd ? 'Hide password' : 'Show password'}
+                  aria-label={showPwd ? t('l.hide') : t('l.show')}
                 >
-                  {showPwd ? 'Hide' : 'Show'}
+                  {showPwd ? t('l.hide') : t('l.show')}
                 </button>
               </div>
             </div>
@@ -177,17 +186,14 @@ export function LoginPage() {
               className="btn btn-primary ls-submit"
               disabled={loading}
             >
-              {loading
-                ? <><SpinIcon /> Signing in…</>
-                : 'Sign in'}
+              {loading ? <><SpinIcon /> {t('l.loading')}</> : t('l.submit')}
             </button>
           </form>
 
           <p className="ls-register-link">
-            No account yet?{' '}
-            <Link to="/register">Create your company →</Link>
+            {t('l.noAccount')}{' '}
+            <Link to="/register">{t('l.register')}</Link>
           </p>
-
         </div>
       </section>
     </div>

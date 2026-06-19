@@ -41,7 +41,7 @@ export function isValidCNPJ(v: string): boolean {
   const d = digits(v);
   if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
   const calc = (n: number) => {
-    let s = 0, w = n - 7;
+    let s = 0, w = n - 8;
     for (let i = 0; i < n - 1; i++) {
       s += Number(d[i]) * (w--);
       if (w < 2) w = 9;

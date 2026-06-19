@@ -6,6 +6,9 @@ import { customersRoutes } from './routes/customers';
 import { materialsRoutes } from './routes/materials';
 import { authRoutes }      from './routes/auth';
 import { clientsRoutes }   from './routes/clients';
+import { usersRoutes }     from './routes/users';
+import { ordersRoutes }    from './routes/orders';
+import { invoicesRoutes }  from './routes/invoices';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -34,6 +37,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(customersRoutes, { prefix: '/v1' });
   await app.register(materialsRoutes, { prefix: '/v1' });
   await app.register(clientsRoutes,   { prefix: '/v1' });
+  await app.register(usersRoutes,     { prefix: '/v1' });
+  await app.register(ordersRoutes,    { prefix: '/v1' });
+  await app.register(invoicesRoutes,  { prefix: '/v1' });
 
   return app;
 }

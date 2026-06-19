@@ -36,10 +36,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       tax_id,
       tax_id_type = 'CNPJ',
       name,
-      email,
       password,
     } = request.body as any;
 
+    const email = ((request.body as any).email as string).toLowerCase().trim();
     const passwordHash = await bcrypt.hash(password, 12);
     const client = await pool.connect();
 
@@ -86,11 +86,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /v1/auth/login
   fastify.post('/auth/login', { schema: { body: loginBody } }, async (request, reply) => {
-    const { email, password } = request.body as any;
+    const { password } = request.body as any;
+    const email = ((request.body as any).email as string).toLowerCase().trim();
 
     const { rows } = await pool.query(
       `SELECT id, email, name, password_hash, role, status, tenant_id
-       FROM users WHERE email = $1`,
+       FROM users WHERE LOWER(TRIM(email)) = $1`,
       [email],
     );
 
