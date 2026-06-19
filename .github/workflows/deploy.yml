@@ -7,13 +7,13 @@ on:
 # AWS_REGION matches terraform/variables.tf default (us-east-1).
 # All other runtime values come from Terraform outputs — no extra secrets needed.
 env:
-  AWS_REGION:        us-east-1
-  API_ECR_REPO:      erp-lite/api-core
-  TF_STATE_BUCKET:   erp-lite-terraform-state
+  AWS_REGION:      us-east-1
+  API_ECR_REPO:    erp-lite/api-core
+  TF_STATE_BUCKET: erp-lite-terraform-state
 
 jobs:
   deploy:
-    name: Build → ECR → Migrate → Terraform → S3
+    name: Build → ECR → Terraform → Migrate → S3
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,18 +79,6 @@ jobs:
             -target=aws_ecr_repository.api_core \
             -target=aws_ecr_lifecycle_policy.api_core
 
-      # ── Read current-state values for migration step (pre-deploy) ────────────
-      # Reads subnet/SG/cluster needed to run the migration ECS task.
-      # Returns empty strings on first deploy (handled by the if condition below).
-      - name: Read pre-deploy Terraform outputs
-        id: tf-pre
-        working-directory: terraform
-        run: |
-          echo "cluster=$(terraform output -raw ecs_cluster_name 2>/dev/null || true)"              >> $GITHUB_OUTPUT
-          echo "task_family=$(terraform output -raw ecs_task_definition_family 2>/dev/null || true)" >> $GITHUB_OUTPUT
-          echo "subnets=$(terraform output -raw public_subnet_ids 2>/dev/null || true)"             >> $GITHUB_OUTPUT
-          echo "sg=$(terraform output -raw api_security_group_id 2>/dev/null || true)"             >> $GITHUB_OUTPUT
-
       # ── Compute ECR registry URL from current AWS account ─────────────────────
       # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
       - name: Compute ECR registry URL
@@ -118,68 +106,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Run DB migrations BEFORE new service version goes live ───────────────
-      # ECS containerOverrides does NOT support "image" — only name/command/env/cpu/memory.
-      # Solution: clone the current task definition, swap the image to the new SHA,
-      # register a new revision, then run-task overriding only the command.
-      # Skipped on first deploy when there is no ECS cluster in state yet.
-      - name: Run migrations via ECS run-task
-        if: ${{ steps.tf-pre.outputs.cluster != '' }}
-        run: |
-          IMAGE="${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:${{ github.sha }}"
-
-          # Fetch current task definition and strip read-only fields
-          TASK_DEF_JSON=$(aws ecs describe-task-definition \
-            --task-definition "${{ steps.tf-pre.outputs.task_family }}" \
-            --query 'taskDefinition' \
-            --output json)
-
-          # Build new task definition with updated image (read-only fields removed)
-          NEW_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq \
-            --arg image "$IMAGE" \
-            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
-                 .compatibilities, .registeredAt, .registeredBy)
-             | .containerDefinitions[0].image = $image')
-
-          # Register new revision
-          MIGRATE_TASK_DEF=$(aws ecs register-task-definition \
-            --cli-input-json "$NEW_TASK_DEF" \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-
-          echo "Migration task definition: $MIGRATE_TASK_DEF"
-
-          # Run migration — override only the command (image already set in task def)
-          OVERRIDES='{"containerOverrides":[{"name":"api-core","command":["npm","run","migrate"]}]}'
-
-          TASK_ARN=$(aws ecs run-task \
-            --cluster "${{ steps.tf-pre.outputs.cluster }}" \
-            --task-definition "$MIGRATE_TASK_DEF" \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.tf-pre.outputs.subnets }}],securityGroups=[${{ steps.tf-pre.outputs.sg }}],assignPublicIp=ENABLED}" \
-            --overrides "$OVERRIDES" \
-            --count 1 \
-            --query 'tasks[0].taskArn' \
-            --output text)
-
-          echo "Migration task ARN: $TASK_ARN"
-
-          aws ecs wait tasks-stopped \
-            --cluster "${{ steps.tf-pre.outputs.cluster }}" \
-            --tasks "$TASK_ARN"
-
-          EXIT=$(aws ecs describe-tasks \
-            --cluster "${{ steps.tf-pre.outputs.cluster }}" \
-            --tasks "$TASK_ARN" \
-            --query 'tasks[0].containers[0].exitCode' \
-            --output text)
-
-          if [ "$EXIT" != "0" ]; then
-            echo "::error::Migration failed with exit code $EXIT"
-            exit 1
-          fi
-          echo "Migrations completed successfully."
-
       # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
       # TF_VAR_image_tag sets var.image_tag → new task definition revision →
       # aws_ecs_service updates to the new revision → rolling deploy starts.
@@ -192,16 +118,56 @@ jobs:
           TF_VAR_image_tag:   ${{ github.sha }}
         run: terraform apply -auto-approve
 
-      # ── Read post-deploy outputs ──────────────────────────────────────────────
-      # S3 bucket + CloudFront are guaranteed to exist after the apply above.
-      - name: Read post-deploy Terraform outputs
-        id: tf-post
+      # ── Read Terraform outputs (single step, post-apply) ─────────────────────
+      # All resources are guaranteed to exist after the apply above.
+      - name: Read Terraform outputs
+        id: tf
         working-directory: terraform
         run: |
-          echo "s3_bucket=$(terraform output -raw s3_bucket_name)"           >> $GITHUB_OUTPUT
-          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"   >> $GITHUB_OUTPUT
-          echo "api_url=$(terraform output -raw api_url)"                    >> $GITHUB_OUTPUT
-          echo "cf_domain=$(terraform output -raw cloudfront_domain)"        >> $GITHUB_OUTPUT
+          echo "cluster=$(terraform output -raw ecs_cluster_name)"               >> $GITHUB_OUTPUT
+          echo "task_family=$(terraform output -raw ecs_task_definition_family)" >> $GITHUB_OUTPUT
+          echo "subnets=$(terraform output -raw public_subnet_ids)"              >> $GITHUB_OUTPUT
+          echo "sg=$(terraform output -raw api_security_group_id)"               >> $GITHUB_OUTPUT
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)"               >> $GITHUB_OUTPUT
+          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"       >> $GITHUB_OUTPUT
+          echo "api_url=$(terraform output -raw api_url)"                        >> $GITHUB_OUTPUT
+          echo "cf_domain=$(terraform output -raw cloudfront_domain)"            >> $GITHUB_OUTPUT
+
+      # ── Run DB migrations ─────────────────────────────────────────────────────
+      # Runs AFTER terraform apply so the task definition with the new image
+      # is guaranteed to be registered in ECS. Overrides only the command —
+      # the image is already set in the task definition by Terraform.
+      - name: Run DB migrations
+        run: |
+          OVERRIDES='{"containerOverrides":[{"name":"api-core","command":["npm","run","migrate"]}]}'
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --task-definition "${{ steps.tf.outputs.task_family }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.tf.outputs.subnets }}],securityGroups=[${{ steps.tf.outputs.sg }}],assignPublicIp=ENABLED}" \
+            --overrides "$OVERRIDES" \
+            --count 1 \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task: $TASK_ARN"
+
+          aws ecs wait tasks-stopped \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --tasks "$TASK_ARN"
+
+          EXIT=$(aws ecs describe-tasks \
+            --cluster "${{ steps.tf.outputs.cluster }}" \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT" != "0" ]; then
+            echo "::error::Migration failed with exit code $EXIT"
+            exit 1
+          fi
+          echo "Migrations completed successfully."
 
       # ── Build backoffice ──────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
@@ -215,28 +181,28 @@ jobs:
       - name: Build backoffice
         run: npm run build --workspace=apps/backoffice
         env:
-          VITE_API_URL: ${{ steps.tf-post.outputs.api_url }}
+          VITE_API_URL: ${{ steps.tf.outputs.api_url }}
 
       # ── Deploy backoffice to S3 + CloudFront ─────────────────────────────────
       - name: Sync backoffice to S3
         run: |
           aws s3 sync apps/backoffice/dist \
-            "s3://${{ steps.tf-post.outputs.s3_bucket }}" \
+            "s3://${{ steps.tf.outputs.s3_bucket }}" \
             --delete \
             --cache-control "public,max-age=31536000,immutable" \
             --exclude "index.html"
           aws s3 cp apps/backoffice/dist/index.html \
-            "s3://${{ steps.tf-post.outputs.s3_bucket }}/index.html" \
+            "s3://${{ steps.tf.outputs.s3_bucket }}/index.html" \
             --cache-control "no-cache,no-store,must-revalidate"
 
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.tf-post.outputs.cf_id }}" \
+            --distribution-id "${{ steps.tf.outputs.cf_id }}" \
             --paths "/*"
 
       # ── Summary ───────────────────────────────────────────────────────────────
       - name: Print deployment URLs
         run: |
-          echo "API:        ${{ steps.tf-post.outputs.api_url }}"
-          echo "Backoffice: ${{ steps.tf-post.outputs.cf_domain }}"
+          echo "API:        ${{ steps.tf.outputs.api_url }}"
+          echo "Backoffice: ${{ steps.tf.outputs.cf_domain }}"

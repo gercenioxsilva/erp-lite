@@ -17,6 +17,16 @@ resource "aws_s3_bucket_public_access_block" "backoffice" {
   restrict_public_buckets = true
 }
 
+# Disables ACLs entirely — bucket owner owns all objects regardless of uploader.
+# Required for OAC: when CI uploads files, bucket policy (not ACLs) controls access.
+resource "aws_s3_bucket_ownership_controls" "backoffice" {
+  bucket = aws_s3_bucket.backoffice.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+  depends_on = [aws_s3_bucket_public_access_block.backoffice]
+}
+
 resource "aws_s3_bucket_versioning" "backoffice" {
   bucket = aws_s3_bucket.backoffice.id
   versioning_configuration { status = "Disabled" }
@@ -36,7 +46,7 @@ resource "aws_cloudfront_distribution" "backoffice" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
-  comment             = "ERP Lite backoffice — ${var.environment}"
+  comment             = "ERP Lite backoffice - ${var.environment}"
 
   origin {
     domain_name              = aws_s3_bucket.backoffice.bucket_regional_domain_name
@@ -61,17 +71,21 @@ resource "aws_cloudfront_distribution" "backoffice" {
     max_ttl     = 86400
   }
 
-  # SPA fallback: React Router owns all paths — return index.html on 403/404
+  # SPA fallback: React Router owns all paths — return index.html on 403/404.
+  # error_caching_min_ttl = 0 prevents CloudFront from caching the error response,
+  # so fixes (policy changes, new deploys) take effect immediately.
   custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
 
   custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
 
   restrictions {
@@ -86,8 +100,15 @@ resource "aws_cloudfront_distribution" "backoffice" {
 }
 
 # ── S3 bucket policy — allow only CloudFront OAC ──────────────────────────────
+# depends_on guarantees public_access_block and ownership_controls are applied
+# first, avoiding a race condition where the policy gets rejected or reset.
 resource "aws_s3_bucket_policy" "backoffice" {
   bucket = aws_s3_bucket.backoffice.id
+
+  depends_on = [
+    aws_s3_bucket_public_access_block.backoffice,
+    aws_s3_bucket_ownership_controls.backoffice,
+  ]
 
   policy = jsonencode({
     Version = "2012-10-17"
