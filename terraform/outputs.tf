@@ -1,6 +1,6 @@
 output "api_url" {
-  description = "Public API endpoint (ALB DNS)"
-  value       = "http://${aws_lb.main.dns_name}"
+  description = "Public API endpoint (CloudFront HTTPS — /v1/* proxied to ALB)"
+  value       = "https://${aws_cloudfront_distribution.backoffice.domain_name}"
 }
 
 output "rds_endpoint" {

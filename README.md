@@ -66,6 +66,17 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > (draft→issued|cancelled, geração sequencial de número por série, vínculo com pedido).
 > README reescrito como prompt anti-alucinação com protocolo de uso para IA.
 
+### v0.7 — Deploy AWS end-to-end + Mixed Content fix + i18n completo
+> Pipeline CI/CD totalmente funcional na AWS: GitHub Actions → ECR → Terraform →
+> ECS Fargate + RDS PostgreSQL 16 + CloudFront/S3. Correções aplicadas durante
+> o processo: descrições de security group em ASCII, migrations pós-apply, OAC
+> S3 com BucketOwnerEnforced + depends_on, senha RDS auto-gerada via
+> `random_password` (charset URL-safe + `urlencode()`), SSL obrigatório no
+> PostgreSQL 16, script de migrations compilado (sem ts-node em prod). Fix
+> principal: Mixed Content eliminado roteando `/v1/*` pelo CloudFront (HTTPS
+> viewer → HTTP ALB interno), unificando o domínio público em HTTPS. Tela de
+> cadastro de empresa traduzida para pt-BR via namespace `r.*`.
+
 ---
 
 ## Visão Geral
@@ -120,8 +131,8 @@ flowchart LR
 ```mermaid
 flowchart TD
     internet(("Internet"))
-    internet -->|HTTPS| cf["CloudFront + S3\nReact SPA"]
-    internet -->|HTTP/HTTPS| alb["Application Load Balancer"]
+    internet -->|HTTPS| cf["CloudFront\n/v1/* → ALB  /  /* → S3"]
+    cf -->|HTTP /v1/*| alb["Application Load Balancer"]
 
     subgraph vpc["VPC  10.0.0.0/16"]
         direction TB
@@ -226,7 +237,8 @@ erp-lite/
 │   │       └── invoices/InvoicesPage.tsx
 │
 └── terraform/
-    ├── variables.tf  main.tf  security.tf  rds.tf  ecs.tf  ecr.tf  outputs.tf
+    ├── variables.tf  main.tf  security.tf  rds.tf  ecs.tf  ecr.tf  static.tf  outputs.tf
+    └── secrets.tf    ← random_password para RDS (charset URL-safe, armazenado no estado S3)
 ```
 
 ---
@@ -397,7 +409,7 @@ erp-lite/
 ## API Reference (fonte da verdade)
 
 Base URL local: `http://localhost:3001`
-Base URL prod:  `http://<ALB_DNS>` (ver `terraform output api_url`)
+Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudFront roteia `/v1/*` para o ALB)
 
 > Todas as rotas retornam JSON. Erros seguem o formato Fastify Sensible:
 > `{ statusCode, error, message }`.
@@ -583,6 +595,7 @@ import { useI18n } from '../../i18n';
 - `nav.*` — navegação
 - `c.*` — comuns (save, cancel, edit, loading…)
 - `d.*` — dashboard
+- `r.*` — register (cadastro de empresa)
 - `l.*` — login
 - `m.*` — materials
 - `cl.*` — clients
@@ -734,22 +747,28 @@ curl -X POST http://localhost:3000/v1/invoices/<ID>/issue
 
 ## Deploy AWS
 
+**O deploy é 100% automatizado via GitHub Actions** (`push` na branch `main`).
+O pipeline executa em ordem: build Docker → push ECR → `terraform apply` →
+migrations via ECS run-task → build Vite → sync S3 → invalidação CloudFront.
+
+Secrets necessários no repositório GitHub:
+
+| Secret | Descrição |
+|--------|-----------|
+| `AWS_ACCESS_KEY_ID` | IAM key com permissões ECS/ECR/RDS/S3/CF/Terraform |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret |
+| `TF_VAR_JWT_SECRET` | Segredo para assinar JWTs |
+
+> A senha do RDS é gerada automaticamente pelo Terraform (`random_password`) e
+> armazenada criptografada no estado S3 — **não precisa de secret no GitHub**.
+> Para recuperar: `terraform output -raw db_password` (após o primeiro deploy).
+
 ```bash
-# 1. Build e push da imagem
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
-
-docker build -t erp-lite/api-core --target production services/api-core
-docker tag  erp-lite/api-core <ECR_URL>:latest
-docker push <ECR_URL>:latest
-
-# 2. Deploy infra
+# Inspecionar outputs após deploy
 cd terraform
-terraform init
-terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
-
-# 3. Rodar migrations na AWS
-# (usar ECS run-task via GitHub Actions deploy.yml)
+terraform output api_url       # CloudFront HTTPS (domínio público unificado)
+terraform output cloudfront_domain
+terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 ```
 
 ### Variáveis de custo (terraform/variables.tf)
@@ -762,6 +781,15 @@ terraform apply -var="db_password=SENHA_FORTE" -var="jwt_secret=JWT_SECRET"
 | `api_memory` | `512` | `1024` |
 
 Estimativa mensal: ~$41 (RDS $13 + ECS $9 + ALB $16 + CloudFront/S3 $1 + CW $2)
+
+> **RDS PostgreSQL 16:** `rds.force_ssl=1` ativado por padrão. O `DATABASE_URL` usa
+> `ssl: { rejectUnauthorized: false }` para aceitar o certificado auto-assinado da AWS
+> em conexões intra-VPC. Isso é seguro — o tráfego fica dentro da VPC.
+
+> **Mixed Content:** o backoffice (HTTPS via CloudFront) não pode chamar o ALB via HTTP.
+> A solução é ter o CloudFront como único endpoint público: `/v1/*` é roteado para o ALB
+> via HTTP internamente (viewer → CF é HTTPS; CF → ALB é HTTP dentro da AWS).
+> `VITE_API_URL` aponta para o domínio CloudFront — nunca para o ALB diretamente.
 
 ---
 

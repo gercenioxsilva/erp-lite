@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GaxLogo } from '../components/GaxLogo';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../i18n';
 import { maskCNPJ, digits } from '../lib/brazil';
 
 const INIT = {
@@ -16,6 +17,7 @@ export function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate      = useNavigate();
+  const { t }         = useI18n();
 
   function set(field: keyof typeof INIT) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -28,8 +30,8 @@ export function RegisterPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (form.password !== form.password2) { setError('Passwords do not match'); return; }
-    if (form.password.length < 8)          { setError('Password must be at least 8 characters'); return; }
+    if (form.password !== form.password2) { setError(t('r.errPwdMatch')); return; }
+    if (form.password.length < 8)          { setError(t('r.errPwdLen'));   return; }
 
     setLoading(true);
     try {
@@ -44,7 +46,7 @@ export function RegisterPage() {
       });
       navigate('/dashboard');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof Error ? err.message : t('r.errFailed'));
     } finally {
       setLoading(false);
     }
@@ -59,8 +61,8 @@ export function RegisterPage() {
         </div>
 
         <div className="auth-heading">
-          <h2>Create your company account</h2>
-          <p>Start your free trial — no credit card required</p>
+          <h2>{t('r.title')}</h2>
+          <p>{t('r.subtitle')}</p>
         </div>
 
         {error && <div className="alert alert-error" role="alert">{error}</div>}
@@ -69,22 +71,22 @@ export function RegisterPage() {
 
           {/* ── Company section ──────────────────────────────────────── */}
           <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 12 }}>
-            Company
+            {t('r.company')}
           </p>
 
           <div className="field">
-            <label htmlFor="company_name">Legal name *</label>
+            <label htmlFor="company_name">{t('r.legalName')}</label>
             <input id="company_name" value={form.company_name} onChange={set('company_name')} required placeholder="Razão Social / Company name" />
           </div>
 
           <div className="field">
-            <label htmlFor="trade_name">Trade name</label>
+            <label htmlFor="trade_name">{t('r.tradeName')}</label>
             <input id="trade_name" value={form.trade_name} onChange={set('trade_name')} placeholder="Nome Fantasia (optional)" />
           </div>
 
           <div className="field-row">
             <div className="field">
-              <label htmlFor="tax_id">Tax ID *</label>
+              <label htmlFor="tax_id">{t('r.taxId')}</label>
               <input
                 id="tax_id"
                 value={form.tax_id}
@@ -94,7 +96,7 @@ export function RegisterPage() {
               />
             </div>
             <div className="field" style={{ flex: '0 0 120px' }}>
-              <label htmlFor="tax_id_type">Type</label>
+              <label htmlFor="tax_id_type">{t('r.taxType')}</label>
               <select id="tax_id_type" value={form.tax_id_type} onChange={set('tax_id_type')}>
                 <option value="CNPJ">CNPJ</option>
                 <option value="EIN">EIN</option>
@@ -106,22 +108,22 @@ export function RegisterPage() {
 
           {/* ── Admin user section ───────────────────────────────────── */}
           <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.06em', textTransform: 'uppercase', margin: '20px 0 12px' }}>
-            Admin user
+            {t('r.adminUser')}
           </p>
 
           <div className="field">
-            <label htmlFor="name">Your name</label>
-            <input id="name" value={form.name} onChange={set('name')} placeholder="Full name" />
+            <label htmlFor="name">{t('r.yourName')}</label>
+            <input id="name" value={form.name} onChange={set('name')} placeholder={t('r.fullNamePH')} />
           </div>
 
           <div className="field">
-            <label htmlFor="reg-email">Email *</label>
-            <input id="reg-email" type="email" value={form.email} onChange={set('email')} required placeholder="you@company.com" autoComplete="username" />
+            <label htmlFor="reg-email">{t('r.email')}</label>
+            <input id="reg-email" type="email" value={form.email} onChange={set('email')} required placeholder="voce@empresa.com" autoComplete="username" />
           </div>
 
           <div className="field-row">
             <div className="field">
-              <label htmlFor="reg-pwd">Password *</label>
+              <label htmlFor="reg-pwd">{t('r.password')}</label>
               <div className="pwd-wrap">
                 <input
                   id="reg-pwd"
@@ -130,30 +132,30 @@ export function RegisterPage() {
                   onChange={set('password')}
                   required
                   minLength={8}
-                  placeholder="Min 8 characters"
+                  placeholder={t('r.minPwdPH')}
                   autoComplete="new-password"
                 />
                 <button type="button" className="pwd-toggle" onClick={() => setShowPwd(s => !s)} tabIndex={-1}>
-                  {showPwd ? 'Hide' : 'Show'}
+                  {showPwd ? t('l.hide') : t('l.show')}
                 </button>
               </div>
             </div>
             <div className="field">
-              <label htmlFor="reg-pwd2">Confirm password *</label>
-              <input id="reg-pwd2" type={showPwd ? 'text' : 'password'} value={form.password2} onChange={set('password2')} required placeholder="Repeat password" autoComplete="new-password" />
+              <label htmlFor="reg-pwd2">{t('r.confirmPwd')}</label>
+              <input id="reg-pwd2" type={showPwd ? 'text' : 'password'} value={form.password2} onChange={set('password2')} required placeholder={t('r.repeatPwd')} autoComplete="new-password" />
             </div>
           </div>
 
           <div style={{ marginTop: 24 }}>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Creating account…' : 'Create account'}
+              {loading ? t('r.creating') : t('r.create')}
             </button>
           </div>
         </form>
 
         <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--muted)' }}>
-          Already have an account?{' '}
-          <Link to="/login" style={{ fontWeight: 600 }}>Sign in →</Link>
+          {t('r.hasAccount')}{' '}
+          <Link to="/login" style={{ fontWeight: 600 }}>{t('r.signin')}</Link>
         </p>
       </div>
     </div>
