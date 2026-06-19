@@ -63,7 +63,7 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "NODE_ENV", value = var.environment },
       { name = "PORT", value = "3000" },
       { name = "DATABASE_URL",
-      value = "postgres://erp_lite:${var.db_password}@${aws_db_instance.postgres.endpoint}/erp_lite" },
+      value = "postgres://erp_lite:${random_password.db_master.result}@${aws_db_instance.postgres.endpoint}/erp_lite" },
       { name = "JWT_SECRET", value = var.jwt_secret },
     ]
 
