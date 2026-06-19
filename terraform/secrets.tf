@@ -8,9 +8,11 @@
 resource "random_password" "db_master" {
   length  = 32
   special = true
-  # RDS PostgreSQL rejects: @  /  "  (space)
-  # Restrict special chars to the safe subset.
-  override_special = "!#%^&*()-_=+[]{}:?"
+  # Must exclude:
+  #   RDS rejects     → @  /  "  (space)
+  #   URL-breaking    → :  #  %  ?  &  =  +  [  ]
+  # Remaining safe subset that works in both RDS and a postgres:// URL.
+  override_special = "!^*()-_{}~"
 }
 
 output "db_password" {

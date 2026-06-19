@@ -150,10 +150,21 @@ jobs:
             --output text)
 
           echo "Migration task: $TASK_ARN"
+          TASK_ID=$(basename "$TASK_ARN")
 
           aws ecs wait tasks-stopped \
             --cluster "${{ steps.tf.outputs.cluster }}" \
             --tasks "$TASK_ARN"
+
+          # Print CloudWatch logs so failures are visible in CI output
+          echo "── Migration container logs ──────────────────────────────────"
+          aws logs get-log-events \
+            --log-group-name "/ecs/erp-lite-prod/api-core" \
+            --log-stream-name "api-core/api-core/${TASK_ID}" \
+            --start-from-head \
+            --query 'events[*].message' \
+            --output text 2>/dev/null || echo "(no logs available)"
+          echo "─────────────────────────────────────────────────────────────"
 
           EXIT=$(aws ecs describe-tasks \
             --cluster "${{ steps.tf.outputs.cluster }}" \
