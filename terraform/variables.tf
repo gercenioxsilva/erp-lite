@@ -10,7 +10,13 @@ variable "aws_region" {
 }
 
 variable "image_tag" {
-  description = "Docker image tag to deploy"
+  description = "Docker image tag for api-core (ECS)"
+  type        = string
+  default     = "latest"
+}
+
+variable "lambda_fiscal_image_tag" {
+  description = "Docker image tag for lambda-fiscal (ECR)"
   type        = string
   default     = "latest"
 }
@@ -57,4 +63,29 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
   default     = "change-me-jwt-secret"
+}
+
+variable "focus_nfe_token" {
+  description = "Focus NF-e API token (https://focusnfe.com.br — account → API token)"
+  type        = string
+  sensitive   = true
+  default     = "change-me-focus-token"
+}
+
+variable "lambda_notifications_image_tag" {
+  description = "Docker image tag for lambda-notifications (ECR)"
+  type        = string
+  default     = "latest"
+}
+
+variable "ses_from_email" {
+  description = "Verified SES sender address used as the From email for all notifications"
+  type        = string
+  default     = "noreply@example.com"
+}
+
+variable "ses_from_name" {
+  description = "Display name shown alongside the From email address"
+  type        = string
+  default     = "GAX ERP"
 }
