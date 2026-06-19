@@ -2,7 +2,7 @@
 resource "aws_iam_role" "ecs_task_execution" {
   name = "erp-lite-ecs-execution-${var.environment}"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
 }
@@ -15,7 +15,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
 resource "aws_iam_role" "ecs_task" {
   name = "erp-lite-ecs-task-${var.environment}"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
 }
@@ -60,11 +60,11 @@ resource "aws_ecs_task_definition" "api_core" {
     portMappings = [{ containerPort = 3000, protocol = "tcp" }]
 
     environment = [
-      { name = "NODE_ENV",    value = var.environment },
-      { name = "PORT",        value = "3000" },
+      { name = "NODE_ENV", value = var.environment },
+      { name = "PORT", value = "3000" },
       { name = "DATABASE_URL",
-        value = "postgres://erp_lite:${var.db_password}@${aws_db_instance.postgres.endpoint}/erp_lite" },
-      { name = "JWT_SECRET",  value = var.jwt_secret },
+      value = "postgres://erp_lite:${var.db_password}@${aws_db_instance.postgres.endpoint}/erp_lite" },
+      { name = "JWT_SECRET", value = var.jwt_secret },
     ]
 
     logConfiguration = {
@@ -141,9 +141,9 @@ resource "aws_ecs_service" "api_core" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.public[*].id   # public subnets — no NAT Gateway needed
+    subnets          = aws_subnet.public[*].id # public subnets — no NAT Gateway needed
     security_groups  = [aws_security_group.api_core.id]
-    assign_public_ip = true                      # required for ECR image pulls without NAT
+    assign_public_ip = true # required for ECR image pulls without NAT
   }
 
   load_balancer {

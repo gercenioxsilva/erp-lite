@@ -24,18 +24,18 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   # Cost optimisation
-  multi_az            = var.environment == "prod"   # HA only in prod
+  multi_az            = var.environment == "prod" # HA only in prod
   publicly_accessible = false
 
   # Backups
-  backup_retention_period   = var.environment == "prod" ? 7 : 1
-  backup_window             = "03:00-04:00"
-  maintenance_window        = "sun:04:00-sun:05:00"
+  backup_retention_period    = var.environment == "prod" ? 7 : 1
+  backup_window              = "03:00-04:00"
+  maintenance_window         = "sun:04:00-sun:05:00"
   auto_minor_version_upgrade = true
 
   # Safety
-  deletion_protection = var.environment == "prod"
-  skip_final_snapshot = var.environment != "prod"
+  deletion_protection       = var.environment == "prod"
+  skip_final_snapshot       = var.environment != "prod"
   final_snapshot_identifier = var.environment == "prod" ? "erp-lite-final-snapshot" : null
 
   # Performance Insights (free tier: 7 days)
