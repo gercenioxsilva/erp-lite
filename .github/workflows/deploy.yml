@@ -119,19 +119,42 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ── Run DB migrations BEFORE new service version goes live ───────────────
-      # Uses the existing task definition (IAM roles + env vars) but overrides
-      # the container image with the new SHA so new migration files run.
+      # ECS containerOverrides does NOT support "image" — only name/command/env/cpu/memory.
+      # Solution: clone the current task definition, swap the image to the new SHA,
+      # register a new revision, then run-task overriding only the command.
       # Skipped on first deploy when there is no ECS cluster in state yet.
       - name: Run migrations via ECS run-task
         if: ${{ steps.tf-pre.outputs.cluster != '' }}
         run: |
           IMAGE="${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:${{ github.sha }}"
-          OVERRIDES=$(jq -n --arg img "$IMAGE" \
-            '{"containerOverrides":[{"name":"api-core","image":$img,"command":["npm","run","migrate"]}]}')
+
+          # Fetch current task definition and strip read-only fields
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
+            --task-definition "${{ steps.tf-pre.outputs.task_family }}" \
+            --query 'taskDefinition' \
+            --output json)
+
+          # Build new task definition with updated image (read-only fields removed)
+          NEW_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq \
+            --arg image "$IMAGE" \
+            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                 .compatibilities, .registeredAt, .registeredBy)
+             | .containerDefinitions[0].image = $image')
+
+          # Register new revision
+          MIGRATE_TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "Migration task definition: $MIGRATE_TASK_DEF"
+
+          # Run migration — override only the command (image already set in task def)
+          OVERRIDES='{"containerOverrides":[{"name":"api-core","command":["npm","run","migrate"]}]}'
 
           TASK_ARN=$(aws ecs run-task \
             --cluster "${{ steps.tf-pre.outputs.cluster }}" \
-            --task-definition "${{ steps.tf-pre.outputs.task_family }}" \
+            --task-definition "$MIGRATE_TASK_DEF" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.tf-pre.outputs.subnets }}],securityGroups=[${{ steps.tf-pre.outputs.sg }}],assignPublicIp=ENABLED}" \
             --overrides "$OVERRIDES" \
