@@ -26,6 +26,7 @@ const migrations = [
   '0005_clients.sql',
   '0006_orders.sql',
   '0007_invoices.sql',
+  '0008_invoice_taxes.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

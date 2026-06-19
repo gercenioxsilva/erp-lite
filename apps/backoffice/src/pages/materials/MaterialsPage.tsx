@@ -1,4 +1,5 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useRef, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
@@ -26,6 +27,60 @@ const EMPTY_FORM = {
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// ── Import helpers ─────────────────────────────────────────────────────────────
+
+interface ImportRow {
+  sku: string; nome: string; tipo?: string; unidade?: string;
+  preco_venda?: string; preco_custo?: string; ncm?: string;
+  categoria?: string; marca?: string; peso_kg?: string;
+  controla_estoque?: string; descricao?: string;
+  [key: string]: unknown;
+}
+
+interface ImportResult { imported: number; skipped: number; errors: { row: number; message: string }[]; }
+
+type ImportPhase = 'idle' | 'preview' | 'importing' | 'done';
+
+const XLSX_COLS = ['sku','nome','tipo','unidade','preco_venda','preco_custo',
+                   'ncm','categoria','marca','peso_kg','controla_estoque','descricao'] as const;
+
+const IMPORT_LAYOUT = [
+  { col: 'sku',              req: true,  ex: 'PROD-001' },
+  { col: 'nome',             req: true,  ex: 'Parafuso M6' },
+  { col: 'tipo',             req: false, ex: 'product / service / raw_material / asset' },
+  { col: 'unidade',          req: false, ex: 'UN / KG / L / M / PC' },
+  { col: 'preco_venda',      req: false, ex: '29.90' },
+  { col: 'preco_custo',      req: false, ex: '15.00' },
+  { col: 'ncm',              req: false, ex: '7318.15.00' },
+  { col: 'categoria',        req: false, ex: 'Fixadores' },
+  { col: 'marca',            req: false, ex: 'Fischer' },
+  { col: 'peso_kg',          req: false, ex: '0.050' },
+  { col: 'controla_estoque', req: false, ex: 'SIM / NAO' },
+  { col: 'descricao',        req: false, ex: 'Parafuso sextavado galvanizado M6x20' },
+];
+
+function downloadTemplate() {
+  const header = XLSX_COLS as unknown as string[];
+  const ex1: ImportRow = {
+    sku: 'PROD-001', nome: 'Parafuso M6', tipo: 'product', unidade: 'UN',
+    preco_venda: '29.90', preco_custo: '15.00', ncm: '7318.15.00',
+    categoria: 'Fixadores', marca: 'Fischer', peso_kg: '0.050',
+    controla_estoque: 'SIM', descricao: 'Parafuso sextavado galvanizado M6x20',
+  };
+  const ex2: ImportRow = {
+    sku: 'SRV-001', nome: 'Consultoria técnica', tipo: 'service', unidade: 'HR',
+    preco_venda: '150.00', preco_custo: '', ncm: '',
+    categoria: 'Serviços', marca: '', peso_kg: '',
+    controla_estoque: 'NAO', descricao: 'Hora de consultoria especializada',
+  };
+  const ws = XLSX.utils.aoa_to_sheet([header, header.map(h => ex1[h] ?? ''), header.map(h => ex2[h] ?? '')]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Materiais');
+  XLSX.writeFile(wb, 'modelo_importacao_materiais.xlsx');
+}
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export function MaterialsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
@@ -39,6 +94,14 @@ export function MaterialsPage() {
   const [form,       setForm]       = useState({ ...EMPTY_FORM });
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
+
+  // Import state
+  const [importOpen,   setImportOpen]   = useState(false);
+  const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
+  const [importRows,   setImportRows]   = useState<ImportRow[]>([]);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError,  setImportError]  = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const perPage = 20;
 
@@ -112,18 +175,80 @@ export function MaterialsPage() {
     try { await api.delete(`/v1/materials/${id}`); void load(); } catch { /**/ }
   }
 
-  const totalPages = Math.ceil(total / perPage);
+  // ── Import handlers ──────────────────────────────────────────────────────────
 
-  const typeLabel = (type: string) =>
-    t(`m.type.${type}` as Parameters<typeof t>[0]) || type;
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError('');
+    try {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = new Uint8Array(ev.target!.result as ArrayBuffer);
+          const wb   = XLSX.read(data, { type: 'array', cellDates: true });
+          const ws   = wb.Sheets[wb.SheetNames[0]];
+          const raw  = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+            defval: '', raw: false,
+          });
+
+          const valid = raw.filter(r => String(r['nome'] ?? '').trim() !== '');
+          if (valid.length === 0) { setImportError(t('mi.importEmpty')); return; }
+
+          setImportRows(valid as ImportRow[]);
+          setImportPhase('preview');
+        } catch {
+          setImportError(t('mi.importParseErr'));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch {
+      setImportError(t('mi.importParseErr'));
+    }
+  }
+
+  async function runImport() {
+    if (!tenantId || importRows.length === 0) return;
+    setImportPhase('importing');
+    try {
+      const result = await api.post<ImportResult>('/v1/materials/import', {
+        tenant_id: tenantId,
+        materials: importRows,
+      });
+      setImportResult(result);
+      setImportPhase('done');
+      void load();
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : t('cl.errSave'));
+      setImportPhase('preview');
+    }
+  }
+
+  function closeImport() {
+    setImportOpen(false);
+    setImportPhase('idle');
+    setImportRows([]);
+    setImportResult(null);
+    setImportError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  const totalPages = Math.ceil(total / perPage);
+  const typeLabel  = (type: string) => t(`m.type.${type}` as Parameters<typeof t>[0]) || type;
+  const PREVIEW_MAX = 5;
 
   return (
     <div>
       <div className="page-header">
         <h1>{t('m.title')}</h1>
-        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('m.new')}
-        </button>
+        <div className="flex-gap">
+          <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setImportOpen(true)}>
+            ↑ {t('mi.import')}
+          </button>
+          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('m.new')}
+          </button>
+        </div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -300,6 +425,185 @@ export function MaterialsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import modal ────────────────────────────────────────────── */}
+      {importOpen && (
+        <div
+          className="overlay"
+          onClick={importPhase === 'importing' ? undefined : closeImport}
+          style={{ alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'fixed', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'white', borderRadius: 12,
+              width: 'min(680px, 95vw)', maxHeight: '90vh',
+              display: 'flex', flexDirection: 'column',
+              boxShadow: '0 20px 60px rgba(0,0,0,.18)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header */}
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ margin: 0, fontSize: 18 }}>{t('mi.importTitle')}</h2>
+              {importPhase !== 'importing' && (
+                <button className="btn btn-secondary btn-sm" onClick={closeImport}>✕</button>
+              )}
+            </div>
+
+            {/* Body */}
+            <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+              {importError && (
+                <div role="alert" className="alert alert-error" style={{ marginBottom: 14 }}>{importError}</div>
+              )}
+
+              {/* ── idle: layout reference + file picker ── */}
+              {importPhase === 'idle' && (
+                <>
+                  <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 13 }}>{t('mi.importDesc')}</p>
+                  <div style={{ marginBottom: 16 }}>
+                    <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={downloadTemplate}>
+                      ↓ {t('mi.importTemplate')}
+                    </button>
+                  </div>
+                  <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginBottom: 20 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface)' }}>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.importColHeader')}</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'center', border: '1px solid var(--border)', width: 60 }}>{t('mi.importColReq')}</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.importColExample')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {IMPORT_LAYOUT.map(row => (
+                        <tr key={row.col}>
+                          <td style={{ padding: '5px 10px', border: '1px solid var(--border)', fontFamily: 'monospace' }}>{row.col}</td>
+                          <td style={{ padding: '5px 10px', border: '1px solid var(--border)', textAlign: 'center', color: row.req ? 'var(--danger)' : 'var(--muted)' }}>
+                            {row.req ? '●' : '○'}
+                          </td>
+                          <td style={{ padding: '5px 10px', border: '1px solid var(--border)', color: 'var(--muted)' }}>{row.ex}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="field">
+                    <label>{t('mi.importFile')}</label>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* ── preview: show first rows before import ── */}
+              {importPhase === 'preview' && (
+                <>
+                  <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 13 }}>
+                    <strong>{importRows.length}</strong> {t('mi.importRows')}
+                  </p>
+                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                    <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--surface)' }}>
+                          {['sku','nome','tipo','unidade','preco_venda'].map(c => (
+                            <th key={c} style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)', fontFamily: 'monospace' }}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importRows.slice(0, PREVIEW_MAX).map((r, i) => (
+                          <tr key={i}>
+                            {['sku','nome','tipo','unidade','preco_venda'].map(c => (
+                              <td key={c} style={{ padding: '5px 8px', border: '1px solid var(--border)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {String(r[c] ?? '')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {importRows.length > PREVIEW_MAX && (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, margin: '0 0 12px' }}>
+                      {t('mi.importMore')} {importRows.length - PREVIEW_MAX} {t('mi.importMoreRows')}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* ── importing ── */}
+              {importPhase === 'importing' && (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div className="spinner" style={{ marginBottom: 12 }}>{t('mi.importDoing')}</div>
+                </div>
+              )}
+
+              {/* ── done ── */}
+              {importPhase === 'done' && importResult && (
+                <>
+                  <p style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>{t('mi.importDone')}</p>
+                  <p style={{ color: 'var(--success)', margin: '4px 0' }}>
+                    ✓ <strong>{importResult.imported}</strong> {t('mi.importSuccess')}
+                  </p>
+                  {importResult.skipped > 0 && (
+                    <p style={{ color: 'var(--muted)', margin: '4px 0' }}>
+                      ⊘ <strong>{importResult.skipped}</strong> {t('mi.importSkipped')}
+                    </p>
+                  )}
+                  {importResult.errors.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <strong style={{ fontSize: 13 }}>{t('mi.importErrors')}</strong>
+                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginTop: 8 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface)' }}>
+                            <th style={{ padding: '4px 8px', border: '1px solid var(--border)', width: 60 }}>{t('mi.importErrRow')}</th>
+                            <th style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'left' }}>Descrição</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importResult.errors.map((e, i) => (
+                            <tr key={i}>
+                              <td style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'center' }}>{e.row}</td>
+                              <td style={{ padding: '4px 8px', border: '1px solid var(--border)', color: 'var(--danger)' }}>{e.message}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              {importPhase === 'idle' && (
+                <button className="btn btn-secondary" onClick={closeImport}>{t('c.cancel')}</button>
+              )}
+              {importPhase === 'preview' && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => { setImportPhase('idle'); setImportRows([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                    {t('c.cancel')}
+                  </button>
+                  <button className="btn btn-primary" style={{ width: 'auto' }} onClick={runImport}>
+                    {t('mi.importBtn')} {importRows.length} {t('mi.importMaterials')}
+                  </button>
+                </>
+              )}
+              {importPhase === 'done' && (
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={closeImport}>
+                  {t('mi.importClose')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -34,7 +34,9 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em todas as rotas de listagem. Valores maiores são silenciosamente truncados para 100.
 
-13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import`. Nunca fazer upload de arquivo binário para o servidor — isso evita adicionar dependência de parser Excel no backend Fastify. O endpoint de importação usa `ON CONFLICT DO NOTHING RETURNING id` para detectar duplicatas sem lançar exceção.
+13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor — isso evita adicionar dependência de parser Excel no backend Fastify. O endpoint de importação usa `ON CONFLICT DO NOTHING RETURNING id` para detectar duplicatas sem lançar exceção.
+
+14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. Ele é puro (sem I/O). O endpoint `POST /v1/tax/calculate` delega para ele. O frontend chama esse endpoint e armazena os valores calculados nos campos `icms_*`, `pis_*`, `cofins_*` dos itens antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro" (embutidos no preço — não aumentam o total). IPI é "por fora" (adicionado ao total). O total da NF-e = subtotal + ipi_total.
 
 ---
 
@@ -97,6 +99,24 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > Economia estimada: **$9–14/mês** (~$38 → ~$24–29).
 > **Nota:** `terraform apply` destrói o ALB e recria como NLB — ~2 min de downtime
 > esperado durante o apply. Aceitável para MVP.
+
+### v1.1 — Importação de materiais + Motor de cálculo de impostos SP (Avalara-pattern)
+> **Importação de materiais:** mesmo padrão da importação de clientes. `POST /v1/materials/import`
+> aceita array JSON de até 500 linhas; SKU duplicado → ignorado com `ON CONFLICT DO NOTHING`.
+> MaterialsPage recebe botão "↑ Importar" e modal 4-fases igual ao de clientes.
+> Modelo de planilha com 12 colunas gerado pelo frontend via SheetJS.
+>
+> **Motor de impostos SP:** módulo puro `services/api-core/src/lib/taxEngine.ts` com
+> `calculateTaxes(TaxTransaction): TaxResult`. Rates: ICMS interno SP 12%; interstate
+> SP→SE/Sul/CO 12%, SP→N/NE/ES 7%. PIS/COFINS: Lucro Presumido 0.65%/3.00%, Lucro Real
+> 1.65%/7.60%, Simples/MEI 0% (DAS). CST: `00`/`40` (LP/LR), CSOSN `102`/`400` (Simples).
+> `POST /v1/tax/calculate` expõe o engine via REST.
+> Migration `0008_invoice_taxes.sql`: adiciona `tax_regime`, `origin_state`, `icms_total`,
+> `pis_total`, `cofins_total` em `invoices`; adiciona colunas `icms_*`, `pis_*`, `cofins_*`,
+> `ipi_*` em `invoice_items` (armazenamento para NF-e).
+> InvoicesPage: seletor de regime tributário + UF destino + botão "Calcular Impostos" +
+> painel de breakdown fiscal (ICMS/PIS/COFINS embutidos com CST e alíquota).
+> Regras 13 e 14 atualizadas no Protocolo Anti-alucinação.
 
 ### v1.0 — Importação de clientes via planilha Excel
 > Funcionalidade de importação em lote no módulo de Clientes.
@@ -239,14 +259,17 @@ erp-lite/
 │   │   ├── app.ts                  ← Fastify factory + registro de rotas
 │   │   ├── config.ts               ← variáveis de ambiente
 │   │   ├── db/pool.ts              ← pg.Pool singleton
+│   │   ├── lib/
+│   │   │   └── taxEngine.ts        ← motor de cálculo de impostos SP (puro, sem I/O)
 │   │   ├── routes/
 │   │   │   ├── auth.ts             ← POST /v1/auth/login|register, GET /v1/auth/me
 │   │   │   ├── customers.ts        ← CRUD /v1/customers (tenants SaaS)
-│   │   │   ├── materials.ts        ← CRUD /v1/materials + /v1/stock/*
-│   │   │   ├── clients.ts          ← CRUD /v1/clients (PJ/PF — NF-e ready)
+│   │   │   ├── materials.ts        ← CRUD /v1/materials + import + /v1/stock/*
+│   │   │   ├── clients.ts          ← CRUD /v1/clients (PJ/PF — NF-e ready) + import
 │   │   │   ├── users.ts            ← CRUD /v1/users (por tenant)
 │   │   │   ├── orders.ts           ← CRUD /v1/orders + confirm/deliver/cancel
-│   │   │   └── invoices.ts         ← CRUD /v1/invoices + issue/cancel
+│   │   │   ├── invoices.ts         ← CRUD /v1/invoices + issue/cancel (c/ tax values)
+│   │   │   └── tax.ts              ← POST /v1/tax/calculate
 │   │   └── scripts/
 │   │       ├── migrate.ts          ← runner de migrations SQL (executa em ordem)
 │   │       └── seed.ts             ← cria usuário admin para dev local
@@ -257,7 +280,8 @@ erp-lite/
 │       ├── 0004_inventory.sql
 │       ├── 0005_clients.sql
 │       ├── 0006_orders.sql         ← orders + order_items
-│       └── 0007_invoices.sql       ← invoices + invoice_items
+│       ├── 0007_invoices.sql       ← invoices + invoice_items
+│       └── 0008_invoice_taxes.sql  ← colunas de impostos em invoices + invoice_items
 │
 ├── apps/backoffice/                ← React + Vite SPA
 │   ├── vite.config.ts              ← proxy /v1/* e /health → api-core:3000
@@ -423,7 +447,7 @@ erp-lite/
 | notes | TEXT | |
 | created_at | TIMESTAMPTZ | Usado para ordenação dos itens |
 
-### `invoices` *(migration: 0007_invoices.sql)*
+### `invoices` *(migrations: 0007_invoices.sql + 0008_invoice_taxes.sql)*
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | id | UUID PK | |
@@ -434,15 +458,20 @@ erp-lite/
 | serie | VARCHAR(10) DEFAULT '1' | Série da NF-e |
 | status | VARCHAR(20) | `draft`→`issued`\|`cancelled` |
 | issue_date | DATE | Atribuído ao emitir (CURRENT_DATE) |
-| subtotal / tax_total / total | DECIMAL(15,2) | |
+| subtotal | DECIMAL(15,2) | Soma dos itens (impostos embutidos — PIS/COFINS/ICMS "por dentro") |
+| tax_total | DECIMAL(15,2) DEFAULT 0 | ICMS + PIS + COFINS (informacional; já embutidos no subtotal) |
+| total | DECIMAL(15,2) | subtotal + IPI (IPI é "por fora"); = subtotal se IPI = 0 |
 | notes | TEXT | |
 | xml_url / pdf_url | TEXT | URLs futuras (integração SEFAZ) |
+| tax_regime | VARCHAR(30) DEFAULT 'lucro_presumido' | `lucro_presumido`\|`lucro_real`\|`simples_nacional`\|`mei` |
+| origin_state | CHAR(2) DEFAULT 'SP' | UF do emitente |
+| icms_total / pis_total / cofins_total | DECIMAL(15,2) DEFAULT 0 | Breakdown por imposto |
 
 **Fluxo de status:**
 - `draft` → `issued`: gera número sequencial (MAX(number) + 1 por tenant+serie, filtrado em `status='issued'`), seta `issue_date = CURRENT_DATE`, marca pedido vinculado como `invoiced`
 - `issued` → `cancelled`: reverte pedido para `confirmed` se não houver outra NF-e `issued` vinculada
 
-### `invoice_items` *(migration: 0007_invoices.sql)*
+### `invoice_items` *(migrations: 0007_invoices.sql + 0008_invoice_taxes.sql)*
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | id | UUID PK | |
@@ -453,7 +482,14 @@ erp-lite/
 | cfop | VARCHAR(10) | Código CFOP |
 | quantity | DECIMAL(15,3) CHECK > 0 | |
 | unit_price | DECIMAL(15,2) CHECK >= 0 | |
-| total | DECIMAL(15,2) | |
+| total | DECIMAL(15,2) | quantity × unit_price |
+| icms_cst | VARCHAR(3) | CST `00`/`40` ou CSOSN `102`/`400` (Simples) |
+| icms_base / icms_rate / icms_value | DECIMAL | Base, alíquota %, valor ICMS |
+| pis_cst | VARCHAR(2) | CST `01` (tributada) ou `07` (Simples/MEI) |
+| pis_base / pis_rate / pis_value | DECIMAL | |
+| cofins_cst | VARCHAR(2) | CST `01` ou `70` (Simples/MEI) |
+| cofins_base / cofins_rate / cofins_value | DECIMAL | |
+| ipi_rate / ipi_value | DECIMAL | IPI "por fora" (adicionado ao total da NF-e) |
 
 ---
 
@@ -511,10 +547,25 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 | GET    | `/v1/materials/:id` | Buscar |
 | PATCH  | `/v1/materials/:id` | Atualizar |
 | DELETE | `/v1/materials/:id` | Soft delete (is_active=false) |
+| POST   | `/v1/materials/import` | Importação em lote via planilha (máx 500 linhas) |
 | GET    | `/v1/materials/:id/stock` | Estoque atual |
 | POST   | `/v1/materials/:id/stock/movements` | Registrar movimento |
 | GET    | `/v1/materials/:id/stock/movements` | Histórico |
 | GET    | `/v1/stock/alerts?tenant_id=` | Materiais abaixo do mínimo |
+
+**Body de importação de materiais:**
+```json
+{
+  "tenant_id": "uuid",
+  "materials": [
+    { "sku": "PROD-001", "nome": "Parafuso M6", "tipo": "product",
+      "unidade": "UN", "preco_venda": 29.90, "preco_custo": 15.00,
+      "ncm": "7318.15.00", "controla_estoque": "SIM" }
+  ]
+}
+```
+**Response:** `{ "imported": N, "skipped": N, "errors": [{ "row": 2, "message": "..." }] }`
+- SKU duplicado por tenant → ignorado. Cria linha `inventory` se `controla_estoque=SIM`.
 
 ### Users
 | Método | Rota | Descrição |
@@ -567,13 +618,57 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
   "order_id": "uuid|null",
   "serie": "1",
   "notes": "string|null",
+  "tax_regime": "lucro_presumido",
+  "origin_state": "SP",
   "items": [
     { "material_id": "uuid|null", "name": "string",
       "ncm_code": "0000.00.00", "cfop": "5102",
-      "quantity": 1, "unit_price": 99.90 }
+      "quantity": 1, "unit_price": 99.90,
+      "icms_cst": "00", "icms_base": 99.90, "icms_rate": 12, "icms_value": 11.99,
+      "pis_cst": "01",  "pis_base":  99.90, "pis_rate":  0.65, "pis_value": 0.65,
+      "cofins_cst": "01", "cofins_base": 99.90, "cofins_rate": 3.00, "cofins_value": 3.00,
+      "ipi_rate": 0, "ipi_value": 0 }
   ]
 }
 ```
+- Campos de impostos são opcionais (default 0). O frontend deve calcular via `POST /v1/tax/calculate` antes de salvar.
+
+### Tax (Cálculo de Impostos — São Paulo)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| POST   | `/v1/tax/calculate` | Calcular ICMS/PIS/COFINS/IPI para SP (stateless) |
+
+**Body:**
+```json
+{
+  "origin_state": "SP",
+  "destination_state": "SP",
+  "tax_regime": "lucro_presumido",
+  "lines": [
+    { "ncm_code": "7318.15.00", "quantity": 10, "unit_price": 29.90, "ipi_rate": 0 }
+  ]
+}
+```
+**Response:**
+```json
+{
+  "lines": [{
+    "subtotal": 299.00,
+    "icms_cst": "00", "icms_base": 299.00, "icms_rate": 12, "icms_value": 35.88,
+    "pis_cst": "01",  "pis_base": 299.00,  "pis_rate": 0.65, "pis_value": 1.94,
+    "cofins_cst": "01", "cofins_base": 299.00, "cofins_rate": 3.00, "cofins_value": 8.97,
+    "ipi_base": 299.00, "ipi_rate": 0, "ipi_value": 0,
+    "embedded_tax_total": 46.79, "line_total": 299.00
+  }],
+  "totals": { "subtotal": 299.00, "icms_total": 35.88, "pis_total": 1.94,
+               "cofins_total": 8.97, "ipi_total": 0, "embedded_tax_total": 46.79, "grand_total": 299.00 },
+  "applied_rates": { "icms": 12, "pis": 0.65, "cofins": 3.00 },
+  "tax_regime": "lucro_presumido", "origin_state": "SP", "destination_state": "SP"
+}
+```
+- ICMS/PIS/COFINS são "por dentro" — `grand_total = subtotal + ipi_total`
+- ICMS SP→SP ou SP→MG/RJ/PR/SC/RS/GO/MS/MT/DF: 12%. SP→N/NE/ES: 7%
+- Simples Nacional / MEI: ICMS 0% (CSOSN `102`/`400`), PIS/COFINS 0% (CST `07`/`70`)
 
 ### Customers (Tenants SaaS)
 | Método | Rota | Descrição |
