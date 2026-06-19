@@ -100,6 +100,31 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > **Nota:** `terraform apply` destrói o ALB e recria como NLB — ~2 min de downtime
 > esperado durante o apply. Aceitável para MVP.
 
+### v1.2 — Cost optimisation: Remove Multi-AZ + RDS auto-stop scheduler (dev)
+> Duas mudanças Terraform sem impacto em código de aplicação. Economia total: ~**$19/mês**.
+>
+> **Remove Multi-AZ (P1):** `multi_az` migrado de `var.environment == "prod"` para a
+> nova variável `var.rds_multi_az` (default `false`). Multi-AZ duplica o custo do RDS
+> sem benefício real para um MVP — o RPO/RTO do backup diário (7 dias de retenção) é
+> suficiente neste estágio. Economia: ~**$11/mês** em prod. Para reativar Multi-AZ quando
+> o SLA exigir < 1 min de RTO: `terraform apply -var="rds_multi_az=true"`.
+>
+> **Scheduler auto-stop dev (P2):** novo arquivo `terraform/scheduler.tf` cria dois
+> EventBridge Schedules (non-prod only): para RDS às 20h Brasília (stop) e às 08h Brasília
+> (start), segunda a sexta. Reduz horas ativas de 720 → 260 h/mês (~64% menos). Economia:
+> ~**$8/mês** no ambiente dev. Fim de semana: DB permanece parado (< limite de 7 dias da AWS
+> para stop manual). Para acesso fora do horário:
+> `aws rds start-db-instance --db-instance-identifier erp-lite-postgres-dev`
+>
+> **P3 (Reserved Instances):** ação manual no Console AWS Billing → Reservations.
+> Compromisso de 1 ano em `db.t3.micro` = 35–40% de desconto adicional (~$4/mês).
+>
+> **P4 (Aurora Serverless v2) e P5 (Lambda):** analisados e descartados para este MVP.
+> Aurora Serverless v2 com min_capacity=0 é mais caro que RDS t3.micro single-AZ quando
+> o sistema fica ativo > 6h/dia. Lambda requer NAT Gateway para DB privado (cancela
+> economia) ou tornar o RDS público (risco de segurança). Nenhum dos dois vale para o
+> perfil de uso atual.
+
 ### v1.1 — Importação de materiais + Motor de cálculo de impostos SP (Avalara-pattern)
 > **Importação de materiais:** mesmo padrão da importação de clientes. `POST /v1/materials/import`
 > aceita array JSON de até 500 linhas; SKU duplicado → ignorado com `ON CONFLICT DO NOTHING`.
@@ -226,6 +251,10 @@ flowchart TD
 > e FARGATE como fallback automático (peso 1). Spot tem ~70% de desconto; ECS relança
 > a task automaticamente em caso de interrupção (~2 min de downtime).
 > **NLB:** substitui o ALB para cortar custo de LCU. Camada 4 (TCP) — sem features L7.
+> **Single-AZ RDS:** `rds_multi_az = false` por padrão. Multi-AZ duplica o custo do RDS
+> sem benefício real para MVP (backup diário de 7 dias é suficiente). Economia: ~$11/mês.
+> **Scheduler dev:** EventBridge para parar o RDS às 20h e iniciar às 8h (seg–sex, Brasília).
+> Dev RDS fica ativo ~260 h/mês em vez de 720 h. Economia: ~$8/mês no ambiente dev.
 
 ---
 
@@ -953,14 +982,17 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 
 ### Variáveis de custo (terraform/variables.tf)
 
-| Variável | Dev | Prod |
-|----------|-----|------|
-| `db_instance_class` | `db.t3.micro` | `db.t3.small` |
-| `api_desired_count` | `1` | `2` |
-| `api_cpu` | `256` | `512` |
-| `api_memory` | `512` | `1024` |
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `db_instance_class` | `db.t3.micro` | Classe RDS — usar `db.t3.small` em prod com alta carga |
+| `rds_multi_az` | `false` | Multi-AZ standby (dobra custo) — ativar apenas quando SLA exige RTO < 1 min |
+| `api_desired_count` | `1` | Tasks ECS — usar `2` em prod para zero-downtime deploys |
+| `api_cpu` | `256` | vCPU Fargate (unidades) |
+| `api_memory` | `512` | RAM Fargate (MB) |
 
-Estimativa mensal: ~$27 (RDS $15 + ECS Spot $3 + NLB $6 + CloudFront/S3 $1 + CW $2)
+**Estimativa mensal prod:** ~**$16** (RDS single-AZ $12 + ECS Spot $3 + NLB $6 + CloudFront/S3 $1 + CW $2 − free tier)
+**Estimativa mensal dev:** ~**$8** (RDS c/ scheduler $4 + ECS Spot $3 + restante $1)
+> Antes da v1.2: ~$27/mês (Multi-AZ RDS em prod + RDS rodando 24/7 em dev).
 > Antes da v0.9: ~$38 (ECS regular Fargate $9 + ALB $16 + restante $13).
 
 > **RDS PostgreSQL 16:** `rds.force_ssl=1` ativado por padrão. O `DATABASE_URL` usa
