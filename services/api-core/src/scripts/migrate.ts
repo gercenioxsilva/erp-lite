@@ -3,14 +3,19 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 })
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 15_000,
+      // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1).
+      ssl: { rejectUnauthorized: false },
+    })
   : new Pool({
       host: process.env.DB_HOST || 'localhost',
       port: Number(process.env.DB_PORT || 5432),
       database: process.env.DB_NAME || 'erp_lite',
       user: process.env.DB_USER || 'erp_lite',
       password: process.env.DB_PASSWORD || 'erp_lite',
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 15_000,
     });
 
 const migrations = [

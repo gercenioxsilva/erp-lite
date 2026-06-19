@@ -4,7 +4,12 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   jwtSecret: process.env.JWT_SECRET || 'change-me',
   db: process.env.DATABASE_URL
-    ? { connectionString: process.env.DATABASE_URL }
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1).
+        // rejectUnauthorized: false accepts the self-signed RDS certificate for intra-VPC connections.
+        ssl: { rejectUnauthorized: false },
+      }
     : {
         host: process.env.DB_HOST || 'localhost',
         port: Number(process.env.DB_PORT || 5432),
