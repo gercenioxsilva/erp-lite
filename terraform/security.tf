@@ -1,7 +1,7 @@
 # ── ALB Security Group ────────────────────────────────────────────────────────
 resource "aws_security_group" "alb" {
   name        = "erp-lite-alb-${var.environment}"
-  description = "ALB — accept HTTP/HTTPS from internet"
+  description = "ALB - accept HTTP/HTTPS from internet"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -29,7 +29,7 @@ resource "aws_security_group" "alb" {
 # ── ECS / API Core Security Group ────────────────────────────────────────────
 resource "aws_security_group" "api_core" {
   name        = "erp-lite-api-core-${var.environment}"
-  description = "API Core — accept traffic from ALB only"
+  description = "API Core - accept traffic from ALB only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -53,7 +53,7 @@ resource "aws_security_group" "api_core" {
 # ── RDS Security Group ────────────────────────────────────────────────────────
 resource "aws_security_group" "rds" {
   name        = "erp-lite-rds-${var.environment}"
-  description = "RDS — accept PostgreSQL from api-core only"
+  description = "RDS - accept PostgreSQL from api-core only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
