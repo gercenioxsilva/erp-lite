@@ -2,12 +2,26 @@ import { FastifyPluginAsync } from 'fastify';
 import { pool } from '../db/pool';
 
 interface InvoiceItemPayload {
-  material_id?: string;
-  name:         string;
-  ncm_code?:    string;
-  cfop?:        string;
-  quantity:     number;
-  unit_price:   number;
+  material_id?:  string;
+  name:          string;
+  ncm_code?:     string;
+  cfop?:         string;
+  quantity:      number;
+  unit_price:    number;
+  icms_cst?:     string;
+  icms_base?:    number;
+  icms_rate?:    number;
+  icms_value?:   number;
+  pis_cst?:      string;
+  pis_base?:     number;
+  pis_rate?:     number;
+  pis_value?:    number;
+  cofins_cst?:   string;
+  cofins_base?:  number;
+  cofins_rate?:  number;
+  cofins_value?: number;
+  ipi_rate?:     number;
+  ipi_value?:    number;
 }
 
 export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -60,14 +74,21 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── POST /v1/invoices ──────────────────────────────────────────────── */
   fastify.post('/invoices', async (request, reply) => {
-    const { tenant_id, client_id, order_id, items, notes, serie = '1' } =
-      request.body as any;
+    const body = request.body as any;
+    const { tenant_id, client_id, order_id, items, notes, serie = '1',
+            tax_regime = 'lucro_presumido', origin_state = 'SP' } = body;
     if (!tenant_id || !client_id) return reply.badRequest('tenant_id and client_id are required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
-    const subtotal = items.reduce(
-      (s: number, it: InvoiceItemPayload) => s + Number(it.quantity) * Number(it.unit_price), 0,
-    );
+    const n = (v: unknown) => Number(v) || 0;
+
+    const subtotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.quantity) * n(it.unit_price), 0);
+    const ipiTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.ipi_value), 0);
+    const icmsTotal   = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.icms_value), 0);
+    const pisTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.pis_value), 0);
+    const cofinsTotal = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.cofins_value), 0);
+    const taxTotal    = Math.round((icmsTotal + pisTotal + cofinsTotal) * 100) / 100;
+    const total       = Math.round((subtotal  + ipiTotal) * 100) / 100;
 
     const client = await pool.connect();
     try {
@@ -75,20 +96,34 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { rows: [invoice] } = await client.query(
         `INSERT INTO invoices
-           (tenant_id, client_id, order_id, serie, notes, subtotal, total, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, 'draft')
+           (tenant_id, client_id, order_id, serie, notes,
+            subtotal, tax_total, total, status,
+            tax_regime, origin_state, icms_total, pis_total, cofins_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12, $13)
          RETURNING id, status, serie`,
-        [tenant_id, client_id, order_id || null, serie, notes || null, subtotal],
+        [tenant_id, client_id, order_id || null, serie, notes || null,
+         subtotal, taxTotal, total, tax_regime, origin_state,
+         icmsTotal, pisTotal, cofinsTotal],
       );
 
       for (const it of items as InvoiceItemPayload[]) {
         await client.query(
           `INSERT INTO invoice_items
-             (invoice_id, material_id, name, ncm_code, cfop, quantity, unit_price, total)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [invoice.id, it.material_id || null, it.name, it.ncm_code || null,
-           it.cfop || null, it.quantity, it.unit_price,
-           Number(it.quantity) * Number(it.unit_price)],
+             (invoice_id, material_id, name, ncm_code, cfop, quantity, unit_price, total,
+              icms_cst, icms_base, icms_rate, icms_value,
+              pis_cst,  pis_base,  pis_rate,  pis_value,
+              cofins_cst, cofins_base, cofins_rate, cofins_value,
+              ipi_rate, ipi_value)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+          [
+            invoice.id, it.material_id || null, it.name, it.ncm_code || null,
+            it.cfop || null, it.quantity, it.unit_price,
+            n(it.quantity) * n(it.unit_price),
+            it.icms_cst    || null, n(it.icms_base),   n(it.icms_rate),   n(it.icms_value),
+            it.pis_cst     || null, n(it.pis_base),    n(it.pis_rate),    n(it.pis_value),
+            it.cofins_cst  || null, n(it.cofins_base), n(it.cofins_rate), n(it.cofins_value),
+            n(it.ipi_rate), n(it.ipi_value),
+          ],
         );
       }
 

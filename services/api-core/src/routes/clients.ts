@@ -88,6 +88,120 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(201).send(client);
   });
 
+  // POST /v1/clients/import — batch upsert from Excel (parsed client-side)
+  // Returns { imported, skipped, errors: [{ row, message }] }; max 500 rows per call.
+  fastify.post('/clients/import', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['tenant_id', 'clients'],
+        additionalProperties: false,
+        properties: {
+          tenant_id: { type: 'string', format: 'uuid' },
+          clients: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 500,
+            items: {
+              type: 'object',
+              required: ['person_type'],
+              additionalProperties: true,
+              properties: {
+                person_type: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { tenant_id, clients } = request.body as {
+      tenant_id: string;
+      clients: Record<string, unknown>[];
+    };
+
+    const toStr  = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s || null; };
+    const toDigits = (v: unknown): string | null => { const s = String(v ?? '').replace(/\D/g, ''); return s || null; };
+    const toDate = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      const s = String(v ?? '').trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+    };
+
+    let imported = 0;
+    let skipped  = 0;
+    const errors: { row: number; message: string }[] = [];
+
+    for (let i = 0; i < clients.length; i++) {
+      const b   = clients[i];
+      const row = i + 2; // row 2 = first data row (row 1 = headers in the Excel)
+
+      const personType = String(b.person_type ?? '').trim().toUpperCase();
+
+      if (!['PJ', 'PF'].includes(personType)) {
+        errors.push({ row, message: `tipo_pessoa inválido: "${b.person_type}" — use PJ ou PF` });
+        skipped++; continue;
+      }
+      if (personType === 'PJ' && !toStr(b.company_name)) {
+        errors.push({ row, message: 'razao_social é obrigatória para PJ' });
+        skipped++; continue;
+      }
+      if (personType === 'PF' && !toStr(b.full_name)) {
+        errors.push({ row, message: 'nome_completo é obrigatório para PF' });
+        skipped++; continue;
+      }
+
+      // PF overrides: always Não Contribuinte + Consumidor Final
+      const icms = personType === 'PF' ? '9'
+        : (['1','2','9'].includes(String(b.icms_taxpayer)) ? String(b.icms_taxpayer) : '9');
+      const cons = personType === 'PF' ? '1'
+        : (['0','1'].includes(String(b.consumer_type))  ? String(b.consumer_type)  : '0');
+
+      try {
+        const { rows: inserted } = await pool.query(
+          `INSERT INTO clients (
+             tenant_id, person_type,
+             company_name, trade_name, cnpj, state_reg, municipal_reg, suframa,
+             full_name, cpf, birth_date, rg, rg_issuer,
+             email, phone, mobile,
+             zip_code, street, street_number, complement, neighborhood, city, state, country,
+             icms_taxpayer, consumer_type, notes
+           ) VALUES (
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+           ) ON CONFLICT DO NOTHING RETURNING id`,
+          [
+            tenant_id, personType,
+            toStr(b.company_name),  toStr(b.trade_name),
+            toDigits(b.cnpj),       toStr(b.state_reg),
+            toStr(b.municipal_reg), toStr(b.suframa),
+            toStr(b.full_name),
+            toDigits(b.cpf),        toDate(b.birth_date),
+            toStr(b.rg),            toStr(b.rg_issuer),
+            toStr(b.email),         toDigits(b.phone),   toDigits(b.mobile),
+            toDigits(b.zip_code),
+            toStr(b.street),        toStr(b.street_number), toStr(b.complement),
+            toStr(b.neighborhood),  toStr(b.city),          toStr(b.state),
+            'BR',
+            icms, cons,
+            toStr(b.notes),
+          ],
+        );
+
+        if (inserted.length === 0) {
+          errors.push({ row, message: `${personType === 'PJ' ? 'CNPJ' : 'CPF'} já cadastrado para este tenant` });
+          skipped++;
+        } else {
+          imported++;
+        }
+      } catch (err: unknown) {
+        errors.push({ row, message: err instanceof Error ? err.message : 'Erro ao inserir registro' });
+        skipped++;
+      }
+    }
+
+    return { imported, skipped, errors };
+  });
+
   // GET /v1/clients
   fastify.get('/clients', async (request, reply) => {
     const q = request.query as Record<string, string>;
