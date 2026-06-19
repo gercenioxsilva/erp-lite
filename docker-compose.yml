@@ -17,6 +17,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── LocalStack (SQS + S3 + SES emulation) ─────────────────────────────────
+  # Free tier covers SQS, S3, SES — all services needed for local dev.
+  # Queues and bucket are created by the init script after LocalStack is ready.
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES:            sqs,s3,ses
+      DEFAULT_REGION:      us-east-1
+      AWS_DEFAULT_REGION:  us-east-1
+      AWS_ACCESS_KEY_ID:   test
+      AWS_SECRET_ACCESS_KEY: test
+      # Makes LocalStack return URLs with the service name so containers can resolve them
+      LOCALSTACK_HOST:     localstack
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh:ro
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   # ── Migrations (run once then exit) ────────────────────────────────────────
   # Usage: docker compose run --rm migrate
   migrate:
@@ -41,17 +65,70 @@ services:
       target: development
     command: npm run dev
     ports:
-      - "3001:3000"     # host:3001 → container:3000 (avoids conflicts with other services)
+      - "3001:3000"
     environment:
-      DATABASE_URL: postgres://erp_lite:erp_lite@db:5432/erp_lite
-      NODE_ENV:     development
-      PORT:         3000
-      JWT_SECRET:   local-dev-secret
+      DATABASE_URL:           postgres://erp_lite:erp_lite@db:5432/erp_lite
+      NODE_ENV:               development
+      PORT:                   3000
+      JWT_SECRET:             local-dev-secret
+      AWS_REGION:             us-east-1
+      AWS_ACCESS_KEY_ID:      test
+      AWS_SECRET_ACCESS_KEY:  test
+      AWS_ENDPOINT_URL:       http://localstack:4566
+      NFE_REQUESTS_QUEUE_URL:  http://localstack:4566/000000000000/nfe-requests
+      NFE_RESULTS_QUEUE_URL:   http://localstack:4566/000000000000/nfe-results
+      NOTIFICATIONS_QUEUE_URL: http://localstack:4566/000000000000/notifications
+      NFE_BUCKET:             nfe-xmls-local
     volumes:
-      - ./services/api-core/src:/app/src   # hot-reload: changes reflect immediately
+      - ./services/api-core/src:/app/src
       - ./services/api-core/db:/app/db
     depends_on:
       db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Lambda Fiscal (local runner polls nfe-requests queue) ─────────────────
+  # Mirrors the Lambda function that AWS triggers from SQS in production.
+  # Connect to Focus NF-e sandbox by setting FOCUS_NFE_TOKEN to a sandbox token.
+  lambda-fiscal:
+    build:
+      context: ./services/lambda-fiscal
+      target: development
+    environment:
+      AWS_REGION:             us-east-1
+      AWS_ACCESS_KEY_ID:      test
+      AWS_SECRET_ACCESS_KEY:  test
+      AWS_ENDPOINT_URL:       http://localstack:4566
+      FOCUS_NFE_TOKEN:        ${FOCUS_NFE_TOKEN:-local-sandbox-token}
+      NFE_REQUESTS_QUEUE_URL:  http://localstack:4566/000000000000/nfe-requests
+      NFE_RESULTS_QUEUE_URL:   http://localstack:4566/000000000000/nfe-results
+      NFE_BUCKET:             nfe-xmls-local
+      LOG_LEVEL:              debug
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Lambda Notifications (local runner polls notifications queue) ───────────
+  # Sends emails via LocalStack SES (captured locally, not delivered).
+  # View captured emails at: http://localhost:4566/_localstack/ses
+  lambda-notifications:
+    build:
+      context: ./services/lambda-notifications
+      target: development
+    environment:
+      AWS_REGION:             us-east-1
+      AWS_ACCESS_KEY_ID:      test
+      AWS_SECRET_ACCESS_KEY:  test
+      AWS_ENDPOINT_URL:       http://localstack:4566
+      SES_FROM_EMAIL:         noreply@localhost
+      SES_FROM_NAME:          GAX ERP (local)
+      NOTIFICATIONS_QUEUE_URL: http://localstack:4566/000000000000/notifications
+      LOG_LEVEL:              debug
+    depends_on:
+      localstack:
         condition: service_healthy
     restart: unless-stopped
 
@@ -63,8 +140,6 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # When running inside Docker the proxy must target the Compose service name.
-      # When running on the host (npm run dev) vite.config.ts falls back to localhost:3001.
       API_PROXY_TARGET: "http://api-core:3000"
     volumes:
       - ./apps/backoffice:/app
@@ -75,4 +150,5 @@ services:
 
 volumes:
   pgdata:
+  localstack_data:
   backoffice_nm:

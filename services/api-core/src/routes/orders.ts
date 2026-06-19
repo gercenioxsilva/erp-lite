@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { pool } from '../db/pool';
+import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 
 interface ItemPayload {
   material_id?: string;
@@ -244,6 +245,26 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         "UPDATE orders SET status = 'confirmed' WHERE id = $1", [id],
       );
       await client.query('COMMIT');
+
+      // Fire-and-forget notification — failure must not roll back the confirmed order
+      pool.query(
+        `SELECT o.number, o.total,
+                COALESCE(c.company_name, c.full_name) AS client_name,
+                c.email AS client_email
+         FROM orders o
+         LEFT JOIN clients c ON c.id = o.client_id
+         WHERE o.id = $1`,
+        [id],
+      ).then(({ rows: [ord] }) => {
+        if (!ord?.client_email) return;
+        return sendNotificationIfEnabled({
+          tenant_id: order.tenant_id,
+          type:      'order_confirmed',
+          recipient: { email: ord.client_email, name: ord.client_name ?? '' },
+          data:      { order_number: ord.number, total: Number(ord.total).toFixed(2) },
+        });
+      }).catch(err => fastify.log.warn({ event: 'notification_enqueue_warn', error: String(err) }));
+
       return { ok: true, status: 'confirmed' };
     } catch (err) {
       await client.query('ROLLBACK');

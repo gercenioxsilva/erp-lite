@@ -45,9 +45,30 @@ resource "aws_cloudwatch_metric_alarm" "nfe_dlq_depth" {
   tags = { Environment = var.environment }
 }
 
+# ── SQS queues for async notifications ────────────────────────────────────────
+
+resource "aws_sqs_queue" "notifications_dlq" {
+  name                      = "erp-lite-notifications-dlq-${var.environment}"
+  message_retention_seconds = 1209600  # 14 days
+  tags                      = { Environment = var.environment }
+}
+
+resource "aws_sqs_queue" "notifications" {
+  name                       = "erp-lite-notifications-${var.environment}"
+  visibility_timeout_seconds = 60
+  message_retention_seconds  = 86400
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.notifications_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = { Environment = var.environment }
+}
+
 # ── IAM: ECS task role permissions for SQS ────────────────────────────────────
 resource "aws_iam_role_policy" "ecs_task_sqs" {
-  name = "nfe-sqs"
+  name = "nfe-notifications-sqs"
   role = aws_iam_role.ecs_task.id
 
   policy = jsonencode({
@@ -62,6 +83,11 @@ resource "aws_iam_role_policy" "ecs_task_sqs" {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.nfe_results.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.notifications.arn
       }
     ]
   })

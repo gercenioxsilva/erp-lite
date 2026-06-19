@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -99,6 +99,36 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > Economia estimada: **$9–14/mês** (~$38 → ~$24–29).
 > **Nota:** `terraform apply` destrói o ALB e recria como NLB — ~2 min de downtime
 > esperado durante o apply. Aceitável para MVP.
+
+### v1.4 — Lambda notifications + LocalStack dev environment
+> Novo microserviço `services/lambda-notifications/` (mesmo padrão Fastify DI do lambda-fiscal)
+> responsável pelo envio de e-mails transacionais multi-tenant via AWS SESv2.
+>
+> **Multi-tenant, e-mail individual:** cada mensagem SQS contém o destinatário já resolvido pelo
+> `api-core` (sem acesso a DB no Lambda). O `notificationsClient.ts` consulta `notification_configs`
+> antes de enfileirar — silencioso quando desabilitado ou sem configuração.
+>
+> **Eventos cobertos:** `nfe_authorized` (NF-e autorizada pela SEFAZ, inclui chave e link DANFE),
+> `nfe_rejected` (motivo da rejeição, ação necessária), `order_confirmed` (pedido confirmado, total).
+>
+> **Terraform:** novo `notifications.tf` (Lambda + IAM SQS+SES + CW Log Group + event source mapping),
+> duas novas filas SQS (`notifications` + `notifications-dlq`) em `sqs.tf`,
+> novo ECR repo `lambda-notifications` em `ecr.tf`. Novas variáveis: `ses_from_email`, `ses_from_name`,
+> `lambda_notifications_image_tag`. Novos secrets CI/CD: `TF_VAR_SES_FROM_EMAIL`, `TF_VAR_SES_FROM_NAME`.
+>
+> **LocalStack dev environment:** `docker-compose.yml` totalmente atualizado com serviço `localstack`
+> (SQS + S3 + SES emulados, free tier) e dois serviços de local runner que simulam os triggers SQS→Lambda.
+> Script `scripts/localstack-init.sh` cria filas e bucket automaticamente via init hook do LocalStack.
+> Variável `AWS_ENDPOINT_URL=http://localstack:4566` propagada para `api-core`, `lambda-fiscal` e
+> `lambda-notifications`. E-mails capturados localmente em `http://localhost:4566/_localstack/ses`.
+>
+> **Bug corrigido:** `services/lambda-fiscal/Dockerfile` usava `npm ci` sem `package-lock.json`
+> comprometido no contexto Docker do serviço. Corrigido para `npm install` em todos os estágios.
+> Adicionado estágio `development` nos Dockerfiles de ambas as Lambdas (`node:20-alpine` + `ts-node`).
+>
+> **Novo banco:** tabela `notification_configs` por tenant (email_enabled, from_name, reply_to,
+> toggles por tipo: notify_nfe_authorized, notify_nfe_rejected, notify_order_confirmed).
+> Migration `0010_notification_configs.sql`.
 
 ### v1.3 — Lambda fiscal NF-e + Focus NF-e async emission
 > Novo microserviço `services/lambda-fiscal/` (Node 20, ECR container) responsável por
@@ -267,31 +297,39 @@ flowchart TD
     subgraph async["Async — sem VPC (internet nativa)"]
         direction LR
         sqs_req["SQS nfe-requests\nVT=300s · DLQ após 3×"]
-        lambda["Lambda fiscal-nfe\nNode 20 · 512MB · 270s\nconcurrency=5 · X-Ray"]
+        lambda_f["Lambda fiscal\nNode 20 · 512MB · 270s"]
         sqs_res["SQS nfe-results\nlong-poll 15s"]
+        sqs_notif["SQS notifications\nVT=60s · DLQ após 3×"]
+        lambda_n["Lambda notifications\nNode 20 · 256MB · 60s"]
     end
 
-    ecr["ECR\napi-core + lambda-fiscal"]
+    ecr["ECR\napi-core + lambda-fiscal\n+ lambda-notifications"]
     s3_nfe["S3 nfe-xmls\nLifecycle 5 anos\n(obrigação SEFAZ)"]
     s3_ui["S3 backoffice\n+ CloudFront"]
     cw["CloudWatch\nLogs + Alarms"]
     focus["Focus NF-e\n(REST API)"]
     sefaz(["SEFAZ"])
+    ses(["AWS SESv2\nEmail"])
     eb["EventBridge\nScheduler\n(RDS stop/start dev)"]
 
     alb --> ecs
     ecs --> rds
     ecs -->|SendMessage| sqs_req
+    ecs -->|SendMessage| sqs_notif
     ecs -->|long-poll ReceiveMessage| sqs_res
-    sqs_req -->|trigger batch=1| lambda
-    lambda -->|HTTPS| focus
+    sqs_req -->|trigger batch=1| lambda_f
+    lambda_f -->|HTTPS| focus
     focus <-->|XML/SOAP| sefaz
-    lambda -->|PutObject| s3_nfe
-    lambda -->|SendMessage| sqs_res
+    lambda_f -->|PutObject| s3_nfe
+    lambda_f -->|SendMessage| sqs_res
+    sqs_notif -->|trigger batch=10| lambda_n
+    lambda_n -->|SendEmail| ses
     ecr -.->|image pull| ecs
-    ecr -.->|image pull| lambda
+    ecr -.->|image pull| lambda_f
+    ecr -.->|image pull| lambda_n
     ecs -.->|logs| cw
-    lambda -.->|traces+logs| cw
+    lambda_f -.->|logs| cw
+    lambda_n -.->|logs| cw
     eb -.->|stop 20h / start 8h| rds
 ```
 
@@ -533,6 +571,31 @@ erp-lite/
 │       └── lib/
 │           ├── focusNfe.ts         ← FocusNfeClient class + buildFocusPayload (puro, sem I/O)
 │           └── types.ts            ← NfeEmitMessage, NfeItem, NfePagamento, NfeResultMessage
+│
+├── services/lambda-notifications/  ← Lambda — e-mail transacional multi-tenant via SESv2
+│   ├── Dockerfile                  ← multi-stage: development (ts-node) | builder | production
+│   ├── package.json                ← deps: fastify, fastify-plugin, @aws-sdk/client-sesv2, @aws-sdk/client-sqs
+│   ├── tsconfig.json
+│   └── src/
+│       ├── app.ts                  ← Fastify factory (sem listen) — mesmo padrão lambda-fiscal
+│       ├── handler.ts              ← SQSHandler: singleton app, loop com batchItemFailures
+│       ├── localRunner.ts          ← runner local: polls SQS e chama handler (Docker Compose)
+│       ├── plugins/
+│       │   ├── config.ts           ← app.config (SES_FROM_EMAIL, SES_FROM_NAME, NOTIFICATIONS_QUEUE_URL)
+│       │   ├── ses.ts              ← app.ses = SESv2Client (com AWS_ENDPOINT_URL para LocalStack)
+│       │   └── templates.ts        ← app.getTemplate(type, data) → {subject, html, text}
+│       ├── services/
+│       │   └── notificationService.ts ← processRecord: SendEmailCommand via app.ses
+│       └── lib/
+│           ├── types.ts            ← NotificationMessage, NotificationType, EmailTemplate
+│           └── templates/
+│               ├── index.ts        ← getTemplate dispatcher
+│               ├── nfe_authorized.ts ← template: NF-e autorizada (chave, DANFE)
+│               ├── nfe_rejected.ts   ← template: NF-e rejeitada (motivo)
+│               └── order_confirmed.ts ← template: pedido confirmado (número, total)
+│
+├── scripts/
+│   └── localstack-init.sh          ← cria SQS queues, S3 bucket e SES identity no LocalStack
 │
 ├── apps/backoffice/                ← React + Vite SPA
 │   ├── vite.config.ts              ← proxy /v1/* e /health → api-core:3000
@@ -793,6 +856,18 @@ Audit trail imutável de todas as operações NF-e. Nunca deletar.
 | payload | JSONB | Resposta completa da SEFAZ / Focus NF-e |
 | created_at | TIMESTAMPTZ | |
 
+### `notification_configs` *(migration: 0010_notification_configs.sql)*
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| tenant_id | UUID PK FK → tenants | Um row por tenant (opt-in via API) |
+| email_enabled | BOOLEAN DEFAULT true | Master switch para e-mail |
+| email_from_name | VARCHAR(100) DEFAULT 'GAX ERP' | Nome exibido no remetente |
+| email_reply_to | VARCHAR(255) | Reply-To opcional |
+| notify_nfe_authorized | BOOLEAN DEFAULT true | Envia e-mail quando NF-e é autorizada |
+| notify_nfe_rejected | BOOLEAN DEFAULT true | Envia e-mail quando NF-e é rejeitada |
+| notify_order_confirmed | BOOLEAN DEFAULT false | Envia e-mail quando pedido é confirmado |
+| created_at / updated_at | TIMESTAMPTZ | |
+
 ---
 
 ## API Reference (fonte da verdade)
@@ -972,6 +1047,25 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 - ICMS SP→SP ou SP→MG/RJ/PR/SC/RS/GO/MS/MT/DF: 12%. SP→N/NE/ES: 7%
 - Simples Nacional / MEI: ICMS 0% (CSOSN `102`/`400`), PIS/COFINS 0% (CST `07`/`70`)
 
+### Notificações
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/v1/notification-config?tenant_id=` | Configuração de notificações do tenant (retorna defaults se não existir) |
+| PUT | `/v1/notification-config` | Criar/atualizar configuração (upsert) |
+
+**Body de PUT /v1/notification-config:**
+```json
+{
+  "tenant_id": "uuid",
+  "email_enabled": true,
+  "email_from_name": "Acme ERP",
+  "email_reply_to": "suporte@acme.com.br",
+  "notify_nfe_authorized": true,
+  "notify_nfe_rejected": true,
+  "notify_order_confirmed": false
+}
+```
+
 ### NF-e — Configuração e Emissão SEFAZ
 | Método | Rota | Descrição |
 |--------|------|-----------|
@@ -1144,21 +1238,62 @@ import { useI18n } from '../../i18n';
 | Node.js | 20+ |
 | npm | 10+ |
 
-### Subir tudo com Docker (recomendado)
+### Subir o ecossistema completo com Docker
+
+O `docker compose up` inicia **todos os serviços** incluindo LocalStack (emulação de SQS/S3/SES) e
+os local runners das Lambdas:
 
 ```bash
-npm install                   # dependências do monorepo
-docker compose up             # PostgreSQL + API Core + Backoffice (hot-reload)
-docker compose run --rm migrate  # cria tabelas (rodar na primeira vez e após novas migrations)
+npm install                      # instala deps do monorepo (backoffice etc.)
+
+# Subir tudo: PostgreSQL + LocalStack + API Core + Lambda Fiscal + Lambda Notifications + Backoffice
+docker compose up
+
+# Migrations (apenas na primeira vez ou após novas migrations)
+docker compose run --rm migrate
 ```
 
-| Serviço | URL |
-|---------|-----|
-| Backoffice | http://localhost:5173 |
-| API Core   | http://localhost:3001 |
-| PostgreSQL  | localhost:5432 |
+| Serviço | URL | Descrição |
+|---------|-----|-----------|
+| Backoffice | http://localhost:5173 | React SPA (hot-reload) |
+| API Core | http://localhost:3001 | Fastify REST API |
+| PostgreSQL | localhost:5432 | Banco de dados |
+| LocalStack | http://localhost:4566 | SQS + S3 + SES emulados |
+| SES Inbox (local) | http://localhost:4566/_localstack/ses | E-mails capturados localmente |
+
+> **LocalStack init:** o script `scripts/localstack-init.sh` roda automaticamente após o
+> LocalStack iniciar e cria todas as filas SQS, o bucket S3 e verifica a identidade SES.
+> Logs de criação aparecem no output do `docker compose up`.
+
+> **Lambda runners:** `lambda-fiscal` e `lambda-notifications` rodam como processos locais
+> que simulam o trigger SQS→Lambda da AWS. Fazem long-poll na fila e chamam o mesmo handler
+> que roda em produção — mesma lógica, sem diferença.
+
+> **Focus NF-e local:** para testar emissão real, defina `FOCUS_NFE_TOKEN=seu-token-sandbox`
+> no arquivo `.env` (ou exporte a variável antes do `docker compose up`). Sem o token,
+> a fila `nfe-requests` fica populada mas o lambda-fiscal falhará ao chamar a API.
 
 > O Vite faz proxy de `/v1/*` e `/health` para api-core em `:3000` — sem CORS.
+
+### Testar o fluxo de notificações localmente
+
+```bash
+# 1. Configurar notificações para o tenant
+curl -X PUT http://localhost:3001/v1/notification-config \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"email_enabled":true,"email_from_name":"Acme ERP","notify_nfe_authorized":true}'
+
+# 2. Confirmar um pedido (dispara notificação order_confirmed se habilitada)
+curl -X POST http://localhost:3001/v1/orders/<ID>/confirm \
+  -H "Authorization: Bearer <JWT>"
+
+# 3. Ver e-mails capturados pelo LocalStack SES
+curl http://localhost:4566/_localstack/ses
+
+# 4. Ver logs do lambda-notifications
+docker compose logs -f lambda-notifications
+```
 
 ### Primeiro acesso — criar conta
 
@@ -1225,13 +1360,40 @@ curl -X POST http://localhost:3000/v1/invoices/<ID>/issue
 | `SEED_EMAIL` | `admin@erp.local` | Para `npm run seed` |
 | `SEED_PASSWORD` | `Admin@2024` | Para `npm run seed` |
 
+### Variáveis de ambiente (api-core — locais)
+
+| Variável | Padrão Docker Compose | Descrição |
+|----------|----------------------|-----------|
+| `DATABASE_URL` | `postgres://erp_lite:erp_lite@db:5432/erp_lite` | Connection string |
+| `JWT_SECRET` | `local-dev-secret` | Segredo JWT |
+| `PORT` | `3000` | Porta HTTP |
+| `NODE_ENV` | `development` | |
+| `AWS_REGION` | `us-east-1` | Região AWS |
+| `AWS_ENDPOINT_URL` | `http://localstack:4566` | Endpoint LocalStack (omitir em prod) |
+| `NFE_REQUESTS_QUEUE_URL` | `http://localstack:4566/000000000000/nfe-requests` | Fila SQS NF-e |
+| `NFE_RESULTS_QUEUE_URL` | `http://localstack:4566/000000000000/nfe-results` | Fila SQS resultados |
+| `NOTIFICATIONS_QUEUE_URL` | `http://localstack:4566/000000000000/notifications` | Fila SQS notificações |
+| `NFE_BUCKET` | `nfe-xmls-local` | Bucket S3 XMLs NF-e |
+
 ### Variáveis de ambiente (lambda-fiscal)
 
 | Variável | Descrição |
 |----------|-----------|
 | `FOCUS_NFE_TOKEN` | Token de API da Focus NF-e (obrigatório) |
+| `NFE_REQUESTS_QUEUE_URL` | URL da fila SQS nfe-requests (obrigatório) |
 | `NFE_RESULTS_QUEUE_URL` | URL da fila SQS nfe-results (obrigatório) |
 | `NFE_BUCKET` | Nome do bucket S3 para XMLs (obrigatório) |
+| `AWS_ENDPOINT_URL` | Endpoint LocalStack (apenas dev) |
+| `AWS_REGION` | Injetado automaticamente pela AWS Lambda |
+
+### Variáveis de ambiente (lambda-notifications)
+
+| Variável | Descrição |
+|----------|-----------|
+| `SES_FROM_EMAIL` | Endereço verificado no SES usado como remetente (obrigatório) |
+| `SES_FROM_NAME` | Nome exibido ao lado do remetente (padrão: `GAX ERP`) |
+| `NOTIFICATIONS_QUEUE_URL` | URL da fila SQS notifications (obrigatório) |
+| `AWS_ENDPOINT_URL` | Endpoint LocalStack (apenas dev) |
 | `AWS_REGION` | Injetado automaticamente pela AWS Lambda |
 
 ---
@@ -1298,10 +1460,12 @@ Secrets necessários no repositório GitHub:
 
 | Secret | Descrição |
 |--------|-----------|
-| `AWS_ACCESS_KEY_ID` | IAM key com permissões ECS/ECR/RDS/S3/CF/Terraform/Lambda/SQS |
+| `AWS_ACCESS_KEY_ID` | IAM key com permissões ECS/ECR/RDS/S3/CF/Terraform/Lambda/SQS/SES |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret |
 | `TF_VAR_JWT_SECRET` | Segredo para assinar JWTs |
 | `TF_VAR_FOCUS_NFE_TOKEN` | Token de API da Focus NF-e (https://focusnfe.com.br → Configurações → API) |
+| `TF_VAR_SES_FROM_EMAIL` | Endereço verificado no SES para envio de notificações (ex: `noreply@suaempresa.com`) |
+| `TF_VAR_SES_FROM_NAME` | Nome exibido no remetente (ex: `GAX ERP`) — padrão: `GAX ERP` |
 
 > A senha do RDS é gerada automaticamente pelo Terraform (`random_password`) e
 > armazenada criptografada no estado S3 — **não precisa de secret no GitHub**.
@@ -1367,5 +1531,5 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 | 🔜 | **NF-e correction** | Carta de correção eletrônica (CC-e) |
 | 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |
 | 🔜 | **Reports** | Relatórios async via Lambda + S3 |
-| 🔜 | **Notifications** | Email/WhatsApp via Lambda + SQS |
+| ✅ | **Notifications** | E-mail transacional multi-tenant via Lambda + SQS + SESv2 (nfe_authorized, nfe_rejected, order_confirmed) |
 | 🔜 | **RBAC** | Controle de acesso granular por role |

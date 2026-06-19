@@ -36,3 +36,15 @@ resource "aws_ecr_lifecycle_policy" "lambda_fiscal" {
   repository = aws_ecr_repository.lambda_fiscal.name
   policy     = local.ecr_lifecycle_policy
 }
+
+resource "aws_ecr_repository" "lambda_notifications" {
+  name                 = "erp-lite/lambda-notifications"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+  tags = { Environment = var.environment }
+}
+
+resource "aws_ecr_lifecycle_policy" "lambda_notifications" {
+  repository = aws_ecr_repository.lambda_notifications.name
+  policy     = local.ecr_lifecycle_policy
+}

@@ -1,5 +1,5 @@
 {
-  "name": "@erp-lite/lambda-fiscal",
+  "name": "@erp-lite/lambda-notifications",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
@@ -8,9 +8,9 @@
     "build": "tsc -p ."
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/client-ses": "^3.600.0",
+    "@aws-sdk/client-sesv2": "^3.600.0",
     "@aws-sdk/client-sqs": "^3.600.0",
-    "axios": "^1.7.0",
     "fastify": "^4.29.1",
     "fastify-plugin": "^4.5.1"
   },

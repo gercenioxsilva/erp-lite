@@ -7,10 +7,11 @@ on:
 # AWS_REGION matches terraform/variables.tf default (us-east-1).
 # All other runtime values come from Terraform outputs — no extra secrets needed.
 env:
-  AWS_REGION:           us-east-1
-  API_ECR_REPO:         erp-lite/api-core
-  LAMBDA_ECR_REPO:      erp-lite/lambda-fiscal
-  TF_STATE_BUCKET:      erp-lite-terraform-state
+  AWS_REGION:                   us-east-1
+  API_ECR_REPO:                 erp-lite/api-core
+  LAMBDA_ECR_REPO:              erp-lite/lambda-fiscal
+  LAMBDA_NOTIFICATIONS_ECR_REPO: erp-lite/lambda-notifications
+  TF_STATE_BUCKET:              erp-lite-terraform-state
 
 jobs:
   deploy:
@@ -80,7 +81,9 @@ jobs:
             -target=aws_ecr_repository.api_core \
             -target=aws_ecr_lifecycle_policy.api_core \
             -target=aws_ecr_repository.lambda_fiscal \
-            -target=aws_ecr_lifecycle_policy.lambda_fiscal
+            -target=aws_ecr_lifecycle_policy.lambda_fiscal \
+            -target=aws_ecr_repository.lambda_notifications \
+            -target=aws_ecr_lifecycle_policy.lambda_notifications
 
       # ── Compute ECR registry URL from current AWS account ─────────────────────
       # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
@@ -120,6 +123,17 @@ jobs:
           cache-from: type=gha,scope=lambda-fiscal
           cache-to: type=gha,mode=max,scope=lambda-fiscal
 
+      - name: Build and push lambda-notifications image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/lambda-notifications
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_NOTIFICATIONS_ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_NOTIFICATIONS_ECR_REPO }}:latest
+          cache-from: type=gha,scope=lambda-notifications
+          cache-to: type=gha,mode=max,scope=lambda-notifications
+
       # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
       # TF_VAR_image_tag sets var.image_tag → new task definition revision →
       # aws_ecs_service updates to the new revision → rolling deploy starts.
@@ -127,10 +141,13 @@ jobs:
       - name: Terraform Apply
         working-directory: terraform
         env:
-          TF_VAR_jwt_secret:               ${{ secrets.TF_VAR_JWT_SECRET }}
-          TF_VAR_focus_nfe_token:          ${{ secrets.TF_VAR_FOCUS_NFE_TOKEN }}
-          TF_VAR_image_tag:                ${{ github.sha }}
-          TF_VAR_lambda_fiscal_image_tag:  ${{ github.sha }}
+          TF_VAR_jwt_secret:                          ${{ secrets.TF_VAR_JWT_SECRET }}
+          TF_VAR_focus_nfe_token:                     ${{ secrets.TF_VAR_FOCUS_NFE_TOKEN }}
+          TF_VAR_ses_from_email:                      ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
+          TF_VAR_ses_from_name:                       ${{ secrets.TF_VAR_SES_FROM_NAME }}
+          TF_VAR_image_tag:                           ${{ github.sha }}
+          TF_VAR_lambda_fiscal_image_tag:             ${{ github.sha }}
+          TF_VAR_lambda_notifications_image_tag:      ${{ github.sha }}
         run: terraform apply -auto-approve
 
       # ── Read Terraform outputs (single step, post-apply) ─────────────────────

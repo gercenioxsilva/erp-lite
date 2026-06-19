@@ -66,9 +66,10 @@ resource "aws_ecs_task_definition" "api_core" {
       value = "postgres://erp_lite:${urlencode(random_password.db_master.result)}@${aws_db_instance.postgres.endpoint}/erp_lite" },
       { name = "JWT_SECRET", value = var.jwt_secret },
       { name = "AWS_REGION", value = var.aws_region },
-      { name = "NFE_REQUESTS_QUEUE_URL", value = aws_sqs_queue.nfe_requests.url },
-      { name = "NFE_RESULTS_QUEUE_URL", value = aws_sqs_queue.nfe_results.url },
-      { name = "NFE_BUCKET", value = aws_s3_bucket.nfe_xmls.bucket },
+      { name = "NFE_REQUESTS_QUEUE_URL",    value = aws_sqs_queue.nfe_requests.url },
+      { name = "NFE_RESULTS_QUEUE_URL",     value = aws_sqs_queue.nfe_results.url },
+      { name = "NFE_BUCKET",                value = aws_s3_bucket.nfe_xmls.bucket },
+      { name = "NOTIFICATIONS_QUEUE_URL",   value = aws_sqs_queue.notifications.url },
     ]
 
     logConfiguration = {

@@ -1,6 +1,7 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { getSqsClient } from '../lib/sqsClient';
 import { pool } from '../db/pool';
+import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -67,7 +68,12 @@ async function processResult(result: NfeResultMessage): Promise<void> {
   if (nfe_status === 'authorized') {
     // Generate NF-e number (sequential per tenant+serie among issued invoices)
     const { rows: [inv] } = await pool.query(
-      'SELECT tenant_id, serie, number FROM invoices WHERE id = $1',
+      `SELECT i.tenant_id, i.serie, i.number,
+              COALESCE(c.company_name, c.full_name) AS client_name,
+              c.email AS client_email
+       FROM invoices i
+       LEFT JOIN clients c ON c.id = i.client_id
+       WHERE i.id = $1`,
       [invoice_id],
     );
     if (!inv) return;
@@ -110,6 +116,15 @@ async function processResult(result: NfeResultMessage): Promise<void> {
 
     console.info(JSON.stringify({ event: 'nfe_result_authorized', invoice_id, nfe_chave }));
 
+    if (inv.client_email) {
+      await sendNotificationIfEnabled({
+        tenant_id: result.tenant_id,
+        type:      'nfe_authorized',
+        recipient: { email: inv.client_email, name: inv.client_name ?? '' },
+        data:      { invoice_number: number, nfe_chave: nfe_chave ?? '', danfe_url: danfe_url ?? '' },
+      }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
+    }
+
   } else {
     await pool.query(
       `UPDATE invoices
@@ -127,6 +142,25 @@ async function processResult(result: NfeResultMessage): Promise<void> {
     );
 
     console.warn(JSON.stringify({ event: 'nfe_result_rejected', invoice_id, nfe_reject_reason }));
+
+    // For rejected: fetch client info separately since the authorized branch already uses inv
+    const { rows: [rejInv] } = await pool.query(
+      `SELECT i.number,
+              COALESCE(c.company_name, c.full_name) AS client_name,
+              c.email AS client_email
+       FROM invoices i
+       LEFT JOIN clients c ON c.id = i.client_id
+       WHERE i.id = $1`,
+      [invoice_id],
+    );
+    if (rejInv?.client_email) {
+      await sendNotificationIfEnabled({
+        tenant_id: result.tenant_id,
+        type:      'nfe_rejected',
+        recipient: { email: rejInv.client_email, name: rejInv.client_name ?? '' },
+        data:      { invoice_number: rejInv.number ?? '', reject_reason: nfe_reject_reason ?? '' },
+      }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
+    }
   }
 }
 

@@ -10,7 +10,8 @@ import { usersRoutes }     from './routes/users';
 import { ordersRoutes }    from './routes/orders';
 import { invoicesRoutes }  from './routes/invoices';
 import { taxRoutes }       from './routes/tax';
-import { nfeRoutes }       from './routes/nfe';
+import { nfeRoutes }                from './routes/nfe';
+import { notificationConfigRoutes } from './routes/notificationConfig';
 import { startNfeResultsWorker, stopNfeResultsWorker } from './workers/nfeResultsWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -44,7 +45,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(ordersRoutes,    { prefix: '/v1' });
   await app.register(invoicesRoutes,  { prefix: '/v1' });
   await app.register(taxRoutes,       { prefix: '/v1' });
-  await app.register(nfeRoutes,       { prefix: '/v1' });
+  await app.register(nfeRoutes,                { prefix: '/v1' });
+  await app.register(notificationConfigRoutes, { prefix: '/v1' });
 
   // Start SQS long-poll worker for NF-e results (no-op when env var not set)
   app.addHook('onReady', async () => { startNfeResultsWorker(); });
