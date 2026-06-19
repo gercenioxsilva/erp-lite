@@ -7,9 +7,10 @@ on:
 # AWS_REGION matches terraform/variables.tf default (us-east-1).
 # All other runtime values come from Terraform outputs — no extra secrets needed.
 env:
-  AWS_REGION:      us-east-1
-  API_ECR_REPO:    erp-lite/api-core
-  TF_STATE_BUCKET: erp-lite-terraform-state
+  AWS_REGION:           us-east-1
+  API_ECR_REPO:         erp-lite/api-core
+  LAMBDA_ECR_REPO:      erp-lite/lambda-fiscal
+  TF_STATE_BUCKET:      erp-lite-terraform-state
 
 jobs:
   deploy:
@@ -72,11 +73,14 @@ jobs:
       - name: Terraform Apply — bootstrap ECR
         working-directory: terraform
         env:
-          TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
+          TF_VAR_jwt_secret:      ${{ secrets.TF_VAR_JWT_SECRET }}
+          TF_VAR_focus_nfe_token: ${{ secrets.TF_VAR_FOCUS_NFE_TOKEN }}
         run: |
           terraform apply -auto-approve \
             -target=aws_ecr_repository.api_core \
-            -target=aws_ecr_lifecycle_policy.api_core
+            -target=aws_ecr_lifecycle_policy.api_core \
+            -target=aws_ecr_repository.lambda_fiscal \
+            -target=aws_ecr_lifecycle_policy.lambda_fiscal
 
       # ── Compute ECR registry URL from current AWS account ─────────────────────
       # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
@@ -102,8 +106,19 @@ jobs:
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=api-core
+          cache-to: type=gha,mode=max,scope=api-core
+
+      - name: Build and push lambda-fiscal image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/lambda-fiscal
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_ECR_REPO }}:latest
+          cache-from: type=gha,scope=lambda-fiscal
+          cache-to: type=gha,mode=max,scope=lambda-fiscal
 
       # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
       # TF_VAR_image_tag sets var.image_tag → new task definition revision →
@@ -112,8 +127,10 @@ jobs:
       - name: Terraform Apply
         working-directory: terraform
         env:
-          TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
-          TF_VAR_image_tag:  ${{ github.sha }}
+          TF_VAR_jwt_secret:               ${{ secrets.TF_VAR_JWT_SECRET }}
+          TF_VAR_focus_nfe_token:          ${{ secrets.TF_VAR_FOCUS_NFE_TOKEN }}
+          TF_VAR_image_tag:                ${{ github.sha }}
+          TF_VAR_lambda_fiscal_image_tag:  ${{ github.sha }}
         run: terraform apply -auto-approve
 
       # ── Read Terraform outputs (single step, post-apply) ─────────────────────

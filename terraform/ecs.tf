@@ -65,6 +65,10 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "DATABASE_URL",
       value = "postgres://erp_lite:${urlencode(random_password.db_master.result)}@${aws_db_instance.postgres.endpoint}/erp_lite" },
       { name = "JWT_SECRET", value = var.jwt_secret },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "NFE_REQUESTS_QUEUE_URL", value = aws_sqs_queue.nfe_requests.url },
+      { name = "NFE_RESULTS_QUEUE_URL", value = aws_sqs_queue.nfe_results.url },
+      { name = "NFE_BUCKET", value = aws_s3_bucket.nfe_xmls.bucket },
     ]
 
     logConfiguration = {
@@ -109,13 +113,13 @@ resource "aws_lb_target_group" "api_core" {
   protocol             = "TCP"
   vpc_id               = aws_vpc.main.id
   target_type          = "ip"
-  deregistration_delay = 30  # faster rolling deploys (NLB default is 300s)
+  deregistration_delay = 30 # faster rolling deploys (NLB default is 300s)
 
   health_check {
     protocol            = "HTTP"
     path                = "/health"
     healthy_threshold   = 3
-    unhealthy_threshold = 3  # NLB requires healthy == unhealthy for HTTP health checks
+    unhealthy_threshold = 3 # NLB requires healthy == unhealthy for HTTP health checks
     interval            = 30
     # timeout omitted: NLB ignores explicit timeout for HTTP health checks
   }
@@ -146,12 +150,12 @@ resource "aws_ecs_service" "api_core" {
 
   capacity_provider_strategy {
     capacity_provider = "FARGATE_SPOT"
-    weight            = 4  # prefer Spot (80%)
+    weight            = 4 # prefer Spot (80%)
     base              = 0
   }
   capacity_provider_strategy {
     capacity_provider = "FARGATE"
-    weight            = 1  # automatic fallback when Spot unavailable (20%)
+    weight            = 1 # automatic fallback when Spot unavailable (20%)
     base              = 0
   }
 
