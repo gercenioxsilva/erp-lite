@@ -24,7 +24,7 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   # Cost optimisation
-  multi_az            = var.environment == "prod" # HA only in prod
+  multi_az            = var.rds_multi_az # false by default — saves ~$11/month vs Multi-AZ
   publicly_accessible = false
 
   # Backups

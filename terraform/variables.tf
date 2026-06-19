@@ -16,8 +16,8 @@ variable "image_tag" {
 }
 
 # ── Cost knobs ─────────────────────────────────────────────────────────────────
-# dev:  db.t3.micro (1 vCPU, 1 GB) — ~$13/month single-AZ
-# prod: db.t3.small (2 vCPU, 2 GB) — ~$27/month single-AZ
+# dev:  db.t3.micro (1 vCPU, 1 GB) — ~$12/month single-AZ
+# prod: db.t3.small (2 vCPU, 2 GB) — ~$25/month single-AZ
 variable "db_instance_class" {
   type    = string
   default = "db.t3.micro"
@@ -39,6 +39,13 @@ variable "api_cpu" {
 variable "api_memory" {
   type    = number
   default = 512
+}
+
+# Multi-AZ doubles RDS cost. Default false — re-enable only when SLA requires < 1 min RTO.
+variable "rds_multi_az" {
+  description = "Enable Multi-AZ standby for RDS (doubles compute cost)."
+  type        = bool
+  default     = false
 }
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
