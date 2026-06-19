@@ -37,9 +37,9 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
 
   default_capacity_provider_strategy {
-    capacity_provider = var.environment == "prod" ? "FARGATE" : "FARGATE_SPOT"
+    capacity_provider = "FARGATE_SPOT"
     weight            = 1
-    base              = var.environment == "prod" ? 1 : 0
+    base              = 0
   }
 }
 
@@ -89,33 +89,34 @@ resource "aws_ecs_task_definition" "api_core" {
   tags = { Environment = var.environment }
 }
 
-# ── ALB ───────────────────────────────────────────────────────────────────────
+# ── NLB — replaces ALB ────────────────────────────────────────────────────────
+# NLB base cost is identical to ALB ($0.008/hour) but capacity-unit pricing is
+# ~8× cheaper (NLCU vs LCU), saving ~$8-10/month for low-traffic MVPs.
+# NLB operates at Layer 4 (TCP) — sufficient for this API; no L7 features needed.
 resource "aws_lb" "main" {
-  name               = "erp-lite-alb-${var.environment}"
+  name               = "erp-lite-nlb-${var.environment}"
   internal           = false
-  load_balancer_type = "application"
+  load_balancer_type = "network"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
-
-  # Access logs optional (uncomment for prod)
-  # access_logs { bucket = "erp-lite-logs"; enabled = true }
 
   tags = { Environment = var.environment }
 }
 
 resource "aws_lb_target_group" "api_core" {
-  name        = "erp-lite-api-core-${var.environment}"
-  port        = 3000
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
+  name                 = "erp-lite-api-core-${var.environment}"
+  port                 = 3000
+  protocol             = "TCP"
+  vpc_id               = aws_vpc.main.id
+  target_type          = "ip"
+  deregistration_delay = 30  # faster rolling deploys (NLB default is 300s)
 
   health_check {
+    protocol            = "HTTP"
     path                = "/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
-    timeout             = 5
   }
 
   tags = { Environment = var.environment }
@@ -124,7 +125,7 @@ resource "aws_lb_target_group" "api_core" {
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
-  protocol          = "HTTP"
+  protocol          = "TCP"
 
   default_action {
     type             = "forward"
@@ -132,13 +133,26 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# ── ECS Service ───────────────────────────────────────────────────────────────
+# ── ECS Service — Fargate Spot ────────────────────────────────────────────────
+# capacity_provider_strategy replaces launch_type = "FARGATE".
+# FARGATE_SPOT is ~70% cheaper. FARGATE acts as automatic fallback when Spot
+# capacity is unavailable in the AZ (ECS handles the failover transparently).
 resource "aws_ecs_service" "api_core" {
   name            = "erp-lite-api-core-${var.environment}"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api_core.arn
   desired_count   = var.api_desired_count
-  launch_type     = "FARGATE"
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 4  # prefer Spot (80%)
+    base              = 0
+  }
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1  # automatic fallback when Spot unavailable (20%)
+    base              = 0
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id # public subnets — no NAT Gateway needed

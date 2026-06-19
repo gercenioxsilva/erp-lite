@@ -1,5 +1,5 @@
 output "api_url" {
-  description = "Public API endpoint (CloudFront HTTPS — /v1/* proxied to ALB)"
+  description = "Public API endpoint (CloudFront HTTPS — /v1/* proxied to NLB)"
   value       = "https://${aws_cloudfront_distribution.backoffice.domain_name}"
 }
 

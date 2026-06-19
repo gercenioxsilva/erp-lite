@@ -81,6 +81,21 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > viewer → HTTP ALB interno), unificando o domínio público em HTTPS. Tela de
 > cadastro de empresa traduzida para pt-BR via namespace `r.*`.
 
+### v0.9 — Cost optimisation: NLB + Fargate Spot
+> Duas mudanças de infra Terraform sem impacto em código de aplicação.
+> **NLB substitui ALB**: mesmo custo base ($0.008/hora) mas capacidade-unit 8×
+> mais barata (NLCU vs LCU). Para MVP de baixo tráfego, o ALB cobrava LCUs extras
+> por avaliação de regras L7; o NLB TCP puro elimina esse overhead.
+> **Fargate Spot substitui Fargate regular**: `launch_type = "FARGATE"` substituído
+> por `capacity_provider_strategy` com FARGATE_SPOT (peso 4) e FARGATE como fallback
+> automático (peso 1). Spot tem ~70% de desconto; ECS faz o failover transparente
+> se a capacidade Spot for interrompida.
+> CloudWatch log retention reduzido de 30 → 14 dias em prod (sem impacto operacional).
+> NLB SG: regra HTTPS 443 removida (CloudFront já termina HTTPS — NLB só precisa de 80).
+> Economia estimada: **$9–14/mês** (~$38 → ~$24–29).
+> **Nota:** `terraform apply` destrói o ALB e recria como NLB — ~2 min de downtime
+> esperado durante o apply. Aceitável para MVP.
+
 ### v0.8 — Fix dropdowns OrdersPage + InvoicesPage + testes unitários
 > Causa raiz dos dropdowns vazios em ambas as telas: `loadDropdowns()` era chamado
 > de event handlers com guarda `ddLoading` que impedia retentativas quando `tenantId`
@@ -148,13 +163,13 @@ flowchart LR
 ```mermaid
 flowchart TD
     internet(("Internet"))
-    internet -->|HTTPS| cf["CloudFront\n/v1/* → ALB  /  /* → S3"]
-    cf -->|HTTP /v1/*| alb["Application Load Balancer"]
+    internet -->|HTTPS| cf["CloudFront\n/v1/* → NLB  /  /* → S3"]
+    cf -->|HTTP /v1/*| alb["Network Load Balancer\n(TCP 80 — Layer 4)"]
 
     subgraph vpc["VPC  10.0.0.0/16"]
         direction TB
         subgraph pub["Subnets Públicas  ·  AZ-a / AZ-b"]
-            ecs["ECS Fargate\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true"]
+            ecs["ECS Fargate Spot\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true"]
         end
         subgraph priv["Subnets Privadas  ·  AZ-a / AZ-b"]
             rds[("RDS PostgreSQL 16\ndev: db.t3.micro\nprod: db.t3.small")]
@@ -172,6 +187,10 @@ flowchart TD
 
 > **Sem NAT Gateway:** ECS tasks ficam em subnet pública com `assign_public_ip = true`.
 > Economia: ~$30/mês.
+> **Fargate Spot:** ECS service usa `capacity_provider_strategy` com FARGATE_SPOT (peso 4)
+> e FARGATE como fallback automático (peso 1). Spot tem ~70% de desconto; ECS relança
+> a task automaticamente em caso de interrupção (~2 min de downtime).
+> **NLB:** substitui o ALB para cortar custo de LCU. Camada 4 (TCP) — sem features L7.
 
 ---
 
@@ -809,16 +828,17 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 | `api_cpu` | `256` | `512` |
 | `api_memory` | `512` | `1024` |
 
-Estimativa mensal: ~$41 (RDS $13 + ECS $9 + ALB $16 + CloudFront/S3 $1 + CW $2)
+Estimativa mensal: ~$27 (RDS $15 + ECS Spot $3 + NLB $6 + CloudFront/S3 $1 + CW $2)
+> Antes da v0.9: ~$38 (ECS regular Fargate $9 + ALB $16 + restante $13).
 
 > **RDS PostgreSQL 16:** `rds.force_ssl=1` ativado por padrão. O `DATABASE_URL` usa
 > `ssl: { rejectUnauthorized: false }` para aceitar o certificado auto-assinado da AWS
 > em conexões intra-VPC. Isso é seguro — o tráfego fica dentro da VPC.
 
-> **Mixed Content:** o backoffice (HTTPS via CloudFront) não pode chamar o ALB via HTTP.
-> A solução é ter o CloudFront como único endpoint público: `/v1/*` é roteado para o ALB
-> via HTTP internamente (viewer → CF é HTTPS; CF → ALB é HTTP dentro da AWS).
-> `VITE_API_URL` aponta para o domínio CloudFront — nunca para o ALB diretamente.
+> **Mixed Content:** o backoffice (HTTPS via CloudFront) não pode chamar o NLB via HTTP.
+> A solução é ter o CloudFront como único endpoint público: `/v1/*` é roteado para o NLB
+> via HTTP internamente (viewer → CF é HTTPS; CF → NLB é HTTP dentro da AWS).
+> `VITE_API_URL` aponta para o domínio CloudFront — nunca para o NLB diretamente.
 
 ---
 

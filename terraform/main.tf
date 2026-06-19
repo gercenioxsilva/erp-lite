@@ -86,6 +86,6 @@ resource "aws_route_table_association" "private" {
 # ── CloudWatch Log Group ──────────────────────────────────────────────────────
 resource "aws_cloudwatch_log_group" "api_core" {
   name              = "/ecs/erp-lite-${var.environment}/api-core"
-  retention_in_days = var.environment == "prod" ? 30 : 7
+  retention_in_days = var.environment == "prod" ? 14 : 7
   tags              = { Environment = var.environment }
 }

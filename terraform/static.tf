@@ -46,7 +46,7 @@ resource "aws_cloudfront_distribution" "backoffice" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
-  comment             = "ERP Lite backoffice - ${var.environment}"
+  comment = "ERP Lite backoffice - ${var.environment}"
 
   origin {
     domain_name              = aws_s3_bucket.backoffice.bucket_regional_domain_name
@@ -54,11 +54,11 @@ resource "aws_cloudfront_distribution" "backoffice" {
     origin_access_control_id = aws_cloudfront_origin_access_control.backoffice.id
   }
 
-  # ALB origin — receives /v1/* API requests forwarded from CloudFront over HTTP.
-  # CloudFront terminates HTTPS on the viewer side; the internal hop to ALB uses HTTP
+  # NLB origin — receives /v1/* API requests forwarded from CloudFront over HTTP.
+  # CloudFront terminates HTTPS on the viewer side; the internal hop to NLB uses HTTP
   # (origin_protocol_policy = "http-only"), which is safe within AWS and eliminates
   # the Mixed Content error that occurs when the SPA is served over HTTPS but calls
-  # the ALB endpoint directly over HTTP.
+  # the load balancer endpoint directly over HTTP.
   origin {
     domain_name = aws_lb.main.dns_name
     origin_id   = "alb-api"
