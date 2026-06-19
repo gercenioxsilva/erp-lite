@@ -54,6 +54,43 @@ resource "aws_cloudfront_distribution" "backoffice" {
     origin_access_control_id = aws_cloudfront_origin_access_control.backoffice.id
   }
 
+  # ALB origin — receives /v1/* API requests forwarded from CloudFront over HTTP.
+  # CloudFront terminates HTTPS on the viewer side; the internal hop to ALB uses HTTP
+  # (origin_protocol_policy = "http-only"), which is safe within AWS and eliminates
+  # the Mixed Content error that occurs when the SPA is served over HTTPS but calls
+  # the ALB endpoint directly over HTTP.
+  origin {
+    domain_name = aws_lb.main.dns_name
+    origin_id   = "alb-api"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # Route /v1/* to the ALB — no caching, all HTTP methods forwarded.
+  ordered_cache_behavior {
+    path_pattern           = "/v1/*"
+    target_origin_id       = "alb-api"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = false
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
+      cookies { forward = "none" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
   default_cache_behavior {
     target_origin_id       = "s3-backoffice"
     viewer_protocol_policy = "redirect-to-https"
