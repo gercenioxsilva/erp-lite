@@ -10,9 +10,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   const NAV = [
-    { to: '/dashboard', label: t('nav.dashboard'), icon: '▦' },
+    { to: '/dashboard', label: t('nav.dashboard'), icon: '▦'  },
     { to: '/clients',   label: t('nav.clients'),   icon: '🏢' },
     { to: '/materials', label: t('nav.materials'),  icon: '⬜' },
+    { to: '/orders',    label: t('nav.orders'),     icon: '📋' },
+    { to: '/invoices',  label: t('nav.invoices'),   icon: '🧾' },
     { to: '/users',     label: t('nav.users'),      icon: '👥' },
   ];
 
