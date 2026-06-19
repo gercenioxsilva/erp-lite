@@ -30,6 +30,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 10. **Ao adicionar um novo módulo**, seguir o checklist completo da seção "Adicionando um novo módulo".
 
+11. **Nunca carregar dropdowns do drawer em event handlers.** O padrão correto é `useEffect([drawerOpen, tenantId])` com flag de cancelamento. Chamar `loadDropdowns()` de `openCreate()` cria stale-closure que não retenta quando `tenantId` resolve depois. Usar `noValidate` no `<form>` e `role="alert"` no div de erro.
+
+12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em todas as rotas de listagem. Valores maiores são silenciosamente truncados para 100.
+
 ---
 
 ## Histórico de Prompts
@@ -76,6 +80,19 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > principal: Mixed Content eliminado roteando `/v1/*` pelo CloudFront (HTTPS
 > viewer → HTTP ALB interno), unificando o domínio público em HTTPS. Tela de
 > cadastro de empresa traduzida para pt-BR via namespace `r.*`.
+
+### v0.8 — Fix dropdowns OrdersPage + InvoicesPage + testes unitários
+> Causa raiz dos dropdowns vazios em ambas as telas: `loadDropdowns()` era chamado
+> de event handlers com guarda `ddLoading` que impedia retentativas quando `tenantId`
+> resolvia depois da abertura do drawer. Fix: substituído por `useEffect([drawerOpen,
+> tenantId])` com flag de cancelamento e erros surfaced em `formError` (nenhum `catch`
+> silencioso). `per_page` corrigido para 100 (limite da API). `noValidate` adicionado
+> ao `<form>` para que a validação JS rode em vez da validação nativa do browser.
+> InvoicesPage adicional: o filtro `status=confirmed` no dropdown de pedidos impedia
+> vincular pedidos em rascunho; substituído por todos os pedidos não-cancelados/entregues.
+> `handleOrderChange` agora limpa cliente e itens ao desselecionar um pedido.
+> Infra de testes: Vitest + React Testing Library + 23 testes unitários para OrdersPage
+> cobrindo lista, drawer/formulário, gerenciamento de itens e submissão (sucesso + erro).
 
 ---
 
@@ -574,9 +591,21 @@ import { useI18n } from '../../i18n';
 // 2. Interfaces locais para os tipos
 // 3. Estado: lista, paginação, drawer, form, saving, formError
 // 4. load() via useEffect (deps: tenantId, page, search)
-// 5. Drawer open/close helpers
-// 6. handleSave(e: FormEvent) com api.post/patch
-// 7. JSX: page-header | search input | card > table | drawer overlay
+// 5. Dropdown data: useEffect([drawerOpen, tenantId]) — NUNCA chamar de event handler
+//    Sempre usar flag `cancelled` de cancelamento e surfacing de erros:
+//    useEffect(() => {
+//      if (!drawerOpen || !tenantId) return;
+//      let cancelled = false;
+//      Promise.all([api.get(...), ...])
+//        .then(([...]) => { if (cancelled) return; setXxx(...); })
+//        .catch((err) => { if (cancelled) return; setFormError(...); });
+//      return () => { cancelled = true; };
+//    }, [drawerOpen, tenantId]);
+// 6. Drawer open/close helpers (sem void loadDropdowns() — isso é anti-padrão aqui)
+// 7. handleSave(e: FormEvent) com api.post/patch — NUNCA usar catch silencioso
+// 8. JSX: page-header | search input | card > table | drawer overlay
+//    <form onSubmit={handleSave} noValidate ...> — noValidate SEMPRE para que o JS valide
+//    {formError && <div role="alert" className="alert alert-error">{formError}</div>}
 ```
 
 **Paginação padrão:** `page`, `per_page` (default 20). Retorno: `{ data, total, page, per_page }`.

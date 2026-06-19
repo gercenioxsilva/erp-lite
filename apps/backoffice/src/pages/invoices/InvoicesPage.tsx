@@ -61,7 +61,6 @@ export function InvoicesPage() {
   const [clients,   setClients]   = useState<ClientOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [orders,    setOrders]    = useState<OrderOption[]>([]);
-  const [ddLoading, setDdLoading] = useState(false);
 
   const perPage = 20;
 
@@ -81,39 +80,63 @@ export function InvoicesPage() {
   }
   useEffect(() => { void load(); }, [tenantId, page, statusFilter, search]);
 
-  /* ── Load dropdown data ── */
-  async function loadDropdowns() {
-    if (!tenantId || ddLoading) return;
-    setDdLoading(true);
-    try {
-      const [cl, mt, or] = await Promise.all([
-        api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=500`),
-        api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
-        api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&status=confirmed&per_page=200`),
-      ]);
-      setClients(cl.data ?? []);
-      setMaterials(mt.data ?? []);
-      setOrders(or.data ?? []);
-    } catch { /**/ } finally { setDdLoading(false); }
-  }
+  /* ── Load dropdown data when drawer opens ── */
+  useEffect(() => {
+    if (!drawerOpen || !tenantId) return;
+    let cancelled = false;
+    setFormError('');
+    Promise.all([
+      api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
+      // Show all orders (draft + confirmed) — API allows invoicing both statuses
+      api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
+    ])
+      .then(([cl, mt, or]) => {
+        if (cancelled) return;
+        setClients(cl.data ?? []);
+        setMaterials(mt.data ?? []);
+        // Filter out cancelled/delivered orders — only linkable ones are shown
+        setOrders((or.data ?? []).filter(o => !['cancelled', 'delivered'].includes((o as any).status)));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setFormError(err instanceof Error ? err.message : t('cl.errSave'));
+      });
+    return () => { cancelled = true; };
+  }, [drawerOpen, tenantId]);
 
   /* ── When order is selected, auto-fill client + items ── */
   async function handleOrderChange(orderId: string) {
     setFormOrderId(orderId);
-    if (!orderId) return;
+    if (!orderId) {
+      setFormClientId('');
+      setFormItems([newItem()]);
+      return;
+    }
     try {
-      const detail = await api.get<{ client_id: string; items: Array<{
-        material_id: string | null; name: string; sku: string | null;
-        quantity: number; unit_price: number;
-      }> }>(`/v1/orders/${orderId}`);
+      const detail = await api.get<{
+        client_id: string;
+        items: Array<{
+          material_id: string | null; name: string;
+          quantity: number; unit_price: number;
+        }>;
+      }>(`/v1/orders/${orderId}`);
       setFormClientId(detail.client_id);
-      setFormItems(detail.items.map(it => ({
-        _key: Math.random().toString(36).slice(2),
-        material_id: it.material_id ?? '',
-        name: it.name, ncm_code: '', cfop: '',
-        quantity: String(it.quantity), unit_price: String(it.unit_price),
-      })));
-    } catch { /**/ }
+      setFormItems(
+        detail.items.length > 0
+          ? detail.items.map(it => ({
+              _key: Math.random().toString(36).slice(2),
+              material_id: it.material_id ?? '',
+              name: it.name,
+              ncm_code: '', cfop: '',
+              quantity: String(it.quantity),
+              unit_price: String(it.unit_price),
+            }))
+          : [newItem()],
+      );
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : t('cl.errSave'));
+    }
   }
 
   /* ── Drawer open helpers ── */
@@ -122,7 +145,6 @@ export function InvoicesPage() {
     setFormItems([newItem()]);
     setFormError('');
     setDrawerOpen(true);
-    void loadDropdowns();
   }
 
   /* ── Item helpers ── */
@@ -309,15 +331,21 @@ export function InvoicesPage() {
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
-            <form onSubmit={handleSave} style={{ display: 'contents' }}>
+            <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
-                {formError && <div className="alert alert-error">{formError}</div>}
+                {formError && (
+                  <div role="alert" className="alert alert-error">{formError}</div>
+                )}
 
                 <div className="field-row">
                   {/* Order (optional) */}
                   <div className="field">
-                    <label>{t('inv.fromOrder')}</label>
-                    <select value={formOrderId} onChange={e => handleOrderChange(e.target.value)}>
+                    <label htmlFor="inv-order">{t('inv.fromOrder')}</label>
+                    <select
+                      id="inv-order"
+                      value={formOrderId}
+                      onChange={e => void handleOrderChange(e.target.value)}
+                    >
                       <option value="">{t('inv.selectOrder')}</option>
                       {orders.map(o => (
                         <option key={o.id} value={o.id}>
@@ -328,15 +356,24 @@ export function InvoicesPage() {
                   </div>
                   {/* Serie */}
                   <div className="field" style={{ flex: '0 0 100px' }}>
-                    <label>{t('inv.serie')}</label>
-                    <input value={formSerie} onChange={e => setFormSerie(e.target.value)} maxLength={10} />
+                    <label htmlFor="inv-serie">{t('inv.serie')}</label>
+                    <input
+                      id="inv-serie"
+                      value={formSerie}
+                      onChange={e => setFormSerie(e.target.value)}
+                      maxLength={10}
+                    />
                   </div>
                 </div>
 
                 {/* Client */}
                 <div className="field">
-                  <label>{t('inv.client')} *</label>
-                  <select value={formClientId} onChange={e => setFormClientId(e.target.value)} required>
+                  <label htmlFor="inv-client">{t('inv.client')} *</label>
+                  <select
+                    id="inv-client"
+                    value={formClientId}
+                    onChange={e => setFormClientId(e.target.value)}
+                  >
                     <option value="">{t('o.selectClient')}</option>
                     {clients.map(c => (
                       <option key={c.id} value={c.id}>{c.company_name ?? c.full_name}</option>
@@ -375,6 +412,7 @@ export function InvoicesPage() {
                             <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
                               <td style={{ padding: '6px 10px' }}>
                                 <select
+                                  aria-label={t('o.material')}
                                   value={item.material_id}
                                   onChange={e => updateItem(idx, 'material_id', e.target.value)}
                                   style={{ width: '100%', fontSize: 12 }}
@@ -386,6 +424,7 @@ export function InvoicesPage() {
                                 </select>
                                 {!item.material_id && (
                                   <input
+                                    aria-label={t('o.namePH')}
                                     placeholder={t('o.namePH')}
                                     value={item.name}
                                     onChange={e => updateItem(idx, 'name', e.target.value)}
@@ -394,31 +433,52 @@ export function InvoicesPage() {
                                 )}
                               </td>
                               <td style={{ padding: '6px 8px' }}>
-                                <input type="number" min="0.001" step="0.001" value={item.quantity}
+                                <input
+                                  aria-label={t('o.qty')}
+                                  type="number" min="0.001" step="0.001"
+                                  value={item.quantity}
                                   onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                                  style={{ fontSize: 12 }} />
+                                  style={{ fontSize: 12 }}
+                                />
                               </td>
                               <td style={{ padding: '6px 8px' }}>
-                                <input type="number" min="0" step="0.01" value={item.unit_price}
+                                <input
+                                  aria-label={t('o.unitPrice')}
+                                  type="number" min="0" step="0.01"
+                                  value={item.unit_price}
                                   onChange={e => updateItem(idx, 'unit_price', e.target.value)}
-                                  style={{ fontSize: 12 }} />
+                                  style={{ fontSize: 12 }}
+                                />
                               </td>
                               <td style={{ padding: '6px 8px' }}>
-                                <input placeholder="0000.00.00" value={item.ncm_code}
+                                <input
+                                  aria-label={t('inv.ncm')}
+                                  placeholder="0000.00.00"
+                                  value={item.ncm_code}
                                   onChange={e => updateItem(idx, 'ncm_code', e.target.value)}
-                                  style={{ fontSize: 12 }} />
+                                  style={{ fontSize: 12 }}
+                                />
                               </td>
                               <td style={{ padding: '6px 8px' }}>
-                                <input placeholder="5102" value={item.cfop}
+                                <input
+                                  aria-label={t('inv.cfop')}
+                                  placeholder="5102"
+                                  value={item.cfop}
                                   onChange={e => updateItem(idx, 'cfop', e.target.value)}
-                                  style={{ fontSize: 12 }} />
+                                  style={{ fontSize: 12 }}
+                                />
                               </td>
                               <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 12 }}>
                                 {BRL.format((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))}
                               </td>
                               <td style={{ textAlign: 'center' }}>
-                                <button type="button" onClick={() => removeItem(idx)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 8px' }}>
+                                <button
+                                  type="button"
+                                  aria-label={`remove-item-${idx}`}
+                                  data-testid={`inv-remove-item-${idx}`}
+                                  onClick={() => removeItem(idx)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 8px' }}
+                                >
                                   ×
                                 </button>
                               </td>
@@ -432,13 +492,20 @@ export function InvoicesPage() {
 
                 {/* Notes + live total */}
                 <div className="field">
-                  <label>{t('o.notes')}</label>
-                  <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={2} />
+                  <label htmlFor="inv-notes">{t('o.notes')}</label>
+                  <textarea
+                    id="inv-notes"
+                    value={formNotes}
+                    onChange={e => setFormNotes(e.target.value)}
+                    rows={2}
+                  />
                 </div>
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                     <span>{t('inv.total')}</span>
-                    <span style={{ color: 'var(--primary)' }}>{BRL.format(totalCalc)}</span>
+                    <span data-testid="inv-total-value" style={{ color: 'var(--primary)' }}>
+                      {BRL.format(totalCalc)}
+                    </span>
                   </div>
                 </div>
               </div>
