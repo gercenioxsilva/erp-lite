@@ -356,7 +356,9 @@ Interface       ← Rotas HTTP Fastify, Workers SQS, Lambda handlers
 
 #### Padrões aplicados
 
-**Fastify Plugin Architecture:** cada módulo de domínio (`clients`, `orders`, `invoices`, `nfe`) é um `FastifyPluginAsync` independente, registrado com prefixo em `app.ts`. Isso garante encapsulamento e permite testar cada plugin isoladamente.
+**Fastify Plugin Architecture (api-core):** cada módulo de domínio (`clients`, `orders`, `invoices`, `nfe`) é um `FastifyPluginAsync` independente, registrado com prefixo em `app.ts`. Isso garante encapsulamento e permite testar cada plugin isoladamente.
+
+**Fastify como DI Container (lambda-fiscal):** a Lambda não usa HTTP, então não chama `app.listen()`. O Fastify é usado exclusivamente como framework de injeção de dependências e logger (pino). Os plugins registram `app.config`, `app.sqs`, `app.s3` e `app.getFocusClient(ambiente)` via `app.decorate()`. O handler mantém o app como singleton entre warm invocations. Resultado: mesmo modelo de plugins/decorators do `api-core`, sem duplicar código de inicialização de clientes AWS entre invocações.
 
 **Soft Delete:** nenhuma entidade de negócio é deletada fisicamente. O estado é alterado (`is_active=false`, `status='cancelled'`) — preserva auditoria e permite restauração.
 
@@ -459,13 +461,20 @@ erp-lite/
 │
 ├── services/lambda-fiscal/         ← Lambda — emissão async NF-e via Focus NF-e
 │   ├── Dockerfile                  ← multi-stage Node 20 (public.ecr.aws/lambda/nodejs:20)
-│   ├── package.json                ← deps: @aws-sdk/client-s3, @aws-sdk/client-sqs, axios
+│   ├── package.json                ← deps: fastify, fastify-plugin, @aws-sdk/*, axios
 │   ├── tsconfig.json
 │   └── src/
-│       ├── handler.ts              ← SQSHandler: processa 1 mensagem → Focus NF-e → S3 → SQS
-│       ├── focusNfe.ts             ← FocusNfeClient (emitir, consultar, aguardarAutorizacao)
-│       ├── types.ts                ← NfeEmitMessage, NfeItem, NfeResultMessage
-│       └── config.ts               ← variáveis de ambiente validadas
+│       ├── app.ts                  ← Fastify factory (sem listen) — container de DI
+│       ├── handler.ts              ← SQSHandler: singleton app, loop com batchItemFailures
+│       ├── plugins/
+│       │   ├── config.ts           ← app.config (env vars validados via app.decorate)
+│       │   ├── aws.ts              ← app.sqs + app.s3 (SQSClient / S3Client decorators)
+│       │   └── focusNfe.ts         ← app.getFocusClient(ambiente) — cache por ambiente
+│       ├── services/
+│       │   └── nfeService.ts       ← processRecord: camada de aplicação (usa app.*)
+│       └── lib/
+│           ├── focusNfe.ts         ← FocusNfeClient class + buildFocusPayload (puro, sem I/O)
+│           └── types.ts            ← NfeEmitMessage, NfeItem, NfePagamento, NfeResultMessage
 │
 ├── apps/backoffice/                ← React + Vite SPA
 │   ├── vite.config.ts              ← proxy /v1/* e /health → api-core:3000
