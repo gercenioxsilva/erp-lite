@@ -307,19 +307,77 @@ flowchart TD
 > **Lambda concurrency=5:** previne sobrecarga do Focus NF-e / SEFAZ em bursts.
 > **DLQ alarm:** qualquer mensagem na nfe-dlq (3 falhas) dispara alarme CloudWatch.
 
+### Sequência — Emissão NF-e Async
+
+```mermaid
+sequenceDiagram
+    actor User as Usuário
+    participant FE as Backoffice (React)
+    participant API as api-core (ECS Fastify)
+    participant DB as PostgreSQL (RDS)
+    participant SQS_REQ as SQS nfe-requests
+    participant Lambda as lambda-fiscal (Fastify DI)
+    participant Focus as Focus NF-e (REST)
+    participant SEFAZ as SEFAZ
+    participant S3 as S3 nfe-xmls
+    participant SQS_RES as SQS nfe-results
+
+    User->>FE: Clica "Emitir NF-e"
+    FE->>API: POST /v1/invoices/:id/emit
+
+    API->>DB: SELECT invoice + items + client + nfe_config
+    API->>DB: UPDATE nfe_status = 'pending'
+    API->>SQS_REQ: SendMessage (NfeEmitMessage — payload completo)
+    API->>DB: UPDATE nfe_status = 'processing'
+    API-->>FE: 202 Accepted { nfe_status: 'processing' }
+
+    Note over Lambda: Cold start: buildApp() → plugins → app.ready()
+    SQS_REQ-->>Lambda: trigger (batch_size=1)
+    Lambda->>Focus: POST /v2/nfe?ref={invoice_id}
+    Focus->>SEFAZ: XML v4.0 + A1 cert (Focus gerencia)
+    SEFAZ-->>Focus: autorizado | denegado
+
+    alt autorizado
+        Focus-->>Lambda: { status: 'autorizado', chave_nfe, numero_protocolo }
+        Lambda->>Focus: GET /v2/nfe/{ref}/xml
+        Focus-->>Lambda: XML assinado pela SEFAZ
+        Lambda->>S3: PutObject (tenant_id/ano/invoice_id.xml, SSE-AES256)
+        Lambda->>SQS_RES: SendMessage { nfe_status: 'authorized', nfe_chave, xml_s3_key }
+    else rejeitado / erro
+        Focus-->>Lambda: { status: 'rejeitado', erros: [...] }
+        Lambda->>SQS_RES: SendMessage { nfe_status: 'rejected', nfe_reject_reason }
+    end
+
+    Note over API: Worker long-poll (WaitTimeSeconds=15)
+    SQS_RES-->>API: ReceiveMessage (nfeResultsWorker.ts)
+
+    alt authorized
+        API->>DB: UPDATE invoices SET status='issued', nfe_status='authorized',<br/>number=MAX+1, nfe_chave, nfe_protocol, nfe_auth_date, nfe_xml_s3_key
+        API->>DB: INSERT nfe_events (event_type='emission', payload)
+    else rejected
+        API->>DB: UPDATE invoices SET nfe_status='rejected', nfe_reject_reason
+        API->>DB: INSERT nfe_events (event_type='emission', payload)
+    end
+
+    FE->>API: GET /v1/invoices/:id/nfe (polling)
+    API-->>FE: { nfe_status, nfe_chave, nfe_danfe_url, ... }
+```
+
 ---
 
 ## Stack Tecnológica
 
 | Camada | Tecnologia | Versão | Justificativa |
 |--------|-----------|--------|---------------|
-| API | Node.js + Fastify + TypeScript | 20 / 4.x / 5.x | Alto throughput, schemas JSON nativos |
+| API HTTP | Node.js + Fastify + TypeScript | 20 / 4.x / 5.x | Alto throughput, schemas JSON nativos, plugin system |
+| Lambda | Fastify como DI + pino + TypeScript | 4.x / 5.x | Mesmo modelo de plugins do api-core, sem HTTP listen |
 | Banco | PostgreSQL | 16 (RDS) | ACID, UUID nativo, triggers |
 | Frontend | React + Vite + TypeScript | 18 / 5.x / 5.x | SPA com proxy de API |
 | Auth | bcryptjs (salt 12) + @fastify/jwt (HS256 24h) | — | Stateless |
+| NF-e | Focus NF-e REST API | v2 | XML 4.0 + cert A1 + SEFAZ gerenciados pelo provider |
 | i18n | Context API customizado | — | pt-BR padrão, EN toggle |
 | Infra | Terraform + ECS Fargate | ≥ 1.5 | IaC reproduzível |
-| CI/CD | GitHub Actions | — | Build + ECR push + ECS deploy |
+| CI/CD | GitHub Actions | — | Build ECR (api-core + lambda-fiscal) → Terraform → Migrate |
 
 ---
 
@@ -358,7 +416,7 @@ Interface       ← Rotas HTTP Fastify, Workers SQS, Lambda handlers
 
 **Fastify Plugin Architecture (api-core):** cada módulo de domínio (`clients`, `orders`, `invoices`, `nfe`) é um `FastifyPluginAsync` independente, registrado com prefixo em `app.ts`. Isso garante encapsulamento e permite testar cada plugin isoladamente.
 
-**Fastify como DI Container (lambda-fiscal):** a Lambda não usa HTTP, então não chama `app.listen()`. O Fastify é usado exclusivamente como framework de injeção de dependências e logger (pino). Os plugins registram `app.config`, `app.sqs`, `app.s3` e `app.getFocusClient(ambiente)` via `app.decorate()`. O handler mantém o app como singleton entre warm invocations. Resultado: mesmo modelo de plugins/decorators do `api-core`, sem duplicar código de inicialização de clientes AWS entre invocações.
+**Fastify como DI Container (lambda-fiscal):** a Lambda não usa HTTP, então não chama `app.listen()`. O Fastify é usado como container de injeção de dependências e logger (pino JSON estruturado, compatível com CloudWatch Logs Insights). Padrão de inicialização: `app.register()` sem await (todos os plugins enfileirados), seguido de um único `await app.ready()` que inicializa a cadeia na ordem correta via `fp() + dependencies[]`. O handler mantém o app como **singleton** entre warm invocations: `buildApp()` roda apenas no cold start; invocações subsequentes reusam `app.config`, `app.sqs`, `app.s3` e o cache `Map<1|2, FocusNfeClient>` sem re-inicializar. Resultado: mesmo modelo de plugins/decorators do `api-core`, zero boilerplate duplicado, cold start mínimo.
 
 **Soft Delete:** nenhuma entidade de negócio é deletada fisicamente. O estado é alterado (`is_active=false`, `status='cancelled'`) — preserva auditoria e permite restauração.
 

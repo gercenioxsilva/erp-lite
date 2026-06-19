@@ -14,9 +14,13 @@ export async function buildApp(): Promise<App> {
     },
   });
 
-  await app.register(configPlugin);
-  await app.register(awsPlugin);
-  await app.register(focusNfePlugin);
+  // Register all plugins without await — fp() + dependencies[] guarantees
+  // initialization order (config → aws, config → focusNfe).
+  // A single app.ready() initializes the full chain at once.
+  app.register(configPlugin);
+  app.register(awsPlugin);
+  app.register(focusNfePlugin);
 
+  await app.ready();
   return app;
 }

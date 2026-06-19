@@ -3,14 +3,12 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
 import { processRecord } from './services/nfeService';
 
-// Singleton: reuses Fastify app (and all decorated clients) across warm invocations
+// Singleton: reuses Fastify app (AWS clients + FocusNfe cache) across warm invocations.
+// buildApp() already calls app.ready() so the app is fully initialized on first call.
 let _app: FastifyInstance | null = null;
 
 async function getApp(): Promise<FastifyInstance> {
-  if (!_app) {
-    _app = await buildApp();
-    await _app.ready();
-  }
+  if (!_app) _app = await buildApp();
   return _app;
 }
 
