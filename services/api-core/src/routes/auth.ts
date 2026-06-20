@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { pool } from '../db/pool';
+import { eq, sql } from 'drizzle-orm';
+import { db, tenants, users } from '../db';
 
 const registerBody = {
   type: 'object',
@@ -39,48 +40,46 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       password,
     } = request.body as any;
 
-    const email = ((request.body as any).email as string).toLowerCase().trim();
+    const email        = ((request.body as any).email as string).toLowerCase().trim();
     const passwordHash = await bcrypt.hash(password, 12);
-    const client = await pool.connect();
+    const displayName  = name || email.split('@')[0];
 
     try {
-      await client.query('BEGIN');
+      const result = await db.transaction(async (tx) => {
+        const [tenant] = await tx.insert(tenants).values({
+          company_name,
+          trade_name: trade_name || company_name,
+          tax_id,
+          tax_id_type,
+          status: 'trial',
+          plan:   'starter',
+        }).returning({ id: tenants.id });
 
-      const { rows: [tenant] } = await client.query(
-        `INSERT INTO tenants (company_name, trade_name, tax_id, tax_id_type, status, plan)
-         VALUES ($1, $2, $3, $4, 'trial', 'starter')
-         RETURNING id`,
-        [company_name, trade_name || company_name, tax_id, tax_id_type],
-      );
+        const [user] = await tx.insert(users).values({
+          tenant_id:     tenant.id,
+          email,
+          name:          displayName,
+          password_hash: passwordHash,
+          role:   'owner',
+          status: 'active',
+        }).returning({ id: users.id, email: users.email, name: users.name, role: users.role });
 
-      const displayName = name || email.split('@')[0];
-      const { rows: [user] } = await client.query(
-        `INSERT INTO users (tenant_id, email, name, password_hash, role, status)
-         VALUES ($1, $2, $3, $4, 'owner', 'active')
-         RETURNING id, email, name, role`,
-        [tenant.id, email, displayName, passwordHash],
-      );
-
-      await client.query('COMMIT');
+        return { tenant, user };
+      });
 
       const token = fastify.jwt.sign(
-        { tenantId: tenant.id, userId: user.id, role: user.role },
+        { tenantId: result.tenant.id, userId: result.user.id, role: result.user.role },
         { expiresIn: '24h' },
       );
 
       return reply.code(201).send({
         token,
-        user: { id: user.id, email: user.email, name: user.name, role: user.role },
-        tenantId: tenant.id,
+        user:     { id: result.user.id, email: result.user.email, name: result.user.name, role: result.user.role },
+        tenantId: result.tenant.id,
       });
     } catch (err: any) {
-      await client.query('ROLLBACK');
-      if (err.code === '23505') {
-        return reply.conflict('Email or tax ID already registered');
-      }
+      if (err.code === '23505') return reply.conflict('Email or tax ID already registered');
       throw err;
-    } finally {
-      client.release();
     }
   });
 
@@ -89,11 +88,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     const { password } = request.body as any;
     const email = ((request.body as any).email as string).toLowerCase().trim();
 
-    const { rows } = await pool.query(
-      `SELECT id, email, name, password_hash, role, status, tenant_id
-       FROM users WHERE LOWER(TRIM(email)) = $1`,
-      [email],
-    );
+    const rows = await db.select().from(users).where(sql`LOWER(TRIM(${users.email})) = ${email}`);
 
     if (!rows.length) return reply.unauthorized('Invalid credentials');
 
@@ -110,20 +105,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     return {
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user:     { id: user.id, email: user.email, name: user.name, role: user.role },
       tenantId: user.tenant_id,
     };
   });
 
-  // GET /v1/auth/me — returns current user (requires JWT)
+  // GET /v1/auth/me
   fastify.get('/auth/me', {
     preHandler: [(fastify as any).authenticate],
   }, async (request) => {
     const { userId } = (request as any).user;
-    const { rows } = await pool.query(
-      'SELECT id, email, name, role, tenant_id, status FROM users WHERE id = $1',
-      [userId],
-    );
-    return rows[0] ?? null;
+    const [user] = await db.select({
+      id: users.id, email: users.email, name: users.name,
+      role: users.role, tenant_id: users.tenant_id, status: users.status,
+    }).from(users).where(eq(users.id, userId));
+    return user ?? null;
   });
 };

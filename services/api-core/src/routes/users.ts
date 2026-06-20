@@ -1,39 +1,34 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { pool } from '../db/pool';
+import { eq, ilike, or, and, sql } from 'drizzle-orm';
+import { db, users } from '../db';
 
 export const usersRoutes: FastifyPluginAsync = async (fastify) => {
 
-  /* ── GET /v1/users?tenant_id=&search=&page=&per_page= ──────────────── */
+  /* ── GET /v1/users ──────────────────────────────────────────────────── */
   fastify.get('/users', async (request, reply) => {
-    const { tenant_id, search, page = '1', per_page = '20' } = request.query as Record<string, string>;
+    const { tenant_id, search, page = '1', per_page = '20' } =
+      request.query as Record<string, string>;
     if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 
-    const params: unknown[] = [tenant_id];
-    let whereExtra = '';
-    if (search) {
-      params.push(`%${search}%`);
-      whereExtra = ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length})`;
-    }
+    const baseWhere = eq(users.tenant_id, tenant_id);
+    const where = search
+      ? and(baseWhere, or(ilike(users.name, `%${search}%`), ilike(users.email, `%${search}%`)))
+      : baseWhere;
 
-    const [{ rows }, { rows: [cnt] }] = await Promise.all([
-      pool.query(
-        `SELECT id, email, name, role, status, created_at FROM users
-         WHERE tenant_id = $1${whereExtra}
-         ORDER BY name
-         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        [...params, limit, offset],
-      ),
-      pool.query(
-        `SELECT COUNT(*) FROM users WHERE tenant_id = $1${whereExtra}`,
-        params,
-      ),
+    const [rows, [cnt]] = await Promise.all([
+      db.select({ id: users.id, email: users.email, name: users.name, role: users.role,
+                  status: users.status, created_at: users.created_at })
+        .from(users).where(where)
+        .orderBy(sql`${users.name} ASC`)
+        .limit(limit).offset(offset),
+      db.select({ count: sql<number>`COUNT(*)::int` }).from(users).where(where),
     ]);
 
-    return { data: rows, total: Number(cnt.count), page: Number(page), per_page: limit };
+    return { data: rows, total: cnt.count, page: Number(page), per_page: limit };
   });
 
   /* ── POST /v1/users ─────────────────────────────────────────────────── */
@@ -61,16 +56,13 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     const displayName  = name?.trim() || email.split('@')[0];
 
     try {
-      const { rows: [user] } = await pool.query(
-        `INSERT INTO users (tenant_id, email, name, password_hash, role, status)
-         VALUES ($1, $2, $3, $4, $5, 'active')
-         RETURNING id, email, name, role, status, created_at`,
-        [tenant_id, email, displayName, passwordHash, role],
-      );
+      const [user] = await db.insert(users).values({
+        tenant_id, email, name: displayName, password_hash: passwordHash, role, status: 'active',
+      }).returning({ id: users.id, email: users.email, name: users.name, role: users.role,
+                    status: users.status, created_at: users.created_at });
       return reply.code(201).send(user);
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === '23505')
-        return reply.conflict('E-mail já cadastrado neste tenant');
+    } catch (err: any) {
+      if (err.code === '23505') return reply.conflict('E-mail já cadastrado neste tenant');
       throw err;
     }
   });
@@ -91,45 +83,34 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const b = request.body as {
-      name?: string; role?: string; status?: string; password?: string;
-    };
+    const b = request.body as { name?: string; role?: string; status?: string; password?: string };
 
-    const { rows: [existing] } = await pool.query('SELECT id FROM users WHERE id = $1', [id]);
+    const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.id, id));
     if (!existing) return reply.notFound('Usuário não encontrado');
 
-    const sets: string[] = [];
-    const vals: unknown[] = [];
-    let i = 1;
+    const updateData: Record<string, unknown> = {};
+    if (b.name     !== undefined) updateData.name   = b.name;
+    if (b.role     !== undefined) updateData.role   = b.role;
+    if (b.status   !== undefined) updateData.status = b.status;
+    if (b.password !== undefined) updateData.password_hash = await bcrypt.hash(b.password, 12);
 
-    if (b.name     !== undefined) { sets.push(`name = $${i++}`);          vals.push(b.name);  }
-    if (b.role     !== undefined) { sets.push(`role = $${i++}`);          vals.push(b.role);  }
-    if (b.status   !== undefined) { sets.push(`status = $${i++}`);        vals.push(b.status); }
-    if (b.password !== undefined) {
-      const hash = await bcrypt.hash(b.password, 12);
-      sets.push(`password_hash = $${i++}`);
-      vals.push(hash);
-    }
+    if (!Object.keys(updateData).length) return reply.badRequest('Nenhum campo para atualizar');
 
-    if (!sets.length) return reply.badRequest('Nenhum campo para atualizar');
-
-    vals.push(id);
-    const { rows: [updated] } = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${i}
-       RETURNING id, email, name, role, status`,
-      vals,
-    );
+    const [updated] = await db.update(users)
+      .set(updateData as any)
+      .where(eq(users.id, id))
+      .returning({ id: users.id, email: users.email, name: users.name, role: users.role, status: users.status });
     return updated;
   });
 
-  /* ── DELETE /v1/users/:id  (soft-delete) ───────────────────────────── */
+  /* ── DELETE /v1/users/:id (soft-delete) ────────────────────────────── */
   fastify.delete('/users/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { rowCount } = await pool.query(
-      `UPDATE users SET status = 'disabled' WHERE id = $1 AND status = 'active'`,
-      [id],
-    );
-    if (!rowCount) return reply.notFound('Usuário não encontrado ou já desabilitado');
+    const result = await db.update(users)
+      .set({ status: 'disabled' })
+      .where(and(eq(users.id, id), eq(users.status, 'active')));
+
+    if (!result.rowCount) return reply.notFound('Usuário não encontrado ou já desabilitado');
     return reply.code(204).send();
   });
 };

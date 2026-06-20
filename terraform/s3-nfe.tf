@@ -45,7 +45,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "nfe_xmls" {
     # After 5 years: move to Glacier Deep Archive ($0.00099/GB) — satisfies SEFAZ
     transition {
       days          = 1825
-      storage_class = "GLACIER_DEEP_ARCHIVE"
+      storage_class = "DEEP_ARCHIVE"
     }
   }
 }

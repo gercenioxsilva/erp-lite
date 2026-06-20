@@ -4,8 +4,8 @@
 # aws_security_group.api_core has an ingress rule referencing this SG's ID.
 # Keep name/description as originally created; only rules can be changed in-place.
 resource "aws_security_group" "alb" {
-  name        = "erp-lite-alb-${var.environment}"          # immutable — do not rename
-  description = "ALB - accept HTTP/HTTPS from internet"    # immutable — do not change
+  name        = "erp-lite-alb-${var.environment}"       # immutable — do not rename
+  description = "ALB - accept HTTP/HTTPS from internet" # immutable — do not change
   vpc_id      = aws_vpc.main.id
 
   # HTTP 80 — CloudFront forwards API traffic to NLB over HTTP.
@@ -31,7 +31,7 @@ resource "aws_security_group" "alb" {
 # IMPORTANT: description is IMMUTABLE — keep value as originally deployed.
 resource "aws_security_group" "api_core" {
   name        = "erp-lite-api-core-${var.environment}"
-  description = "API Core - accept traffic from ALB only"  # immutable — do not change
+  description = "API Core - accept traffic from ALB only" # immutable — do not change
   vpc_id      = aws_vpc.main.id
 
   ingress {

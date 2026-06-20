@@ -1,25 +1,21 @@
 import { FastifyPluginAsync } from 'fastify';
-import { pool } from '../db/pool';
+import { eq, sql, and } from 'drizzle-orm';
+import { db, orders, orderItems, clients, inventory, inventoryMovements } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 
 interface ItemPayload {
-  material_id?: string;
-  name:         string;
-  sku?:         string;
-  unit?:        string;
-  quantity:     number;
-  unit_price:   number;
-  notes?:       string;
+  material_id?: string; name: string; sku?: string;
+  unit?: string; quantity: number; unit_price: number; notes?: string;
 }
 
-function calcTotals(items: ItemPayload[], discount = 0, shipping = 0) {
+export function calcTotals(items: ItemPayload[], discount = 0, shipping = 0) {
   const subtotal = items.reduce((s, it) => s + Number(it.quantity) * Number(it.unit_price), 0);
   return { subtotal, total: subtotal - Number(discount) + Number(shipping) };
 }
 
 export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
-  /* ── GET /v1/orders ─────────────────────────────────────────────────── */
+  /* ── GET /v1/orders ──────────────────────────────────────────────────── */
   fastify.get('/orders', async (request, reply) => {
     const { tenant_id, status, search, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
@@ -27,38 +23,26 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
-    const params: unknown[] = [tenant_id];
-    let where = '';
 
-    if (status && status !== 'all') {
-      params.push(status);
-      where += ` AND o.status = $${params.length}`;
-    }
-    if (search) {
-      params.push(`%${search}%`);
-      const n = params.length;
-      where += ` AND (o.number ILIKE $${n} OR COALESCE(c.company_name, c.full_name) ILIKE $${n})`;
-    }
+    const statusFilter = status && status !== 'all' ? sql`AND o.status = ${status}` : sql``;
+    const searchFilter = search
+      ? sql`AND (o.number ILIKE ${'%' + search + '%'} OR COALESCE(c.company_name, c.full_name) ILIKE ${'%' + search + '%'})`
+      : sql``;
 
     const [{ rows }, { rows: [cnt] }] = await Promise.all([
-      pool.query(
-        `SELECT o.id, o.number, o.status, o.subtotal, o.discount, o.shipping, o.total,
-                o.notes, o.created_at,
-                c.id AS client_id,
-                COALESCE(c.company_name, c.full_name) AS client_name
-         FROM orders o
-         JOIN clients c ON c.id = o.client_id
-         WHERE o.tenant_id = $1${where}
-         ORDER BY o.created_at DESC
-         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        [...params, limit, offset],
-      ),
-      pool.query(
-        `SELECT COUNT(*) FROM orders o
-         JOIN clients c ON c.id = o.client_id
-         WHERE o.tenant_id = $1${where}`,
-        params,
-      ),
+      db.execute<any>(sql`
+        SELECT o.id, o.number, o.status, o.subtotal, o.discount, o.shipping, o.total,
+               o.notes, o.created_at, c.id AS client_id,
+               COALESCE(c.company_name, c.full_name) AS client_name
+        FROM orders o JOIN clients c ON c.id = o.client_id
+        WHERE o.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+        ORDER BY o.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+      db.execute<{ count: string }>(sql`
+        SELECT COUNT(*) AS count FROM orders o JOIN clients c ON c.id = o.client_id
+        WHERE o.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+      `),
     ]);
 
     return { data: rows, total: Number(cnt.count), page: Number(page), per_page: limit };
@@ -72,45 +56,40 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
     const { subtotal, total } = calcTotals(items, discount, shipping);
-    const client = await pool.connect();
+
     try {
-      await client.query('BEGIN');
+      const order = await db.transaction(async (tx) => {
+        const { rows: [ord] } = await tx.execute<{ id: string; number: string; status: string; total: string }>(sql`
+          WITH next AS (
+            SELECT COALESCE(MAX(CASE WHEN number ~ '^[0-9]+$' THEN number::INTEGER END), 0) + 1 AS n
+            FROM orders WHERE tenant_id = ${tenant_id}
+          )
+          INSERT INTO orders (tenant_id, client_id, number, notes, subtotal, discount, shipping, total, created_by)
+          SELECT ${tenant_id}, ${client_id}, LPAD(n::TEXT, 5, '0'), ${notes || null},
+                 ${subtotal}, ${discount}, ${shipping}, ${total}, ${created_by || null}
+          FROM next
+          RETURNING id, number, status, total
+        `);
 
-      // Atomic sequential number via CTE
-      const { rows: [order] } = await client.query(
-        `WITH next AS (
-           SELECT COALESCE(
-             MAX(CASE WHEN number ~ '^[0-9]+$' THEN number::INTEGER END), 0
-           ) + 1 AS n
-           FROM orders WHERE tenant_id = $1
-         )
-         INSERT INTO orders
-           (tenant_id, client_id, number, notes, subtotal, discount, shipping, total, created_by)
-         SELECT $1, $2, LPAD(n::TEXT, 5, '0'), $3, $4, $5, $6, $7, $8
-         FROM next
-         RETURNING id, number, status, total`,
-        [tenant_id, client_id, notes || null, subtotal, discount, shipping, total, created_by || null],
-      );
-
-      for (const it of items as ItemPayload[]) {
-        await client.query(
-          `INSERT INTO order_items
-             (order_id, material_id, name, sku, unit, quantity, unit_price, total, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [order.id, it.material_id || null, it.name, it.sku || null,
-           it.unit || 'UN', it.quantity, it.unit_price,
-           Number(it.quantity) * Number(it.unit_price), it.notes || null],
-        );
-      }
-
-      await client.query('COMMIT');
+        for (const it of items as ItemPayload[]) {
+          await tx.insert(orderItems).values({
+            order_id:    ord.id,
+            material_id: it.material_id || null,
+            name:        it.name,
+            sku:         it.sku  || null,
+            unit:        it.unit || 'UN',
+            quantity:    String(it.quantity),
+            unit_price:  String(it.unit_price),
+            total:       String(Number(it.quantity) * Number(it.unit_price)),
+            notes:       it.notes || null,
+          });
+        }
+        return ord;
+      });
       return reply.code(201).send(order);
     } catch (err: any) {
-      await client.query('ROLLBACK');
       if (err.code === '23505') return reply.conflict('Número de pedido já existe');
       throw err;
-    } finally {
-      client.release();
     }
   });
 
@@ -118,18 +97,11 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/orders/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const [{ rows: [order] }, { rows: items }] = await Promise.all([
-      pool.query(
-        `SELECT o.*,
-                COALESCE(c.company_name, c.full_name) AS client_name,
-                c.person_type, c.cnpj, c.cpf
-         FROM orders o JOIN clients c ON c.id = o.client_id
-         WHERE o.id = $1`,
-        [id],
-      ),
-      pool.query(
-        `SELECT oi.* FROM order_items oi WHERE oi.order_id = $1 ORDER BY oi.created_at`,
-        [id],
-      ),
+      db.execute<any>(sql`
+        SELECT o.*, COALESCE(c.company_name, c.full_name) AS client_name, c.person_type, c.cnpj, c.cpf
+        FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ${id}
+      `),
+      db.execute<any>(sql`SELECT * FROM order_items WHERE order_id = ${id} ORDER BY created_at`),
     ]);
     if (!order) return reply.notFound('Pedido não encontrado');
     return { ...order, items };
@@ -140,202 +112,146 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     const { client_id, notes, discount, shipping, items } = request.body as any;
 
-    const { rows: [order] } = await pool.query(
-      'SELECT id, tenant_id, status FROM orders WHERE id = $1', [id],
-    );
-    if (!order)             return reply.notFound('Pedido não encontrado');
+    const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
+      .from(orders).where(eq(orders.id, id));
+    if (!order)              return reply.notFound('Pedido não encontrado');
     if (order.status !== 'draft') return reply.badRequest('Apenas pedidos em rascunho podem ser editados');
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const sets: string[] = [];
-      const vals: unknown[] = [];
-      let i = 1;
-
-      if (client_id !== undefined) { sets.push(`client_id = $${i++}`); vals.push(client_id); }
-      if (notes     !== undefined) { sets.push(`notes = $${i++}`);     vals.push(notes);     }
-      if (discount  !== undefined) { sets.push(`discount = $${i++}`);  vals.push(discount);  }
-      if (shipping  !== undefined) { sets.push(`shipping = $${i++}`);  vals.push(shipping);  }
+    await db.transaction(async (tx) => {
+      const updateData: Record<string, unknown> = {};
+      if (client_id !== undefined) updateData.client_id = client_id;
+      if (notes     !== undefined) updateData.notes     = notes;
+      if (discount  !== undefined) updateData.discount  = String(discount);
+      if (shipping  !== undefined) updateData.shipping  = String(shipping);
 
       if (Array.isArray(items)) {
-        await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+        await tx.delete(orderItems).where(eq(orderItems.order_id, id));
         const { subtotal, total } = calcTotals(items, discount ?? 0, shipping ?? 0);
-        sets.push(`subtotal = $${i++}`); vals.push(subtotal);
-        sets.push(`total = $${i++}`);    vals.push(total);
-
+        updateData.subtotal = String(subtotal);
+        updateData.total    = String(total);
         for (const it of items as ItemPayload[]) {
-          await client.query(
-            `INSERT INTO order_items
-               (order_id, material_id, name, sku, unit, quantity, unit_price, total, notes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [id, it.material_id || null, it.name, it.sku || null,
-             it.unit || 'UN', it.quantity, it.unit_price,
-             Number(it.quantity) * Number(it.unit_price), it.notes || null],
-          );
+          await tx.insert(orderItems).values({
+            order_id: id, material_id: it.material_id || null, name: it.name,
+            sku: it.sku || null, unit: it.unit || 'UN',
+            quantity: String(it.quantity), unit_price: String(it.unit_price),
+            total: String(Number(it.quantity) * Number(it.unit_price)), notes: it.notes || null,
+          });
         }
       }
 
-      if (sets.length) {
-        vals.push(id);
-        await client.query(
-          `UPDATE orders SET ${sets.join(', ')} WHERE id = $${i}`,
-          vals,
-        );
-      }
+      if (Object.keys(updateData).length)
+        await tx.update(orders).set(updateData as any).where(eq(orders.id, id));
+    });
 
-      await client.query('COMMIT');
-      const { rows: [updated] } = await pool.query(
-        `SELECT o.*, COALESCE(c.company_name, c.full_name) AS client_name
-         FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = $1`, [id],
-      );
-      return updated;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    const { rows: [updated] } = await db.execute<any>(sql`
+      SELECT o.*, COALESCE(c.company_name, c.full_name) AS client_name
+      FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ${id}
+    `);
+    return updated;
   });
 
   /* ── POST /v1/orders/:id/confirm ────────────────────────────────────── */
   fastify.post('/orders/:id/confirm', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { rows: [order] } = await pool.query(
-      'SELECT id, tenant_id, status FROM orders WHERE id = $1', [id],
-    );
-    if (!order)              return reply.notFound('Pedido não encontrado');
+    const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
+      .from(orders).where(eq(orders.id, id));
+    if (!order)               return reply.notFound('Pedido não encontrado');
     if (order.status !== 'draft') return reply.badRequest('Apenas rascunhos podem ser confirmados');
 
-    const { rows: items } = await pool.query(
-      'SELECT * FROM order_items WHERE order_id = $1', [id],
-    );
+    const items = await db.select().from(orderItems).where(eq(orderItems.order_id, id));
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Deduct inventory for each material item
+    await db.transaction(async (tx) => {
       for (const it of items) {
         if (!it.material_id) continue;
-        const { rows: [inv] } = await client.query(
-          'SELECT id, quantity FROM inventory WHERE tenant_id = $1 AND material_id = $2',
-          [order.tenant_id, it.material_id],
-        );
-        if (!inv) continue; // service items have no inventory row
+        const { rows: [inv] } = await tx.execute<{ id: string; quantity: string }>(sql`
+          SELECT id, quantity FROM inventory
+          WHERE tenant_id = ${order.tenant_id} AND material_id = ${it.material_id}
+          FOR UPDATE
+        `);
+        if (!inv) continue;
 
-        const before  = Number(inv.quantity);
-        const after   = before - Number(it.quantity);
+        const before = Number(inv.quantity);
+        const after  = before - Number(it.quantity);
 
-        await client.query(
-          'UPDATE inventory SET quantity = $1 WHERE id = $2',
-          [after, inv.id],
-        );
-        await client.query(
-          `INSERT INTO inventory_movements
-             (tenant_id, material_id, movement_type, quantity, quantity_before, quantity_after,
-              reason, reference_id, reference_type)
-           VALUES ($1, $2, 'out', $3, $4, $5, 'Pedido confirmado', $6, 'order')`,
-          [order.tenant_id, it.material_id, it.quantity, before, after, id],
-        );
-      }
-
-      await client.query(
-        "UPDATE orders SET status = 'confirmed' WHERE id = $1", [id],
-      );
-      await client.query('COMMIT');
-
-      // Fire-and-forget notification — failure must not roll back the confirmed order
-      pool.query(
-        `SELECT o.number, o.total,
-                COALESCE(c.company_name, c.full_name) AS client_name,
-                c.email AS client_email
-         FROM orders o
-         LEFT JOIN clients c ON c.id = o.client_id
-         WHERE o.id = $1`,
-        [id],
-      ).then(({ rows: [ord] }) => {
-        if (!ord?.client_email) return;
-        return sendNotificationIfEnabled({
-          tenant_id: order.tenant_id,
-          type:      'order_confirmed',
-          recipient: { email: ord.client_email, name: ord.client_name ?? '' },
-          data:      { order_number: ord.number, total: Number(ord.total).toFixed(2) },
+        await tx.update(inventory).set({ quantity: String(after) }).where(eq(inventory.id, inv.id));
+        await tx.insert(inventoryMovements).values({
+          tenant_id: order.tenant_id, material_id: it.material_id,
+          movement_type: 'out', quantity: it.quantity,
+          quantity_before: String(before), quantity_after: String(after),
+          reason: 'Pedido confirmado', reference_id: id, reference_type: 'order',
         });
-      }).catch(err => fastify.log.warn({ event: 'notification_enqueue_warn', error: String(err) }));
+      }
+      await tx.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, id));
+    });
 
-      return { ok: true, status: 'confirmed' };
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    // Fire-and-forget notification
+    db.execute<any>(sql`
+      SELECT o.number, o.total, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email
+      FROM orders o LEFT JOIN clients c ON c.id = o.client_id WHERE o.id = ${id}
+    `).then(({ rows: [ord] }) => {
+      if (!ord?.client_email) return;
+      return sendNotificationIfEnabled({
+        tenant_id: order.tenant_id,
+        type:      'order_confirmed',
+        recipient: { email: ord.client_email, name: ord.client_name ?? '' },
+        data:      { order_number: ord.number, total: Number(ord.total).toFixed(2) },
+      });
+    }).catch(err => fastify.log.warn({ event: 'notification_enqueue_warn', error: String(err) }));
+
+    return { ok: true, status: 'confirmed' };
   });
 
   /* ── POST /v1/orders/:id/deliver ────────────────────────────────────── */
   fastify.post('/orders/:id/deliver', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { rows: [order] } = await pool.query(
-      'SELECT id, status FROM orders WHERE id = $1', [id],
-    );
-    if (!order)                   return reply.notFound('Pedido não encontrado');
+    const [order] = await db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, id));
+    if (!order) return reply.notFound('Pedido não encontrado');
     if (order.status !== 'confirmed' && order.status !== 'invoiced')
       return reply.badRequest('Apenas pedidos confirmados ou faturados podem ser entregues');
 
-    await pool.query("UPDATE orders SET status = 'delivered' WHERE id = $1", [id]);
+    await db.update(orders).set({ status: 'delivered' }).where(eq(orders.id, id));
     return { ok: true, status: 'delivered' };
   });
 
   /* ── POST /v1/orders/:id/cancel ─────────────────────────────────────── */
   fastify.post('/orders/:id/cancel', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { rows: [order] } = await pool.query(
-      'SELECT id, tenant_id, status FROM orders WHERE id = $1', [id],
-    );
+    const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
+      .from(orders).where(eq(orders.id, id));
     if (!order) return reply.notFound('Pedido não encontrado');
     if (order.status === 'cancelled') return reply.badRequest('Pedido já cancelado');
     if (order.status === 'delivered') return reply.badRequest('Pedido já entregue não pode ser cancelado');
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Restore inventory only if order was confirmed (had inventory deducted)
+    await db.transaction(async (tx) => {
       if (order.status === 'confirmed' || order.status === 'invoiced') {
-        const { rows: movements } = await client.query(
-          `SELECT * FROM inventory_movements
-           WHERE reference_id = $1 AND reference_type = 'order' AND movement_type = 'out'`,
-          [id],
-        );
+        const movements = await tx.select().from(inventoryMovements)
+          .where(and(
+            eq(inventoryMovements.reference_id,   id),
+            eq(inventoryMovements.reference_type, 'order'),
+            eq(inventoryMovements.movement_type,  'out'),
+          ));
+
         for (const mov of movements) {
-          const { rows: [inv] } = await client.query(
-            'SELECT id, quantity FROM inventory WHERE tenant_id = $1 AND material_id = $2',
-            [order.tenant_id, mov.material_id],
-          );
+          const { rows: [inv] } = await tx.execute<{ id: string; quantity: string }>(sql`
+            SELECT id, quantity FROM inventory
+            WHERE tenant_id = ${order.tenant_id} AND material_id = ${mov.material_id}
+            FOR UPDATE
+          `);
           if (!inv) continue;
           const before = Number(inv.quantity);
           const after  = before + Number(mov.quantity);
-          await client.query('UPDATE inventory SET quantity = $1 WHERE id = $2', [after, inv.id]);
-          await client.query(
-            `INSERT INTO inventory_movements
-               (tenant_id, material_id, movement_type, quantity, quantity_before, quantity_after,
-                reason, reference_id, reference_type)
-             VALUES ($1, $2, 'return', $3, $4, $5, 'Pedido cancelado', $6, 'order')`,
-            [order.tenant_id, mov.material_id, mov.quantity, before, after, id],
-          );
+          await tx.update(inventory).set({ quantity: String(after) }).where(eq(inventory.id, inv.id));
+          await tx.insert(inventoryMovements).values({
+            tenant_id: order.tenant_id, material_id: mov.material_id,
+            movement_type: 'return', quantity: mov.quantity,
+            quantity_before: String(before), quantity_after: String(after),
+            reason: 'Pedido cancelado', reference_id: id, reference_type: 'order',
+          });
         }
       }
+      await tx.update(orders).set({ status: 'cancelled' }).where(eq(orders.id, id));
+    });
 
-      await client.query("UPDATE orders SET status = 'cancelled' WHERE id = $1", [id]);
-      await client.query('COMMIT');
-      return { ok: true, status: 'cancelled' };
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    return { ok: true, status: 'cancelled' };
   });
 };
