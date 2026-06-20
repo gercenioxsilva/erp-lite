@@ -117,6 +117,11 @@ jobs:
         with:
           context: services/lambda-fiscal
           push: true
+          # Lambda requires a single-platform Docker v2 Schema 2 manifest.
+          # Without platform + provenance=false, Buildx pushes an OCI manifest index
+          # (manifest list) that Lambda rejects with "image manifest not supported".
+          platforms: linux/amd64
+          provenance: false
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_ECR_REPO }}:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_ECR_REPO }}:latest
@@ -128,6 +133,9 @@ jobs:
         with:
           context: services/lambda-notifications
           push: true
+          # Same as lambda-fiscal: single-platform manifest required by Lambda.
+          platforms: linux/amd64
+          provenance: false
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_NOTIFICATIONS_ECR_REPO }}:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_NOTIFICATIONS_ECR_REPO }}:latest
