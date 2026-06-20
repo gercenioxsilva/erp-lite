@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { I18nProvider }          from './i18n';
+import { ModalProvider }         from './contexts/ModalContext';
+import { Modal }         from './components/Modal';
 import { LoginPage }    from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { Layout }       from './components/Layout';
@@ -35,13 +37,16 @@ export function App() {
   return (
     <BrowserRouter>
       <I18nProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login"    element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/*"        element={<GuardedRoutes />} />
-          </Routes>
-        </AuthProvider>
+        <ModalProvider>
+          <AuthProvider>
+            <Modal />
+            <Routes>
+              <Route path="/login"    element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/*"        element={<GuardedRoutes />} />
+            </Routes>
+          </AuthProvider>
+        </ModalProvider>
       </I18nProvider>
     </BrowserRouter>
   );

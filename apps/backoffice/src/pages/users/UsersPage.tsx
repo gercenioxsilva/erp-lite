@@ -1,7 +1,8 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { api }     from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { useI18n } from '../../i18n';
+import { api }      from '../../lib/api';
+import { useAuth }  from '../../contexts/AuthContext';
+import { useI18n }  from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 
 interface User {
   id:         string;
@@ -19,6 +20,7 @@ const EMPTY_FORM = { name: '', email: '', role: 'user', password: '', status: 'a
 export function UsersPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
+  const modal        = useModal();
   const [items,      setItems]      = useState<User[]>([]);
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
@@ -95,8 +97,10 @@ export function UsersPage() {
   }
 
   async function handleDisable(u: User) {
-    if (!confirm(t('u.disable'))) return;
-    try { await api.delete(`/v1/users/${u.id}`); void load(); } catch { /**/ }
+    const ok = await modal.confirm({ title: t('u.disable'), message: t('u.disableMsg'), confirmLabel: 'Desabilitar', danger: true });
+    if (!ok) return;
+    try { await api.delete(`/v1/users/${u.id}`); void load(); }
+    catch (err: unknown) { modal.error(err); }
   }
 
   const totalPages = Math.ceil(total / perPage);

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import * as XLSX from 'xlsx';
-import { api }     from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { useI18n } from '../../i18n';
+import { api }      from '../../lib/api';
+import { useAuth }  from '../../contexts/AuthContext';
+import { useI18n }  from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 import {
   maskCNPJ, maskCPF, maskPhone, maskCEP, digits,
   isValidCNPJ, isValidCPF, fetchAddressByCEP, UF_LIST,
@@ -157,6 +158,7 @@ const EMPTY_FORM = {
 export function ClientsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const modal = useModal();
 
   // ── List state ─────────────────────────────────────────────────────────────
   const [items,      setItems]      = useState<Client[]>([]);
@@ -310,8 +312,10 @@ export function ClientsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm(t('cl.deact'))) return;
-    try { await api.delete(`/v1/clients/${id}`); void load(); } catch { /**/ }
+    const ok = await modal.confirm({ title: t('cl.deact'), message: t('cl.deactMsg'), confirmLabel: 'Desativar', danger: true });
+    if (!ok) return;
+    try { await api.delete(`/v1/clients/${id}`); void load(); }
+    catch (err: unknown) { modal.error(err); }
   }
 
   // ── Import handlers ────────────────────────────────────────────────────────
