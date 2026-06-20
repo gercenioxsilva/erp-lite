@@ -1,36 +1,34 @@
 import bcrypt from 'bcryptjs';
-import { pool } from '../db/pool';
+import { sql } from 'drizzle-orm';
+import { db, pool } from '../db';
 
 const EMAIL    = (process.env.SEED_EMAIL    ?? 'admin@erp.local').toLowerCase().trim();
 const PASSWORD = process.env.SEED_PASSWORD  ?? 'Admin@2024';
 const COMPANY  = process.env.SEED_COMPANY   ?? 'ERP Lite Demo';
-const TAX_ID   = process.env.SEED_TAX_ID    ?? '11444777000161'; // valid CNPJ
+const TAX_ID   = process.env.SEED_TAX_ID    ?? '11444777000161';
 
 async function seed() {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    const [tenant, user] = await db.transaction(async (tx) => {
+      const { rows: [t] } = await tx.execute<{ id: string; company_name: string }>(sql`
+        INSERT INTO tenants (company_name, trade_name, tax_id, tax_id_type, status, plan)
+        VALUES (${COMPANY}, ${COMPANY}, ${TAX_ID}, 'CNPJ', 'active', 'enterprise')
+        ON CONFLICT (tax_id, tax_id_type)
+        DO UPDATE SET company_name = EXCLUDED.company_name, status = 'active'
+        RETURNING id, company_name
+      `);
 
-    const { rows: [tenant] } = await client.query(
-      `INSERT INTO tenants (company_name, trade_name, tax_id, tax_id_type, status, plan)
-       VALUES ($1, $1, $2, 'CNPJ', 'active', 'enterprise')
-       ON CONFLICT (tax_id, tax_id_type)
-       DO UPDATE SET company_name = EXCLUDED.company_name, status = 'active'
-       RETURNING id, company_name`,
-      [COMPANY, TAX_ID],
-    );
+      const hash = await bcrypt.hash(PASSWORD, 12);
+      const { rows: [u] } = await tx.execute<{ id: string; email: string; role: string }>(sql`
+        INSERT INTO users (tenant_id, email, name, password_hash, role, status)
+        VALUES (${t.id}, ${EMAIL}, 'Admin', ${hash}, 'owner', 'active')
+        ON CONFLICT (tenant_id, email)
+        DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'active'
+        RETURNING id, email, role
+      `);
 
-    const hash = await bcrypt.hash(PASSWORD, 12);
-    const { rows: [user] } = await client.query(
-      `INSERT INTO users (tenant_id, email, name, password_hash, role, status)
-       VALUES ($1, $2, 'Admin', $3, 'owner', 'active')
-       ON CONFLICT (tenant_id, email)
-       DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'active'
-       RETURNING id, email, role`,
-      [tenant.id, EMAIL, hash],
-    );
-
-    await client.query('COMMIT');
+      return [t, u] as const;
+    });
 
     console.log('');
     console.log('✅  Seed concluído!');
@@ -43,11 +41,9 @@ async function seed() {
     console.log('  SEED_EMAIL=voce@empresa.com SEED_PASSWORD=SuaSenha npm run seed');
     console.log('');
   } catch (err) {
-    await client.query('ROLLBACK');
     console.error('❌  Seed falhou:', err);
     process.exit(1);
   } finally {
-    client.release();
     await pool.end();
   }
 }

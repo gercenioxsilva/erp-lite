@@ -1,45 +1,26 @@
 import { FastifyPluginAsync } from 'fastify';
-import { pool } from '../db/pool';
+import { eq, ilike, or, and, sql } from 'drizzle-orm';
+import { db, clients } from '../db';
 
 const clientBody = {
   type: 'object',
   required: ['tenant_id', 'person_type'],
   properties: {
-    tenant_id:     { type: 'string', format: 'uuid' },
-    person_type:   { type: 'string', enum: ['PJ', 'PF'] },
-    // PJ
-    company_name:  { type: 'string', maxLength: 255 },
-    trade_name:    { type: 'string', maxLength: 255 },
-    cnpj:          { type: 'string', maxLength: 14 },
-    state_reg:     { type: 'string', maxLength: 30 },
-    municipal_reg: { type: 'string', maxLength: 30 },
-    suframa:       { type: 'string', maxLength: 20 },
-    // PF
-    full_name:     { type: 'string', maxLength: 255 },
-    cpf:           { type: 'string', maxLength: 11 },
-    birth_date:    { type: 'string', format: 'date' },
-    rg:            { type: 'string', maxLength: 20 },
-    rg_issuer:     { type: 'string', maxLength: 30 },
-    rg_issue_date: { type: 'string', format: 'date' },
-    // Contact
-    email:         { type: 'string', format: 'email' },
-    phone:         { type: 'string', maxLength: 20 },
-    mobile:        { type: 'string', maxLength: 20 },
-    // Address
-    zip_code:      { type: 'string', maxLength: 8 },
-    street:        { type: 'string', maxLength: 255 },
-    street_number: { type: 'string', maxLength: 20 },
-    complement:    { type: 'string', maxLength: 100 },
-    neighborhood:  { type: 'string', maxLength: 100 },
-    city:          { type: 'string', maxLength: 100 },
-    state:         { type: 'string', maxLength: 2 },
-    country:       { type: 'string', maxLength: 2 },
-    // NF-e
-    icms_taxpayer: { type: 'string', enum: ['1', '2', '9'] },
-    consumer_type: { type: 'string', enum: ['0', '1'] },
-    // Misc
-    is_active:     { type: 'boolean' },
-    notes:         { type: 'string' },
+    tenant_id: { type: 'string', format: 'uuid' }, person_type: { type: 'string', enum: ['PJ', 'PF'] },
+    company_name: { type: 'string', maxLength: 255 }, trade_name: { type: 'string', maxLength: 255 },
+    cnpj: { type: 'string', maxLength: 14 }, state_reg: { type: 'string', maxLength: 30 },
+    municipal_reg: { type: 'string', maxLength: 30 }, suframa: { type: 'string', maxLength: 20 },
+    full_name: { type: 'string', maxLength: 255 }, cpf: { type: 'string', maxLength: 11 },
+    birth_date: { type: 'string', format: 'date' }, rg: { type: 'string', maxLength: 20 },
+    rg_issuer: { type: 'string', maxLength: 30 }, rg_issue_date: { type: 'string', format: 'date' },
+    email: { type: 'string', format: 'email' }, phone: { type: 'string', maxLength: 20 },
+    mobile: { type: 'string', maxLength: 20 }, zip_code: { type: 'string', maxLength: 8 },
+    street: { type: 'string', maxLength: 255 }, street_number: { type: 'string', maxLength: 20 },
+    complement: { type: 'string', maxLength: 100 }, neighborhood: { type: 'string', maxLength: 100 },
+    city: { type: 'string', maxLength: 100 }, state: { type: 'string', maxLength: 2 },
+    country: { type: 'string', maxLength: 2 },
+    icms_taxpayer: { type: 'string', enum: ['1', '2', '9'] }, consumer_type: { type: 'string', enum: ['0', '1'] },
+    is_active: { type: 'boolean' }, notes: { type: 'string' },
   },
   additionalProperties: false,
 };
@@ -57,233 +38,176 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
     if (b.person_type === 'PF' && !b.full_name)
       return reply.badRequest('full_name is required for PF');
 
-    // PF is always consumidor final
-    const consumerType = b.person_type === 'PF' ? '1' : (b.consumer_type ?? '0');
-    const icmsTaxpayer = b.person_type === 'PF' ? '9' : (b.icms_taxpayer ?? '9');
+    const consumer_type = b.person_type === 'PF' ? '1' : ((b.consumer_type ?? '0') as string);
+    const icms_taxpayer = b.person_type === 'PF' ? '9' : ((b.icms_taxpayer ?? '9') as string);
 
-    const { rows: [client] } = await pool.query(
-      `INSERT INTO clients (
-         tenant_id, person_type,
-         company_name, trade_name, cnpj, state_reg, municipal_reg, suframa,
-         full_name, cpf, birth_date, rg, rg_issuer, rg_issue_date,
-         email, phone, mobile,
-         zip_code, street, street_number, complement, neighborhood, city, state, country,
-         icms_taxpayer, consumer_type, notes
-       ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
-       ) RETURNING *`,
-      [
-        b.tenant_id, b.person_type,
-        b.company_name ?? null, b.trade_name ?? null, b.cnpj ?? null,
-        b.state_reg ?? null, b.municipal_reg ?? null, b.suframa ?? null,
-        b.full_name ?? null, b.cpf ?? null, b.birth_date ?? null,
-        b.rg ?? null, b.rg_issuer ?? null, b.rg_issue_date ?? null,
-        b.email ?? null, b.phone ?? null, b.mobile ?? null,
-        b.zip_code ?? null, b.street ?? null, b.street_number ?? null,
-        b.complement ?? null, b.neighborhood ?? null, b.city ?? null,
-        b.state ?? null, b.country ?? 'BR',
-        icmsTaxpayer, consumerType, b.notes ?? null,
-      ],
-    );
+    const [client] = await db.insert(clients).values({
+      tenant_id: b.tenant_id as string, person_type: b.person_type as string,
+      company_name: (b.company_name ?? null) as string | null,
+      trade_name:   (b.trade_name   ?? null) as string | null,
+      cnpj:         (b.cnpj         ?? null) as string | null,
+      state_reg:    (b.state_reg    ?? null) as string | null,
+      municipal_reg: (b.municipal_reg ?? null) as string | null,
+      suframa:      (b.suframa      ?? null) as string | null,
+      full_name:    (b.full_name    ?? null) as string | null,
+      cpf:          (b.cpf          ?? null) as string | null,
+      birth_date:   (b.birth_date   ?? null) as string | null,
+      rg:           (b.rg           ?? null) as string | null,
+      rg_issuer:    (b.rg_issuer    ?? null) as string | null,
+      rg_issue_date: (b.rg_issue_date ?? null) as string | null,
+      email:        (b.email        ?? null) as string | null,
+      phone:        (b.phone        ?? null) as string | null,
+      mobile:       (b.mobile       ?? null) as string | null,
+      zip_code:     (b.zip_code     ?? null) as string | null,
+      street:       (b.street       ?? null) as string | null,
+      street_number: (b.street_number ?? null) as string | null,
+      complement:   (b.complement   ?? null) as string | null,
+      neighborhood: (b.neighborhood ?? null) as string | null,
+      city:         (b.city         ?? null) as string | null,
+      state:        (b.state        ?? null) as string | null,
+      country:      (b.country      ?? 'BR') as string,
+      icms_taxpayer, consumer_type,
+      notes: (b.notes ?? null) as string | null,
+    }).returning();
     return reply.code(201).send(client);
   });
 
-  // POST /v1/clients/import — batch upsert from Excel (parsed client-side)
-  // Returns { imported, skipped, errors: [{ row, message }] }; max 500 rows per call.
+  // POST /v1/clients/import
   fastify.post('/clients/import', {
     schema: {
       body: {
-        type: 'object',
-        required: ['tenant_id', 'clients'],
-        additionalProperties: false,
+        type: 'object', required: ['tenant_id', 'clients'], additionalProperties: false,
         properties: {
           tenant_id: { type: 'string', format: 'uuid' },
-          clients: {
-            type: 'array',
-            minItems: 1,
-            maxItems: 500,
-            items: {
-              type: 'object',
-              required: ['person_type'],
-              additionalProperties: true,
-              properties: {
-                person_type: { type: 'string' },
-              },
-            },
-          },
+          clients: { type: 'array', minItems: 1, maxItems: 500,
+            items: { type: 'object', required: ['person_type'], additionalProperties: true,
+              properties: { person_type: { type: 'string' } } } },
         },
       },
     },
-  }, async (request, reply) => {
-    const { tenant_id, clients } = request.body as {
-      tenant_id: string;
-      clients: Record<string, unknown>[];
+  }, async (request) => {
+    const { tenant_id, clients: rows } = request.body as {
+      tenant_id: string; clients: Record<string, unknown>[];
     };
 
-    const toStr  = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s || null; };
+    const toStr    = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s || null; };
     const toDigits = (v: unknown): string | null => { const s = String(v ?? '').replace(/\D/g, ''); return s || null; };
-    const toDate = (v: unknown): string | null => {
+    const toDate   = (v: unknown): string | null => {
       if (v instanceof Date) return v.toISOString().slice(0, 10);
       const s = String(v ?? '').trim();
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     };
 
-    let imported = 0;
-    let skipped  = 0;
+    let imported = 0; let skipped = 0;
     const errors: { row: number; message: string }[] = [];
 
-    for (let i = 0; i < clients.length; i++) {
-      const b   = clients[i];
-      const row = i + 2; // row 2 = first data row (row 1 = headers in the Excel)
-
+    for (let i = 0; i < rows.length; i++) {
+      const b   = rows[i];
+      const row = i + 2;
       const personType = String(b.person_type ?? '').trim().toUpperCase();
-
       if (!['PJ', 'PF'].includes(personType)) {
         errors.push({ row, message: `tipo_pessoa inválido: "${b.person_type}" — use PJ ou PF` });
         skipped++; continue;
       }
       if (personType === 'PJ' && !toStr(b.company_name)) {
-        errors.push({ row, message: 'razao_social é obrigatória para PJ' });
-        skipped++; continue;
+        errors.push({ row, message: 'razao_social é obrigatória para PJ' }); skipped++; continue;
       }
       if (personType === 'PF' && !toStr(b.full_name)) {
-        errors.push({ row, message: 'nome_completo é obrigatório para PF' });
-        skipped++; continue;
+        errors.push({ row, message: 'nome_completo é obrigatório para PF' }); skipped++; continue;
       }
-
-      // PF overrides: always Não Contribuinte + Consumidor Final
-      const icms = personType === 'PF' ? '9'
-        : (['1','2','9'].includes(String(b.icms_taxpayer)) ? String(b.icms_taxpayer) : '9');
-      const cons = personType === 'PF' ? '1'
-        : (['0','1'].includes(String(b.consumer_type))  ? String(b.consumer_type)  : '0');
+      const icms = personType === 'PF' ? '9' : (['1','2','9'].includes(String(b.icms_taxpayer)) ? String(b.icms_taxpayer) : '9');
+      const cons = personType === 'PF' ? '1' : (['0','1'].includes(String(b.consumer_type))  ? String(b.consumer_type)  : '0');
 
       try {
-        const { rows: inserted } = await pool.query(
-          `INSERT INTO clients (
-             tenant_id, person_type,
-             company_name, trade_name, cnpj, state_reg, municipal_reg, suframa,
-             full_name, cpf, birth_date, rg, rg_issuer,
-             email, phone, mobile,
-             zip_code, street, street_number, complement, neighborhood, city, state, country,
-             icms_taxpayer, consumer_type, notes
-           ) VALUES (
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
-           ) ON CONFLICT DO NOTHING RETURNING id`,
-          [
-            tenant_id, personType,
-            toStr(b.company_name),  toStr(b.trade_name),
-            toDigits(b.cnpj),       toStr(b.state_reg),
-            toStr(b.municipal_reg), toStr(b.suframa),
-            toStr(b.full_name),
-            toDigits(b.cpf),        toDate(b.birth_date),
-            toStr(b.rg),            toStr(b.rg_issuer),
-            toStr(b.email),         toDigits(b.phone),   toDigits(b.mobile),
-            toDigits(b.zip_code),
-            toStr(b.street),        toStr(b.street_number), toStr(b.complement),
-            toStr(b.neighborhood),  toStr(b.city),          toStr(b.state),
-            'BR',
-            icms, cons,
-            toStr(b.notes),
-          ],
-        );
+        const inserted = await db.insert(clients).values({
+          tenant_id, person_type: personType,
+          company_name: toStr(b.company_name), trade_name: toStr(b.trade_name),
+          cnpj: toDigits(b.cnpj), state_reg: toStr(b.state_reg),
+          municipal_reg: toStr(b.municipal_reg), suframa: toStr(b.suframa),
+          full_name: toStr(b.full_name), cpf: toDigits(b.cpf),
+          birth_date: toDate(b.birth_date), rg: toStr(b.rg), rg_issuer: toStr(b.rg_issuer),
+          email: toStr(b.email), phone: toDigits(b.phone), mobile: toDigits(b.mobile),
+          zip_code: toDigits(b.zip_code), street: toStr(b.street),
+          street_number: toStr(b.street_number), complement: toStr(b.complement),
+          neighborhood: toStr(b.neighborhood), city: toStr(b.city),
+          state: toStr(b.state) as string | null, country: 'BR',
+          icms_taxpayer: icms, consumer_type: cons, notes: toStr(b.notes),
+        } as any).onConflictDoNothing().returning({ id: clients.id });
 
-        if (inserted.length === 0) {
+        if (!inserted.length) {
           errors.push({ row, message: `${personType === 'PJ' ? 'CNPJ' : 'CPF'} já cadastrado para este tenant` });
           skipped++;
-        } else {
-          imported++;
-        }
+        } else { imported++; }
       } catch (err: unknown) {
         errors.push({ row, message: err instanceof Error ? err.message : 'Erro ao inserir registro' });
         skipped++;
       }
     }
-
     return { imported, skipped, errors };
   });
 
   // GET /v1/clients
   fastify.get('/clients', async (request, reply) => {
-    const q = request.query as Record<string, string>;
-    const { tenant_id, person_type, search, page = '1', per_page = '20' } = q;
-
+    const { tenant_id, person_type, search, page = '1', per_page = '20' } =
+      request.query as Record<string, string>;
     if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 
-    const conditions: string[] = ['tenant_id = $1', 'is_active = true'];
-    const params: unknown[]    = [tenant_id];
-    let   idx = 2;
+    const conditions: any[] = [eq(clients.tenant_id, tenant_id), eq(clients.is_active, true)];
+    if (person_type) conditions.push(eq(clients.person_type, person_type));
+    if (search) conditions.push(or(
+      ilike(clients.company_name, `%${search}%`),
+      ilike(clients.full_name,    `%${search}%`),
+      eq(clients.cnpj, search),
+      eq(clients.cpf,  search),
+    ));
+    const where = and(...conditions as [any, ...any[]]);
 
-    if (person_type) { conditions.push(`person_type = $${idx++}`); params.push(person_type); }
-
-    if (search) {
-      const term = `%${search}%`;
-      conditions.push(`(company_name ILIKE $${idx} OR full_name ILIKE $${idx} OR cnpj = $${idx + 1} OR cpf = $${idx + 1})`);
-      params.push(term, search);
-      idx += 2;
-    }
-
-    const where = conditions.join(' AND ');
-
-    const [{ rows }, { rows: [cnt] }] = await Promise.all([
-      pool.query(
-        `SELECT * FROM clients WHERE ${where} ORDER BY COALESCE(company_name, full_name) LIMIT $${idx} OFFSET $${idx + 1}`,
-        [...params, limit, offset],
-      ),
-      pool.query(`SELECT COUNT(*) FROM clients WHERE ${where}`, params),
+    const [[{ total }], rows] = await Promise.all([
+      db.select({ total: sql<number>`COUNT(*)::int` }).from(clients).where(where),
+      db.select().from(clients).where(where)
+        .orderBy(sql`COALESCE(${clients.company_name}, ${clients.full_name}) ASC`)
+        .limit(limit).offset(offset),
     ]);
 
-    return { data: rows, total: Number(cnt.count), page: Number(page), per_page: limit };
+    return { data: rows, total, page: Number(page), per_page: limit };
   });
 
   // GET /v1/clients/:id
   fastify.get<{ Params: { id: string } }>('/clients/:id', async (request, reply) => {
-    const { rows: [c] } = await pool.query('SELECT * FROM clients WHERE id = $1', [request.params.id]);
+    const [c] = await db.select().from(clients).where(eq(clients.id, request.params.id));
     if (!c) return reply.notFound('Client not found');
     return c;
   });
 
   // PATCH /v1/clients/:id
   fastify.patch<{ Params: { id: string } }>('/clients/:id', { schema: { body: patchBody } }, async (request, reply) => {
-    const { rows: [existing] } = await pool.query('SELECT id FROM clients WHERE id = $1', [request.params.id]);
+    const { id } = request.params;
+    const [existing] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id));
     if (!existing) return reply.notFound('Client not found');
 
     const b = request.body as Record<string, unknown>;
     const allowed = [
       'person_type','company_name','trade_name','cnpj','state_reg','municipal_reg','suframa',
       'full_name','cpf','birth_date','rg','rg_issuer','rg_issue_date',
-      'email','phone','mobile',
-      'zip_code','street','street_number','complement','neighborhood','city','state','country',
-      'icms_taxpayer','consumer_type','is_active','notes',
+      'email','phone','mobile','zip_code','street','street_number','complement',
+      'neighborhood','city','state','country','icms_taxpayer','consumer_type','is_active','notes',
     ];
+    const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
+    if (!Object.keys(updateData).length) return reply.badRequest('No fields to update');
 
-    const sets: string[] = [];
-    const vals: unknown[] = [];
-    let i = 1;
-
-    for (const key of allowed) {
-      if (key in b) { sets.push(`${key} = $${i++}`); vals.push(b[key]); }
-    }
-
-    if (!sets.length) return reply.badRequest('No fields to update');
-
-    vals.push(request.params.id);
-    const { rows: [updated] } = await pool.query(
-      `UPDATE clients SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-      vals,
-    );
+    const [updated] = await db.update(clients).set(updateData as any).where(eq(clients.id, id)).returning();
     return updated;
   });
 
   // DELETE /v1/clients/:id (soft delete)
   fastify.delete<{ Params: { id: string } }>('/clients/:id', async (request, reply) => {
-    const { rowCount } = await pool.query(
-      'UPDATE clients SET is_active = false WHERE id = $1 AND is_active = true',
-      [request.params.id],
-    );
-    if (!rowCount) return reply.notFound('Client not found or already inactive');
+    const result = await db.update(clients)
+      .set({ is_active: false })
+      .where(and(eq(clients.id, request.params.id), eq(clients.is_active, true)));
+    if (!result.rowCount) return reply.notFound('Client not found or already inactive');
     return reply.code(204).send();
   });
 };

@@ -26,7 +26,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 8. **Nunca deletar fisicamente registros.** Todos os soft-deletes estão documentados por módulo abaixo.
 
-9. **Nunca concatenar strings em SQL.** Usar sempre `$1, $2, ...` parametrizado.
+9. **Nunca concatenar strings em SQL.** As rotas usam Drizzle ORM (`db.select/insert/update/transaction`). Para SQL bruto, usar `sql\`... ${valor} ...\`` (tagged template literal do Drizzle — parametrização automática e segura). Nunca interpolar strings diretamente em queries.
 
 10. **Ao adicionar um novo módulo**, seguir o checklist completo da seção "Adicionando um novo módulo".
 
@@ -111,6 +111,35 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > **Eventos cobertos:** `nfe_authorized` (NF-e autorizada pela SEFAZ, inclui chave e link DANFE),
 > `nfe_rejected` (motivo da rejeição, ação necessária), `order_confirmed` (pedido confirmado, total).
 >
+### v1.5 — Drizzle ORM migration + Terraform S3 fix
+
+> **Drizzle ORM:** migração completa de todos os `pool.query()` para Drizzle query builder
+> em `services/api-core/`. Sem dependência nova de runtime (wraps o `pg.Pool` existente).
+>
+> **Arquivos novos:**
+> - `src/db/schema.ts` — 13 tabelas como `pgTable()` (fonte de verdade dos tipos TypeScript)
+> - `src/db/index.ts` — exporta `db = drizzle(pool, { schema })` e re-exporta `pool`
+> - `drizzle.config.ts` — configuração drizzle-kit para introspection e generate
+> - `vitest.config.ts` — configuração Vitest (substitui Jest/ts-jest)
+>
+> **Padrões adotados:** `db.select/insert/update` para CRUD simples; `db.execute(sql\`...\`)`
+> para JOINs complexos/WHERE dinâmico; `db.transaction(async tx => { ... })` substituindo
+> `pool.connect()` + `BEGIN/COMMIT/ROLLBACK` manual; `tx.execute(sql\`SELECT ... FOR UPDATE\`)`
+> para locking pessimista. `calcTotals` exportado de `orders.ts` para unit testing.
+>
+> **Testes:** Jest/ts-jest removidos; Vitest + 3 test files + 19 testes unitários.
+> `vi.hoisted()` para variáveis em `vi.mock()` factories; `vi.mock('../db/index', ...)`
+> para isolar o banco nos testes. `SendMessageCommand.input.MessageBody` (AWS SDK v3 pattern).
+>
+> **Terraform fix:** `storage_class = "GLACIER_DEEP_ARCHIVE"` corrigido para `"DEEP_ARCHIVE"`
+> em `terraform/s3-nfe.tf`. O provider Terraform AWS usa `DEEP_ARCHIVE`; `GLACIER_DEEP_ARCHIVE`
+> é o nome da AWS API — os dois diferem e o provider não aceita o nome AWS.
+
+### v1.4 — Lambda notifications + LocalStack dev environment
+
+> **Novo microserviço `services/lambda-notifications/`** (mesmo padrão Fastify DI do lambda-fiscal)
+> responsável pelo envio de e-mails transacionais multi-tenant via AWS SESv2.
+>
 > **Terraform:** novo `notifications.tf` (Lambda + IAM SQS+SES + CW Log Group + event source mapping),
 > duas novas filas SQS (`notifications` + `notifications-dlq`) em `sqs.tf`,
 > novo ECR repo `lambda-notifications` em `ecr.tf`. Novas variáveis: `ses_from_email`, `ses_from_name`,
@@ -145,7 +174,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > Worker ECS long-poll (15s) → UPDATE invoices + INSERT nfe_events → GET status em tempo real.
 >
 > **Terraform:** `sqs.tf` (3 filas + DLQ alarm), `s3-nfe.tf` (bucket + lifecycle S3 IA →
-> GLACIER_DEEP_ARCHIVE 5 anos), `lambda.tf` (função + event source mapping + CW alarm),
+> DEEP_ARCHIVE 5 anos), `lambda.tf` (função + event source mapping + CW alarm),
 > `ecr.tf` (repo lambda-fiscal), `ecs.tf` + `variables.tf` (novos env vars + focus_nfe_token).
 >
 > **CI/CD:** step paralelo de build/push `lambda-fiscal` no deploy.yml. Novo GitHub Secret
@@ -409,7 +438,9 @@ sequenceDiagram
 |--------|-----------|--------|---------------|
 | API HTTP | Node.js + Fastify + TypeScript | 20 / 4.x / 5.x | Alto throughput, schemas JSON nativos, plugin system |
 | Lambda | Fastify como DI + pino + TypeScript | 4.x / 5.x | Mesmo modelo de plugins do api-core, sem HTTP listen |
+| ORM | Drizzle ORM (`drizzle-orm` + `drizzle-kit`) | ^0.36.0 / ^0.27.0 | Type-safe, wraps pg.Pool existente, zero overhead |
 | Banco | PostgreSQL | 16 (RDS) | ACID, UUID nativo, triggers |
+| Testes | Vitest + @vitest/coverage-v8 | ^2.1.0 | Substitui Jest; `vi.mock`, `vi.hoisted`, ESM-nativo |
 | Frontend | React + Vite + TypeScript | 18 / 5.x / 5.x | SPA com proxy de API |
 | Auth | bcryptjs (salt 12) + @fastify/jwt (HS256 24h) | — | Stateless |
 | NF-e | Focus NF-e REST API | v2 | XML 4.0 + cert A1 + SEFAZ gerenciados pelo provider |
@@ -520,15 +551,21 @@ erp-lite/
 ├── services/api-core/              ← ECS Fargate — API Fastify
 │   ├── Dockerfile                  ← multi-stage: development | builder | production
 │   ├── package.json                ← deps: fastify, @fastify/jwt, @fastify/sensible,
-│   │                                        @fastify/cors, bcryptjs, pg
+│   │                                        @fastify/cors, bcryptjs, pg, drizzle-orm
+│   ├── drizzle.config.ts           ← drizzle-kit: schema path + dialect + DB credentials
+│   ├── vitest.config.ts            ← Vitest: globals, environment node, coverage v8
 │   ├── src/
 │   │   ├── index.ts                ← entry point (porta 3000)
 │   │   ├── app.ts                  ← Fastify factory + registro de rotas
 │   │   ├── config.ts               ← variáveis de ambiente
-│   │   ├── db/pool.ts              ← pg.Pool singleton
+│   │   ├── db/
+│   │   │   ├── pool.ts             ← pg.Pool singleton (mantido para lifecycle e seed)
+│   │   │   ├── schema.ts           ← 13 tabelas como pgTable() — fonte de tipos TypeScript
+│   │   │   └── index.ts            ← exporta db = drizzle(pool, { schema }) + re-exporta pool e schema
 │   │   ├── lib/
 │   │   │   ├── taxEngine.ts        ← motor de cálculo de impostos SP (puro, sem I/O)
-│   │   │   └── sqsClient.ts        ← SQSClient singleton (lazy init)
+│   │   │   ├── sqsClient.ts        ← SQSClient singleton (lazy init)
+│   │   │   └── notificationsClient.ts ← consulta notification_configs via Drizzle + enfileira SQS
 │   │   ├── routes/
 │   │   │   ├── auth.ts             ← POST /v1/auth/login|register, GET /v1/auth/me
 │   │   │   ├── customers.ts        ← CRUD /v1/customers (tenants SaaS)
@@ -538,9 +575,14 @@ erp-lite/
 │   │   │   ├── orders.ts           ← CRUD /v1/orders + confirm/deliver/cancel
 │   │   │   ├── invoices.ts         ← CRUD /v1/invoices + issue/cancel (c/ tax values)
 │   │   │   ├── tax.ts              ← POST /v1/tax/calculate
-│   │   │   └── nfe.ts              ← NF-e config + emit + status (Focus NF-e / SEFAZ)
+│   │   │   ├── nfe.ts              ← NF-e config + emit + status (Focus NF-e / SEFAZ)
+│   │   │   └── notificationConfig.ts ← GET|PUT /v1/notification-config (upsert via Drizzle)
 │   │   ├── workers/
 │   │   │   └── nfeResultsWorker.ts ← SQS long-poll: consome nfe-results → UPDATE invoices
+│   │   ├── __tests__/
+│   │   │   ├── orders.test.ts          ← testa calcTotals (função pura exportada de orders.ts)
+│   │   │   ├── notificationsClient.test.ts ← testa sendNotificationIfEnabled com mocks Vitest
+│   │   │   └── auth.test.ts            ← testa validação de schema JSON das rotas de auth
 │   │   └── scripts/
 │   │       ├── migrate.ts          ← runner de migrations SQL (executa em ordem)
 │   │       └── seed.ts             ← cria usuário admin para dev local
@@ -630,7 +672,7 @@ erp-lite/
     ├── secrets.tf    ← random_password para RDS (charset URL-safe, armazenado no estado S3)
     ├── scheduler.tf  ← EventBridge Schedules (RDS stop 20h / start 8h, non-prod)
     ├── sqs.tf        ← 3 filas NF-e (nfe-dlq, nfe-requests, nfe-results) + alarm DLQ
-    ├── s3-nfe.tf     ← bucket XMLs NF-e + lifecycle S3 IA → GLACIER_DEEP_ARCHIVE (5 anos)
+    ├── s3-nfe.tf     ← bucket XMLs NF-e + lifecycle S3 IA → DEEP_ARCHIVE (5 anos)
     └── lambda.tf     ← Lambda fiscal-nfe + event source mapping SQS + alarm de erros
 ```
 
@@ -1408,36 +1450,43 @@ curl -X POST http://localhost:3000/v1/invoices/<ID>/issue
    - Índice `(tenant_id, ...)` para toda query frequente
    - Adicionar ao array em `scripts/migrate.ts`
 
-2. **Rota** em `services/api-core/src/routes/nome.ts`
+2. **Schema Drizzle** em `src/db/schema.ts`
+   - Adicionar `pgTable('nome_tabela', { ... })` usando os tipos existentes como referência
+   - Exportar a constante (ex: `export const novoModelo = pgTable(...)`)
+   - O `src/db/index.ts` já re-exporta `* from './schema'` — nada muda no index
+
+3. **Rota** em `services/api-core/src/routes/nome.ts`
+   - Importar `{ db, novoModelo }` de `'../db'`
    - Paginação padrão: `page`, `per_page=20`, `max 100`
    - Soft delete (nunca DELETE físico)
-   - Transações (`pool.connect()` + BEGIN/COMMIT/ROLLBACK) para operações compostas
+   - Transações com `db.transaction(async tx => { ... })` para operações compostas
+   - SQL bruto com `db.execute(sql\`...\`)` para JOINs complexos
    - JSON Schema em todas as rotas que aceitam body
 
-3. **Registrar** em `services/api-core/src/app.ts`:
+4. **Registrar** em `services/api-core/src/app.ts`:
    ```typescript
    await app.register(novoModuloRoutes, { prefix: '/v1' });
    ```
 
-4. **Página frontend** em `apps/backoffice/src/pages/modulo/ModuloPage.tsx`
+5. **Página frontend** em `apps/backoffice/src/pages/modulo/ModuloPage.tsx`
    - Seguir o padrão de `MaterialsPage.tsx` (lista + drawer)
    - Usar apenas classes CSS existentes documentadas acima
 
-5. **Rota no App.tsx**:
+6. **Rota no App.tsx**:
    ```tsx
    import { ModuloPage } from './pages/modulo/ModuloPage';
    // dentro de <GuardedRoutes>:
    <Route path="/modulo" element={<ModuloPage />} />
    ```
 
-6. **Nav em Layout.tsx**:
+7. **Nav em Layout.tsx**:
    ```typescript
    { to: '/modulo', label: t('nav.modulo'), icon: '🔲' }
    ```
 
-7. **i18n**: adicionar `nav.modulo` e todos os keys `mod.*` nos dois arquivos
+8. **i18n**: adicionar `nav.modulo` e todos os keys `mod.*` nos dois arquivos
 
-8. **README**: atualizar schema, rotas e roadmap
+9. **README**: atualizar schema, rotas e roadmap
 
 ### Regras de segurança
 
@@ -1445,8 +1494,148 @@ curl -X POST http://localhost:3000/v1/invoices/<ID>/issue
   > Exceção temporária: enquanto JWT auth Lambda não está integrado
 - Senhas: bcrypt com salt rounds = 12 (`bcryptjs`)
 - Secrets: AWS Parameter Store — nunca em env vars ECS em texto claro
-- Queries: sempre `$1, $2, ...` — nunca concatenação SQL
+- Queries: usar Drizzle ORM — nunca concatenação de strings em SQL
 - Email: sempre armazenar em lowercase (`email.toLowerCase().trim()`)
+
+### Drizzle ORM — Padrões de Query (api-core)
+
+O `api-core` usa Drizzle ORM como camada de acesso a dados. O Drizzle wraps o `pg.Pool` existente sem substituí-lo — o pool continua sendo usado diretamente apenas em `seed.ts` (lifecycle `pool.end()`).
+
+**Importações padrão:**
+```typescript
+import { db, users, clients, orders /* ... */ } from '../db';
+import { eq, and, or, ilike, sql } from 'drizzle-orm';
+```
+
+**SELECT simples:**
+```typescript
+const rows = await db.select().from(users).where(eq(users.id, userId));
+const [user] = rows; // undefined se não encontrado
+```
+
+**SELECT com projeção:**
+```typescript
+const [user] = await db
+  .select({ id: users.id, email: users.email, name: users.name })
+  .from(users)
+  .where(and(eq(users.tenant_id, tenantId), eq(users.id, userId)));
+```
+
+**WHERE dinâmico (filtros opcionais):**
+```typescript
+const conditions = [eq(clients.tenant_id, tenantId), eq(clients.is_active, true)];
+if (search) conditions.push(or(ilike(clients.company_name, `%${search}%`), ilike(clients.full_name, `%${search}%`))!);
+const where = and(...conditions);
+const rows = await db.select().from(clients).where(where).limit(perPage).offset((page - 1) * perPage);
+```
+
+**COUNT:**
+```typescript
+const [{ count }] = await db
+  .select({ count: sql<number>`COUNT(*)::int` })
+  .from(users)
+  .where(where);
+```
+
+**INSERT com RETURNING:**
+```typescript
+const [row] = await db.insert(clients).values({ tenant_id, company_name, /* ... */ }).returning();
+```
+
+**INSERT com ON CONFLICT DO NOTHING:**
+```typescript
+const inserted = await db.insert(clients).values(batch).onConflictDoNothing().returning({ id: clients.id });
+```
+
+**INSERT com ON CONFLICT DO UPDATE (upsert):**
+```typescript
+const [row] = await db
+  .insert(nfeConfigs)
+  .values({ tenant_id, cnpj, /* ... */ })
+  .onConflictDoUpdate({
+    target: nfeConfigs.tenant_id,
+    set: { cnpj: sql`EXCLUDED.cnpj`, razao_social: sql`EXCLUDED.razao_social`, updated_at: sql`NOW()` },
+  })
+  .returning();
+```
+
+**UPDATE:**
+```typescript
+const result = await db
+  .update(users)
+  .set({ name: 'Novo Nome', updated_at: new Date() })
+  .where(and(eq(users.id, userId), eq(users.tenant_id, tenantId)));
+// result.rowCount para verificar se algo foi atualizado
+```
+
+**UPDATE dinâmico (PATCH):**
+```typescript
+const updateData: Record<string, unknown> = {};
+if (body.name !== undefined) updateData.name = body.name;
+if (body.role !== undefined) updateData.role = body.role;
+await db.update(users).set(updateData as any).where(and(eq(users.id, userId), eq(users.tenant_id, tenantId)));
+```
+
+**Transação:**
+```typescript
+const result = await db.transaction(async (tx) => {
+  const [order] = await tx.insert(orders).values({ /* ... */ }).returning();
+  await tx.insert(orderItems).values(items.map(i => ({ order_id: order.id, /* ... */ })));
+  return order;
+});
+```
+
+**SQL bruto dentro de transação (CTEs, FOR UPDATE):**
+```typescript
+await db.transaction(async (tx) => {
+  // Locking pessimista
+  const { rows: [inv] } = await tx.execute<{ id: string; quantity: string }>(sql`
+    SELECT id, quantity FROM inventory WHERE material_id = ${materialId} FOR UPDATE
+  `);
+  // CTE para número sequencial
+  const { rows: [order] } = await tx.execute<{ id: string; number: string }>(sql`
+    WITH next AS (SELECT COALESCE(MAX(number::int), 0) + 1 AS n FROM orders WHERE tenant_id = ${tenantId})
+    INSERT INTO orders (tenant_id, number, ...) SELECT ${tenantId}, LPAD(n::text, 5, '0'), ... FROM next RETURNING *
+  `);
+});
+```
+
+**SQL bruto com fragmentos condicionais:**
+```typescript
+const statusFilter = status ? sql`AND o.status = ${status}` : sql``;
+const { rows } = await db.execute<OrderRow>(sql`
+  SELECT o.*, c.company_name FROM orders o
+  JOIN clients c ON c.id = o.client_id
+  WHERE o.tenant_id = ${tenantId}
+  ${statusFilter}
+  ORDER BY o.created_at DESC LIMIT ${perPage} OFFSET ${(page - 1) * perPage}
+`);
+```
+
+**Atomic increment:**
+```typescript
+await db.update(invoices).set({ nfe_attempts: sql`nfe_attempts + 1` }).where(eq(invoices.id, invoiceId));
+```
+
+**Executar testes:**
+```bash
+# No diretório services/api-core
+npm test                  # vitest run (todos os testes uma vez)
+npm run test:watch        # vitest em modo watch
+npm run test:coverage     # vitest run --coverage (relatório lcov + text)
+
+# No monorepo raiz
+npm test --workspace=services/api-core
+```
+
+**drizzle-kit (introspection / generate):**
+```bash
+cd services/api-core
+# Gerar SQL de migração a partir do schema.ts (não substitui migrations manuais)
+npx drizzle-kit generate
+# Inspecionar schema atual do banco (pull)
+npx drizzle-kit introspect
+```
 
 ---
 
@@ -1532,4 +1721,5 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 | 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |
 | 🔜 | **Reports** | Relatórios async via Lambda + S3 |
 | ✅ | **Notifications** | E-mail transacional multi-tenant via Lambda + SQS + SESv2 (nfe_authorized, nfe_rejected, order_confirmed) |
+| ✅ | **Drizzle ORM** | Migração completa de pool.query() para Drizzle; Vitest substituindo Jest; 19 testes unitários |
 | 🔜 | **RBAC** | Controle de acesso granular por role |

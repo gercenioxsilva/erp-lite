@@ -46,7 +46,7 @@ resource "aws_cloudfront_distribution" "backoffice" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
-  comment = "ERP Lite backoffice - ${var.environment}"
+  comment             = "ERP Lite backoffice - ${var.environment}"
 
   origin {
     domain_name              = aws_s3_bucket.backoffice.bucket_regional_domain_name
