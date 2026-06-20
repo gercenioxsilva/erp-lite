@@ -1,7 +1,8 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { api }     from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { useI18n } from '../../i18n';
+import { api }      from '../../lib/api';
+import { useAuth }  from '../../contexts/AuthContext';
+import { useI18n }  from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 import type { TKey } from '../../i18n/pt-BR';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -42,6 +43,7 @@ function newItem(): FormItem {
 export function OrdersPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const modal = useModal();
 
   /* list */
   const [orders,       setOrders]       = useState<Order[]>([]);
@@ -191,15 +193,20 @@ export function OrdersPage() {
 
   /* ── Status transitions ── */
   async function transition(id: string, action: 'confirm' | 'deliver' | 'cancel') {
-    const labels: Record<string, TKey> = {
-      confirm: 'o.confirmMsg', deliver: 'o.deliverMsg', cancel: 'o.cancelMsg',
-    };
-    if (!confirm(t(labels[action]))) return;
+    const msgs: Record<string, TKey>  = { confirm: 'o.confirmMsg', deliver: 'o.deliverMsg', cancel: 'o.cancelMsg' };
+    const titles: Record<string, TKey> = { confirm: 'o.confirm',   deliver: 'o.deliver',    cancel: 'c.cancel' };
+    const ok = await modal.confirm({
+      title: t(titles[action]),
+      message: t(msgs[action]),
+      confirmLabel: t(titles[action]),
+      danger: action === 'cancel',
+    });
+    if (!ok) return;
     try {
       await api.post(`/v1/orders/${id}/${action}`, {});
       void load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Erro');
+      modal.error(err);
     }
   }
 

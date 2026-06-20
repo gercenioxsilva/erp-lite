@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, FormEvent } from 'react';
 import * as XLSX from 'xlsx';
-import { api }     from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { useI18n } from '../../i18n';
+import { api }      from '../../lib/api';
+import { useAuth }  from '../../contexts/AuthContext';
+import { useI18n }  from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 
 interface Material {
   id:               string;
@@ -84,6 +85,7 @@ function downloadTemplate() {
 export function MaterialsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const modal = useModal();
   const [items,      setItems]      = useState<Material[]>([]);
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
@@ -171,8 +173,10 @@ export function MaterialsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm(t('m.deact'))) return;
-    try { await api.delete(`/v1/materials/${id}`); void load(); } catch { /**/ }
+    const ok = await modal.confirm({ title: t('m.deact'), message: t('m.deactMsg'), confirmLabel: 'Desativar', danger: true });
+    if (!ok) return;
+    try { await api.delete(`/v1/materials/${id}`); void load(); }
+    catch (err: unknown) { modal.error(err); }
   }
 
   // ── Import handlers ──────────────────────────────────────────────────────────

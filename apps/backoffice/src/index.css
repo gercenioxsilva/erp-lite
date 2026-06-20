@@ -565,3 +565,176 @@ tr:hover td { background: #f8fafc; }
 
 /* Spinner keyframe */
 @keyframes ls-spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIALOG MODAL — confirm / error
+   Distinct from .overlay/.drawer (side-panel). These are centered dialogs.
+═══════════════════════════════════════════════════════════════════════════ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 500;
+  animation: modal-fade-in 0.15s ease-out;
+}
+
+.modal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.10);
+  padding: 32px 28px 24px;
+  width: 100%;
+  text-align: center;
+  animation: modal-slide-in 0.18s cubic-bezier(0.34, 1.42, 0.64, 1);
+}
+
+.modal-dialog--compact { max-width: 380px; }
+.modal-dialog--error   { max-width: 420px; }
+
+/* ── Confirm icon ── */
+.modal-icon-wrap {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+.modal-icon-wrap svg { width: 28px; height: 28px; }
+.modal-icon-wrap--danger { background: #fef2f2; color: var(--danger); }
+.modal-icon-wrap--info   { background: #eef2ff; color: var(--primary); }
+
+/* ── Text ── */
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+.modal-msg {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+/* ── Actions ── */
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.modal-actions .btn { min-width: 120px; justify-content: center; }
+
+/* ── Error illustration ── */
+.modal-error-art {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-error-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #fee2e2 0%, #fecaca 60%, transparent 100%);
+  opacity: 0.9;
+}
+
+.modal-gear-wrap {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  z-index: 1;
+}
+
+.modal-gear {
+  width: 52px;
+  height: 52px;
+  color: var(--danger);
+  animation: gear-stutter 4s ease-in-out infinite;
+}
+
+.modal-spark {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  font-size: 14px;
+  color: #f59e0b;
+  opacity: 0;
+  animation: spark-pop 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Technical details ── */
+.modal-details {
+  margin-bottom: 20px;
+  text-align: left;
+}
+.modal-details-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0;
+  margin-bottom: 6px;
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+.modal-details-toggle:hover { color: var(--text); }
+.modal-details-code {
+  display: block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-family: 'SFMono-Regular', 'Consolas', monospace;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* ── Animations ── */
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-slide-in {
+  from { opacity: 0; transform: scale(0.92) translateY(12px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+@keyframes gear-stutter {
+  0%,  55%, 100% { transform: rotate(0deg); }
+  60%  { transform: rotate(-18deg); }
+  65%  { transform: rotate(10deg); }
+  70%  { transform: rotate(-6deg); }
+  75%  { transform: rotate(3deg); }
+  80%  { transform: rotate(0deg); }
+}
+
+@keyframes spark-pop {
+  0%,  55%, 85%, 100% { opacity: 0; transform: scale(0) translate(0, 0); }
+  60%  { opacity: 1; transform: scale(1.2) translate(-2px, -6px); }
+  70%  { opacity: 0.6; transform: scale(0.8) translate(2px, -10px); }
+  80%  { opacity: 0; transform: scale(0.3) translate(0, -14px); }
+}

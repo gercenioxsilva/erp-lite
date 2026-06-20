@@ -1,7 +1,8 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { api }     from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { useI18n } from '../../i18n';
+import { api }      from '../../lib/api';
+import { useAuth }  from '../../contexts/AuthContext';
+import { useI18n }  from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 import type { TKey } from '../../i18n/pt-BR';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -60,6 +61,7 @@ function newItem(): FormItem {
 export function InvoicesPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const modal = useModal();
 
   /* list */
   const [invoices,     setInvoices]     = useState<Invoice[]>([]);
@@ -266,14 +268,22 @@ export function InvoicesPage() {
 
   /* ── Issue / Cancel ── */
   async function handleIssue(id: string) {
-    if (!confirm(t('inv.issueMsg'))) return;
+    const ok = await modal.confirm({
+      title: t('inv.issue'), message: t('inv.issueMsg'),
+      confirmLabel: t('inv.issue'),
+    });
+    if (!ok) return;
     try { await api.post(`/v1/invoices/${id}/issue`, {}); void load(); }
-    catch (err: unknown) { alert(err instanceof Error ? err.message : 'Erro'); }
+    catch (err: unknown) { modal.error(err); }
   }
   async function handleCancel(id: string) {
-    if (!confirm(t('inv.cancelMsg'))) return;
+    const ok = await modal.confirm({
+      title: t('inv.cancel'), message: t('inv.cancelMsg'),
+      confirmLabel: t('inv.cancel'), danger: true,
+    });
+    if (!ok) return;
     try { await api.post(`/v1/invoices/${id}/cancel`, {}); void load(); }
-    catch (err: unknown) { alert(err instanceof Error ? err.message : 'Erro'); }
+    catch (err: unknown) { modal.error(err); }
   }
 
   const totalPages = Math.ceil(total / perPage);
