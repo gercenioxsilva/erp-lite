@@ -38,6 +38,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. Ele é puro (sem I/O). O endpoint `POST /v1/tax/calculate` delega para ele. O frontend chama esse endpoint e armazena os valores calculados nos campos `icms_*`, `pis_*`, `cofins_*` dos itens antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro" (embutidos no preço — não aumentam o total). IPI é "por fora" (adicionado ao total). O total da NF-e = subtotal + ipi_total.
 
+15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um OCI manifest index (manifest list) que o AWS Lambda rejeita com `InvalidParameterValueException: image manifest ... not supported`. Lambda exige Docker Image Manifest V2 Schema 2 single-platform. A api-core (ECS) não precisa dessas flags — apenas as Lambdas.
+
+16. **Nunca definir variáveis reservadas do Lambda runtime em `environment.variables` do Terraform.** O runtime do Lambda injeta automaticamente: `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_LAMBDA_FUNCTION_NAME`, `AWS_LAMBDA_FUNCTION_VERSION`, `AWS_LAMBDA_FUNCTION_MEMORY_SIZE`, `LAMBDA_TASK_ROOT`, `LAMBDA_RUNTIME_DIR`. Tentar definir qualquer uma delas resulta em `InvalidParameterValueException: environment variables contains reserved keys`. O código acessa `process.env.AWS_REGION` normalmente — o valor já está disponível em runtime sem configuração manual.
+
 ---
 
 ## Histórico de Prompts
@@ -111,6 +115,29 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 > **Eventos cobertos:** `nfe_authorized` (NF-e autorizada pela SEFAZ, inclui chave e link DANFE),
 > `nfe_rejected` (motivo da rejeição, ação necessária), `order_confirmed` (pedido confirmado, total).
 >
+### v1.6 — Fix Lambda container image manifest + reserved env var AWS_REGION
+
+> **Erro 1 — `aws_lambda_function.fiscal_nfe`:** `InvalidParameterValueException: The image manifest,
+> config or layer media type for the source image ... is not supported.`
+>
+> Causa: `docker/build-push-action@v5` com Docker Buildx gera por padrão um **OCI manifest index**
+> (manifest list com provenance attestation). AWS Lambda não suporta manifest lists — exige
+> **Docker Image Manifest V2 Schema 2** single-platform.
+>
+> Fix em `.github/workflows/deploy.yml` nos dois steps de build de Lambda:
+> - `platforms: linux/amd64` — força build single-platform
+> - `provenance: false` — desativa a provenance attestation que gera o manifest list
+>
+> **Erro 2 — `aws_lambda_function.notifications`:** `InvalidParameterValueException: environment
+> variables contains reserved keys: AWS_REGION`
+>
+> Causa: `terraform/notifications.tf` definia `AWS_REGION = var.aws_region` no bloco
+> `environment.variables`. `AWS_REGION` é uma variável reservada do Lambda runtime — injetada
+> automaticamente pela AWS, nunca pode ser sobrescrita via Terraform.
+>
+> Fix em `terraform/notifications.tf`: removida a linha `AWS_REGION = var.aws_region`.
+> O `process.env.AWS_REGION` no código da Lambda continua funcionando normalmente.
+
 ### v1.5 — Drizzle ORM migration + Terraform S3 fix
 
 > **Drizzle ORM:** migração completa de todos os `pool.query()` para Drizzle query builder
@@ -1645,6 +1672,20 @@ npx drizzle-kit introspect
 O pipeline executa em ordem: build Docker → push ECR → `terraform apply` →
 migrations via ECS run-task → build Vite → sync S3 → invalidação CloudFront.
 
+### Checklist anti-regressão CI/CD (leia antes de editar deploy.yml ou *.tf)
+
+Estas regras previnem os erros de deploy já sofridos no projeto. Nunca violar:
+
+| # | Regra | Causa do bug original |
+|---|-------|----------------------|
+| C1 | Steps `docker/build-push-action` de **Lambda** DEVEM ter `platforms: linux/amd64` e `provenance: false` | v1.6: Lambda rejeitou manifest OCI com `image manifest not supported` |
+| C2 | Steps `docker/build-push-action` de **ECS (api-core)** NÃO precisam dessas flags — ECS suporta manifest lists | — |
+| C3 | Nunca adicionar `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` em `environment.variables` de qualquer `aws_lambda_function` | v1.6: `InvalidParameterValueException: reserved keys` |
+| C4 | `storage_class` em `aws_s3_bucket_lifecycle_configuration` usa `DEEP_ARCHIVE` (Terraform) — não `GLACIER_DEEP_ARCHIVE` (nome da AWS API) | v1.5: `Invalid String Enum Value` |
+| C5 | `terraform apply` full DEVE vir DEPOIS do `docker push` — a task definition referencia a image tag; se a imagem não existir, ECS falha no deploy | — |
+| C6 | Migrations rodam VIA `ecs run-task` (não localmente nem via SSH) para usar a mesma imagem e variáveis de ambiente que a task definition define | — |
+| C7 | Senha RDS é gerada pelo Terraform (`random_password`) — nunca criar secret no GitHub para ela; usar `terraform output -raw db_password` para recuperar | — |
+
 Secrets necessários no repositório GitHub:
 
 | Secret | Descrição |
@@ -1722,4 +1763,5 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 | 🔜 | **Reports** | Relatórios async via Lambda + S3 |
 | ✅ | **Notifications** | E-mail transacional multi-tenant via Lambda + SQS + SESv2 (nfe_authorized, nfe_rejected, order_confirmed) |
 | ✅ | **Drizzle ORM** | Migração completa de pool.query() para Drizzle; Vitest substituindo Jest; 19 testes unitários |
+| ✅ | **Fix CI/CD Lambda** | platforms linux/amd64 + provenance:false nos builds Lambda; remove AWS_REGION reservada do Terraform |
 | 🔜 | **RBAC** | Controle de acesso granular por role |

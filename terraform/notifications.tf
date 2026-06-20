@@ -53,11 +53,11 @@ resource "aws_lambda_function" "notifications" {
 
   environment {
     variables = {
-      AWS_REGION             = var.aws_region
-      SES_FROM_EMAIL         = var.ses_from_email
-      SES_FROM_NAME          = var.ses_from_name
+      # AWS_REGION is reserved by Lambda runtime — injected automatically, never set here.
+      SES_FROM_EMAIL          = var.ses_from_email
+      SES_FROM_NAME           = var.ses_from_name
       NOTIFICATIONS_QUEUE_URL = aws_sqs_queue.notifications.url
-      LOG_LEVEL              = "info"
+      LOG_LEVEL               = "info"
     }
   }
 
