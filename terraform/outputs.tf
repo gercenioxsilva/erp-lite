@@ -56,3 +56,13 @@ output "cloudfront_domain" {
   description = "CloudFront domain where the backoffice is served"
   value       = "https://${aws_cloudfront_distribution.backoffice.domain_name}"
 }
+
+output "app_url" {
+  description = "Custom domain URL for the backoffice (orquestraerp.com.br)"
+  value       = "https://orquestraerp.com.br"
+}
+
+output "route53_nameservers" {
+  description = "Route 53 nameservers — configure these at the domain registrar"
+  value       = aws_route53_zone.main.name_servers
+}
