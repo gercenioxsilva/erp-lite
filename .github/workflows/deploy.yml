@@ -153,6 +153,7 @@ jobs:
           TF_VAR_focus_nfe_token:                     ${{ secrets.TF_VAR_FOCUS_NFE_TOKEN }}
           TF_VAR_ses_from_email:                      ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
           TF_VAR_ses_from_name:                       ${{ secrets.TF_VAR_SES_FROM_NAME }}
+          TF_VAR_acm_certificate_arn:                 ${{ secrets.TF_VAR_ACM_CERTIFICATE_ARN }}
           TF_VAR_image_tag:                           ${{ github.sha }}
           TF_VAR_lambda_fiscal_image_tag:             ${{ github.sha }}
           TF_VAR_lambda_notifications_image_tag:      ${{ github.sha }}

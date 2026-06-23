@@ -47,8 +47,9 @@ resource "aws_cloudfront_distribution" "backoffice" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
   comment             = "ERP Lite backoffice - ${var.environment}"
-  aliases             = ["orquestraerp.com.br", "www.orquestraerp.com.br"]
-  depends_on          = [aws_acm_certificate_validation.main]
+  # Aliases are only active once the ACM certificate is issued.
+  # Set TF_VAR_ACM_CERTIFICATE_ARN in GitHub Secrets to activate the custom domain.
+  aliases = var.acm_certificate_arn != "" ? ["orquestraerp.com.br", "www.orquestraerp.com.br"] : []
 
   origin {
     domain_name              = aws_s3_bucket.backoffice.bucket_regional_domain_name
@@ -132,9 +133,10 @@ resource "aws_cloudfront_distribution" "backoffice" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
+    cloudfront_default_certificate = var.acm_certificate_arn == ""
+    acm_certificate_arn            = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
+    ssl_support_method             = var.acm_certificate_arn != "" ? "sni-only" : null
+    minimum_protocol_version       = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : "TLSv1"
   }
 
   tags = { Environment = var.environment }
