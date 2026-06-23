@@ -350,4 +350,78 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     `);
     return reply.send({ data, meta: { total: data.length } });
   });
+
+  // GET /v1/stock — visão consolidada de estoque de todos os materiais (usa JWT)
+  app.get('/stock', { onRequest: [(app as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { search, page = '1', per_page = '20' } = request.query as Record<string, string>;
+
+    const limit  = Math.min(Number(per_page) || 20, 100);
+    const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
+
+    const searchFilter = search
+      ? sql`AND (m.name ILIKE ${'%' + search + '%'} OR m.sku ILIKE ${'%' + search + '%'})`
+      : sql``;
+
+    const [{ rows }, { rows: [cnt] }] = await Promise.all([
+      db.execute<any>(sql`
+        SELECT m.id, m.sku, m.name, m.type, m.category, m.unit,
+               m.sale_price, m.cost_price, m.is_active,
+               i.quantity, i.min_qty, i.max_qty,
+               (i.quantity <= i.min_qty) AS is_low_stock
+        FROM inventory i
+        JOIN materials m ON m.id = i.material_id
+        WHERE i.tenant_id = ${tenantId} AND m.is_active = true
+          ${searchFilter}
+        ORDER BY m.name ASC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+      db.execute<{ count: string }>(sql`
+        SELECT COUNT(*) AS count
+        FROM inventory i
+        JOIN materials m ON m.id = i.material_id
+        WHERE i.tenant_id = ${tenantId} AND m.is_active = true
+          ${searchFilter}
+      `),
+    ]);
+
+    return reply.send({ data: rows, total: Number(cnt.count), page: Number(page), per_page: limit });
+  });
+
+  // GET /v1/stock/movements — histórico global de movimentos (usa JWT)
+  app.get('/stock/movements', { onRequest: [(app as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { material_id, movement_type, date_from, date_to,
+            page = '1', per_page = '20' } = request.query as Record<string, string>;
+
+    const limit  = Math.min(Number(per_page) || 20, 100);
+    const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
+
+    const matFilter  = material_id    ? sql`AND im.material_id = ${material_id}::uuid` : sql``;
+    const typeFilter = movement_type  ? sql`AND im.movement_type = ${movement_type}` : sql``;
+    const dateFrom   = date_from      ? sql`AND im.created_at >= ${date_from}::timestamptz` : sql``;
+    const dateTo     = date_to        ? sql`AND im.created_at < (${date_to}::date + interval '1 day')::timestamptz` : sql``;
+
+    const [{ rows }, { rows: [cnt] }] = await Promise.all([
+      db.execute<any>(sql`
+        SELECT im.id, im.movement_type, im.quantity, im.quantity_before, im.quantity_after,
+               im.reason, im.reference_id, im.reference_type, im.created_at,
+               m.id AS material_id, m.sku, m.name AS material_name, m.unit
+        FROM inventory_movements im
+        JOIN materials m ON m.id = im.material_id
+        WHERE im.tenant_id = ${tenantId}
+          ${matFilter} ${typeFilter} ${dateFrom} ${dateTo}
+        ORDER BY im.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+      db.execute<{ count: string }>(sql`
+        SELECT COUNT(*) AS count
+        FROM inventory_movements im
+        WHERE im.tenant_id = ${tenantId}
+          ${matFilter} ${typeFilter} ${dateFrom} ${dateTo}
+      `),
+    ]);
+
+    return reply.send({ data: rows, total: Number(cnt.count), page: Number(page), per_page: limit });
+  });
 };

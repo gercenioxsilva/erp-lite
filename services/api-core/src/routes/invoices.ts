@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
-import { db, invoices, invoiceItems, orders } from '../db';
+import { db, invoices, invoiceItems, receivables } from '../db';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -126,10 +126,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── POST /v1/invoices/:id/issue ────────────────────────────────────── */
   fastify.post('/invoices/:id/issue', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [invoice] = await db.select({ id: invoices.id, tenant_id: invoices.tenant_id,
-                                        serie: invoices.serie, status: invoices.status })
-      .from(invoices).where(eq(invoices.id, id));
-    if (!invoice)                  return reply.notFound('Nota fiscal não encontrada');
+    const [invoice] = await db.select({
+      id: invoices.id, tenant_id: invoices.tenant_id,
+      client_id: invoices.client_id, serie: invoices.serie,
+      status: invoices.status, total: invoices.total,
+    }).from(invoices).where(eq(invoices.id, id));
+    if (!invoice)                   return reply.notFound('Nota fiscal não encontrada');
     if (invoice.status !== 'draft') return reply.badRequest('Apenas rascunhos podem ser emitidos');
 
     const { rows: [num] } = await db.execute<{ n: string }>(sql`
@@ -137,10 +139,26 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       FROM invoices WHERE tenant_id = ${invoice.tenant_id} AND serie = ${invoice.serie} AND status = 'issued'
     `);
 
-    const number = String(num.n).padStart(6, '0');
-    await db.update(invoices)
-      .set({ status: 'issued', number, issue_date: new Date().toISOString().slice(0, 10) })
-      .where(eq(invoices.id, id));
+    const number    = String(num.n).padStart(6, '0');
+    const issueDate = new Date().toISOString().slice(0, 10);
+    const dueDate   = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    await db.transaction(async (tx) => {
+      await tx.update(invoices)
+        .set({ status: 'issued', number, issue_date: issueDate })
+        .where(eq(invoices.id, id));
+
+      await tx.insert(receivables).values({
+        tenant_id:   invoice.tenant_id,
+        client_id:   invoice.client_id,
+        invoice_id:  invoice.id,
+        description: `NF-e nº ${number} (série ${invoice.serie})`,
+        amount:      String(invoice.total),
+        due_date:    dueDate,
+        status:      'pending',
+      });
+    });
+
     return { ok: true, status: 'issued', number };
   });
 

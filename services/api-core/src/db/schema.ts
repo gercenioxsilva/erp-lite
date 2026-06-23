@@ -31,6 +31,8 @@ export const tenants = pgTable('tenants', {
   fiscal_contact_name:  varchar('fiscal_contact_name',  { length: 255 }),
   fiscal_contact_phone: varchar('fiscal_contact_phone', { length: 30  }),
   fiscal_contact_email: varchar('fiscal_contact_email', { length: 255 }),
+  // Logo (base64 data URI, max ~300 KB — returned via GET /v1/tenant only)
+  logo_url: text('logo_url'),
   // SaaS lifecycle
   status:       varchar('status', { length: 20 }).notNull().default('trial'),
   plan:         varchar('plan',   { length: 30 }).notNull().default('starter'),
@@ -271,6 +273,69 @@ export const nfeEvents = pgTable('nfe_events', {
   protocol:    varchar('protocol',    { length: 50 }),
   payload:     jsonb('payload'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── receivables ───────────────────────────────────────────────────────────────
+export const receivables = pgTable('receivables', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  client_id:   uuid('client_id').references(() => clients.id,            { onDelete: 'set null' }),
+  invoice_id:  uuid('invoice_id').references(() => invoices.id,          { onDelete: 'set null' }),
+  description: varchar('description', { length: 255 }).notNull(),
+  amount:      decimal('amount',      { precision: 15, scale: 2 }).notNull(),
+  paid_amount: decimal('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  due_date:    date('due_date').notNull(),
+  status:      varchar('status', { length: 20 }).notNull().default('pending'),
+  notes:       text('notes'),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── receivable_payments (append-only) ─────────────────────────────────────────
+export const receivablePayments = pgTable('receivable_payments', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id,      { onDelete: 'cascade' }),
+  receivable_id:  uuid('receivable_id').notNull().references(() => receivables.id, { onDelete: 'cascade' }),
+  payment_date:   date('payment_date').notNull(),
+  amount:         decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  payment_method: varchar('payment_method', { length: 30 }).notNull().default('other'),
+  reference:      varchar('reference', { length: 100 }),
+  notes:          text('notes'),
+  created_by:     uuid('created_by'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── payables ──────────────────────────────────────────────────────────────────
+export const payables = pgTable('payables', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  supplier_name:   varchar('supplier_name',   { length: 255 }),
+  category:        varchar('category',        { length: 50  }).notNull().default('other'),
+  description:     varchar('description',     { length: 255 }).notNull(),
+  document_number: varchar('document_number', { length: 50  }),
+  amount:          decimal('amount',      { precision: 15, scale: 2 }).notNull(),
+  paid_amount:     decimal('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  due_date:        date('due_date').notNull(),
+  status:          varchar('status', { length: 20 }).notNull().default('pending'),
+  notes:           text('notes'),
+  created_by:      uuid('created_by'),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── payable_payments (append-only) ────────────────────────────────────────────
+export const payablePayments = pgTable('payable_payments', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id,    { onDelete: 'cascade' }),
+  payable_id:     uuid('payable_id').notNull().references(() => payables.id,  { onDelete: 'cascade' }),
+  payment_date:   date('payment_date').notNull(),
+  amount:         decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  payment_method: varchar('payment_method', { length: 30 }).notNull().default('other'),
+  reference:      varchar('reference', { length: 100 }),
+  notes:          text('notes'),
+  created_by:     uuid('created_by'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── notification_configs ──────────────────────────────────────────────────────

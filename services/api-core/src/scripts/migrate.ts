@@ -29,6 +29,9 @@ const migrations = [
   '0008_invoice_taxes.sql',
   '0009_nfe.sql',
   '0010_notification_configs.sql',
+  '0011_tenant_logo.sql',
+  '0012_receivables.sql',
+  '0013_payables.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

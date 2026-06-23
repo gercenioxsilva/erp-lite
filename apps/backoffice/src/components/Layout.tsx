@@ -10,12 +10,16 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   const NAV = [
-    { to: '/dashboard', label: t('nav.dashboard'), icon: '▦'  },
-    { to: '/clients',   label: t('nav.clients'),   icon: '🏢' },
-    { to: '/materials', label: t('nav.materials'),  icon: '⬜' },
-    { to: '/orders',    label: t('nav.orders'),     icon: '📋' },
-    { to: '/invoices',  label: t('nav.invoices'),   icon: '🧾' },
-    { to: '/users',     label: t('nav.users'),      icon: '👥' },
+    { to: '/dashboard',  label: t('nav.dashboard'),  icon: '▦'  },
+    { to: '/clients',    label: t('nav.clients'),    icon: '🏢' },
+    { to: '/materials',  label: t('nav.materials'),  icon: '⬜' },
+    { to: '/stock',      label: t('nav.stock'),      icon: '📦' },
+    { to: '/orders',     label: t('nav.orders'),     icon: '📋' },
+    { to: '/invoices',   label: t('nav.invoices'),   icon: '🧾' },
+    { to: '/receivables',label: t('nav.receivables'),icon: '💰' },
+    { to: '/payables',   label: t('nav.payables'),   icon: '💸' },
+    { to: '/users',      label: t('nav.users'),      icon: '👥' },
+    { to: '/company',    label: t('nav.company'),    icon: '🏛️' },
   ];
 
   function handleLogout() {
