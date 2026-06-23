@@ -120,7 +120,7 @@ export function ReceivablesPage() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { setPayError(t('rec.errPayAmt')); return; }
     setPayingSave(true);
     try {
-      const result = await api.post(`/v1/receivables/${selected!.id}/payments`, {
+      await api.post(`/v1/receivables/${selected!.id}/payments`, {
         payment_date:   payForm.payment_date,
         amount:         Number(payForm.amount),
         payment_method: payForm.payment_method,

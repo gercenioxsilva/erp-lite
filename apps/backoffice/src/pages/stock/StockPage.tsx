@@ -16,11 +16,6 @@ interface StockMovement {
   material_id: string; sku: string; material_name: string; unit: string;
 }
 
-const METHOD_LABELS: Record<string, string> = {
-  pix: 'PIX', bank_transfer: 'Transferência', cash: 'Dinheiro',
-  credit_card: 'Cartão Crédito', debit_card: 'Cartão Débito',
-  boleto: 'Boleto', check: 'Cheque', other: 'Outro',
-};
 
 export function StockPage() {
   const { tenantId } = useAuth();
@@ -32,8 +27,7 @@ export function StockPage() {
   const [total, setTotal]     = useState(0);
   const [page, setPage]       = useState(1);
   const [search, setSearch]   = useState('');
-  const [mvSearch, setMvSearch] = useState('');
-  const [mvType, setMvType]   = useState('');
+const [mvType, setMvType]   = useState('');
   const [loading, setLoading] = useState(false);
 
   // Adjust drawer
