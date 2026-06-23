@@ -47,9 +47,7 @@ resource "aws_cloudfront_distribution" "backoffice" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
   comment             = "ERP Lite backoffice - ${var.environment}"
-  # Aliases are only active once the ACM certificate is issued.
-  # Set TF_VAR_ACM_CERTIFICATE_ARN in GitHub Secrets to activate the custom domain.
-  aliases = var.acm_certificate_arn != "" ? ["orquestraerp.com.br", "www.orquestraerp.com.br"] : []
+  aliases = ["orquestraerp.com.br", "www.orquestraerp.com.br"]
 
   origin {
     domain_name              = aws_s3_bucket.backoffice.bucket_regional_domain_name
@@ -132,14 +130,24 @@ resource "aws_cloudfront_distribution" "backoffice" {
     geo_restriction { restriction_type = "none" }
   }
 
-  # Phase 1 (acm_certificate_arn == ""): CloudFront default certificate.
-  #   minimum_protocol_version must be null — only valid with custom certs.
-  # Phase 2 (acm_certificate_arn set): ACM certificate + TLS 1.2 enforced.
+  # viewer_certificate is managed via ignore_changes while the ACM cert is PENDING.
+  # Root cause: the first deploy set aliases + cert ARN on CloudFront before timing out.
+  # AWS validates the cert against the CURRENT aliases before applying any update,
+  # so switching cert types while a PENDING cert is attached always fails with
+  # InvalidViewerCertificate — even when removing aliases in the same API call.
+  # Phase 2 activation: once the cert is ISSUED, remove ignore_changes, set
+  # TF_VAR_ACM_CERTIFICATE_ARN in GitHub Secrets and push to main.
   viewer_certificate {
+    acm_certificate_arn      = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
+    ssl_support_method       = var.acm_certificate_arn != "" ? "sni-only" : null
+    minimum_protocol_version = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : null
+
+    # fallback when acm_certificate_arn is not yet set
     cloudfront_default_certificate = var.acm_certificate_arn == ""
-    acm_certificate_arn            = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
-    ssl_support_method             = var.acm_certificate_arn != "" ? "sni-only" : null
-    minimum_protocol_version       = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : null
+  }
+
+  lifecycle {
+    ignore_changes = [viewer_certificate, aliases]
   }
 
   tags = { Environment = var.environment }
