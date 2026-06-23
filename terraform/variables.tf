@@ -87,7 +87,7 @@ variable "ses_from_email" {
 variable "ses_from_name" {
   description = "Display name shown alongside the From email address"
   type        = string
-  default     = "GAX ERP"
+  default     = "Orquestra ERP"
 }
 
 variable "acm_certificate_arn" {
