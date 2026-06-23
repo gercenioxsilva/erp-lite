@@ -132,11 +132,14 @@ resource "aws_cloudfront_distribution" "backoffice" {
     geo_restriction { restriction_type = "none" }
   }
 
+  # Phase 1 (acm_certificate_arn == ""): CloudFront default certificate.
+  #   minimum_protocol_version must be null — only valid with custom certs.
+  # Phase 2 (acm_certificate_arn set): ACM certificate + TLS 1.2 enforced.
   viewer_certificate {
     cloudfront_default_certificate = var.acm_certificate_arn == ""
     acm_certificate_arn            = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
     ssl_support_method             = var.acm_certificate_arn != "" ? "sni-only" : null
-    minimum_protocol_version       = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : "TLSv1"
+    minimum_protocol_version       = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : null
   }
 
   tags = { Environment = var.environment }
