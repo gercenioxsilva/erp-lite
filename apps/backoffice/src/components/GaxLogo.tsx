@@ -1,10 +1,10 @@
 interface Props {
-  size?:    'sm' | 'md' | 'lg' | 'xl';
+  size?:    'sm' | 'md' | 'lg' | 'xl' | 'xxl';
   variant?: 'full' | 'mark';
   theme?:   'light' | 'dark';
 }
 
-const HEIGHTS = { sm: 28, md: 36, lg: 48, xl: 64 };
+const HEIGHTS = { sm: 28, md: 36, lg: 48, xl: 64, xxl: 88 };
 
 export function GaxLogo({ size = 'md', variant = 'full', theme = 'light' }: Props) {
   const h      = HEIGHTS[size];

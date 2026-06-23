@@ -77,7 +77,7 @@ export function LoginPage() {
 
         <div className="ls-hero-body">
           <div className="ls-hero-logo">
-            <GaxLogo size="md" variant="full" theme="dark" />
+            <GaxLogo size="xxl" variant="full" theme="dark" />
           </div>
 
           <h1 className="ls-headline">
@@ -130,7 +130,7 @@ export function LoginPage() {
       <section className="ls-form-panel">
         <div className="ls-form-body">
           <div className="ls-form-logo">
-            <GaxLogo size="lg" variant="full" theme="light" />
+            <GaxLogo size="xl" variant="full" theme="light" />
           </div>
 
           <div className="ls-form-heading">

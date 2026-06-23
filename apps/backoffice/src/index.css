@@ -361,7 +361,7 @@ tr:hover td { background: #f8fafc; }
   padding: 60px 56px;
 }
 
-.ls-hero-logo { margin-bottom: 52px; }
+.ls-hero-logo { margin-bottom: 40px; }
 
 /* ---- Headline ---- */
 .ls-headline {
@@ -510,7 +510,7 @@ tr:hover td { background: #f8fafc; }
 .ls-form-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 36px;
+  margin-bottom: 28px;
 }
 
 .ls-form-heading {
