@@ -460,7 +460,7 @@ const ptBR = {
 
   // ── Login ─────────────────────────────────────────────────────────────
   'l.welcome':   'Bem-vindo de volta',
-  'l.subtitle':  'Entre para continuar no GAX ERP',
+  'l.subtitle':  'Entre para continuar no Orquestra ERP',
   'l.email':     'E-mail',
   'l.password':  'Senha',
   'l.show':      'Mostrar',

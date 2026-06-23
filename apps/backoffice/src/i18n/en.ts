@@ -462,7 +462,7 @@ const en: Record<TKey, string> = {
 
   // ── Login ─────────────────────────────────────────────────────────────
   'l.welcome':   'Welcome back',
-  'l.subtitle':  'Sign in to continue to GAX ERP',
+  'l.subtitle':  'Sign in to continue to Orquestra ERP',
   'l.email':     'Email',
   'l.password':  'Password',
   'l.show':      'Show',

@@ -4,7 +4,7 @@ import en from './en';
 
 type Lang = 'pt-BR' | 'en';
 const TRANSLATIONS: Record<Lang, Record<string, string>> = { 'pt-BR': ptBR, en };
-const LS_KEY = 'gax-lang';
+const LS_KEY = 'orquestra-lang';
 
 interface I18nCtx {
   lang: Lang;

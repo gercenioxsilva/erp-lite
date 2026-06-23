@@ -87,5 +87,21 @@ variable "ses_from_email" {
 variable "ses_from_name" {
   description = "Display name shown alongside the From email address"
   type        = string
-  default     = "GAX ERP"
+  default     = "Orquestra ERP"
+}
+
+variable "acm_certificate_arn" {
+  description = <<-EOT
+    ARN of the ACM certificate for orquestraerp.com.br (must be in us-east-1).
+    Leave empty ("") on the first deploy — CloudFront will use its default certificate.
+    Steps to activate the custom domain:
+      1. Run terraform apply (first deploy) to create the Route 53 hosted zone.
+      2. terraform output route53_nameservers  →  copy the 4 NS values.
+      3. Update the domain registrar nameservers to the Route 53 values.
+      4. Wait 5–30 min for ACM to auto-validate via DNS and issue the certificate.
+      5. Copy the certificate ARN from ACM console → set TF_VAR_ACM_CERTIFICATE_ARN
+         in GitHub Secrets → re-run the deploy workflow.
+  EOT
+  type        = string
+  default     = ""
 }
