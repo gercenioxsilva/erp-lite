@@ -41,7 +41,7 @@ export function CompanyPage() {
   async function loadTenant() {
     setLoading(true);
     try {
-      const data: Tenant = await api.get('/v1/tenant');
+      const data = await api.get<Tenant>('/v1/tenant');
       setTenant(data);
       setForm({
         company_name:  data.company_name  || '',

@@ -14,8 +14,8 @@ const ALLOWED_LOGO_PREFIXES = [
 export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/tenant ─────────────────────────────────────────────────────── */
-  fastify.get('/tenant', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.get('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) return reply.notFound('Empresa não encontrada');
@@ -24,8 +24,8 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/tenant ───────────────────────────────────────────────────── */
-  fastify.patch('/tenant', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.patch('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const body     = request.body as any;
 
     const allowed = [
@@ -48,8 +48,8 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/tenant/logo ────────────────────────────────────────────────── */
-  fastify.put('/tenant/logo', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.put('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { logo_url } = request.body as any;
 
     if (!logo_url || typeof logo_url !== 'string')
@@ -67,8 +67,8 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/tenant/logo ─────────────────────────────────────────────── */
-  fastify.delete('/tenant/logo', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.delete('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ logo_url: null }).where(eq(tenants.id, tenantId));
     return { ok: true };
