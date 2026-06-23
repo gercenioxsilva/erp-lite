@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -45,6 +45,35 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 ---
 
 ## Histórico de Prompts
+
+### v2.0 — Contas a Pagar/Receber + Controle de Estoque + Logo da Empresa
+
+> **Módulos financeiros (Receivables e Payables):**
+> Tabelas `receivables` (status: `pending→partial→paid|overdue|cancelled`) e `receivable_payments`
+> (append-only), `payables` e `payable_payments`. Máquina de estados controlada pelo backend:
+> pagamento parcial = `partial`; `paid_amount >= amount` = `paid`; estorno recalcula totals.
+> Auto-criação de receivable ao emitir NF-e (via `db.transaction` em `invoices.ts`).
+>
+> **Controle de Estoque dedicado (`StockPage`):**
+> Aba "Posição de Estoque" (tabela global c/ badge de alerta), aba "Histórico de Movimentos"
+> com filtros por tipo/data. Drawer de ajuste rápido reutiliza `POST /v1/materials/:id/stock/movements`.
+> Dois endpoints novos em `materials.ts`: `GET /v1/stock` (posição global) e
+> `GET /v1/stock/movements` (histórico global com filtros), com JWT auth via `(app as any).authenticate`.
+>
+> **Logo da empresa:**
+> Coluna `logo_url TEXT` em `tenants` (migration 0011). Logo armazenado como data URI base64
+> (máx 300 KB). `PUT /v1/tenant/logo` valida MIME prefix e `Buffer.byteLength`.
+> Logo NÃO incluído no `/auth/me` — carregado apenas na `CompanyPage` sob demanda.
+>
+> **Novas rotas:** `GET|PATCH /v1/tenant`, `PUT|DELETE /v1/tenant/logo`,
+> `GET|POST|PATCH|DELETE /v1/receivables(/:id)?(/payments/:pid)?`,
+> `GET|POST|PATCH|DELETE /v1/payables(/:id)?(/payments/:pid)?`,
+> `GET /v1/stock`, `GET /v1/stock/movements`.
+>
+> **SaaS security:** todos os endpoints extraem `tenantId` do JWT — nunca do body.
+> Operações de pagamento verificam ownership do parent antes de proceder.
+>
+> **i18n:** namespaces `stk.*`, `rec.*`, `pay.*`, `comp.*` adicionados em pt-BR.ts e en.ts.
 
 ### v0.1 — Kickoff
 > Novo projeto ERP SaaS, multitenant, AWS. Monorepo Fastify + Node + React.
@@ -596,11 +625,14 @@ erp-lite/
 │   │   ├── routes/
 │   │   │   ├── auth.ts             ← POST /v1/auth/login|register, GET /v1/auth/me
 │   │   │   ├── customers.ts        ← CRUD /v1/customers (tenants SaaS)
-│   │   │   ├── materials.ts        ← CRUD /v1/materials + import + /v1/stock/*
+│   │   │   ├── materials.ts        ← CRUD /v1/materials + import + /v1/stock + /v1/stock/movements
 │   │   │   ├── clients.ts          ← CRUD /v1/clients (PJ/PF — NF-e ready) + import
 │   │   │   ├── users.ts            ← CRUD /v1/users (por tenant)
 │   │   │   ├── orders.ts           ← CRUD /v1/orders + confirm/deliver/cancel
-│   │   │   ├── invoices.ts         ← CRUD /v1/invoices + issue/cancel (c/ tax values)
+│   │   │   ├── invoices.ts         ← CRUD /v1/invoices + issue/cancel (c/ auto-receivable via tx)
+│   │   │   ├── receivables.ts      ← CRUD /v1/receivables + payments + cancel
+│   │   │   ├── payables.ts         ← CRUD /v1/payables + payments + cancel
+│   │   │   ├── tenant.ts           ← GET|PATCH /v1/tenant + PUT|DELETE /v1/tenant/logo
 │   │   │   ├── tax.ts              ← POST /v1/tax/calculate
 │   │   │   ├── nfe.ts              ← NF-e config + emit + status (Focus NF-e / SEFAZ)
 │   │   │   └── notificationConfig.ts ← GET|PUT /v1/notification-config (upsert via Drizzle)
@@ -622,7 +654,11 @@ erp-lite/
 │       ├── 0006_orders.sql         ← orders + order_items
 │       ├── 0007_invoices.sql       ← invoices + invoice_items
 │       ├── 0008_invoice_taxes.sql  ← colunas de impostos em invoices + invoice_items
-│       └── 0009_nfe.sql            ← nfe_configs + colunas NF-e em invoices + nfe_events
+│       ├── 0009_nfe.sql            ← nfe_configs + colunas NF-e em invoices + nfe_events
+│       ├── 0010_notification_configs.sql ← notification_configs
+│       ├── 0011_tenant_logo.sql    ← ADD COLUMN logo_url TEXT em tenants
+│       ├── 0012_receivables.sql    ← receivables + receivable_payments
+│       └── 0013_payables.sql       ← payables + payable_payments
 │
 ├── services/lambda-fiscal/         ← Lambda — emissão async NF-e via Focus NF-e
 │   ├── Dockerfile                  ← multi-stage Node 20 (public.ecr.aws/lambda/nodejs:20)
@@ -692,7 +728,11 @@ erp-lite/
 │   │       ├── materials/MaterialsPage.tsx
 │   │       ├── users/UsersPage.tsx
 │   │       ├── orders/OrdersPage.tsx
-│   │       └── invoices/InvoicesPage.tsx
+│   │       ├── invoices/InvoicesPage.tsx
+│   │       ├── stock/StockPage.tsx        ← Posição de Estoque + Histórico de Movimentos
+│   │       ├── receivables/ReceivablesPage.tsx ← Contas a Receber + pagamentos
+│   │       ├── payables/PayablesPage.tsx      ← Contas a Pagar + pagamentos
+│   │       └── company/CompanyPage.tsx         ← Dados da empresa + logo (GET|PATCH /v1/tenant)
 │
 └── terraform/
     ├── variables.tf  main.tf  security.tf  rds.tf  ecs.tf  ecr.tf  static.tf  outputs.tf
@@ -728,6 +768,7 @@ erp-lite/
 | status | VARCHAR(20) | `trial`\|`active`\|`suspended`\|`cancelled` |
 | plan | VARCHAR(30) | `starter`\|`professional`\|`enterprise` |
 | trial_ends_at | TIMESTAMPTZ | |
+| logo_url | TEXT | Data URI base64 do logo (max 300 KB). `null` quando sem logo. NÃO incluído no `/auth/me`. |
 | **UNIQUE** | (tax_id, tax_id_type) | |
 
 ### `users`
@@ -937,6 +978,71 @@ Audit trail imutável de todas as operações NF-e. Nunca deletar.
 | notify_order_confirmed | BOOLEAN DEFAULT false | Envia e-mail quando pedido é confirmado |
 | created_at / updated_at | TIMESTAMPTZ | |
 
+### `receivables` *(migration: 0012_receivables.sql)*
+Contas a receber (faturamento, mensalidades, avulsos). Auto-criada quando NF-e é emitida via `db.transaction`.
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| tenant_id | UUID FK → tenants | Isolamento multi-tenant |
+| client_id | UUID FK → clients ON DELETE SET NULL | Nullable (conta avulsa sem cliente) |
+| invoice_id | UUID FK → invoices ON DELETE SET NULL | Nullable (vinculado à NF-e quando emitida) |
+| description | VARCHAR(500) NOT NULL | |
+| amount | DECIMAL(15,2) CHECK > 0 | Valor total da conta |
+| paid_amount | DECIMAL(15,2) DEFAULT 0 | Acumulado dos pagamentos (recalculado a cada payment) |
+| due_date | DATE NOT NULL | Data de vencimento |
+| status | VARCHAR(20) | `pending`→`partial`→`paid`\|`overdue`\|`cancelled` |
+| notes | TEXT | |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+**Fluxo de status:** `paid_amount = 0 → pending`; `0 < paid_amount < amount → partial`; `paid_amount >= amount → paid`. Cancelamento bloqueia status `paid`.
+
+### `receivable_payments` *(migration: 0012_receivables.sql — append-only, nunca deletar)*
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| receivable_id | UUID FK → receivables ON DELETE CASCADE | |
+| tenant_id | UUID FK → tenants | |
+| amount | DECIMAL(15,2) CHECK > 0 | Valor do recebimento |
+| payment_date | DATE NOT NULL | |
+| payment_method | VARCHAR(30) | `pix`\|`boleto`\|`credit_card`\|`debit_card`\|`cash`\|`bank_transfer`\|`check`\|`other` |
+| reference | VARCHAR(255) | Nº comprovante, chave PIX etc. |
+| notes | TEXT | |
+| created_at | TIMESTAMPTZ | |
+
+**Estorno:** DELETE do payment_id → recalcula `paid_amount` da receivable → ajusta status.
+
+### `payables` *(migration: 0013_payables.sql)*
+Contas a pagar (fornecedores, aluguel, folha, impostos, serviços etc.).
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| tenant_id | UUID FK → tenants | |
+| supplier_name | VARCHAR(255) | Nome do fornecedor (texto livre) |
+| description | VARCHAR(500) NOT NULL | |
+| category | VARCHAR(50) | `rent`\|`utilities`\|`payroll`\|`supplies`\|`services`\|`taxes`\|`other` |
+| document_number | VARCHAR(100) | Nº NF, boleto, contrato |
+| amount | DECIMAL(15,2) CHECK > 0 | |
+| paid_amount | DECIMAL(15,2) DEFAULT 0 | |
+| due_date | DATE NOT NULL | |
+| status | VARCHAR(20) | `pending`→`partial`→`paid`\|`overdue`\|`cancelled` |
+| notes | TEXT | |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+### `payable_payments` *(migration: 0013_payables.sql — append-only, nunca deletar)*
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| payable_id | UUID FK → payables ON DELETE CASCADE | |
+| tenant_id | UUID FK → tenants | |
+| amount | DECIMAL(15,2) CHECK > 0 | |
+| payment_date | DATE NOT NULL | |
+| payment_method | VARCHAR(30) | `pix`\|`boleto`\|`credit_card`\|`debit_card`\|`cash`\|`bank_transfer`\|`check`\|`other` |
+| reference | VARCHAR(255) | |
+| notes | TEXT | |
+| created_at | TIMESTAMPTZ | |
+
 ---
 
 ## API Reference (fonte da verdade)
@@ -998,6 +1104,8 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 | POST   | `/v1/materials/:id/stock/movements` | Registrar movimento |
 | GET    | `/v1/materials/:id/stock/movements` | Histórico |
 | GET    | `/v1/stock/alerts?tenant_id=` | Materiais abaixo do mínimo |
+| GET    | `/v1/stock?search=&page=&per_page=` | Posição global de estoque (JOIN inventory+materials, badge alerta) |
+| GET    | `/v1/stock/movements?material_id=&movement_type=&date_from=&date_to=&page=&per_page=` | Histórico global de movimentos |
 
 **Body de importação de materiais:**
 ```json
@@ -1183,6 +1291,75 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 `null` → `pending` (emit disparado) → `processing` (Lambda consumiu) →
 `authorized` (SEFAZ aprovou, número NF-e gerado sequencialmente) | `rejected` (SEFAZ rejeitou)
 
+### Receivables (Contas a Receber)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET    | `/v1/receivables?status=&client_id=&due_date_from=&due_date_to=&search=&page=&per_page=` | Listar |
+| POST   | `/v1/receivables` | Criar conta a receber |
+| GET    | `/v1/receivables/:id` | Buscar (inclui array `payments`) |
+| PATCH  | `/v1/receivables/:id` | Atualizar campos (bloqueia se `cancelled`) |
+| POST   | `/v1/receivables/:id/cancel` | Cancelar (bloqueia se `paid`) |
+| POST   | `/v1/receivables/:id/payments` | Registrar recebimento → recalcula `paid_amount` + status |
+| DELETE | `/v1/receivables/:id/payments/:paymentId` | Estornar recebimento → recalcula |
+
+**Body de criação:**
+```json
+{
+  "client_id": "uuid|null",
+  "description": "string",
+  "amount": 1500.00,
+  "due_date": "2026-07-01",
+  "notes": "string|null"
+}
+```
+
+**Body de pagamento:**
+```json
+{
+  "amount": 750.00,
+  "payment_date": "2026-06-23",
+  "payment_method": "pix",
+  "reference": "key-pix-123",
+  "notes": "string|null"
+}
+```
+
+### Payables (Contas a Pagar)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET    | `/v1/payables?status=&category=&due_date_from=&due_date_to=&search=&page=&per_page=` | Listar |
+| POST   | `/v1/payables` | Criar conta a pagar |
+| GET    | `/v1/payables/:id` | Buscar (inclui array `payments`) |
+| PATCH  | `/v1/payables/:id` | Atualizar campos (bloqueia se `cancelled`) |
+| POST   | `/v1/payables/:id/cancel` | Cancelar (bloqueia se `paid`) |
+| POST   | `/v1/payables/:id/payments` | Registrar pagamento → recalcula `paid_amount` + status |
+| DELETE | `/v1/payables/:id/payments/:paymentId` | Estornar pagamento → recalcula |
+
+**Body de criação:**
+```json
+{
+  "supplier_name": "string|null",
+  "description": "string",
+  "category": "rent|utilities|payroll|supplies|services|taxes|other",
+  "document_number": "string|null",
+  "amount": 3200.00,
+  "due_date": "2026-07-05",
+  "notes": "string|null"
+}
+```
+
+### Tenant (Perfil da Empresa)
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET    | `/v1/tenant` | Dados completos do tenant autenticado (incluindo `logo_url`) |
+| PATCH  | `/v1/tenant` | Atualizar campos editáveis (company_name, trade_name, phone, website, endereço) |
+| PUT    | `/v1/tenant/logo` | Enviar/trocar logo (body: `{ logo: "data:image/png;base64,..." }`) |
+| DELETE | `/v1/tenant/logo` | Remover logo (seta `logo_url = null`) |
+
+> `logo_url` é um data URI base64 (JPEG/PNG/WebP/GIF). Validações server-side: prefixo MIME
+> (`data:image/jpeg;base64,`, `data:image/png;base64,` etc.) e tamanho ≤ 300 KB (`Buffer.byteLength`).
+> **Não incluído no `/auth/me`** — buscar separadamente via `GET /v1/tenant` na CompanyPage.
+
 ### Customers (Tenants SaaS)
 | Método | Rota | Descrição |
 |--------|------|-----------|
@@ -1291,10 +1468,16 @@ import { useI18n } from '../../i18n';
 - `r.*` — register (cadastro de empresa)
 - `l.*` — login
 - `m.*` — materials
-- `cl.*` — clients
+- `cl.*` — clients (+ `cl.import*` para importação)
+- `mi.*` — importação de materiais
+- `tax.*` — cálculo de impostos NF-e
 - `u.*` — users
 - `o.*` — orders (pedidos)
 - `inv.*` — invoices (notas fiscais)
+- `stk.*` — stock control (controle de estoque)
+- `rec.*` — receivables (contas a receber)
+- `pay.*` — payables (contas a pagar)
+- `comp.*` — company profile (minha empresa + logo)
 
 ---
 
@@ -1757,11 +1940,15 @@ terraform output -raw db_password  # senha gerada pelo Terraform (sensitive)
 | ✅ | **Orders** | Pedidos de venda + baixa automática de estoque |
 | ✅ | **Invoices** | Notas Fiscais com número sequencial por série |
 | ✅ | **SEFAZ/NF-e async** | Lambda fiscal + Focus NF-e + SQS + S3 (XMLs 5 anos) |
+| ✅ | **Notifications** | E-mail transacional multi-tenant via Lambda + SQS + SESv2 (nfe_authorized, nfe_rejected, order_confirmed) |
+| ✅ | **Drizzle ORM** | Migração completa de pool.query() para Drizzle; Vitest substituindo Jest; 19 testes unitários |
+| ✅ | **Fix CI/CD Lambda** | platforms linux/amd64 + provenance:false nos builds Lambda; remove AWS_REGION reservada do Terraform |
+| ✅ | **Stock Control UI** | Tela dedicada de estoque: posição global + histórico de movimentos com ajuste rápido |
+| ✅ | **Receivables** | Contas a Receber: CRUD + pagamentos parciais + estorno + auto-criação ao emitir NF-e |
+| ✅ | **Payables** | Contas a Pagar: CRUD + pagamentos parciais + estorno + categorias |
+| ✅ | **Company Profile** | Dados da empresa editáveis + upload de logo (base64, max 300 KB) |
 | 🔜 | **NF-e cancellation** | Cancelamento SEFAZ (POST /invoices/:id/nfe/cancel) |
 | 🔜 | **NF-e correction** | Carta de correção eletrônica (CC-e) |
 | 🔜 | **Purchasing** | Pedidos de compra com entrada de estoque |
 | 🔜 | **Reports** | Relatórios async via Lambda + S3 |
-| ✅ | **Notifications** | E-mail transacional multi-tenant via Lambda + SQS + SESv2 (nfe_authorized, nfe_rejected, order_confirmed) |
-| ✅ | **Drizzle ORM** | Migração completa de pool.query() para Drizzle; Vitest substituindo Jest; 19 testes unitários |
-| ✅ | **Fix CI/CD Lambda** | platforms linux/amd64 + provenance:false nos builds Lambda; remove AWS_REGION reservada do Terraform |
 | 🔜 | **RBAC** | Controle de acesso granular por role |

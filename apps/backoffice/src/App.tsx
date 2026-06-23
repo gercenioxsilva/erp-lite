@@ -10,8 +10,12 @@ import { DashboardPage }  from './pages/DashboardPage';
 import { MaterialsPage }  from './pages/materials/MaterialsPage';
 import { ClientsPage }    from './pages/clients/ClientsPage';
 import { UsersPage }      from './pages/users/UsersPage';
-import { OrdersPage }    from './pages/orders/OrdersPage';
-import { InvoicesPage }  from './pages/invoices/InvoicesPage';
+import { OrdersPage }      from './pages/orders/OrdersPage';
+import { InvoicesPage }    from './pages/invoices/InvoicesPage';
+import { StockPage }       from './pages/stock/StockPage';
+import { ReceivablesPage } from './pages/receivables/ReceivablesPage';
+import { PayablesPage }    from './pages/payables/PayablesPage';
+import { CompanyPage }     from './pages/company/CompanyPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -25,9 +29,13 @@ function GuardedRoutes() {
         <Route path="/clients"    element={<ClientsPage />} />
         <Route path="/materials"  element={<MaterialsPage />} />
         <Route path="/users"      element={<UsersPage />} />
-        <Route path="/orders"     element={<OrdersPage />} />
-        <Route path="/invoices"   element={<InvoicesPage />} />
-        <Route path="*"           element={<Navigate to="/dashboard" replace />} />
+        <Route path="/orders"      element={<OrdersPage />} />
+        <Route path="/invoices"    element={<InvoicesPage />} />
+        <Route path="/stock"       element={<StockPage />} />
+        <Route path="/receivables" element={<ReceivablesPage />} />
+        <Route path="/payables"    element={<PayablesPage />} />
+        <Route path="/company"     element={<CompanyPage />} />
+        <Route path="*"            element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
   );
