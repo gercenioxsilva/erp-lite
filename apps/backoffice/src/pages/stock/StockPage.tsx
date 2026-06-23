@@ -59,7 +59,7 @@ export function StockPage() {
     try {
       const qs = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
       if (search) qs.set('search', search);
-      const data = await api.get(`/v1/stock?${qs}`);
+      const data = await api.get<any>(`/v1/stock?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
   }
@@ -69,7 +69,7 @@ export function StockPage() {
     try {
       const qs = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
       if (mvType)   qs.set('movement_type', mvType);
-      const data = await api.get(`/v1/stock/movements?${qs}`);
+      const data = await api.get<any>(`/v1/stock/movements?${qs}`);
       setMovs(data.data); setTotal(data.total);
     } finally { setLoading(false); }
   }

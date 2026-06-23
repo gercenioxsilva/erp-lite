@@ -8,8 +8,8 @@ const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_
 export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/payables ───────────────────────────────────────────────────── */
-  fastify.get('/payables', { onRequest: [fastify.authenticate] }, async (request) => {
-    const tenantId = request.user.tenantId;
+  fastify.get('/payables', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+    const tenantId = (request as any).user.tenantId;
     const { status, category, due_date_from, due_date_to, search,
             page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -45,9 +45,9 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables ──────────────────────────────────────────────────── */
-  fastify.post('/payables', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
-    const userId   = request.user.userId;
+  fastify.post('/payables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const userId   = (request as any).user.userId;
     const { supplier_name, category = 'other', description, document_number,
             amount, due_date, notes } = request.body as any;
 
@@ -77,8 +77,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/payables/:id ───────────────────────────────────────────────── */
-  fastify.get('/payables/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.get('/payables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
     const [{ rows: [pay] }, { rows: payments }] = await Promise.all([
@@ -97,8 +97,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/payables/:id ─────────────────────────────────────────────── */
-  fastify.patch('/payables/:id', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.patch('/payables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const body     = request.body as any;
 
@@ -126,8 +126,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables/:id/cancel ──────────────────────────────────────── */
-  fastify.post('/payables/:id/cancel', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
+  fastify.post('/payables/:id/cancel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
     const [existing] = await db.select({ id: payables.id, status: payables.status })
@@ -144,9 +144,9 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables/:id/payments ────────────────────────────────────── */
-  fastify.post('/payables/:id/payments', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId = request.user.tenantId;
-    const userId   = request.user.userId;
+  fastify.post('/payables/:id/payments', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
     const { payment_date, amount, payment_method = 'other', reference, notes } = request.body as any;
 
@@ -186,8 +186,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/payables/:id/payments/:paymentId ───────────────────────── */
-  fastify.delete('/payables/:id/payments/:paymentId', { onRequest: [fastify.authenticate] }, async (request, reply) => {
-    const tenantId          = request.user.tenantId;
+  fastify.delete('/payables/:id/payments/:paymentId', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId          = (request as any).user.tenantId;
     const { id, paymentId } = request.params as { id: string; paymentId: string };
 
     const [pay] = await db.select({ id: payables.id, status: payables.status, paid_amount: payables.paid_amount })

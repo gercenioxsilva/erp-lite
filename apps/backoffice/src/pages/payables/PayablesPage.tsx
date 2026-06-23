@@ -81,13 +81,13 @@ export function PayablesPage() {
       if (statusFilter) qs.set('status', statusFilter);
       if (catFilter)    qs.set('category', catFilter);
       if (search)       qs.set('search', search);
-      const data = await api.get(`/v1/payables?${qs}`);
+      const data = await api.get<any>(`/v1/payables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
   }
 
   async function openDetail(pay: Payable) {
-    const full = await api.get(`/v1/payables/${pay.id}`);
+    const full = await api.get<any>(`/v1/payables/${pay.id}`);
     setSelected(full); setDetailOpen(true); setPayError('');
     setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
   }
@@ -129,7 +129,7 @@ export function PayablesPage() {
         reference:      payForm.reference || null,
         notes:          payForm.notes    || null,
       });
-      const updated = await api.get(`/v1/payables/${selected!.id}`);
+      const updated = await api.get<any>(`/v1/payables/${selected!.id}`);
       setSelected(updated);
       setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
       loadItems();
@@ -142,7 +142,7 @@ export function PayablesPage() {
     if (!selected) return;
     try {
       await api.delete(`/v1/payables/${selected.id}/payments/${paymentId}`);
-      const updated = await api.get(`/v1/payables/${selected.id}`);
+      const updated = await api.get<any>(`/v1/payables/${selected.id}`);
       setSelected(updated); loadItems();
     } catch (err: any) { setPayError(err.message || t('pay.errSave')); }
   }

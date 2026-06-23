@@ -70,7 +70,7 @@ export function ReceivablesPage() {
   useEffect(() => {
     if (!createOpen || !tenantId) return;
     let cancelled = false;
-    api.get(`/v1/clients?tenant_id=${tenantId}&per_page=100&page=1`)
+    api.get<any>(`/v1/clients?tenant_id=${tenantId}&per_page=100&page=1`)
       .then(d => { if (!cancelled) setClients(d.data); })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -82,13 +82,13 @@ export function ReceivablesPage() {
       const qs = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
       if (statusFilter) qs.set('status', statusFilter);
       if (search)       qs.set('search', search);
-      const data = await api.get(`/v1/receivables?${qs}`);
+      const data = await api.get<any>(`/v1/receivables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
   }
 
   async function openDetail(rec: Receivable) {
-    const full = await api.get(`/v1/receivables/${rec.id}`);
+    const full = await api.get<any>(`/v1/receivables/${rec.id}`);
     setSelected(full); setDetailOpen(true); setPayError(''); setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
   }
 
@@ -128,7 +128,7 @@ export function ReceivablesPage() {
         notes:          payForm.notes    || null,
       });
       // Refresh detail
-      const updated = await api.get(`/v1/receivables/${selected!.id}`);
+      const updated = await api.get<any>(`/v1/receivables/${selected!.id}`);
       setSelected(updated);
       setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
       loadItems();
@@ -141,7 +141,7 @@ export function ReceivablesPage() {
     if (!selected) return;
     try {
       await api.delete(`/v1/receivables/${selected.id}/payments/${paymentId}`);
-      const updated = await api.get(`/v1/receivables/${selected.id}`);
+      const updated = await api.get<any>(`/v1/receivables/${selected.id}`);
       setSelected(updated); loadItems();
     } catch (err: any) {
       setPayError(err.message || t('rec.errSave'));
