@@ -147,7 +147,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
         properties: {
           tenant_id: { type: 'string', format: 'uuid' },
           page:     { type: 'integer', minimum: 1, default: 1 },
-          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          per_page: { type: 'integer', minimum: 1, maximum: 500, default: 20 },
           type:     { type: 'string', enum: ['product', 'service', 'raw_material', 'asset'] },
           category: { type: 'string' }, active: { type: 'boolean' }, search: { type: 'string' },
         },
