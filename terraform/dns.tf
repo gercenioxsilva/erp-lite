@@ -1,4 +1,7 @@
 # ── Route 53 Hosted Zone ──────────────────────────────────────────────────────
+# NOTE: If terraform apply fails with "HostedZoneAlreadyExists", it means a zone
+# with the same name was created outside Terraform. In AWS Console, delete the
+# duplicate zone that has no A/CNAME records, then re-run terraform apply.
 resource "aws_route53_zone" "main" {
   name = "orquestraerp.com.br"
   tags = { Environment = var.environment }
