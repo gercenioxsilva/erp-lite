@@ -18,6 +18,7 @@ import { tenantRoutes }             from './routes/tenant';
 import { billingRoutes }            from './routes/billing';
 import { clientContactsRoutes }     from './routes/clientContacts';
 import { serviceContractsRoutes }   from './routes/serviceContracts';
+import { materialImagesRoutes }     from './routes/materialImages';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
@@ -61,6 +62,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(billingRoutes,            { prefix: '/v1' });
   await app.register(clientContactsRoutes,     { prefix: '/v1' });
   await app.register(serviceContractsRoutes,   { prefix: '/v1' });
+  await app.register(materialImagesRoutes,     { prefix: '/v1' });
 
   app.addHook('onReady', async () => {
     startNfeResultsWorker();

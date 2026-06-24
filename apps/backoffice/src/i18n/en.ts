@@ -194,6 +194,21 @@ const en: Record<TKey, string> = {
   'mi.importEmpty':    'No valid rows found. Check that the "nome" column is filled in.',
   'mi.importParseErr': 'Could not read the file. Make sure it is a valid .xlsx.',
 
+  // Material images
+  'mi.images':       'Product images',
+  'mi.imagesMax':    'max 5 · JPEG, PNG or WebP · 500 KB each',
+  'mi.imgAdd':       'Add image',
+  'mi.imgUploading': 'Uploading…',
+  'mi.imgEmpty':     'No images yet. Click "Add image" to get started.',
+  'mi.imgCover':     'Cover',
+  'mi.imgSetCover':  'Set as cover',
+  'mi.imgDelTitle':  'Delete image?',
+  'mi.imgDelMsg':    'The image will be permanently removed.',
+  'mi.imgTypeErr':   'Unsupported format. Use JPEG, PNG or WebP.',
+  'mi.imgSizeErr':   'Image too large. Maximum: 500 KB.',
+  'mi.imgUploadErr': 'Error uploading image.',
+  'mi.imgHint':      'JPEG, PNG or WebP · max 500 KB per image · max 5 images per product',
+
   // NF-e Taxes
   'tax.regime':      'Tax regime',
   'tax.regimeLLP':   'Lucro Presumido',

@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -66,6 +66,32 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 ---
 
 ## Histórico de Prompts
+
+### v6.0 — Galeria de Imagens de Produto (1:N)
+
+> **Múltiplas imagens por material (máx. 5):**
+> Cada produto pode ter uma galeria de até 5 imagens armazenadas como data URI base64
+> (mesmo padrão do `logo_url` em `tenants` — sem nova infraestrutura de storage).
+>
+> **Banco:** migration `0018_material_images.sql` cria a tabela `material_images` com
+> `id`, `tenant_id`, `material_id`, `image_data` (TEXT), `filename`, `position` (SMALLINT),
+> `is_cover` (BOOLEAN), `alt` e `created_at`. Índices em `material_id` e `tenant_id`.
+>
+> **API (`materialImages.ts`):** CRUD completo em `/v1/materials/:id/images`.
+> `POST` valida formato (JPEG/PNG/WebP), tamanho (≤ 500 KB) e quantidade (≤ 5).
+> Primeira imagem vira capa automaticamente. `PATCH` promove capa em transação (desmarca todas
+> antes de marcar a nova). `DELETE` físico; se era capa, promove a próxima por `position/created_at`.
+>
+> **Schema Drizzle:** `materialImages` adicionado ao `schema.ts` e exportado pelo `db/index.ts`.
+>
+> **Frontend (`MaterialsPage.tsx`):** seção de galeria no drawer de edição (somente edit mode).
+> Grid de miniaturas com badge "Capa", botão estrela (★) para promover capa e botão (✕) para remover.
+> Input de arquivo oculto (`accept="image/jpeg,image/png,image/webp"`), carrega base64 e faz POST.
+>
+> **i18n:** chaves `mi.*` adicionadas em `pt-BR.ts` e `en.ts` (mensagens de limite, formato, upload, etc.).
+>
+> **Testes:** 23 testes em `materialImages.test.ts` cobrindo validações puras + HTTP (GET, POST,
+> PATCH, DELETE) com DB mockado via `vi.hoisted()` (solução para hoisting do `vi.mock`).
 
 ### v5.0 — Tokens Focus NF-e por Tenant + Tela de Configuração NF-e
 
@@ -1106,6 +1132,27 @@ erp-lite/
 | is_active | BOOLEAN DEFAULT true | Soft-delete |
 | tracks_inventory | BOOLEAN DEFAULT true | false para serviços |
 
+### `material_images` *(migration: 0018_material_images.sql)*
+Armazenamento 1:N de imagens de produto por tenant. Mesmo padrão base64 do `logo_url` nos tenants — sem novo serviço de storage.
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| tenant_id | UUID FK → tenants ON DELETE CASCADE | Isolamento multi-tenant |
+| material_id | UUID FK → materials ON DELETE CASCADE | |
+| image_data | TEXT NOT NULL | Data URI base64 (JPEG/PNG/WebP) — máx 500 KB |
+| filename | VARCHAR(255) | Nome original do arquivo (opcional) |
+| position | SMALLINT DEFAULT 0 | Ordenação dentro da galeria |
+| is_cover | BOOLEAN DEFAULT false | Apenas uma imagem pode ser capa por material |
+| alt | TEXT | Texto alternativo (acessibilidade / SEO) |
+| created_at | TIMESTAMPTZ | |
+
+**Regras:**
+- Máximo de **5 imagens por material**; rejeita `POST` com `400` se excedido
+- A **primeira imagem** vira capa automaticamente (`is_cover=true`)
+- Ao promover nova capa via `PATCH`, todas as outras são desmarcadas em transação
+- **DELETE físico** — imagens são assets binários, não registros de negócio auditáveis
+- Ao deletar a capa, a próxima imagem (por `position`, `created_at`) é promovida automaticamente
+
 ### `inventory`
 | Campo | Tipo | Notas |
 |-------|------|-------|
@@ -1453,6 +1500,10 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 | GET    | `/v1/materials/:id/stock` | Estoque atual |
 | POST   | `/v1/materials/:id/stock/movements` | Registrar movimento |
 | GET    | `/v1/materials/:id/stock/movements` | Histórico |
+| GET    | `/v1/materials/:id/images` | Listar imagens do produto (ordenado por position, created_at) |
+| POST   | `/v1/materials/:id/images` | Adicionar imagem (JPEG/PNG/WebP, max 500 KB, max 5 por material) |
+| PATCH  | `/v1/materials/:id/images/:imageId` | Atualizar alt, position ou promover capa |
+| DELETE | `/v1/materials/:id/images/:imageId` | Remover imagem (delete físico; promove próxima se era capa) |
 | GET    | `/v1/stock/alerts?tenant_id=` | Materiais abaixo do mínimo |
 | GET    | `/v1/stock?search=&page=&per_page=` | Posição global de estoque (JOIN inventory+materials, badge alerta) |
 | GET    | `/v1/stock/movements?material_id=&movement_type=&date_from=&date_to=&page=&per_page=` | Histórico global de movimentos |

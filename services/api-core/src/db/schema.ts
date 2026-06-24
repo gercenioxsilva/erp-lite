@@ -127,6 +127,19 @@ export const materials = pgTable('materials', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── material_images ───────────────────────────────────────────────────────────
+export const materialImages = pgTable('material_images', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id,   { onDelete: 'cascade' }),
+  material_id: uuid('material_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  image_data:  text('image_data').notNull(),   // base64 data URI (jpeg/png/webp)
+  filename:    varchar('filename', { length: 255 }),
+  position:    smallint('position').notNull().default(0),
+  is_cover:    boolean('is_cover').notNull().default(false),
+  alt:         text('alt'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── inventory ─────────────────────────────────────────────────────────────────
 export const inventory = pgTable('inventory', {
   id:          uuid('id').primaryKey().defaultRandom(),

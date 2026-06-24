@@ -47,7 +47,7 @@ services:
     build:
       context: ./services/api-core
       target: development
-    command: npm run migrate
+    command: npm run migrate:dev
     environment:
       DATABASE_URL: postgres://erp_lite:erp_lite@db:5432/erp_lite
     volumes:
