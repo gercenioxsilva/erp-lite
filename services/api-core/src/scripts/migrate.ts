@@ -13,9 +13,11 @@ const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
       connectionTimeoutMillis: 15_000,
-      // Docker dev (NODE_ENV=development): ssl:false prevents "server does not support SSL" error.
-      // ECS (NODE_ENV=production): ssl:{...} enables SSL. PGSSLMODE=require in ECS task env backs this up.
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      // PGSSLMODE=require is injected by ECS task env → { rejectUnauthorized:false }.
+      // Not set locally (Docker postgres has no SSL) → ssl:false.
+      // NOTE: explicit ssl:false overrides PGSSLMODE, so we must NOT pass ssl:false when SSL is needed.
+      // We drive this off PGSSLMODE, not NODE_ENV, because ECS uses NODE_ENV=prod (not "production").
+      ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
     })
   : new Pool({
       host: _migrateHost,

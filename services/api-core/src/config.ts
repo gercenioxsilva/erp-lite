@@ -10,9 +10,10 @@ export const config = {
   db: process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,
-        // Docker dev (NODE_ENV=development): ssl:false prevents "server does not support SSL" error.
-        // ECS (NODE_ENV=production): ssl:{...} enables SSL. PGSSLMODE=require in ECS task env backs this up.
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        // PGSSLMODE=require is injected by ECS task env → { rejectUnauthorized:false }.
+        // Not set locally (Docker postgres has no SSL) → ssl:false.
+        // Driven off PGSSLMODE, not NODE_ENV — ECS sets NODE_ENV=prod (not "production").
+        ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
       }
     : {
         host: _dbHost,

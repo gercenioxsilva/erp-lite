@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm';
 import { db, notificationConfigs } from '../db';
 import { getSqsClient } from './sqsClient';
 
-export type NotificationType =
-  | 'nfe_authorized'
-  | 'nfe_rejected'
-  | 'order_confirmed'
-  | 'boleto_generated';
+// Gated types require a notification_configs row with the flag enabled
+type GatedNotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirmed' | 'boleto_generated';
 
-const typeToConfigKey: Record<NotificationType, keyof typeof notificationConfigs.$inferSelect> = {
+// All notification types — gated + system (always sent, no config check)
+export type NotificationType = GatedNotificationType | 'user_welcome';
+
+const typeToConfigKey: Record<GatedNotificationType, keyof typeof notificationConfigs.$inferSelect> = {
   nfe_authorized:   'notify_nfe_authorized',
   nfe_rejected:     'notify_nfe_rejected',
   order_confirmed:  'notify_order_confirmed',
@@ -18,11 +18,12 @@ const typeToConfigKey: Record<NotificationType, keyof typeof notificationConfigs
 
 export interface NotificationPayload {
   tenant_id: string;
-  type:      NotificationType;
+  type:      GatedNotificationType; // checked against notification_configs flags
   recipient: { email: string; name: string };
   data:      Record<string, string | number>;
 }
 
+/** Sends a tenant-configured notification (checks email_enabled + type flag). */
 export async function sendNotificationIfEnabled(payload: NotificationPayload): Promise<void> {
   const queueUrl = process.env.NOTIFICATIONS_QUEUE_URL;
   if (!queueUrl) return;
@@ -46,5 +47,31 @@ export async function sendNotificationIfEnabled(payload: NotificationPayload): P
   await getSqsClient().send(new SendMessageCommand({
     QueueUrl:    queueUrl,
     MessageBody: JSON.stringify(message),
+  }));
+}
+
+export interface SystemNotificationPayload {
+  tenant_id:  string;
+  type:       NotificationType;
+  recipient:  { email: string; name: string };
+  data:       Record<string, string | number>;
+  from_name?: string;
+}
+
+/** Sends a system-generated email unconditionally (no notification_configs check). */
+export async function sendSystemNotification(payload: SystemNotificationPayload): Promise<void> {
+  const queueUrl = process.env.NOTIFICATIONS_QUEUE_URL;
+  if (!queueUrl) return;
+
+  await getSqsClient().send(new SendMessageCommand({
+    QueueUrl:    queueUrl,
+    MessageBody: JSON.stringify({
+      tenant_id: payload.tenant_id,
+      type:      payload.type,
+      channel:   'email',
+      recipient: payload.recipient,
+      from_name: payload.from_name ?? 'Orquestra ERP',
+      data:      payload.data,
+    }),
   }));
 }
