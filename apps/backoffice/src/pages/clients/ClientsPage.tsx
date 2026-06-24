@@ -382,8 +382,7 @@ export function ClientsPage() {
     setShowContactForm(true);
   }
 
-  async function handleSaveContact(e: FormEvent) {
-    e.preventDefault();
+  async function handleSaveContact() {
     if (!tenantId || !editing) return;
     setContactError('');
     setSavingContact(true);
@@ -794,7 +793,7 @@ export function ClientsPage() {
                               {editingContact ? t('cl.editContact') : t('cl.addContact')}
                             </div>
                             {contactError && <div className="alert alert-error" role="alert" style={{ marginBottom: 10 }}>{contactError}</div>}
-                            <form onSubmit={e => void handleSaveContact(e)} noValidate>
+                            <div>
                               <div className="field-row">
                                 <div className="field">
                                   <label>{t('cl.contactType')}</label>
@@ -831,11 +830,12 @@ export function ClientsPage() {
                               <div className="flex-gap" style={{ marginTop: 8 }}>
                                 <button type="button" className="btn btn-secondary btn-sm"
                                   onClick={() => setShowContactForm(false)}>{t('c.cancel')}</button>
-                                <button type="submit" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={savingContact}>
+                                <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={savingContact}
+                                  onClick={() => void handleSaveContact()}>
                                   {savingContact ? t('c.saving') : t('cl.saveContact')}
                                 </button>
                               </div>
-                            </form>
+                            </div>
                           </div>
                         ) : (
                           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8, width: 'auto' }}
