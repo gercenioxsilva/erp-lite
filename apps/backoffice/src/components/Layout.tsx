@@ -4,23 +4,117 @@ import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
 
+function IcoDashboard() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="10" y="2" width="6" height="6" rx="1.5"/>
+      <rect x="2" y="10" width="6" height="6" rx="1.5"/><rect x="10" y="10" width="6" height="6" rx="1.5"/>
+    </svg>
+  );
+}
+function IcoClients() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="14" height="12" rx="2"/><path d="M6 7h6M6 10h4"/>
+    </svg>
+  );
+}
+function IcoMaterials() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 2L16 5.5v7L9 16 2 12.5v-7L9 2z"/><path d="M9 2v14M2 5.5l7 3.5 7-3.5"/>
+    </svg>
+  );
+}
+function IcoStock() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12l4-4 3 3 5-7"/><circle cx="15" cy="5" r="1.5"/>
+    </svg>
+  );
+}
+function IcoOrders() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 2h8l2 4H3L5 2z"/><rect x="2" y="6" width="14" height="10" rx="1.5"/><path d="M6 10h6M6 13h4"/>
+    </svg>
+  );
+}
+function IcoInvoices() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="2" width="12" height="14" rx="1.5"/><path d="M6 6h6M6 9h6M6 12h4"/>
+    </svg>
+  );
+}
+function IcoReceivables() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="9" r="7"/><path d="M9 6v6M6.5 8.5l2.5-2.5 2.5 2.5"/>
+    </svg>
+  );
+}
+function IcoPayables() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M5 5V3h8v2M6 10h6"/>
+    </svg>
+  );
+}
+function IcoUsers() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="6" r="3"/><path d="M1 16c0-3.3 2.7-6 6-6"/><circle cx="14" cy="10" r="2.5"/><path d="M11 16c0-1.7 1.3-3 3-3s3 1.3 3 3"/>
+    </svg>
+  );
+}
+function IcoCompany() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 16V6l7-4 7 4v10H2z"/><path d="M7 16v-5h4v5"/>
+    </svg>
+  );
+}
+function IcoContracts() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="2" width="12" height="14" rx="1.5"/><path d="M6 6h6M6 9h4"/><path d="M10 12l2 2 3-3"/>
+    </svg>
+  );
+}
+
+type IconFC = () => JSX.Element;
+const NAV_ICONS: Record<string, IconFC> = {
+  '/dashboard':   IcoDashboard,
+  '/clients':     IcoClients,
+  '/materials':   IcoMaterials,
+  '/stock':       IcoStock,
+  '/orders':      IcoOrders,
+  '/invoices':    IcoInvoices,
+  '/receivables': IcoReceivables,
+  '/payables':    IcoPayables,
+  '/users':       IcoUsers,
+  '/company':     IcoCompany,
+  '/contracts':   IcoContracts,
+};
+
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
 
   const NAV = [
-    { to: '/dashboard',  label: t('nav.dashboard'),  icon: '▦'  },
-    { to: '/clients',    label: t('nav.clients'),    icon: '🏢' },
-    { to: '/materials',  label: t('nav.materials'),  icon: '⬜' },
-    { to: '/stock',      label: t('nav.stock'),      icon: '📦' },
-    { to: '/orders',     label: t('nav.orders'),     icon: '📋' },
-    { to: '/invoices',   label: t('nav.invoices'),   icon: '🧾' },
-    { to: '/receivables',label: t('nav.receivables'),icon: '💰' },
-    { to: '/payables',   label: t('nav.payables'),   icon: '💸' },
-    { to: '/users',      label: t('nav.users'),      icon: '👥' },
-    { to: '/company',    label: t('nav.company'),    icon: '🏛️' },
-    { to: '/contracts',  label: t('nav.contracts'),  icon: '📝' },
+    { to: '/dashboard',   label: t('nav.dashboard')   },
+    { to: '/clients',     label: t('nav.clients')     },
+    { to: '/materials',   label: t('nav.materials')   },
+    { to: '/stock',       label: t('nav.stock')       },
+    { to: '/orders',      label: t('nav.orders')      },
+    { to: '/invoices',    label: t('nav.invoices')    },
+    { to: '/receivables', label: t('nav.receivables') },
+    { to: '/payables',    label: t('nav.payables')    },
+    { to: '/contracts',   label: t('nav.contracts')   },
+    { to: '/users',       label: t('nav.users')       },
+    { to: '/company',     label: t('nav.company')     },
   ];
 
   function handleLogout() {
@@ -40,54 +134,30 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV.map(n => (
-            <NavLink key={n.to} to={n.to} className={({ isActive }) => isActive ? 'active' : ''}>
-              <span style={{ fontSize: 14 }}>{n.icon}</span>
-              {n.label}
-            </NavLink>
-          ))}
+          {NAV.map(n => {
+            const Icon = NAV_ICONS[n.to];
+            return (
+              <NavLink key={n.to} to={n.to} className={({ isActive }) => isActive ? 'active' : ''}>
+                <span className="nav-icon">{Icon && <Icon />}</span>
+                {n.label}
+              </NavLink>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">
           <strong>{user?.name ?? user?.email}</strong>
-          <span style={{ display: 'block', fontSize: 11, marginTop: 2 }}>{user?.role}</span>
+          <span className="footer-role">{user?.role}</span>
 
           <button
+            className="sidebar-footer-btn"
             onClick={toggleLang}
             title={lang === 'pt-BR' ? 'Switch to English' : 'Mudar para Português'}
-            style={{
-              marginTop: 8,
-              background: 'none',
-              border: '1px solid #334155',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              fontSize: 11,
-              padding: '3px 8px',
-              borderRadius: 6,
-              width: '100%',
-              fontWeight: 600,
-              letterSpacing: '.04em',
-              transition: 'color .15s, border-color .15s',
-            }}
           >
             {t('nav.lang')}
           </button>
 
-          <button
-            onClick={handleLogout}
-            style={{
-              marginTop: 6,
-              background: 'none',
-              border: '1px solid #334155',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              fontSize: 12,
-              padding: '4px 10px',
-              borderRadius: 6,
-              width: '100%',
-              transition: 'color .15s, border-color .15s',
-            }}
-          >
+          <button className="sidebar-footer-btn" onClick={handleLogout}>
             {t('nav.signout')}
           </button>
         </div>
