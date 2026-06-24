@@ -192,6 +192,21 @@ const ptBR = {
   'mi.importEmpty':    'Nenhuma linha válida encontrada. Verifique se a coluna "nome" está preenchida.',
   'mi.importParseErr': 'Não foi possível ler o arquivo. Verifique se é um .xlsx válido.',
 
+  // Imagens de material
+  'mi.images':       'Imagens do produto',
+  'mi.imagesMax':    'máx. 5 · JPEG, PNG ou WebP · 500 KB cada',
+  'mi.imgAdd':       'Adicionar imagem',
+  'mi.imgUploading': 'Enviando…',
+  'mi.imgEmpty':     'Nenhuma imagem cadastrada. Clique em "Adicionar imagem" para começar.',
+  'mi.imgCover':     'Capa',
+  'mi.imgSetCover':  'Definir como capa',
+  'mi.imgDelTitle':  'Excluir imagem?',
+  'mi.imgDelMsg':    'A imagem será removida permanentemente.',
+  'mi.imgTypeErr':   'Formato não suportado. Use JPEG, PNG ou WebP.',
+  'mi.imgSizeErr':   'Imagem muito grande. Máximo: 500 KB.',
+  'mi.imgUploadErr': 'Erro ao enviar imagem.',
+  'mi.imgHint':      'JPEG, PNG ou WebP · máx. 500 KB por imagem · máx. 5 imagens por produto',
+
   // Impostos NF-e
   'tax.regime':      'Regime tributário',
   'tax.regimeLLP':   'Lucro Presumido',

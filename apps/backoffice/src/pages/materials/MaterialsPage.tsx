@@ -22,6 +22,17 @@ interface Material {
   tracks_inventory: boolean;
 }
 
+interface MaterialImage {
+  id:         string;
+  material_id: string;
+  image_data: string;   // base64 data URI
+  filename:   string | null;
+  position:   number;
+  is_cover:   boolean;
+  alt:        string | null;
+  created_at: string;
+}
+
 interface ListResp { data: Material[]; total: number; page: number; per_page: number; }
 
 const EMPTY_FORM = {
@@ -101,6 +112,13 @@ export function MaterialsPage() {
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
 
+  // Image state
+  const [images,          setImages]          = useState<MaterialImage[]>([]);
+  const [imagesLoading,   setImagesLoading]   = useState(false);
+  const [imageUploading,  setImageUploading]  = useState(false);
+  const [imageError,      setImageError]      = useState('');
+  const imgFileRef = useRef<HTMLInputElement>(null);
+
   // Import state
   const [importOpen,   setImportOpen]   = useState(false);
   const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
@@ -127,15 +145,28 @@ export function MaterialsPage() {
 
   useEffect(() => { void load(); }, [tenantId, page, search]);
 
+  async function loadImages(materialId: string) {
+    setImagesLoading(true);
+    setImageError('');
+    try {
+      const rows = await api.get<MaterialImage[]>(`/v1/materials/${materialId}/images`);
+      setImages(rows);
+    } catch { setImages([]); }
+    finally  { setImagesLoading(false); }
+  }
+
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY_FORM });
     setFormError('');
+    setImages([]);
+    setImageError('');
     setDrawerOpen(true);
   }
 
   function openEdit(m: Material) {
     setEditing(m);
+    void loadImages(m.id);
     setForm({
       sku:             m.sku,
       name:            m.name,
@@ -182,6 +213,69 @@ export function MaterialsPage() {
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('cl.errSave'));
     } finally { setSaving(false); }
+  }
+
+  async function handleImageFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!editing) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageError('');
+
+    const MAX_FILE_BYTES = 500 * 1024;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImageError(t('mi.imgTypeErr'));
+      if (imgFileRef.current) imgFileRef.current.value = '';
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setImageError(t('mi.imgSizeErr'));
+      if (imgFileRef.current) imgFileRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUri = ev.target?.result as string;
+      setImageUploading(true);
+      try {
+        await api.post(`/v1/materials/${editing.id}/images`, {
+          tenant_id:  tenantId,
+          image_data: dataUri,
+          filename:   file.name,
+        });
+        void loadImages(editing.id);
+      } catch (err: unknown) {
+        setImageError(err instanceof Error ? err.message : t('mi.imgUploadErr'));
+      } finally {
+        setImageUploading(false);
+        if (imgFileRef.current) imgFileRef.current.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSetCover(imageId: string) {
+    if (!editing) return;
+    setImageError('');
+    try {
+      await api.patch(`/v1/materials/${editing.id}/images/${imageId}`, { is_cover: true });
+      void loadImages(editing.id);
+    } catch (err: unknown) {
+      setImageError(err instanceof Error ? err.message : t('mi.imgUploadErr'));
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!editing) return;
+    const ok = await modal.confirm({ title: t('mi.imgDelTitle'), message: t('mi.imgDelMsg'), confirmLabel: t('c.del'), danger: true });
+    if (!ok) return;
+    setImageError('');
+    try {
+      await api.delete(`/v1/materials/${editing.id}/images/${imageId}`);
+      void loadImages(editing.id);
+    } catch (err: unknown) {
+      setImageError(err instanceof Error ? err.message : t('mi.imgUploadErr'));
+    }
   }
 
   async function handleDelete(id: string) {
@@ -431,6 +525,98 @@ export function MaterialsPage() {
                     {t('m.trackStock')}
                   </label>
                 </div>
+
+                {/* ── Imagens do produto (somente no modo edição) ── */}
+                {editing && (
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <label style={{ fontWeight: 600, margin: 0 }}>{t('mi.images')} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>({t('mi.imagesMax')})</span></label>
+                      <input
+                        ref={imgFileRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        style={{ display: 'none' }}
+                        onChange={handleImageFileChange}
+                      />
+                      {images.length < 5 && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ width: 'auto' }}
+                          disabled={imageUploading}
+                          onClick={() => imgFileRef.current?.click()}
+                        >
+                          {imageUploading ? t('mi.imgUploading') : `+ ${t('mi.imgAdd')}`}
+                        </button>
+                      )}
+                    </div>
+
+                    {imageError && (
+                      <div role="alert" className="alert alert-error" style={{ marginBottom: 10, fontSize: 13 }}>
+                        {imageError}
+                      </div>
+                    )}
+
+                    {imagesLoading ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                    ) : images.length === 0 ? (
+                      <div style={{
+                        border: '2px dashed var(--border)', borderRadius: 8,
+                        padding: '20px', textAlign: 'center',
+                        color: 'var(--muted)', fontSize: 13,
+                      }}>
+                        {t('mi.imgEmpty')}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        {images.map(img => (
+                          <div key={img.id} style={{
+                            position: 'relative', width: 100,
+                            border: img.is_cover ? '2px solid var(--primary)' : '1px solid var(--border)',
+                            borderRadius: 8, overflow: 'hidden',
+                            background: 'var(--surface)',
+                          }}>
+                            <img
+                              src={img.image_data}
+                              alt={img.alt ?? img.filename ?? 'Imagem do produto'}
+                              style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }}
+                            />
+                            {img.is_cover && (
+                              <div style={{
+                                position: 'absolute', top: 4, left: 4,
+                                background: 'var(--primary)', color: '#fff',
+                                fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4,
+                              }}>
+                                {t('mi.imgCover')}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 4px' }}>
+                              {!img.is_cover && (
+                                <button
+                                  type="button"
+                                  title={t('mi.imgSetCover')}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: 10, padding: '2px 6px', width: 'auto' }}
+                                  onClick={() => handleSetCover(img.id)}
+                                >★</button>
+                              )}
+                              <button
+                                type="button"
+                                title={t('c.del')}
+                                className="btn btn-danger btn-sm"
+                                style={{ fontSize: 10, padding: '2px 6px', width: 'auto', marginLeft: 'auto' }}
+                                onClick={() => handleDeleteImage(img.id)}
+                              >✕</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                      {t('mi.imgHint')}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="drawer-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
