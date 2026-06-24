@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { eq, ilike, or, and, sql } from 'drizzle-orm';
 import { db, users } from '../db';
+import { sendSystemNotification } from '../lib/notificationsClient';
 
 export const usersRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -60,6 +61,20 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
         tenant_id, email, name: displayName, password_hash: passwordHash, role, status: 'active',
       }).returning({ id: users.id, email: users.email, name: users.name, role: users.role,
                     status: users.status, created_at: users.created_at });
+
+      // Send welcome e-mail with credentials — fire-and-forget, never blocks user creation
+      sendSystemNotification({
+        tenant_id,
+        type:      'user_welcome',
+        recipient: { email, name: displayName },
+        data: {
+          name:      displayName,
+          email,
+          password,
+          login_url: process.env.APP_URL ?? 'https://orquestraerp.com.br',
+        },
+      }).catch(() => { /* e-mail failure must not fail the API response */ });
+
       return reply.code(201).send(user);
     } catch (err: any) {
       if (err.code === '23505') return reply.conflict('E-mail já cadastrado neste tenant');

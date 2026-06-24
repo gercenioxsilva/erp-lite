@@ -63,9 +63,57 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
     );
     ```
 
+21. **SSL do Pool pg: nunca usar `ssl: false` quando PGSSLMODE=require está no ambiente.** O `pg` v8 trata `ssl: false` explícito como override absoluto — ignora `PGSSLMODE`. O ECS define `NODE_ENV=prod` (não `"production"`), então qualquer check `=== 'production'` falha silenciosamente. A forma correta é derivar o ssl da variável `PGSSLMODE` diretamente:
+    ```typescript
+    // ✅ Correto — funciona em ECS (PGSSLMODE=require) e Docker local (sem PGSSLMODE)
+    ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
+
+    // ❌ Errado — ECS usa NODE_ENV=prod, nunca "production"; ssl:false bloqueia PGSSLMODE
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ```
+    Aplicado em `services/api-core/src/config.ts` e `services/api-core/src/scripts/migrate.ts`.
+
+22. **Formulários aninhados (`<form>` dentro de `<form>`) são inválidos em HTML.** O browser descarta a tag `<form>` interna — seus campos viram filhos do form externo e o submit button aciona o handler errado. Sempre usar `<div>` para o container interno e `type="button" onClick={handler}` no botão de submit interno.
+
+23. **Notificações de sistema vs. notificações de tenant.** Existem dois helpers em `services/api-core/src/lib/notificationsClient.ts`:
+    - `sendNotificationIfEnabled(payload)` — verifica `notification_configs` do tenant (flags `email_enabled`, `notify_*`). Usar para eventos de negócio (NF-e, pedido, boleto).
+    - `sendSystemNotification(payload)` — envia direto para a fila SQS sem verificar config. Usar para e-mails sistêmicos (boas-vindas, reset de senha). Tipos disponíveis: `user_welcome`. O envio é fire-and-forget (`.catch(() => {})`); nunca deve bloquear a resposta da API.
+
 ---
 
 ## Histórico de Prompts
+
+### v7.0 — E-mail de Boas-Vindas ao Criar Usuário
+
+> **Envio automático de credenciais por e-mail:**
+> Ao criar um novo usuário via `POST /v1/users`, o sistema envia automaticamente um e-mail
+> HTML com as credenciais de acesso (e-mail e senha) para o endereço cadastrado.
+> O envio é fire-and-forget (`.catch(() => {})`): falhas de e-mail nunca bloqueiam a criação do usuário.
+>
+> **Template HTML (`user_welcome.ts`):** layout responsivo com gradiente `#3B5CE4→#00B4D8` no header,
+> card de credenciais com fundo `#F2F5FB`, botão CTA "Acessar o Orquestra ERP" e aviso de segurança
+> para trocar a senha no primeiro acesso. Versão texto simples incluída.
+>
+> **Arquitetura:** mesmo fluxo SQS → lambda-notifications já existente.
+> Novo tipo `user_welcome` adicionado em `NotificationType` (lambda-notifications e api-core).
+> Função `sendSystemNotification()` criada em `notificationsClient.ts` — bypassa o gate de
+> `notification_configs` (diferente de `sendNotificationIfEnabled` que verifica flags do tenant).
+>
+> **Variável de ambiente:** `APP_URL` (opcional em ECS; default: `https://orquestraerp.com.br`).
+> Sem migrations — nenhuma tabela nova necessária.
+>
+> **Fix SSL ECS (incluído neste release):** `ssl` do Pool pg agora é derivado de `PGSSLMODE`
+> (`=== 'require'`), não de `NODE_ENV` (`=== 'production'`). O ECS define `NODE_ENV=prod` (não
+> `"production"`), fazendo a condição anterior falhar silenciosamente e passar `ssl:false`, que
+> overrida `PGSSLMODE=require` e causava `no pg_hba.conf entry ... no encryption`. Corrigido em
+> `config.ts` e `migrate.ts`.
+>
+> **Fix HTML forms:** formulário de contatos em `ClientsPage.tsx` estava aninhado dentro do form
+> principal do drawer — o browser descartava o `<form>` interno, fazendo o submit do contato
+> acionar `handleSave` (salvar cliente) em vez de `handleSaveContact`. Corrigido usando `<div>`
+> + `type="button" onClick`.
+>
+> **Protocolo anti-alucinação:** regras 21 (ssl/PGSSLMODE), 22 (forms aninhados) e 23 (system vs tenant notifications) adicionadas.
 
 ### v6.0 — Galeria de Imagens de Produto (1:N)
 
