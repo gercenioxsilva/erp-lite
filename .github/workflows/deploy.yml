@@ -193,6 +193,54 @@ jobs:
           echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"       >> $GITHUB_OUTPUT
           echo "api_url=$(terraform output -raw api_url)"                        >> $GITHUB_OUTPUT
           echo "cf_domain=$(terraform output -raw cloudfront_domain)"            >> $GITHUB_OUTPUT
+          echo "lambda_fiscal=$(terraform output -raw lambda_fiscal_name)"       >> $GITHUB_OUTPUT
+          echo "lambda_notif=$(terraform output -raw lambda_notifications_name)" >> $GITHUB_OUTPUT
+          echo "lambda_billing=$(terraform output -raw lambda_billing_name)"     >> $GITHUB_OUTPUT
+          echo "notif_dlq=$(terraform output -raw notifications_dlq_url)"        >> $GITHUB_OUTPUT
+          echo "nfe_dlq=$(terraform output -raw nfe_dlq_url)"                   >> $GITHUB_OUTPUT
+
+      # ── Force Lambda image update + wait ─────────────────────────────────────
+      # Terraform updates the Lambda's image_uri config, but the update is
+      # asynchronous. We explicitly call update-function-code and wait so the
+      # new image is guaranteed to be active before migrations run.
+      # Without this, a Lambda invoked immediately after deploy may still run
+      # the previous image.
+      - name: Update Lambda functions with new images and wait
+        run: |
+          REGISTRY="${{ steps.ecr.outputs.registry }}"
+
+          echo "Updating lambda-fiscal → ${{ steps.tf.outputs.lambda_fiscal }}"
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.lambda_fiscal }}" \
+            --image-uri "${REGISTRY}/${{ env.LAMBDA_ECR_REPO }}:${{ github.sha }}" \
+            --no-cli-pager
+
+          echo "Updating lambda-notifications → ${{ steps.tf.outputs.lambda_notif }}"
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.lambda_notif }}" \
+            --image-uri "${REGISTRY}/${{ env.LAMBDA_NOTIFICATIONS_ECR_REPO }}:${{ github.sha }}" \
+            --no-cli-pager
+
+          echo "Updating lambda-billing → ${{ steps.tf.outputs.lambda_billing }}"
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.lambda_billing }}" \
+            --image-uri "${REGISTRY}/${{ env.LAMBDA_BILLING_ECR_REPO }}:${{ github.sha }}" \
+            --no-cli-pager
+
+          echo "Waiting for Lambda functions to be active..."
+          aws lambda wait function-updated \
+            --function-name "${{ steps.tf.outputs.lambda_fiscal }}"
+          echo "✓ lambda-fiscal ready"
+
+          aws lambda wait function-updated \
+            --function-name "${{ steps.tf.outputs.lambda_notif }}"
+          echo "✓ lambda-notifications ready"
+
+          aws lambda wait function-updated \
+            --function-name "${{ steps.tf.outputs.lambda_billing }}"
+          echo "✓ lambda-billing ready"
+
+          echo "All Lambda functions updated and active."
 
       # ── Run DB migrations ─────────────────────────────────────────────────────
       # Runs AFTER terraform apply so the task definition with the new image
@@ -240,6 +288,78 @@ jobs:
             exit 1
           fi
           echo "Migrations completed successfully."
+
+      # ── Lambda smoke-check: verify no startup errors in CloudWatch ───────────
+      # Tails the last 60 s of Lambda logs looking for INIT_REPORT + ERROR.
+      # A Lambda that crashes on cold start (e.g., missing env var, bad image)
+      # will leave ERROR entries even before it processes any SQS message.
+      # Non-fatal: if log stream doesn't exist yet we print a notice and move on.
+      - name: Check Lambda CloudWatch logs for startup errors
+        run: |
+          check_lambda_logs() {
+            local fn=$1
+            local LOG_GROUP="/aws/lambda/${fn}"
+            local START_TIME=$(( ($(date +%s) - 120) * 1000 ))   # last 2 min
+
+            STREAMS=$(aws logs describe-log-streams \
+              --log-group-name "${LOG_GROUP}" \
+              --order-by LastEventTime \
+              --descending \
+              --max-items 3 \
+              --query 'logStreams[*].logStreamName' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -z "$STREAMS" ]; then
+              echo "ℹ  ${fn}: no log streams yet (Lambda not yet invoked — OK)"
+              return 0
+            fi
+
+            ERRORS=0
+            for STREAM in $STREAMS; do
+              ERRS=$(aws logs filter-log-events \
+                --log-group-name "${LOG_GROUP}" \
+                --log-stream-names "${STREAM}" \
+                --filter-pattern "ERROR" \
+                --start-time "${START_TIME}" \
+                --query 'events[*].message' \
+                --output text 2>/dev/null | wc -l || echo 0)
+              ERRORS=$(( ERRORS + ERRS ))
+            done
+
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "::warning::${fn}: ${ERRORS} ERROR log entries in the last 2 min — check CloudWatch"
+            else
+              echo "✓  ${fn}: no ERROR logs in last 2 min"
+            fi
+          }
+
+          check_lambda_logs "${{ steps.tf.outputs.lambda_fiscal }}"
+          check_lambda_logs "${{ steps.tf.outputs.lambda_notif }}"
+          check_lambda_logs "${{ steps.tf.outputs.lambda_billing }}"
+
+      # ── DLQ health check ──────────────────────────────────────────────────────
+      # If there are messages in DLQ after deploy it means Lambda failed 3×.
+      # Report as a warning (not error) so the deploy isn't blocked by pre-existing
+      # DLQ messages, but the issue is visible in the CI summary.
+      - name: Check SQS DLQs for failed messages
+        run: |
+          check_dlq() {
+            local NAME=$1
+            local URL=$2
+            COUNT=$(aws sqs get-queue-attributes \
+              --queue-url "${URL}" \
+              --attribute-names ApproximateNumberOfMessages \
+              --query 'Attributes.ApproximateNumberOfMessages' \
+              --output text 2>/dev/null || echo "0")
+            if [ "${COUNT}" -gt 0 ]; then
+              echo "::warning::DLQ ${NAME} has ${COUNT} message(s) — Lambda failed 3×. Check CloudWatch logs."
+            else
+              echo "✓  DLQ ${NAME}: empty"
+            fi
+          }
+
+          check_dlq "notifications-dlq" "${{ steps.tf.outputs.notif_dlq }}"
+          check_dlq "nfe-dlq"           "${{ steps.tf.outputs.nfe_dlq }}"
 
       # ── Build backoffice ──────────────────────────────────────────────────────
       - uses: actions/setup-node@v4

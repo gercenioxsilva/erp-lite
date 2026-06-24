@@ -66,3 +66,28 @@ output "route53_nameservers" {
   description = "Route 53 nameservers — configure these at the domain registrar"
   value       = aws_route53_zone.main.name_servers
 }
+
+output "lambda_fiscal_name" {
+  description = "Lambda fiscal-nfe function name (used by CI to force-update and wait)"
+  value       = aws_lambda_function.fiscal_nfe.function_name
+}
+
+output "lambda_notifications_name" {
+  description = "Lambda notifications function name (used by CI to force-update and wait)"
+  value       = aws_lambda_function.notifications.function_name
+}
+
+output "lambda_billing_name" {
+  description = "Lambda billing function name (used by CI to force-update and wait)"
+  value       = aws_lambda_function.billing.function_name
+}
+
+output "notifications_dlq_url" {
+  description = "Notifications DLQ URL (used by CI to check for failed messages)"
+  value       = aws_sqs_queue.notifications_dlq.url
+}
+
+output "nfe_dlq_url" {
+  description = "NF-e DLQ URL (used by CI to check for failed messages)"
+  value       = aws_sqs_queue.nfe_dlq.url
+}
