@@ -284,29 +284,52 @@ export const nfeEvents = pgTable('nfe_events', {
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── receivables ───────────────────────────────────────────────────────────────
+// Defined before boletos to break the circular reference:
+//   receivables.boleto_id  →  boletos.id   (constraint exists in migration 0014,
+//                                           omitted here so TypeScript can infer types)
+//   boletos.receivable_id  →  receivables.id  (normal FK, boletos is declared after)
+export const receivables = pgTable('receivables', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  client_id:   uuid('client_id').references(() => clients.id,            { onDelete: 'set null' }),
+  invoice_id:  uuid('invoice_id').references(() => invoices.id,          { onDelete: 'set null' }),
+  boleto_id:   uuid('boleto_id'),  // FK → boletos.id (constraint in migration, no .references() to avoid circular)
+  description: varchar('description', { length: 255 }).notNull(),
+  amount:      decimal('amount',      { precision: 15, scale: 2 }).notNull(),
+  paid_amount: decimal('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  due_date:    date('due_date').notNull(),
+  status:      varchar('status', { length: 20 }).notNull().default('pending'),
+  notes:       text('notes'),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── boletos ───────────────────────────────────────────────────────────────────
 export const boletos = pgTable('boletos', {
   id:           uuid('id').primaryKey().defaultRandom(),
-  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,      { onDelete: 'cascade' }),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
   receivable_id: uuid('receivable_id').notNull().references(() => receivables.id, { onDelete: 'cascade' }),
 
   boleto_id:    varchar('boleto_id',    { length: 100 }),
-  brcode:       varchar('brcode',       { length: 100 }),
+  brcode:       text('brcode'),
   pix_qr_code:  text('pix_qr_code'),
-  nosso_numero: varchar('nosso_numero', { length: 20  }),
+  nosso_numero: varchar('nosso_numero', { length: 50  }),
 
   banco_code:   varchar('banco_code',   { length: 3   }),
   agencia:      varchar('agencia',      { length: 10  }),
   conta:        varchar('conta',        { length: 20  }),
   digito:       varchar('digito',       { length: 2   }),
 
-  status:       varchar('status',       { length: 20  }).notNull().default('draft'),
+  status:       varchar('status',       { length: 20  }).notNull().default('pending'),
   issued_at:    timestamp('issued_at',  { withTimezone: true }),
   expires_at:   date('expires_at'),
   paid_at:      timestamp('paid_at',    { withTimezone: true }),
 
   boleto_url:   text('boleto_url'),
   pdf_s3_key:   text('pdf_s3_key'),
+  error_reason: text('error_reason'),
 
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -318,27 +341,9 @@ export const boletoEvents = pgTable('boleto_events', {
   boleto_id:   uuid('boleto_id').notNull().references(() => boletos.id, { onDelete: 'cascade' }),
   tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id),
   event_type:  varchar('event_type',  { length: 30 }).notNull(),
-  status_code: varchar('status_code', { length: 20 }),
+  status_code: varchar('status_code', { length: 50 }),
   response:    jsonb('response'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-// ── receivables ───────────────────────────────────────────────────────────────
-export const receivables = pgTable('receivables', {
-  id:          uuid('id').primaryKey().defaultRandom(),
-  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
-  client_id:   uuid('client_id').references(() => clients.id,            { onDelete: 'set null' }),
-  invoice_id:  uuid('invoice_id').references(() => invoices.id,          { onDelete: 'set null' }),
-  boleto_id:   uuid('boleto_id').references(() => boletos.id,            { onDelete: 'set null' }),
-  description: varchar('description', { length: 255 }).notNull(),
-  amount:      decimal('amount',      { precision: 15, scale: 2 }).notNull(),
-  paid_amount: decimal('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
-  due_date:    date('due_date').notNull(),
-  status:      varchar('status', { length: 20 }).notNull().default('pending'),
-  notes:       text('notes'),
-  created_by:  uuid('created_by'),
-  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── receivable_payments (append-only) ─────────────────────────────────────────
