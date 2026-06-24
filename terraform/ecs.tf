@@ -64,6 +64,9 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "PORT", value = "3000" },
       { name = "DATABASE_URL",
       value = "postgres://erp_lite:${urlencode(random_password.db_master.result)}@${aws_db_instance.postgres.endpoint}/erp_lite" },
+      # pg v8.x may not apply Pool-level ssl when parsing a plain postgres:// URL.
+      # PGSSLMODE=require guarantees SSL on every connection — belt-and-suspenders.
+      { name = "PGSSLMODE", value = "require" },
       { name = "JWT_SECRET", value = var.jwt_secret },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "NFE_REQUESTS_QUEUE_URL",    value = aws_sqs_queue.nfe_requests.url },

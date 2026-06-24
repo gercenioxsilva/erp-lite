@@ -2,20 +2,29 @@ import { Pool } from 'pg';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+// Belt-and-suspenders: pg v8.x may not apply the Pool ssl option when parsing a plain
+// postgres:// URL (no sslmode in the string). Setting PGSSLMODE here guarantees SSL
+// for any non-local host, regardless of how the caller configured the environment.
+const _migrateHost = process.env.DB_HOST || 'localhost';
+const _migrateLocal = _migrateHost === 'localhost' || _migrateHost === '127.0.0.1' || _migrateHost === 'db';
+if (!_migrateLocal && !process.env.PGSSLMODE) process.env.PGSSLMODE = 'require';
+
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
       connectionTimeoutMillis: 15_000,
-      // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1). Disabled locally.
+      // Docker dev (NODE_ENV=development): ssl:false prevents "server does not support SSL" error.
+      // ECS (NODE_ENV=production): ssl:{...} enables SSL. PGSSLMODE=require in ECS task env backs this up.
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     })
   : new Pool({
-      host: process.env.DB_HOST || 'localhost',
+      host: _migrateHost,
       port: Number(process.env.DB_PORT || 5432),
       database: process.env.DB_NAME || 'erp_lite',
       user: process.env.DB_USER || 'erp_lite',
       password: process.env.DB_PASSWORD || 'erp_lite',
       connectionTimeoutMillis: 15_000,
+      ssl: _migrateLocal ? undefined : { rejectUnauthorized: false },
     });
 
 const migrations = [
