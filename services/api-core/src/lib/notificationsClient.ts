@@ -3,12 +3,17 @@ import { eq } from 'drizzle-orm';
 import { db, notificationConfigs } from '../db';
 import { getSqsClient } from './sqsClient';
 
-export type NotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirmed';
+export type NotificationType =
+  | 'nfe_authorized'
+  | 'nfe_rejected'
+  | 'order_confirmed'
+  | 'boleto_generated';
 
 const typeToConfigKey: Record<NotificationType, keyof typeof notificationConfigs.$inferSelect> = {
-  nfe_authorized:  'notify_nfe_authorized',
-  nfe_rejected:    'notify_nfe_rejected',
-  order_confirmed: 'notify_order_confirmed',
+  nfe_authorized:   'notify_nfe_authorized',
+  nfe_rejected:     'notify_nfe_rejected',
+  order_confirmed:  'notify_order_confirmed',
+  boleto_generated: 'notify_boleto_generated',
 };
 
 export interface NotificationPayload {
@@ -33,7 +38,7 @@ export async function sendNotificationIfEnabled(payload: NotificationPayload): P
     type:      payload.type,
     channel:   'email',
     recipient: payload.recipient,
-    from_name: cfg.email_from_name ?? 'GAX ERP',
+    from_name: cfg.email_from_name ?? 'Orquestra ERP',
     reply_to:  cfg.email_reply_to  ?? undefined,
     data:      payload.data,
   };

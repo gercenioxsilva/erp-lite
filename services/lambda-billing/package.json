@@ -1,0 +1,23 @@
+{
+  "name": "@erp-lite/lambda-billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/handler.js",
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/client-sqs": "^3.600.0",
+    "axios": "^1.7.0",
+    "fastify": "^4.29.1",
+    "fastify-plugin": "^4.5.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2"
+  }
+}

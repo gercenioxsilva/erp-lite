@@ -408,6 +408,8 @@ const en: Record<TKey, string> = {
 
   // ── Company ───────────────────────────────────────────────────────────
   'comp.title':       'My Company',
+  'comp.tabGeneral':  'General Data',
+  'comp.tabBanking':  'Banking Data',
   'comp.basicInfo':   'Basic information',
   'comp.legalName':   'Legal name',
   'comp.tradeName':   'Trade name',
@@ -435,6 +437,42 @@ const en: Record<TKey, string> = {
   'comp.errLoad':     'Error loading company data.',
   'comp.errName':     'Legal name is required.',
   'comp.errSave':     'Error saving.',
+
+  // Banking data within company page
+  'comp.bank.title':        'Banking Data',
+  'comp.bank.hint':         'These details are used for boleto generation. Required for integrated billing.',
+  'comp.bank.bankCode':     'Bank',
+  'comp.bank.selectBank':   'Select a bank…',
+  'comp.bank.itau':         'Itaú (341)',
+  'comp.bank.agency':       'Agency',
+  'comp.bank.agencyPH':     'e.g. 1234',
+  'comp.bank.account':      'Account',
+  'comp.bank.accountPH':    'e.g. 12345',
+  'comp.bank.accountDigit': 'Check digit',
+  'comp.bank.digitPH':      'e.g. 6',
+  'comp.bank.provider':     'Billing provider',
+  'comp.bank.daysToExpire': 'Boleto expiration (days)',
+  'comp.bank.saved':        'Banking data saved successfully.',
+  'comp.bank.errSave':      'Error saving banking data.',
+
+  // ── Billing (Boleto) ──────────────────────────────────────────────────
+  'bill.emitBoleto':     'Emit Boleto',
+  'bill.emitting':       'Emitting…',
+  'bill.boleto':         'Boleto',
+  'bill.statusLabel':    'Boleto Status',
+  'bill.nossoNumero':    'Nosso Número',
+  'bill.copyBrcode':     'Copy PIX code (Pix Copia e Cola)',
+  'bill.copiedBrcode':   'Copied!',
+  'bill.viewBoleto':     'View Boleto',
+  'bill.expire':         'Expire Boleto',
+  'bill.expireConfirm':  'Expire this boleto? Payment via boleto will no longer be accepted.',
+  'bill.errNoBanking':   'Set up company banking data before emitting boletos.',
+  'bill.errEmit':        'Error requesting boleto emission.',
+  'bill.status.pending': 'Generating…',
+  'bill.status.sent':    'Boleto issued',
+  'bill.status.error':   'Emission error',
+  'bill.status.expired': 'Boleto expired',
+  'bill.status.paid':    'Boleto paid',
 
   // ── Register ──────────────────────────────────────────────────────────
   'r.title':       'Create your company account',

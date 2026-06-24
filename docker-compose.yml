@@ -78,7 +78,9 @@ services:
       NFE_REQUESTS_QUEUE_URL:  http://localstack:4566/000000000000/nfe-requests
       NFE_RESULTS_QUEUE_URL:   http://localstack:4566/000000000000/nfe-results
       NOTIFICATIONS_QUEUE_URL: http://localstack:4566/000000000000/notifications
-      NFE_BUCKET:             nfe-xmls-local
+      NFE_BUCKET:              nfe-xmls-local
+      BILLING_REQUESTS_QUEUE_URL: http://localstack:4566/000000000000/billing-requests
+      BILLING_RESULTS_QUEUE_URL:  http://localstack:4566/000000000000/billing-results
     volumes:
       - ./services/api-core/src:/app/src
       - ./services/api-core/db:/app/db
@@ -127,6 +129,31 @@ services:
       SES_FROM_NAME:          GAX ERP (local)
       NOTIFICATIONS_QUEUE_URL: http://localstack:4566/000000000000/notifications
       LOG_LEVEL:              debug
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Lambda Billing (local runner polls billing-requests queue) ────────────────
+  # Processes boleto generation requests. Without ITAU_CLIENT_ID/SECRET it returns
+  # a descriptive error via billing-results (visible in the boleto status).
+  lambda-billing:
+    build:
+      context: ./services/lambda-billing
+      target: development
+    environment:
+      AWS_REGION:                us-east-1
+      AWS_ACCESS_KEY_ID:         test
+      AWS_SECRET_ACCESS_KEY:     test
+      AWS_ENDPOINT_URL:          http://localstack:4566
+      BILLING_REQUESTS_QUEUE_URL: http://localstack:4566/000000000000/billing-requests
+      BILLING_RESULTS_QUEUE_URL:  http://localstack:4566/000000000000/billing-results
+      BILLING_BUCKET:            billing-pdfs-local
+      ITAU_CLIENT_ID:            ${ITAU_CLIENT_ID:-}
+      ITAU_CLIENT_SECRET:        ${ITAU_CLIENT_SECRET:-}
+      ITAU_BASE_URL:             ${ITAU_BASE_URL:-https://sandbox.devportal.itau.com.br}
+      ITAU_AUTH_URL:             ${ITAU_AUTH_URL:-https://sts.itau.com.br/itauBank/api/v2/token}
+      LOG_LEVEL:                 debug
     depends_on:
       localstack:
         condition: service_healthy
