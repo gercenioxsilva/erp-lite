@@ -48,6 +48,21 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 19. **Variáveis CSS foram atualizadas para o tema Orquestra ERP.** Paleta atual em `apps/backoffice/src/index.css`: `--primary: #3B5CE4` (azul Orquestra), `--primary-h: #2945C8`, `--accent: #00B4D8` (ciano). Nunca usar cores da identidade anterior (ex: `--primary: #2563eb`). Todas as classes CSS existentes continuam válidas — apenas os valores das variáveis mudaram.
 
+20. **PostgreSQL `ALTER TABLE` multi-coluna: nunca usar parênteses.** A sintaxe `ADD COLUMN (col1 type, col2 type)` é MySQL — o PostgreSQL a rejeita com `syntax error at "("` (código `42601`). A forma correta é uma cláusula `ADD COLUMN` por coluna separada por vírgula, sem parênteses englobante:
+    ```sql
+    -- ✅ PostgreSQL correto
+    ALTER TABLE minha_tabela
+      ADD COLUMN coluna1 VARCHAR(10),
+      ADD COLUMN coluna2 TEXT,
+      ADD COLUMN coluna3 INT NOT NULL DEFAULT 0;
+
+    -- ❌ Inválido no PostgreSQL (sintaxe MySQL)
+    ALTER TABLE minha_tabela ADD COLUMN (
+      coluna1 VARCHAR(10),
+      coluna2 TEXT
+    );
+    ```
+
 ---
 
 ## Histórico de Prompts
