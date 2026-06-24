@@ -452,28 +452,35 @@ flowchart LR
     saas_admin(["SaaS Admin\n(Operações internas)"])
     tenant_user(["Usuário do Tenant\n(Funcionário da empresa)"])
 
-    subgraph erp["GAX ERP  ·  SaaS Multi-tenant"]
+    subgraph erp["Orquestra ERP  ·  SaaS Multi-tenant"]
         direction TB
         backoffice["Backoffice\nReact SPA  :5173"]
-        api_core["API Core\nFastify / ECS  :3000"]
-        fiscal_lambda["Lambda  fiscal (NF-e)"]
-        notif_lambda["Lambda  notifications"]
+        api_core["API Core\nFastify / ECS  :3000\n+ boletoResultsWorker\n+ nfeResultsWorker"]
+        fiscal_lambda["Lambda fiscal\n(NF-e)"]
+        billing_lambda["Lambda billing\n(Boleto bancário)"]
+        notif_lambda["Lambda notifications\n(Email / WhatsApp)"]
         db[("PostgreSQL\nRDS")]
-        sqs[["SQS"]]
+        sqs[["SQS\nnfe · billing · notifications"]]
+        s3[["S3\nnfe-xmls · billing-pdfs"]]
     end
 
     sefaz(["SEFAZ\nNF-e"])
+    banco(["Banco Itaú\nAPI Boleto"])
     meta(["Meta\nWhatsApp"])
     ses(["AWS SES\nEmail"])
 
     saas_admin -- gerencia tenants --> backoffice
     tenant_user -- usa o ERP --> backoffice
     backoffice -- REST API --> api_core
-    api_core -- queries --> db
+    api_core -- queries/transactions --> db
     api_core -- enfileira eventos --> sqs
     sqs --> fiscal_lambda
+    sqs --> billing_lambda
     sqs --> notif_lambda
     fiscal_lambda -- XML/SOAP --> sefaz
+    fiscal_lambda -- XML S3 --> s3
+    billing_lambda -- OAuth2 REST --> banco
+    billing_lambda -- PDF S3 --> s3
     notif_lambda --> meta
     notif_lambda --> ses
 ```
@@ -489,7 +496,7 @@ flowchart TD
     subgraph vpc["VPC  10.0.0.0/16"]
         direction TB
         subgraph pub["Subnets Públicas  ·  AZ-a / AZ-b"]
-            ecs["ECS Fargate Spot\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true"]
+            ecs["ECS Fargate Spot\napi-core\n256 vCPU · 512 MB\nassign_public_ip = true\n━━━━━━━━━━━━━━━━━━━\nWorkers internos (long-poll 15s):\n• nfeResultsWorker\n• boletoResultsWorker"]
         end
         subgraph priv["Subnets Privadas  ·  AZ-a / AZ-b"]
             rds[("RDS PostgreSQL 16\ndev: db.t3.micro\nprod: db.t3.small")]
@@ -497,46 +504,76 @@ flowchart TD
     end
 
     subgraph async["Async — sem VPC (internet nativa)"]
-        direction LR
-        sqs_req["SQS nfe-requests\nVT=300s · DLQ após 3×"]
-        lambda_f["Lambda fiscal\nNode 20 · 512MB · 270s"]
-        sqs_res["SQS nfe-results\nlong-poll 15s"]
-        sqs_notif["SQS notifications\nVT=60s · DLQ após 3×"]
-        lambda_n["Lambda notifications\nNode 20 · 256MB · 60s"]
+        direction TB
+
+        subgraph nfe_flow["Fluxo NF-e"]
+            sqs_nfe_req["SQS nfe-requests\nVT=300s · DLQ após 3×"]
+            lambda_f["Lambda fiscal\nNode 20 · 512MB · 270s"]
+            sqs_nfe_res["SQS nfe-results\nlong-poll 15s"]
+        end
+
+        subgraph billing_flow["Fluxo Boleto"]
+            sqs_bill_req["SQS billing-requests\nVT=300s · DLQ após 3×"]
+            lambda_b["Lambda billing\nNode 20 · 512MB · 270s"]
+            sqs_bill_res["SQS billing-results\nlong-poll 15s"]
+        end
+
+        subgraph notif_flow["Notificações"]
+            sqs_notif["SQS notifications\nVT=60s · DLQ após 3×"]
+            lambda_n["Lambda notifications\nNode 20 · 256MB · 60s"]
+        end
     end
 
-    ecr["ECR\napi-core + lambda-fiscal\n+ lambda-notifications"]
+    ecr["ECR\napi-core\nlambda-fiscal\nlambda-billing\nlambda-notifications"]
     s3_nfe["S3 nfe-xmls\nLifecycle 5 anos\n(obrigação SEFAZ)"]
+    s3_bill["S3 billing-pdfs\nLifecycle 10 anos"]
     s3_ui["S3 backoffice\n+ CloudFront"]
     cw["CloudWatch\nLogs + Alarms"]
     focus["Focus NF-e\n(REST API)"]
     sefaz(["SEFAZ"])
+    banco(["Banco Itaú\nOAuth2 · API Boleto"])
     ses(["AWS SESv2\nEmail"])
     eb["EventBridge\nScheduler\n(RDS stop/start dev)"]
 
     alb --> ecs
     ecs --> rds
-    ecs -->|SendMessage| sqs_req
-    ecs -->|SendMessage| sqs_notif
-    ecs -->|long-poll ReceiveMessage| sqs_res
-    sqs_req -->|trigger batch=1| lambda_f
+
+    %% NF-e flow
+    ecs -->|SendMessage| sqs_nfe_req
+    ecs -->|long-poll| sqs_nfe_res
+    sqs_nfe_req -->|trigger batch=1| lambda_f
     lambda_f -->|HTTPS| focus
     focus <-->|XML/SOAP| sefaz
-    lambda_f -->|PutObject| s3_nfe
-    lambda_f -->|SendMessage| sqs_res
+    lambda_f -->|PutObject XML| s3_nfe
+    lambda_f -->|SendMessage result| sqs_nfe_res
+
+    %% Billing flow
+    ecs -->|SendMessage| sqs_bill_req
+    ecs -->|long-poll| sqs_bill_res
+    sqs_bill_req -->|trigger batch=1| lambda_b
+    lambda_b -->|OAuth2 REST| banco
+    lambda_b -->|PutObject PDF| s3_bill
+    lambda_b -->|SendMessage result| sqs_bill_res
+
+    %% Notifications
+    ecs -->|SendMessage| sqs_notif
     sqs_notif -->|trigger batch=10| lambda_n
     lambda_n -->|SendEmail| ses
+
+    %% ECR & observability
     ecr -.->|image pull| ecs
     ecr -.->|image pull| lambda_f
+    ecr -.->|image pull| lambda_b
     ecr -.->|image pull| lambda_n
     ecs -.->|logs| cw
     lambda_f -.->|logs| cw
+    lambda_b -.->|logs| cw
     lambda_n -.->|logs| cw
     eb -.->|stop 20h / start 8h| rds
 ```
 
 > **Sem NAT Gateway:** ECS tasks ficam em subnet pública com `assign_public_ip = true`.
-> Lambda fiscal opera fora da VPC — acessa internet (Focus NF-e), S3 e SQS nativamente.
+> Lambdas operam fora da VPC — acessam internet (Focus NF-e, Banco Itaú), S3 e SQS nativamente.
 > Economia: ~$30/mês vs abordagem com NAT Gateway.
 > **Fargate Spot:** ECS service usa `capacity_provider_strategy` com FARGATE_SPOT (peso 4)
 > e FARGATE como fallback automático (peso 1). Spot tem ~70% de desconto.
@@ -544,8 +581,10 @@ flowchart TD
 > **Single-AZ RDS:** `rds_multi_az = false` por padrão. Economia: ~$11/mês.
 > **Scheduler dev:** EventBridge para parar o RDS às 20h e iniciar às 8h (seg–sex, Brasília).
 > Dev RDS fica ativo ~260 h/mês em vez de 720 h. Economia: ~$8/mês no ambiente dev.
-> **Lambda concurrency=5:** previne sobrecarga do Focus NF-e / SEFAZ em bursts.
-> **DLQ alarm:** qualquer mensagem na nfe-dlq (3 falhas) dispara alarme CloudWatch.
+> **Lambda concurrency=5:** previne sobrecarga do Focus NF-e / SEFAZ e do Banco Itaú em bursts.
+> **DLQ alarm:** qualquer mensagem nas filas DLQ (3 falhas) dispara alarme CloudWatch.
+> **Dois workers ECS (long-poll 15s):** `nfeResultsWorker` e `boletoResultsWorker` rodam dentro
+> do mesmo container api-core — sem ECS tasks adicionais. Inicializados no `onReady` do Fastify.
 
 ### Sequência — Emissão NF-e Async
 
@@ -603,6 +642,73 @@ sequenceDiagram
     API-->>FE: { nfe_status, nfe_chave, nfe_danfe_url, ... }
 ```
 
+### Sequência — Emissão Boleto Async
+
+```mermaid
+sequenceDiagram
+    actor User as Usuário
+    participant FE as Backoffice (React)
+    participant API as api-core (ECS Fastify)
+    participant DB as PostgreSQL (RDS)
+    participant SQS_REQ as SQS billing-requests
+    participant Lambda as lambda-billing (Fastify DI)
+    participant Banco as Banco Itaú (OAuth2 REST)
+    participant S3 as S3 billing-pdfs
+    participant SQS_RES as SQS billing-results
+    participant SQS_NOT as SQS notifications
+    participant LambdaN as lambda-notifications
+
+    User->>FE: Clica "Emitir Boleto"
+    FE->>API: POST /v1/receivables/:id/emit-boleto
+
+    API->>DB: SELECT receivable + tenant (banking config)
+    Note over API: Valida banking config (bank_code, agency, account, account_digit)
+
+    API->>DB: INSERT boletos (status='pending') → retorna boleto.id
+    API->>DB: UPDATE receivables SET boleto_id = boleto.id
+    API->>SQS_REQ: SendMessage (BillingEmitMessage — payload completo)
+
+    alt SQS falha
+        API->>DB: DELETE boletos WHERE id = boleto.id
+        API->>DB: UPDATE receivables SET boleto_id = NULL
+        API-->>FE: 500 Erro ao enfileirar
+    else SQS ok
+        API-->>FE: 202 Accepted { boleto_id, status: 'pending' }
+    end
+
+    Note over Lambda: Cold start: buildApp() → plugins → app.ready()
+    SQS_REQ-->>Lambda: trigger (batch_size=1)
+    Lambda->>Banco: POST /oauth/token (client_credentials, cache 60s TTL)
+    Banco-->>Lambda: { access_token, expires_in }
+    Lambda->>Banco: POST /cobrancas/v2/boletos (payload Itaú)
+
+    alt boleto gerado
+        Banco-->>Lambda: { nosso_numero, boleto_url, brcode, ... }
+        Lambda->>S3: PutObject PDF (opcional)
+        Lambda->>SQS_RES: SendMessage { boleto_status: 'generated', nosso_numero, brcode, boleto_url, ... }
+    else erro banco
+        Banco-->>Lambda: 4xx/5xx error
+        Lambda->>SQS_RES: SendMessage { boleto_status: 'error', error_reason }
+    end
+
+    Note over API: boletoResultsWorker long-poll (WaitTimeSeconds=15)
+    SQS_RES-->>API: ReceiveMessage (boletoResultsWorker.ts)
+
+    alt generated
+        API->>DB: UPDATE boletos SET status='sent', nosso_numero, brcode,<br/>boleto_url, pdf_s3_key, issued_at, expires_at
+        API->>DB: INSERT boleto_events (event_type='generated')
+        API->>SQS_NOT: SendMessage (boleto_generated notification)
+        SQS_NOT-->>LambdaN: trigger
+        LambdaN->>User: Email com boleto (SES)
+    else error
+        API->>DB: UPDATE boletos SET status='error', error_reason
+        API->>DB: INSERT boleto_events (event_type='error')
+    end
+
+    FE->>API: GET /v1/receivables/:id/boleto (polling)
+    API-->>FE: { status, nosso_numero, brcode, boleto_url, expires_at, ... }
+```
+
 ---
 
 ## Stack Tecnológica
@@ -612,14 +718,15 @@ sequenceDiagram
 | API HTTP | Node.js + Fastify + TypeScript | 20 / 4.x / 5.x | Alto throughput, schemas JSON nativos, plugin system |
 | Lambda | Fastify como DI + pino + TypeScript | 4.x / 5.x | Mesmo modelo de plugins do api-core, sem HTTP listen |
 | ORM | Drizzle ORM (`drizzle-orm` + `drizzle-kit`) | ^0.36.0 / ^0.27.0 | Type-safe, wraps pg.Pool existente, zero overhead |
-| Banco | PostgreSQL | 16 (RDS) | ACID, UUID nativo, triggers |
+| Banco de dados | PostgreSQL | 16 (RDS) | ACID, UUID nativo, triggers |
 | Testes | Vitest + @vitest/coverage-v8 | ^2.1.0 | Substitui Jest; `vi.mock`, `vi.hoisted`, ESM-nativo |
 | Frontend | React + Vite + TypeScript | 18 / 5.x / 5.x | SPA com proxy de API |
 | Auth | bcryptjs (salt 12) + @fastify/jwt (HS256 24h) | — | Stateless |
 | NF-e | Focus NF-e REST API | v2 | XML 4.0 + cert A1 + SEFAZ gerenciados pelo provider |
+| Boleto | Itaú API Boleto (OAuth2 client_credentials) | v2 | Adapter pattern — extensível para outros bancos |
 | i18n | Context API customizado | — | pt-BR padrão, EN toggle |
 | Infra | Terraform + ECS Fargate | ≥ 1.5 | IaC reproduzível |
-| CI/CD | GitHub Actions | — | Build ECR (api-core + lambda-fiscal) → Terraform → Migrate |
+| CI/CD | GitHub Actions | — | Build ECR (api-core + lambda-fiscal + lambda-billing + lambda-notifications) → Terraform → Migrate |
 
 ---
 
