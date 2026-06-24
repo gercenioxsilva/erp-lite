@@ -32,6 +32,7 @@ const migrations = [
   '0011_tenant_logo.sql',
   '0012_receivables.sql',
   '0013_payables.sql',
+  '0014_tenant_banking.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

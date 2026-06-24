@@ -1,4 +1,9 @@
-export type NotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirmed';
+export type NotificationType =
+  | 'nfe_authorized'
+  | 'nfe_rejected'
+  | 'order_confirmed'
+  | 'boleto_generated';
+
 export type NotificationChannel = 'email';
 
 export interface NotificationRecipient {

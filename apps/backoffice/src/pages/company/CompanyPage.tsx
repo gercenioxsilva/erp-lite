@@ -9,14 +9,25 @@ interface Tenant {
   street: string | null; street_number: string | null; complement: string | null;
   neighborhood: string | null; city: string | null; state: string | null; postal_code: string | null;
   logo_url: string | null; status: string; plan: string;
+  bank_code: string | null; agency: string | null; account: string | null; account_digit: string | null;
+  billing_provider: string | null; billing_days_to_expire: number | null;
 }
 
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
+
+const BANKS = [
+  { value: '341', label: 'Itaú (341)' },
+];
+
+const PROVIDERS = [
+  { value: 'itau', label: 'Itaú' },
+];
 
 export function CompanyPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
 
+  const [tab, setTab]           = useState<'general' | 'banking'>('general');
   const [tenant, setTenant]     = useState<Tenant | null>(null);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -31,6 +42,14 @@ export function CompanyPage() {
     street: '', street_number: '', complement: '', neighborhood: '',
     city: '', state: '', postal_code: '',
   });
+
+  const [bankForm, setBankForm] = useState({
+    bank_code: '', agency: '', account: '', account_digit: '',
+    billing_provider: 'itau', billing_days_to_expire: '30',
+  });
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankSuccess, setBankSuccess] = useState('');
+  const [bankError, setBankError]   = useState('');
 
   useEffect(() => {
     if (!tenantId) return;
@@ -56,6 +75,14 @@ export function CompanyPage() {
         state:         data.state         || '',
         postal_code:   data.postal_code   || '',
       });
+      setBankForm({
+        bank_code:              data.bank_code              || '',
+        agency:                 data.agency                 || '',
+        account:                data.account                || '',
+        account_digit:          data.account_digit          || '',
+        billing_provider:       data.billing_provider       || 'itau',
+        billing_days_to_expire: String(data.billing_days_to_expire ?? 30),
+      });
     } catch (err: any) {
       setError(err.message || t('comp.errLoad'));
     } finally { setLoading(false); }
@@ -72,6 +99,25 @@ export function CompanyPage() {
     } catch (err: any) {
       setError(err.message || t('comp.errSave'));
     } finally { setSaving(false); }
+  }
+
+  async function handleBankSave(e: FormEvent) {
+    e.preventDefault(); setBankError(''); setBankSuccess('');
+    setBankSaving(true);
+    try {
+      await api.patch('/v1/tenant', {
+        bank_code:              bankForm.bank_code              || null,
+        agency:                 bankForm.agency                 || null,
+        account:                bankForm.account                || null,
+        account_digit:          bankForm.account_digit          || null,
+        billing_provider:       bankForm.billing_provider       || null,
+        billing_days_to_expire: bankForm.billing_days_to_expire ? Number(bankForm.billing_days_to_expire) : null,
+      });
+      setBankSuccess(t('comp.bank.saved'));
+      loadTenant();
+    } catch (err: any) {
+      setBankError(err.message || t('comp.bank.errSave'));
+    } finally { setBankSaving(false); }
   }
 
   function handleLogoClick() { fileRef.current?.click(); }
@@ -124,149 +170,231 @@ export function CompanyPage() {
         <h1>{t('comp.title')}</h1>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 24, alignItems: 'start' }}>
-        {/* ── Formulário principal ── */}
-        <div className="card" style={{ padding: 24 }}>
-          <form onSubmit={handleSave} noValidate>
-            {error   && <div role="alert" className="alert alert-error"  style={{ marginBottom: 16 }}>{error}</div>}
-            {success && <div role="alert" className="alert alert-success" style={{ marginBottom: 16 }}>{success}</div>}
-
-            <h3 style={{ marginBottom: 16 }}>{t('comp.basicInfo')}</h3>
-
-            <div className="field-row">
-              <div className="field">
-                <label>{t('comp.legalName')} *</label>
-                <input type="text" value={form.company_name}
-                  onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} required />
-              </div>
-              <div className="field">
-                <label>{t('comp.tradeName')}</label>
-                <input type="text" value={form.trade_name}
-                  onChange={e => setForm(f => ({ ...f, trade_name: e.target.value }))} />
-              </div>
-            </div>
-
-            <div className="field-row">
-              <div className="field">
-                <label>{t('comp.phone')}</label>
-                <input type="text" value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>{t('comp.website')}</label>
-                <input type="text" value={form.website}
-                  onChange={e => setForm(f => ({ ...f, website: e.target.value }))}
-                  placeholder="https://..." />
-              </div>
-            </div>
-
-            <h3 style={{ marginTop: 20, marginBottom: 16 }}>{t('comp.address')}</h3>
-
-            <div className="field-row">
-              <div className="field" style={{ flex: 2 }}>
-                <label>{t('comp.street')}</label>
-                <input type="text" value={form.street}
-                  onChange={e => setForm(f => ({ ...f, street: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>{t('comp.number')}</label>
-                <input type="text" value={form.street_number}
-                  onChange={e => setForm(f => ({ ...f, street_number: e.target.value }))} />
-              </div>
-            </div>
-
-            <div className="field-row">
-              <div className="field">
-                <label>{t('comp.complement')}</label>
-                <input type="text" value={form.complement}
-                  onChange={e => setForm(f => ({ ...f, complement: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>{t('comp.neighborhood')}</label>
-                <input type="text" value={form.neighborhood}
-                  onChange={e => setForm(f => ({ ...f, neighborhood: e.target.value }))} />
-              </div>
-            </div>
-
-            <div className="field-row">
-              <div className="field" style={{ flex: 2 }}>
-                <label>{t('comp.city')}</label>
-                <input type="text" value={form.city}
-                  onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
-              </div>
-              <div className="field" style={{ flex: 0.5 }}>
-                <label>{t('comp.state')}</label>
-                <input type="text" value={form.state} maxLength={2}
-                  onChange={e => setForm(f => ({ ...f, state: e.target.value.toUpperCase() }))} />
-              </div>
-              <div className="field">
-                <label>{t('comp.postalCode')}</label>
-                <input type="text" value={form.postal_code}
-                  onChange={e => setForm(f => ({ ...f, postal_code: e.target.value }))} />
-              </div>
-            </div>
-
-            <div style={{ marginTop: 20 }}>
-              <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? t('c.saving') : t('c.save')}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* ── Logo + Info ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Logo */}
-          <div className="card" style={{ padding: 20, textAlign: 'center' }}>
-            <h4 style={{ marginBottom: 12 }}>{t('comp.logo')}</h4>
-
-            {tenant?.logo_url ? (
-              <img src={tenant.logo_url} alt="Logo" style={{
-                maxWidth: '100%', maxHeight: 120, objectFit: 'contain',
-                borderRadius: 8, marginBottom: 12, border: '1px solid var(--border)',
-              }} />
-            ) : (
-              <div style={{
-                width: '100%', height: 100, background: 'var(--surface)',
-                borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--muted)', fontSize: 13, marginBottom: 12,
-                border: '2px dashed var(--border)',
-              }}>
-                {t('comp.noLogo')}
-              </div>
-            )}
-
-            {logoError && <div role="alert" className="alert alert-error" style={{ fontSize: 12, marginBottom: 8 }}>{logoError}</div>}
-
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-              style={{ display: 'none' }} onChange={handleLogoChange} />
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
-                {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
-              </button>
-              {tenant?.logo_url && (
-                <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
-                  {t('comp.removeLogo')}
-                </button>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-              {t('comp.logoHint')}
-            </div>
-          </div>
-
-          {/* Info SaaS */}
-          <div className="card" style={{ padding: 16 }}>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('comp.taxId')}</div>
-            <div style={{ fontWeight: 600, marginBottom: 12 }}>
-              {tenant?.tax_id} <span style={{ fontSize: 11, color: 'var(--muted)' }}>({tenant?.tax_id_type})</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('comp.plan')}</div>
-            <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{tenant?.plan}</div>
-          </div>
-        </div>
+      {/* ── Tabs ── */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
+        {(['general', 'banking'] as const).map(key => (
+          <button key={key} onClick={() => setTab(key)} style={{
+            background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
+            fontWeight: tab === key ? 700 : 400,
+            color: tab === key ? 'var(--primary)' : 'var(--muted)',
+            borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
+            marginBottom: -2, fontSize: 14,
+          }}>
+            {t(key === 'general' ? 'comp.tabGeneral' : 'comp.tabBanking')}
+          </button>
+        ))}
       </div>
+
+      {tab === 'general' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 24, alignItems: 'start' }}>
+          {/* ── Formulário principal ── */}
+          <div className="card" style={{ padding: 24 }}>
+            <form onSubmit={handleSave} noValidate>
+              {error   && <div role="alert" className="alert alert-error"  style={{ marginBottom: 16 }}>{error}</div>}
+              {success && <div role="alert" className="alert alert-success" style={{ marginBottom: 16 }}>{success}</div>}
+
+              <h3 style={{ marginBottom: 16 }}>{t('comp.basicInfo')}</h3>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.legalName')} *</label>
+                  <input type="text" value={form.company_name}
+                    onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} required />
+                </div>
+                <div className="field">
+                  <label>{t('comp.tradeName')}</label>
+                  <input type="text" value={form.trade_name}
+                    onChange={e => setForm(f => ({ ...f, trade_name: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.phone')}</label>
+                  <input type="text" value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label>{t('comp.website')}</label>
+                  <input type="text" value={form.website}
+                    onChange={e => setForm(f => ({ ...f, website: e.target.value }))}
+                    placeholder="https://..." />
+                </div>
+              </div>
+
+              <h3 style={{ marginTop: 20, marginBottom: 16 }}>{t('comp.address')}</h3>
+
+              <div className="field-row">
+                <div className="field" style={{ flex: 2 }}>
+                  <label>{t('comp.street')}</label>
+                  <input type="text" value={form.street}
+                    onChange={e => setForm(f => ({ ...f, street: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label>{t('comp.number')}</label>
+                  <input type="text" value={form.street_number}
+                    onChange={e => setForm(f => ({ ...f, street_number: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.complement')}</label>
+                  <input type="text" value={form.complement}
+                    onChange={e => setForm(f => ({ ...f, complement: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label>{t('comp.neighborhood')}</label>
+                  <input type="text" value={form.neighborhood}
+                    onChange={e => setForm(f => ({ ...f, neighborhood: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field" style={{ flex: 2 }}>
+                  <label>{t('comp.city')}</label>
+                  <input type="text" value={form.city}
+                    onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
+                </div>
+                <div className="field" style={{ flex: 0.5 }}>
+                  <label>{t('comp.state')}</label>
+                  <input type="text" value={form.state} maxLength={2}
+                    onChange={e => setForm(f => ({ ...f, state: e.target.value.toUpperCase() }))} />
+                </div>
+                <div className="field">
+                  <label>{t('comp.postalCode')}</label>
+                  <input type="text" value={form.postal_code}
+                    onChange={e => setForm(f => ({ ...f, postal_code: e.target.value }))} />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? t('c.saving') : t('c.save')}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* ── Logo + Info ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Logo */}
+            <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+              <h4 style={{ marginBottom: 12 }}>{t('comp.logo')}</h4>
+
+              {tenant?.logo_url ? (
+                <img src={tenant.logo_url} alt="Logo" style={{
+                  maxWidth: '100%', maxHeight: 120, objectFit: 'contain',
+                  borderRadius: 8, marginBottom: 12, border: '1px solid var(--border)',
+                }} />
+              ) : (
+                <div style={{
+                  width: '100%', height: 100, background: 'var(--surface)',
+                  borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--muted)', fontSize: 13, marginBottom: 12,
+                  border: '2px dashed var(--border)',
+                }}>
+                  {t('comp.noLogo')}
+                </div>
+              )}
+
+              {logoError && <div role="alert" className="alert alert-error" style={{ fontSize: 12, marginBottom: 8 }}>{logoError}</div>}
+
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                style={{ display: 'none' }} onChange={handleLogoChange} />
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
+                  {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
+                </button>
+                {tenant?.logo_url && (
+                  <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
+                    {t('comp.removeLogo')}
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                {t('comp.logoHint')}
+              </div>
+            </div>
+
+            {/* Info SaaS */}
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('comp.taxId')}</div>
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>
+                {tenant?.tax_id} <span style={{ fontSize: 11, color: 'var(--muted)' }}>({tenant?.tax_id_type})</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('comp.plan')}</div>
+              <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{tenant?.plan}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'banking' && (
+        <div style={{ maxWidth: 600 }}>
+          <div className="card" style={{ padding: 24 }}>
+            <form onSubmit={handleBankSave} noValidate>
+              {bankError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{bankError}</div>}
+              {bankSuccess && <div role="alert" className="alert alert-success"  style={{ marginBottom: 16 }}>{bankSuccess}</div>}
+
+              <h3 style={{ marginBottom: 8 }}>{t('comp.bank.title')}</h3>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.bank.hint')}</p>
+
+              <div className="field">
+                <label>{t('comp.bank.bankCode')}</label>
+                <select value={bankForm.bank_code}
+                  onChange={e => setBankForm(f => ({ ...f, bank_code: e.target.value }))}>
+                  <option value="">{t('comp.bank.selectBank')}</option>
+                  {BANKS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                </select>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.bank.agency')}</label>
+                  <input type="text" value={bankForm.agency}
+                    placeholder={t('comp.bank.agencyPH')}
+                    onChange={e => setBankForm(f => ({ ...f, agency: e.target.value }))} />
+                </div>
+                <div className="field" style={{ flex: 2 }}>
+                  <label>{t('comp.bank.account')}</label>
+                  <input type="text" value={bankForm.account}
+                    placeholder={t('comp.bank.accountPH')}
+                    onChange={e => setBankForm(f => ({ ...f, account: e.target.value }))} />
+                </div>
+                <div className="field" style={{ flex: 0.6 }}>
+                  <label>{t('comp.bank.accountDigit')}</label>
+                  <input type="text" value={bankForm.account_digit} maxLength={2}
+                    placeholder={t('comp.bank.digitPH')}
+                    onChange={e => setBankForm(f => ({ ...f, account_digit: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.bank.provider')}</label>
+                  <select value={bankForm.billing_provider}
+                    onChange={e => setBankForm(f => ({ ...f, billing_provider: e.target.value }))}>
+                    {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>{t('comp.bank.daysToExpire')}</label>
+                  <input type="number" min={1} max={365} value={bankForm.billing_days_to_expire}
+                    onChange={e => setBankForm(f => ({ ...f, billing_days_to_expire: e.target.value }))} />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <button type="submit" className="btn btn-primary" disabled={bankSaving}>
+                  {bankSaving ? t('c.saving') : t('c.save')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

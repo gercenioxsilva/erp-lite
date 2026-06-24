@@ -90,6 +90,26 @@ variable "ses_from_name" {
   default     = "Orquestra ERP"
 }
 
+variable "lambda_billing_image_tag" {
+  description = "Docker image tag for lambda-billing (ECR)"
+  type        = string
+  default     = "latest"
+}
+
+variable "itau_client_id" {
+  description = "Itaú Empresas API client_id for boleto generation (OAuth2 client_credentials)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "itau_client_secret" {
+  description = "Itaú Empresas API client_secret for boleto generation (OAuth2 client_credentials)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "acm_certificate_arn" {
   description = <<-EOT
     ARN of the ACM certificate for orquestraerp.com.br (must be in us-east-1).

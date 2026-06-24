@@ -7,6 +7,7 @@ interface Receivable {
   id: string; description: string; amount: string; paid_amount: string;
   due_date: string; status: string; client_id: string | null; client_name: string | null;
   invoice_id: string | null; notes: string | null; created_at: string;
+  boleto_id: string | null;
 }
 
 interface Payment {
@@ -14,11 +15,26 @@ interface Payment {
   payment_method: string; reference: string | null; notes: string | null;
 }
 
+interface BoletoInfo {
+  id: string;
+  status: 'pending' | 'sent' | 'error' | 'expired' | 'paid';
+  nosso_numero: string | null;
+  brcode: string | null;
+  boleto_url: string | null;
+  issued_at: string | null;
+  expires_at: string | null;
+}
+
 interface Client { id: string; company_name: string | null; full_name: string | null; }
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#d97706', partial: '#2563eb', paid: '#16a34a',
   overdue: '#dc2626', cancelled: '#6b7280',
+};
+
+const BOLETO_STATUS_COLORS: Record<string, string> = {
+  pending: '#d97706', sent: '#16a34a', error: '#dc2626',
+  expired: '#6b7280', paid: '#16a34a',
 };
 
 const PAYMENT_METHODS = [
@@ -59,6 +75,13 @@ export function ReceivablesPage() {
   const [payError, setPayError]     = useState('');
   const [payingSave, setPayingSave] = useState(false);
 
+  // Boleto section
+  const [boleto, setBoleto]           = useState<BoletoInfo | null>(null);
+  const [boletoLoading, setBoletoLoading] = useState(false);
+  const [emitting, setEmitting]       = useState(false);
+  const [boletoError, setBoletoError] = useState('');
+  const [brcodeCopied, setBrcodeCopied] = useState(false);
+
   const PER_PAGE = 20;
 
   useEffect(() => {
@@ -87,9 +110,23 @@ export function ReceivablesPage() {
     } finally { setLoading(false); }
   }
 
+  async function loadBoleto(receivableId: string) {
+    setBoletoLoading(true);
+    try {
+      const data = await api.get<any>(`/v1/receivables/${receivableId}/boleto`);
+      setBoleto(data.boleto ?? null);
+    } catch { setBoleto(null); }
+    finally { setBoletoLoading(false); }
+  }
+
   async function openDetail(rec: Receivable) {
     const full = await api.get<any>(`/v1/receivables/${rec.id}`);
-    setSelected(full); setDetailOpen(true); setPayError(''); setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
+    setSelected(full);
+    setBoleto(null); setBoletoError(''); setBrcodeCopied(false);
+    setPayError('');
+    setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
+    if (full.boleto_id) await loadBoleto(full.id);
+    setDetailOpen(true);
   }
 
   async function handleCreate(e: FormEvent) {
@@ -127,7 +164,6 @@ export function ReceivablesPage() {
         reference:      payForm.reference || null,
         notes:          payForm.notes    || null,
       });
-      // Refresh detail
       const updated = await api.get<any>(`/v1/receivables/${selected!.id}`);
       setSelected(updated);
       setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
@@ -155,6 +191,38 @@ export function ReceivablesPage() {
     } catch (err: any) {
       setPayError(err.message || t('rec.errSave'));
     }
+  }
+
+  async function handleEmitBoleto() {
+    if (!selected) return;
+    setBoletoError(''); setEmitting(true);
+    try {
+      await api.post(`/v1/receivables/${selected.id}/emit-boleto`, {});
+      const updated = await api.get<any>(`/v1/receivables/${selected.id}`);
+      setSelected(updated);
+      await loadBoleto(selected.id);
+    } catch (err: any) {
+      setBoletoError(err.message || t('bill.errEmit'));
+    } finally { setEmitting(false); }
+  }
+
+  async function handleExpireBoleto() {
+    if (!selected || !window.confirm(t('bill.expireConfirm'))) return;
+    setBoletoError('');
+    try {
+      await api.put(`/v1/receivables/${selected.id}/boleto/expire`, {});
+      await loadBoleto(selected.id);
+    } catch (err: any) {
+      setBoletoError(err.message || t('bill.errEmit'));
+    }
+  }
+
+  function copyBrcode() {
+    if (!boleto?.brcode) return;
+    navigator.clipboard.writeText(boleto.brcode).then(() => {
+      setBrcodeCopied(true);
+      setTimeout(() => setBrcodeCopied(false), 2000);
+    });
   }
 
   const pages = Math.max(1, Math.ceil(total / PER_PAGE));
@@ -393,6 +461,59 @@ export function ReceivablesPage() {
                     </button>
                   </form>
                 </>
+              )}
+
+              {/* ── Seção Boleto ── */}
+              {selected.status !== 'cancelled' && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                  <h4 style={{ marginBottom: 8 }}>{t('bill.boleto')}</h4>
+
+                  {boletoError && <div role="alert" className="alert alert-error" style={{ marginBottom: 8 }}>{boletoError}</div>}
+
+                  {boletoLoading ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                  ) : !selected.boleto_id ? (
+                    selected.status !== 'paid' && (
+                      <button className="btn btn-secondary btn-sm" onClick={handleEmitBoleto} disabled={emitting}>
+                        {emitting ? t('bill.emitting') : t('bill.emitBoleto')}
+                      </button>
+                    )
+                  ) : boleto ? (
+                    <div>
+                      <div style={{ fontSize: 13, marginBottom: 8 }}>
+                        {t('bill.statusLabel')}:{' '}
+                        <strong style={{ color: BOLETO_STATUS_COLORS[boleto.status] }}>
+                          {t(`bill.status.${boleto.status}` as any)}
+                        </strong>
+                      </div>
+
+                      {boleto.nosso_numero && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                          {t('bill.nossoNumero')}: <code style={{ fontFamily: 'monospace' }}>{boleto.nosso_numero}</code>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                        {boleto.boleto_url && (
+                          <a href={boleto.boleto_url} target="_blank" rel="noopener noreferrer"
+                             className="btn btn-secondary btn-sm">
+                            {t('bill.viewBoleto')}
+                          </a>
+                        )}
+                        {boleto.brcode && (
+                          <button className="btn btn-secondary btn-sm" onClick={copyBrcode}>
+                            {brcodeCopied ? t('bill.copiedBrcode') : t('bill.copyBrcode')}
+                          </button>
+                        )}
+                        {boleto.status !== 'expired' && boleto.status !== 'paid' && (
+                          <button className="btn btn-danger btn-sm" onClick={handleExpireBoleto}>
+                            {t('bill.expire')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               )}
 
               {/* Cancelar conta */}

@@ -15,7 +15,9 @@ import { notificationConfigRoutes } from './routes/notificationConfig';
 import { receivablesRoutes }        from './routes/receivables';
 import { payablesRoutes }           from './routes/payables';
 import { tenantRoutes }             from './routes/tenant';
-import { startNfeResultsWorker, stopNfeResultsWorker } from './workers/nfeResultsWorker';
+import { billingRoutes }            from './routes/billing';
+import { startNfeResultsWorker, stopNfeResultsWorker }       from './workers/nfeResultsWorker';
+import { startBoletoResultsWorker, stopBoletoResultsWorker } from './workers/boletoResultsWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -53,10 +55,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(receivablesRoutes,        { prefix: '/v1' });
   await app.register(payablesRoutes,           { prefix: '/v1' });
   await app.register(tenantRoutes,             { prefix: '/v1' });
+  await app.register(billingRoutes,            { prefix: '/v1' });
 
-  // Start SQS long-poll worker for NF-e results (no-op when env var not set)
-  app.addHook('onReady', async () => { startNfeResultsWorker(); });
-  app.addHook('onClose', async () => { stopNfeResultsWorker(); });
+  app.addHook('onReady', async () => {
+    startNfeResultsWorker();
+    startBoletoResultsWorker();
+  });
+  app.addHook('onClose', async () => {
+    stopNfeResultsWorker();
+    stopBoletoResultsWorker();
+  });
 
   return app;
 }

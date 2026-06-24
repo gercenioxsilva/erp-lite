@@ -430,6 +430,8 @@ const ptBR = {
 
   // ── Minha Empresa ─────────────────────────────────────────────────────
   'comp.title':       'Minha Empresa',
+  'comp.tabGeneral':  'Dados Gerais',
+  'comp.tabBanking':  'Dados Bancários',
   'comp.basicInfo':   'Informações básicas',
   'comp.legalName':   'Razão Social',
   'comp.tradeName':   'Nome Fantasia',
@@ -457,6 +459,42 @@ const ptBR = {
   'comp.errLoad':     'Erro ao carregar dados da empresa.',
   'comp.errName':     'Razão social é obrigatória.',
   'comp.errSave':     'Erro ao salvar.',
+
+  // Banking data within company page
+  'comp.bank.title':        'Dados Bancários',
+  'comp.bank.hint':         'Esses dados são usados para emissão de boletos. Obrigatório para usar a cobrança integrada.',
+  'comp.bank.bankCode':     'Banco',
+  'comp.bank.selectBank':   'Selecione o banco…',
+  'comp.bank.itau':         'Itaú (341)',
+  'comp.bank.agency':       'Agência',
+  'comp.bank.agencyPH':     'Ex.: 1234',
+  'comp.bank.account':      'Conta',
+  'comp.bank.accountPH':    'Ex.: 12345',
+  'comp.bank.accountDigit': 'Dígito',
+  'comp.bank.digitPH':      'Ex.: 6',
+  'comp.bank.provider':     'Provedor de Cobrança',
+  'comp.bank.daysToExpire': 'Dias para vencer o boleto',
+  'comp.bank.saved':        'Dados bancários salvos com sucesso.',
+  'comp.bank.errSave':      'Erro ao salvar dados bancários.',
+
+  // ── Cobrança (Boleto) ─────────────────────────────────────────────────
+  'bill.emitBoleto':     'Emitir Boleto',
+  'bill.emitting':       'Emitindo…',
+  'bill.boleto':         'Boleto',
+  'bill.statusLabel':    'Status do Boleto',
+  'bill.nossoNumero':    'Nosso Número',
+  'bill.copyBrcode':     'Copiar PIX (Copia e Cola)',
+  'bill.copiedBrcode':   'Copiado!',
+  'bill.viewBoleto':     'Ver Boleto',
+  'bill.expire':         'Expirar Boleto',
+  'bill.expireConfirm':  'Expirar este boleto? O pagamento via boleto não será mais aceito.',
+  'bill.errNoBanking':   'Configure os dados bancários da empresa antes de emitir boletos.',
+  'bill.errEmit':        'Erro ao solicitar emissão do boleto.',
+  'bill.status.pending': 'Aguardando geração…',
+  'bill.status.sent':    'Boleto emitido',
+  'bill.status.error':   'Erro na emissão',
+  'bill.status.expired': 'Boleto expirado',
+  'bill.status.paid':    'Boleto pago',
 
   // ── Login ─────────────────────────────────────────────────────────────
   'l.welcome':   'Bem-vindo de volta',

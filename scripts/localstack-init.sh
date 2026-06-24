@@ -34,9 +34,27 @@ aws --endpoint-url="$EP" --region="$REGION" sqs create-queue \
   --attributes VisibilityTimeout=60,MessageRetentionPeriod=86400 \
   --output text --query 'QueueUrl'
 
-echo "[localstack-init] Creating S3 bucket..."
+aws --endpoint-url="$EP" --region="$REGION" sqs create-queue \
+  --queue-name billing-dlq \
+  --attributes MessageRetentionPeriod=1209600 \
+  --output text --query 'QueueUrl'
+
+aws --endpoint-url="$EP" --region="$REGION" sqs create-queue \
+  --queue-name billing-requests \
+  --attributes VisibilityTimeout=120,MessageRetentionPeriod=86400 \
+  --output text --query 'QueueUrl'
+
+aws --endpoint-url="$EP" --region="$REGION" sqs create-queue \
+  --queue-name billing-results \
+  --attributes VisibilityTimeout=60,ReceiveMessageWaitTimeSeconds=5 \
+  --output text --query 'QueueUrl'
+
+echo "[localstack-init] Creating S3 buckets..."
 aws --endpoint-url="$EP" --region="$REGION" s3api create-bucket \
-  --bucket nfe-xmls-local 2>/dev/null || echo "(bucket already exists)"
+  --bucket nfe-xmls-local 2>/dev/null || echo "(nfe-xmls-local already exists)"
+
+aws --endpoint-url="$EP" --region="$REGION" s3api create-bucket \
+  --bucket billing-pdfs-local 2>/dev/null || echo "(billing-pdfs-local already exists)"
 
 echo "[localstack-init] Verifying SES email identity..."
 aws --endpoint-url="$EP" --region="$REGION" ses verify-email-identity \

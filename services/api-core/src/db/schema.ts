@@ -33,6 +33,15 @@ export const tenants = pgTable('tenants', {
   fiscal_contact_email: varchar('fiscal_contact_email', { length: 255 }),
   // Logo (base64 data URI, max ~300 KB — returned via GET /v1/tenant only)
   logo_url: text('logo_url'),
+  // Banking data (for boleto generation)
+  bank_code:              varchar('bank_code',              { length: 3   }),
+  agency:                 varchar('agency',                 { length: 10  }),
+  account:                varchar('account',                { length: 20  }),
+  account_digit:          varchar('account_digit',          { length: 2   }),
+  billing_provider:       varchar('billing_provider',       { length: 30  }).notNull().default('brcode'),
+  billing_days_to_expire: integer('billing_days_to_expire').notNull().default(30),
+  billing_webhook_token:  text('billing_webhook_token'),
+  banking_updated_at:     timestamp('banking_updated_at', { withTimezone: true }),
   // SaaS lifecycle
   status:       varchar('status', { length: 20 }).notNull().default('trial'),
   plan:         varchar('plan',   { length: 30 }).notNull().default('starter'),
@@ -276,11 +285,16 @@ export const nfeEvents = pgTable('nfe_events', {
 });
 
 // ── receivables ───────────────────────────────────────────────────────────────
+// Defined before boletos to break the circular reference:
+//   receivables.boleto_id  →  boletos.id   (constraint exists in migration 0014,
+//                                           omitted here so TypeScript can infer types)
+//   boletos.receivable_id  →  receivables.id  (normal FK, boletos is declared after)
 export const receivables = pgTable('receivables', {
   id:          uuid('id').primaryKey().defaultRandom(),
   tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
   client_id:   uuid('client_id').references(() => clients.id,            { onDelete: 'set null' }),
   invoice_id:  uuid('invoice_id').references(() => invoices.id,          { onDelete: 'set null' }),
+  boleto_id:   uuid('boleto_id'),  // FK → boletos.id (constraint in migration, no .references() to avoid circular)
   description: varchar('description', { length: 255 }).notNull(),
   amount:      decimal('amount',      { precision: 15, scale: 2 }).notNull(),
   paid_amount: decimal('paid_amount', { precision: 15, scale: 2 }).notNull().default('0'),
@@ -290,6 +304,46 @@ export const receivables = pgTable('receivables', {
   created_by:  uuid('created_by'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── boletos ───────────────────────────────────────────────────────────────────
+export const boletos = pgTable('boletos', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
+  receivable_id: uuid('receivable_id').notNull().references(() => receivables.id, { onDelete: 'cascade' }),
+
+  boleto_id:    varchar('boleto_id',    { length: 100 }),
+  brcode:       text('brcode'),
+  pix_qr_code:  text('pix_qr_code'),
+  nosso_numero: varchar('nosso_numero', { length: 50  }),
+
+  banco_code:   varchar('banco_code',   { length: 3   }),
+  agencia:      varchar('agencia',      { length: 10  }),
+  conta:        varchar('conta',        { length: 20  }),
+  digito:       varchar('digito',       { length: 2   }),
+
+  status:       varchar('status',       { length: 20  }).notNull().default('pending'),
+  issued_at:    timestamp('issued_at',  { withTimezone: true }),
+  expires_at:   date('expires_at'),
+  paid_at:      timestamp('paid_at',    { withTimezone: true }),
+
+  boleto_url:   text('boleto_url'),
+  pdf_s3_key:   text('pdf_s3_key'),
+  error_reason: text('error_reason'),
+
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── boleto_events (append-only) ───────────────────────────────────────────────
+export const boletoEvents = pgTable('boleto_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  boleto_id:   uuid('boleto_id').notNull().references(() => boletos.id, { onDelete: 'cascade' }),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id),
+  event_type:  varchar('event_type',  { length: 30 }).notNull(),
+  status_code: varchar('status_code', { length: 50 }),
+  response:    jsonb('response'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── receivable_payments (append-only) ─────────────────────────────────────────
@@ -347,6 +401,7 @@ export const notificationConfigs = pgTable('notification_configs', {
   notify_nfe_authorized:  boolean('notify_nfe_authorized').notNull().default(true),
   notify_nfe_rejected:    boolean('notify_nfe_rejected').notNull().default(true),
   notify_order_confirmed: boolean('notify_order_confirmed').notNull().default(false),
+  notify_boleto_generated: boolean('notify_boleto_generated').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

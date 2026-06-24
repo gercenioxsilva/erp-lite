@@ -11,6 +11,7 @@ env:
   API_ECR_REPO:                 erp-lite/api-core
   LAMBDA_ECR_REPO:              erp-lite/lambda-fiscal
   LAMBDA_NOTIFICATIONS_ECR_REPO: erp-lite/lambda-notifications
+  LAMBDA_BILLING_ECR_REPO:      erp-lite/lambda-billing
   TF_STATE_BUCKET:              erp-lite-terraform-state
 
 jobs:
@@ -83,7 +84,9 @@ jobs:
             -target=aws_ecr_repository.lambda_fiscal \
             -target=aws_ecr_lifecycle_policy.lambda_fiscal \
             -target=aws_ecr_repository.lambda_notifications \
-            -target=aws_ecr_lifecycle_policy.lambda_notifications
+            -target=aws_ecr_lifecycle_policy.lambda_notifications \
+            -target=aws_ecr_repository.lambda_billing \
+            -target=aws_ecr_lifecycle_policy.lambda_billing
 
       # ── Compute ECR registry URL from current AWS account ─────────────────────
       # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
@@ -142,6 +145,20 @@ jobs:
           cache-from: type=gha,scope=lambda-notifications
           cache-to: type=gha,mode=max,scope=lambda-notifications
 
+      - name: Build and push lambda-billing image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/lambda-billing
+          push: true
+          # Lambda requires single-platform Docker v2 Schema 2 manifest.
+          platforms: linux/amd64
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_BILLING_ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_BILLING_ECR_REPO }}:latest
+          cache-from: type=gha,scope=lambda-billing
+          cache-to: type=gha,mode=max,scope=lambda-billing
+
       # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
       # TF_VAR_image_tag sets var.image_tag → new task definition revision →
       # aws_ecs_service updates to the new revision → rolling deploy starts.
@@ -157,6 +174,9 @@ jobs:
           TF_VAR_image_tag:                           ${{ github.sha }}
           TF_VAR_lambda_fiscal_image_tag:             ${{ github.sha }}
           TF_VAR_lambda_notifications_image_tag:      ${{ github.sha }}
+          TF_VAR_lambda_billing_image_tag:            ${{ github.sha }}
+          TF_VAR_itau_client_id:                      ${{ secrets.TF_VAR_ITAU_CLIENT_ID }}
+          TF_VAR_itau_client_secret:                  ${{ secrets.TF_VAR_ITAU_CLIENT_SECRET }}
         run: terraform apply -auto-approve
 
       # ── Read Terraform outputs (single step, post-apply) ─────────────────────

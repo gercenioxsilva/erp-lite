@@ -1,12 +1,14 @@
 import type { NotificationType, TemplateData, EmailTemplate } from '../types';
-import { nfeAuthorizedTemplate } from './nfe_authorized';
-import { nfeRejectedTemplate }   from './nfe_rejected';
+import { nfeAuthorizedTemplate }  from './nfe_authorized';
+import { nfeRejectedTemplate }    from './nfe_rejected';
 import { orderConfirmedTemplate } from './order_confirmed';
+import { boletoGeneratedTemplate } from './boleto_generated';
 
 const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplate> = {
-  nfe_authorized:  nfeAuthorizedTemplate,
-  nfe_rejected:    nfeRejectedTemplate,
-  order_confirmed: orderConfirmedTemplate,
+  nfe_authorized:   nfeAuthorizedTemplate,
+  nfe_rejected:     nfeRejectedTemplate,
+  order_confirmed:  orderConfirmedTemplate,
+  boleto_generated: boletoGeneratedTemplate,
 };
 
 export function getTemplate(type: NotificationType, data: TemplateData): EmailTemplate {

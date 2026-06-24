@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db';
+import { validateBankingData, isValidBillingProvider } from '../lib/banking';
 
 const MAX_LOGO_BYTES = 300 * 1024; // 300 KB base64 string limit
 const ALLOWED_LOGO_PREFIXES = [
@@ -34,6 +35,8 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email',
       'maintenance_contact_name', 'maintenance_contact_phone', 'maintenance_contact_email',
       'fiscal_contact_name', 'fiscal_contact_phone', 'fiscal_contact_email',
+      'bank_code', 'agency', 'account', 'account_digit',
+      'billing_provider', 'billing_days_to_expire',
     ];
 
     const patch: Record<string, unknown> = {};
@@ -42,6 +45,35 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
+
+    // Validate banking data if any banking field is provided
+    if (patch.bank_code || patch.agency || patch.account || patch.account_digit) {
+      try {
+        validateBankingData({
+          bank_code: (patch.bank_code as string | undefined) ?? body.bank_code,
+          agency: (patch.agency as string | undefined) ?? body.agency,
+          account: (patch.account as string | undefined) ?? body.account,
+          account_digit: (patch.account_digit as string | undefined) ?? body.account_digit,
+        });
+        // If any banking field is set, mark banking_updated_at
+        patch.banking_updated_at = new Date();
+      } catch (err: any) {
+        return reply.badRequest(err.message);
+      }
+    }
+
+    // Validate billing_provider if provided
+    if (patch.billing_provider && !isValidBillingProvider(patch.billing_provider as string)) {
+      return reply.badRequest('billing_provider inválido. Valores válidos: brcode, itau, santander, bradesco');
+    }
+
+    // Validate billing_days_to_expire if provided
+    if (patch.billing_days_to_expire) {
+      const days = Number(patch.billing_days_to_expire);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return reply.badRequest('billing_days_to_expire deve ser um número inteiro entre 1 e 365');
+      }
+    }
 
     await db.update(tenants).set(patch as any).where(eq(tenants.id, tenantId));
     return { ok: true };
