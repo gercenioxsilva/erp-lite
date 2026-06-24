@@ -130,24 +130,11 @@ resource "aws_cloudfront_distribution" "backoffice" {
     geo_restriction { restriction_type = "none" }
   }
 
-  # viewer_certificate is managed via ignore_changes while the ACM cert is PENDING.
-  # Root cause: the first deploy set aliases + cert ARN on CloudFront before timing out.
-  # AWS validates the cert against the CURRENT aliases before applying any update,
-  # so switching cert types while a PENDING cert is attached always fails with
-  # InvalidViewerCertificate — even when removing aliases in the same API call.
-  # Phase 2 activation: once the cert is ISSUED, remove ignore_changes, set
-  # TF_VAR_ACM_CERTIFICATE_ARN in GitHub Secrets and push to main.
   viewer_certificate {
     acm_certificate_arn      = var.acm_certificate_arn != "" ? var.acm_certificate_arn : null
     ssl_support_method       = var.acm_certificate_arn != "" ? "sni-only" : null
     minimum_protocol_version = var.acm_certificate_arn != "" ? "TLSv1.2_2021" : null
-
-    # fallback when acm_certificate_arn is not yet set
     cloudfront_default_certificate = var.acm_certificate_arn == ""
-  }
-
-  lifecycle {
-    ignore_changes = [viewer_certificate, aliases]
   }
 
   tags = { Environment = var.environment }
