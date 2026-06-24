@@ -16,8 +16,11 @@ import { receivablesRoutes }        from './routes/receivables';
 import { payablesRoutes }           from './routes/payables';
 import { tenantRoutes }             from './routes/tenant';
 import { billingRoutes }            from './routes/billing';
-import { startNfeResultsWorker, stopNfeResultsWorker }       from './workers/nfeResultsWorker';
-import { startBoletoResultsWorker, stopBoletoResultsWorker } from './workers/boletoResultsWorker';
+import { clientContactsRoutes }     from './routes/clientContacts';
+import { serviceContractsRoutes }   from './routes/serviceContracts';
+import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
+import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
+import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -56,14 +59,18 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(payablesRoutes,           { prefix: '/v1' });
   await app.register(tenantRoutes,             { prefix: '/v1' });
   await app.register(billingRoutes,            { prefix: '/v1' });
+  await app.register(clientContactsRoutes,     { prefix: '/v1' });
+  await app.register(serviceContractsRoutes,   { prefix: '/v1' });
 
   app.addHook('onReady', async () => {
     startNfeResultsWorker();
     startBoletoResultsWorker();
+    startContractBillingWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
     stopBoletoResultsWorker();
+    stopContractBillingWorker();
   });
 
   return app;

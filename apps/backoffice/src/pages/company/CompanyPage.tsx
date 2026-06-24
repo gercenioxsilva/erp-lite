@@ -13,6 +13,29 @@ interface Tenant {
   billing_provider: string | null; billing_days_to_expire: number | null;
 }
 
+interface NfeCfg {
+  cnpj: string; razao_social: string; nome_fantasia: string | null;
+  regime_tributario: number;
+  logradouro: string; numero: string; complemento: string | null;
+  bairro: string; municipio: string; uf: string; cep: string;
+  telefone: string | null; email: string | null;
+  cfop_padrao: string; cfop_interestadual: string;
+  natureza_operacao: string; focus_ambiente: number;
+  focus_token_homologacao: string | null; // masked from API (****XXXX)
+  focus_token_producao:    string | null; // masked from API (****XXXX)
+}
+
+const EMPTY_NFE_FORM = {
+  cnpj: '', razao_social: '', nome_fantasia: '', regime_tributario: '1',
+  logradouro: '', numero: '', complemento: '', bairro: '',
+  municipio: 'SAO PAULO', uf: 'SP', cep: '',
+  telefone: '', email: '',
+  cfop_padrao: '5102', cfop_interestadual: '6102',
+  natureza_operacao: 'Venda de mercadoria', focus_ambiente: '2',
+  focus_token_homologacao: '', // empty = keep current; filled = update
+  focus_token_producao:    '',
+};
+
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
 
 const BANKS = [
@@ -27,7 +50,7 @@ export function CompanyPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
 
-  const [tab, setTab]           = useState<'general' | 'banking'>('general');
+  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal'>('general');
   const [tenant, setTenant]     = useState<Tenant | null>(null);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -51,9 +74,17 @@ export function CompanyPage() {
   const [bankSuccess, setBankSuccess] = useState('');
   const [bankError, setBankError]   = useState('');
 
+  const [nfeCfg, setNfeCfg]           = useState<NfeCfg | null>(null);
+  const [nfeLoading, setNfeLoading]   = useState(false);
+  const [nfeForm, setNfeForm]         = useState({ ...EMPTY_NFE_FORM });
+  const [nfeSaving, setNfeSaving]     = useState(false);
+  const [nfeSuccess, setNfeSuccess]   = useState('');
+  const [nfeError, setNfeError]       = useState('');
+
   useEffect(() => {
     if (!tenantId) return;
     loadTenant();
+    loadNfeConfig();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -99,6 +130,73 @@ export function CompanyPage() {
     } catch (err: any) {
       setError(err.message || t('comp.errSave'));
     } finally { setSaving(false); }
+  }
+
+  async function loadNfeConfig() {
+    setNfeLoading(true);
+    try {
+      const data = await api.get<NfeCfg>(`/v1/nfe-config?tenant_id=${tenantId}`);
+      setNfeCfg(data);
+      setNfeForm({
+        cnpj:                   data.cnpj || '',
+        razao_social:           data.razao_social || '',
+        nome_fantasia:          data.nome_fantasia || '',
+        regime_tributario:      String(data.regime_tributario ?? 1),
+        logradouro:             data.logradouro || '',
+        numero:                 data.numero || '',
+        complemento:            data.complemento || '',
+        bairro:                 data.bairro || '',
+        municipio:              data.municipio || 'SAO PAULO',
+        uf:                     data.uf || 'SP',
+        cep:                    data.cep || '',
+        telefone:               data.telefone || '',
+        email:                  data.email || '',
+        cfop_padrao:            data.cfop_padrao || '5102',
+        cfop_interestadual:     data.cfop_interestadual || '6102',
+        natureza_operacao:      data.natureza_operacao || 'Venda de mercadoria',
+        focus_ambiente:         String(data.focus_ambiente ?? 2),
+        focus_token_homologacao: '', // always start empty — masked value from API is display-only
+        focus_token_producao:    '',
+      });
+    } catch {
+      // 404 is expected if no config yet; other errors are silent (user sees empty form)
+      setNfeForm({ ...EMPTY_NFE_FORM });
+    } finally { setNfeLoading(false); }
+  }
+
+  async function handleNfeSave(e: FormEvent) {
+    e.preventDefault(); setNfeError(''); setNfeSuccess('');
+    if (!nfeForm.cnpj.trim() || !nfeForm.razao_social.trim())
+      return setNfeError(t('comp.nfe.errRequired'));
+    setNfeSaving(true);
+    try {
+      await api.put('/v1/nfe-config', {
+        tenant_id:              tenantId,
+        cnpj:                   nfeForm.cnpj,
+        razao_social:           nfeForm.razao_social,
+        nome_fantasia:          nfeForm.nome_fantasia || null,
+        regime_tributario:      Number(nfeForm.regime_tributario),
+        logradouro:             nfeForm.logradouro,
+        numero:                 nfeForm.numero,
+        complemento:            nfeForm.complemento || null,
+        bairro:                 nfeForm.bairro,
+        municipio:              nfeForm.municipio,
+        uf:                     nfeForm.uf,
+        cep:                    nfeForm.cep,
+        telefone:               nfeForm.telefone || null,
+        email:                  nfeForm.email || null,
+        cfop_padrao:            nfeForm.cfop_padrao,
+        cfop_interestadual:     nfeForm.cfop_interestadual,
+        natureza_operacao:      nfeForm.natureza_operacao,
+        focus_ambiente:         Number(nfeForm.focus_ambiente),
+        focus_token_homologacao: nfeForm.focus_token_homologacao || null,
+        focus_token_producao:    nfeForm.focus_token_producao    || null,
+      });
+      setNfeSuccess(t('comp.nfe.saved'));
+      loadNfeConfig();
+    } catch (err: any) {
+      setNfeError(err.message || t('comp.nfe.errSave'));
+    } finally { setNfeSaving(false); }
   }
 
   async function handleBankSave(e: FormEvent) {
@@ -172,7 +270,7 @@ export function CompanyPage() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'banking'] as const).map(key => (
+        {(['general', 'banking', 'fiscal'] as const).map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -180,7 +278,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {t(key === 'general' ? 'comp.tabGeneral' : 'comp.tabBanking')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : t('comp.tabFiscal')}
           </button>
         ))}
       </div>
@@ -393,6 +491,181 @@ export function CompanyPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {tab === 'fiscal' && (
+        <div style={{ maxWidth: 720 }}>
+          {nfeLoading ? (
+            <div className="spinner">{t('c.loading')}</div>
+          ) : (
+            <div className="card" style={{ padding: 24 }}>
+              <form onSubmit={handleNfeSave} noValidate>
+                {nfeError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{nfeError}</div>}
+                {nfeSuccess && <div role="alert" className="alert alert-success"  style={{ marginBottom: 16 }}>{nfeSuccess}</div>}
+
+                <h3 style={{ marginBottom: 8 }}>{t('comp.nfe.title')}</h3>
+                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.nfe.hint')}</p>
+
+                {/* Dados do emitente */}
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('comp.nfe.cnpj')} *</label>
+                    <input type="text" value={nfeForm.cnpj} maxLength={18}
+                      placeholder="00.000.000/0001-00"
+                      onChange={e => setNfeForm(f => ({ ...f, cnpj: e.target.value }))} required />
+                  </div>
+                  <div className="field" style={{ flex: 2 }}>
+                    <label>{t('comp.nfe.razaoSocial')} *</label>
+                    <input type="text" value={nfeForm.razao_social}
+                      onChange={e => setNfeForm(f => ({ ...f, razao_social: e.target.value }))} required />
+                  </div>
+                </div>
+
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('comp.nfe.nomeFantasia')}</label>
+                    <input type="text" value={nfeForm.nome_fantasia}
+                      onChange={e => setNfeForm(f => ({ ...f, nome_fantasia: e.target.value }))} />
+                  </div>
+                  <div className="field">
+                    <label>{t('comp.nfe.regime')}</label>
+                    <select value={nfeForm.regime_tributario}
+                      onChange={e => setNfeForm(f => ({ ...f, regime_tributario: e.target.value }))}>
+                      <option value="1">{t('comp.nfe.regime1')}</option>
+                      <option value="2">{t('comp.nfe.regime2')}</option>
+                      <option value="3">{t('comp.nfe.regime3')}</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Endereço */}
+                <div className="field-row" style={{ marginTop: 8 }}>
+                  <div className="field" style={{ flex: 2 }}>
+                    <label>{t('comp.street')}</label>
+                    <input type="text" value={nfeForm.logradouro}
+                      onChange={e => setNfeForm(f => ({ ...f, logradouro: e.target.value }))} />
+                  </div>
+                  <div className="field" style={{ flex: 0.6 }}>
+                    <label>{t('comp.number')}</label>
+                    <input type="text" value={nfeForm.numero}
+                      onChange={e => setNfeForm(f => ({ ...f, numero: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('comp.complement')}</label>
+                    <input type="text" value={nfeForm.complemento}
+                      onChange={e => setNfeForm(f => ({ ...f, complemento: e.target.value }))} />
+                  </div>
+                  <div className="field">
+                    <label>{t('comp.neighborhood')}</label>
+                    <input type="text" value={nfeForm.bairro}
+                      onChange={e => setNfeForm(f => ({ ...f, bairro: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="field-row">
+                  <div className="field" style={{ flex: 2 }}>
+                    <label>{t('comp.city')}</label>
+                    <input type="text" value={nfeForm.municipio}
+                      onChange={e => setNfeForm(f => ({ ...f, municipio: e.target.value.toUpperCase() }))} />
+                  </div>
+                  <div className="field" style={{ flex: 0.5 }}>
+                    <label>{t('comp.state')}</label>
+                    <input type="text" value={nfeForm.uf} maxLength={2}
+                      onChange={e => setNfeForm(f => ({ ...f, uf: e.target.value.toUpperCase() }))} />
+                  </div>
+                  <div className="field">
+                    <label>{t('comp.postalCode')}</label>
+                    <input type="text" value={nfeForm.cep} maxLength={9}
+                      onChange={e => setNfeForm(f => ({ ...f, cep: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('comp.phone')}</label>
+                    <input type="text" value={nfeForm.telefone}
+                      onChange={e => setNfeForm(f => ({ ...f, telefone: e.target.value }))} />
+                  </div>
+                  <div className="field">
+                    <label>{t('c.email')}</label>
+                    <input type="email" value={nfeForm.email}
+                      onChange={e => setNfeForm(f => ({ ...f, email: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Configurações fiscais */}
+                <div className="field-row" style={{ marginTop: 8 }}>
+                  <div className="field">
+                    <label>{t('comp.nfe.cfopPadrao')}</label>
+                    <input type="text" value={nfeForm.cfop_padrao} maxLength={4}
+                      onChange={e => setNfeForm(f => ({ ...f, cfop_padrao: e.target.value }))} />
+                  </div>
+                  <div className="field">
+                    <label>{t('comp.nfe.cfopInterest')}</label>
+                    <input type="text" value={nfeForm.cfop_interestadual} maxLength={4}
+                      onChange={e => setNfeForm(f => ({ ...f, cfop_interestadual: e.target.value }))} />
+                  </div>
+                  <div className="field" style={{ flex: 2 }}>
+                    <label>{t('comp.nfe.natOp')}</label>
+                    <input type="text" value={nfeForm.natureza_operacao}
+                      onChange={e => setNfeForm(f => ({ ...f, natureza_operacao: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Ambiente Focus NF-e */}
+                <div className="field" style={{ marginTop: 8 }}>
+                  <label>{t('comp.nfe.ambiente')}</label>
+                  <select value={nfeForm.focus_ambiente}
+                    onChange={e => setNfeForm(f => ({ ...f, focus_ambiente: e.target.value }))}>
+                    <option value="2">{t('comp.nfe.homo')}</option>
+                    <option value="1">{t('comp.nfe.prod')}</option>
+                  </select>
+                </div>
+
+                {/* Tokens por tenant */}
+                <div style={{ marginTop: 16, padding: '16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <h4 style={{ marginBottom: 4 }}>{t('comp.nfe.tokensTitle')}</h4>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfe.tokenHint')}</p>
+
+                  <div className="field">
+                    <label>{t('comp.nfe.tokenHomo')}</label>
+                    {nfeCfg?.focus_token_homologacao && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+                        {t('comp.nfe.tokenSet')}: <code>{nfeCfg.focus_token_homologacao}</code>
+                      </div>
+                    )}
+                    <input type="password" value={nfeForm.focus_token_homologacao}
+                      placeholder={nfeCfg?.focus_token_homologacao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
+                      autoComplete="new-password"
+                      onChange={e => setNfeForm(f => ({ ...f, focus_token_homologacao: e.target.value }))} />
+                  </div>
+
+                  <div className="field">
+                    <label>{t('comp.nfe.tokenProd')}</label>
+                    {nfeCfg?.focus_token_producao && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+                        {t('comp.nfe.tokenSet')}: <code>{nfeCfg.focus_token_producao}</code>
+                      </div>
+                    )}
+                    <input type="password" value={nfeForm.focus_token_producao}
+                      placeholder={nfeCfg?.focus_token_producao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
+                      autoComplete="new-password"
+                      onChange={e => setNfeForm(f => ({ ...f, focus_token_producao: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <button type="submit" className="btn btn-primary" disabled={nfeSaving}>
+                    {nfeSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       )}
     </div>

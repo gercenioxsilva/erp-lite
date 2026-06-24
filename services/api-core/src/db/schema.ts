@@ -267,7 +267,9 @@ export const nfeConfigs = pgTable('nfe_configs', {
   cfop_padrao:        varchar('cfop_padrao',        { length: 4  }).notNull().default('5102'),
   cfop_interestadual: varchar('cfop_interestadual', { length: 4  }).notNull().default('6102'),
   natureza_operacao:  varchar('natureza_operacao',  { length: 100 }).notNull().default('Venda de mercadoria'),
-  focus_ambiente: smallint('focus_ambiente').notNull().default(2),
+  focus_ambiente:              smallint('focus_ambiente').notNull().default(2),
+  focus_token_homologacao: varchar('focus_token_homologacao', { length: 255 }),
+  focus_token_producao:    varchar('focus_token_producao',    { length: 255 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -390,6 +392,57 @@ export const payablePayments = pgTable('payable_payments', {
   notes:          text('notes'),
   created_by:     uuid('created_by'),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── client_contacts ───────────────────────────────────────────────────────────
+export const clientContacts = pgTable('client_contacts', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  client_id:    uuid('client_id').notNull().references(() => clients.id,  { onDelete: 'cascade' }),
+  contact_type: varchar('contact_type', { length: 30 }).notNull().default('comercial'),
+  name:         varchar('name',  { length: 255 }),
+  email:        varchar('email', { length: 255 }),
+  phone:        varchar('phone', { length: 20  }),
+  notes:        text('notes'),
+  is_active:    boolean('is_active').notNull().default(true),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── service_contracts ─────────────────────────────────────────────────────────
+export const serviceContracts = pgTable('service_contracts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  client_id:         uuid('client_id').notNull().references(() => clients.id,  { onDelete: 'restrict' }),
+  material_id:       uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  contract_number:   varchar('contract_number', { length: 20 }).notNull(),
+  description:       text('description').notNull(),
+  start_date:        date('start_date').notNull(),
+  end_date:          date('end_date'),
+  billing_frequency: varchar('billing_frequency', { length: 20 }).notNull().default('monthly'),
+  billing_day:       smallint('billing_day').notNull().default(1),
+  amount:            decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  status:            varchar('status', { length: 20 }).notNull().default('active'),
+  notes:             text('notes'),
+  created_by:        uuid('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── contract_billings ─────────────────────────────────────────────────────────
+export const contractBillings = pgTable('contract_billings', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id,          { onDelete: 'cascade' }),
+  contract_id:   uuid('contract_id').notNull().references(() => serviceContracts.id, { onDelete: 'cascade' }),
+  receivable_id: uuid('receivable_id').references(() => receivables.id,            { onDelete: 'set null' }),
+  period_start:  date('period_start').notNull(),
+  period_end:    date('period_end').notNull(),
+  amount:        decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  due_date:      date('due_date').notNull(),
+  status:        varchar('status', { length: 20 }).notNull().default('pending'),
+  notes:         text('notes'),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── notification_configs ──────────────────────────────────────────────────────

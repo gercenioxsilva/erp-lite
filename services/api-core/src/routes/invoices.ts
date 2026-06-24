@@ -31,6 +31,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT i.id, i.number, i.serie, i.status, i.issue_date,
                i.subtotal, i.total, i.notes, i.order_id, i.created_at,
+               i.nfe_status, i.nfe_chave, i.nfe_reject_reason,
                COALESCE(c.company_name, c.full_name) AS client_name,
                o.number AS order_number
         FROM invoices i

@@ -3,6 +3,7 @@ import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { FastifyInstance } from 'fastify';
 import { buildFocusPayload } from '../lib/focusNfe';
+import { FocusNfeClient } from '../lib/focusNfe';
 import type { NfeEmitMessage, NfeResultMessage } from '../lib/types';
 
 export async function processRecord(app: FastifyInstance, record: SQSRecord): Promise<void> {
@@ -11,7 +12,11 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
 
   app.log.info({ event: 'nfe_start', invoice_id, tenant_id, focus_ref, ambiente });
 
-  const focus   = app.getFocusClient(ambiente);
+  // Per-tenant token takes precedence; global env var is the fallback
+  const token = msg.focus_token || app.config.focusToken;
+  if (!token) throw new Error(`No Focus NF-e token for tenant ${tenant_id} — set FOCUS_NFE_TOKEN or configure per-tenant token`);
+
+  const focus   = new FocusNfeClient(token, ambiente);
   const payload = buildFocusPayload(msg);
 
   let result = await focus.emitir(focus_ref, payload);

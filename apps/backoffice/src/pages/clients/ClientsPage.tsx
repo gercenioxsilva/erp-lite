@@ -22,11 +22,23 @@ interface Client {
   cpf:           string | null;
   email:         string | null;
   phone:         string | null;
+  mobile:        string | null;
   city:          string | null;
   state:         string | null;
   icms_taxpayer: string;
   consumer_type: string;
   is_active:     boolean;
+  notes:         string | null;
+}
+
+interface ClientContact {
+  id:           string;
+  contact_type: string;
+  name:         string | null;
+  email:        string | null;
+  phone:        string | null;
+  notes:        string | null;
+  is_active:    boolean;
 }
 
 interface ListResp { data: Client[]; total: number; page: number; per_page: number; }
@@ -65,8 +77,6 @@ interface ImportResult {
 
 type ImportPhase = 'idle' | 'preview' | 'importing' | 'done';
 
-// ── Excel column headers (must match the template downloaded by the user) ──────
-
 const XLSX_COLS = [
   'tipo_pessoa', 'razao_social', 'nome_fantasia', 'cnpj',
   'inscricao_estadual', 'inscricao_municipal', 'suframa',
@@ -76,7 +86,7 @@ const XLSX_COLS = [
   'contribuinte_icms', 'tipo_consumidor', 'observacoes',
 ] as const;
 
-// ── Helpers (defined outside component to avoid recreating on every render) ───
+const CONTACT_TYPES = ['comercial', 'juridico', 'compras', 'manutencao', 'comprador', 'outro'] as const;
 
 function mapXlsxRow(raw: Record<string, unknown>): ImportRow {
   const s  = (v: unknown) => { const x = String(v ?? '').trim(); return x || undefined; };
@@ -130,19 +140,16 @@ function downloadTemplate() {
     '01310100', 'Rua das Flores', '200', '', 'Centro', 'São Paulo', 'SP',
     '9', '1', 'Exemplo PF',
   ];
-
   const ws = XLSX.utils.aoa_to_sheet([[...XLSX_COLS], example_pj, example_pf]);
-  // Column widths: wider for name fields
   ws['!cols'] = [...XLSX_COLS].map((col) => ({
     wch: ['razao_social', 'nome_completo', 'logradouro', 'email'].includes(col) ? 30 : 18,
   }));
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
   XLSX.writeFile(wb, 'modelo_importacao_clientes.xlsx');
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Empty form ─────────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
   person_type:   'PJ' as 'PJ' | 'PF',
@@ -155,18 +162,25 @@ const EMPTY_FORM = {
   notes: '',
 };
 
+const EMPTY_CONTACT = {
+  contact_type: 'comercial' as string,
+  name: '', email: '', phone: '', notes: '',
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
 export function ClientsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
 
   // ── List state ─────────────────────────────────────────────────────────────
-  const [items,      setItems]      = useState<Client[]>([]);
-  const [total,      setTotal]      = useState(0);
-  const [page,       setPage]       = useState(1);
-  const [search,     setSearch]     = useState('');
-  const [filter,     setFilter]     = useState('');
-  const [loading,    setLoading]    = useState(true);
+  const [items,   setItems]   = useState<Client[]>([]);
+  const [total,   setTotal]   = useState(0);
+  const [page,    setPage]    = useState(1);
+  const [search,  setSearch]  = useState('');
+  const [filter,  setFilter]  = useState('');
+  const [loading, setLoading] = useState(true);
 
   // ── Drawer (create / edit) state ───────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -175,6 +189,15 @@ export function ClientsPage() {
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
   const [cepLoading, setCepLoading] = useState(false);
+
+  // ── Contacts state (within drawer) ────────────────────────────────────────
+  const [contacts,         setContacts]         = useState<ClientContact[]>([]);
+  const [contactsLoading,  setContactsLoading]  = useState(false);
+  const [showContactForm,  setShowContactForm]  = useState(false);
+  const [editingContact,   setEditingContact]   = useState<ClientContact | null>(null);
+  const [contactForm,      setContactForm]      = useState({ ...EMPTY_CONTACT });
+  const [savingContact,    setSavingContact]    = useState(false);
+  const [contactError,     setContactError]     = useState('');
 
   // ── Import state ───────────────────────────────────────────────────────────
   const [importOpen,   setImportOpen]   = useState(false);
@@ -205,6 +228,23 @@ export function ClientsPage() {
 
   useEffect(() => { void load(); }, [tenantId, page, search, filter]);
 
+  // Load contacts when drawer opens for edit
+  useEffect(() => {
+    if (!drawerOpen || !editing || !tenantId) {
+      setContacts([]);
+      setShowContactForm(false);
+      setEditingContact(null);
+      setContactForm({ ...EMPTY_CONTACT });
+      setContactError('');
+      return;
+    }
+    setContactsLoading(true);
+    api.get<{ data: ClientContact[] }>(`/v1/clients/${editing.id}/contacts?tenant_id=${tenantId}`)
+      .then(r => setContacts(r.data))
+      .catch(() => {/**/})
+      .finally(() => setContactsLoading(false));
+  }, [drawerOpen, editing?.id, tenantId]);
+
   // ── Drawer helpers ─────────────────────────────────────────────────────────
 
   function openCreate() {
@@ -218,19 +258,21 @@ export function ClientsPage() {
     setEditing(c);
     setForm({
       ...EMPTY_FORM,
-      person_type:  c.person_type,
-      company_name: c.company_name  ?? '',
-      trade_name:   c.trade_name    ?? '',
-      cnpj:         c.cnpj ? maskCNPJ(c.cnpj) : '',
-      state_reg:    c.state_reg     ?? '',
-      full_name:    c.full_name     ?? '',
-      cpf:          c.cpf  ? maskCPF(c.cpf)   : '',
-      email:        c.email         ?? '',
-      phone:        c.phone ? maskPhone(c.phone) : '',
-      city:         c.city          ?? '',
-      state:        c.state         ?? 'SP',
+      person_type:   c.person_type,
+      company_name:  c.company_name  ?? '',
+      trade_name:    c.trade_name    ?? '',
+      cnpj:          c.cnpj ? maskCNPJ(c.cnpj) : '',
+      state_reg:     c.state_reg     ?? '',
+      full_name:     c.full_name     ?? '',
+      cpf:           c.cpf  ? maskCPF(c.cpf)   : '',
+      email:         c.email         ?? '',
+      phone:         c.phone ? maskPhone(c.phone) : '',
+      mobile:        c.mobile ? maskPhone(c.mobile) : '',
+      city:          c.city          ?? '',
+      state:         c.state         ?? 'SP',
       icms_taxpayer: c.icms_taxpayer ?? '9',
       consumer_type: c.consumer_type ?? '0',
+      notes:         c.notes         ?? '',   // ← bug fix: preenche notes existentes
     });
     setFormError('');
     setDrawerOpen(true);
@@ -318,6 +360,66 @@ export function ClientsPage() {
     catch (err: unknown) { modal.error(err); }
   }
 
+  // ── Contact handlers ───────────────────────────────────────────────────────
+
+  function openAddContact() {
+    setEditingContact(null);
+    setContactForm({ ...EMPTY_CONTACT });
+    setContactError('');
+    setShowContactForm(true);
+  }
+
+  function openEditContact(c: ClientContact) {
+    setEditingContact(c);
+    setContactForm({
+      contact_type: c.contact_type,
+      name:         c.name  ?? '',
+      email:        c.email ?? '',
+      phone:        c.phone ? maskPhone(c.phone) : '',
+      notes:        c.notes ?? '',
+    });
+    setContactError('');
+    setShowContactForm(true);
+  }
+
+  async function handleSaveContact(e: FormEvent) {
+    e.preventDefault();
+    if (!tenantId || !editing) return;
+    setContactError('');
+    setSavingContact(true);
+    try {
+      const payload = {
+        tenant_id:    tenantId,
+        contact_type: contactForm.contact_type,
+        name:         contactForm.name  || undefined,
+        email:        contactForm.email || undefined,
+        phone:        contactForm.phone ? digits(contactForm.phone) : undefined,
+        notes:        contactForm.notes || undefined,
+      };
+      if (editingContact) {
+        await api.patch(`/v1/clients/${editing.id}/contacts/${editingContact.id}`, payload);
+      } else {
+        await api.post(`/v1/clients/${editing.id}/contacts`, payload);
+      }
+      setShowContactForm(false);
+      // Reload contacts
+      const r = await api.get<{ data: ClientContact[] }>(`/v1/clients/${editing.id}/contacts?tenant_id=${tenantId}`);
+      setContacts(r.data);
+    } catch (err: unknown) {
+      setContactError(err instanceof Error ? err.message : t('cl.errSave'));
+    } finally { setSavingContact(false); }
+  }
+
+  async function handleDeleteContact(cid: string) {
+    if (!editing) return;
+    const ok = await modal.confirm({ title: t('cl.delContact'), message: t('cl.delContactMsg'), confirmLabel: 'Remover', danger: true });
+    if (!ok) return;
+    try {
+      await api.delete(`/v1/clients/${editing.id}/contacts/${cid}`);
+      setContacts(prev => prev.filter(c => c.id !== cid));
+    } catch (err: unknown) { modal.error(err); }
+  }
+
   // ── Import handlers ────────────────────────────────────────────────────────
 
   function closeImport() {
@@ -341,29 +443,20 @@ export function ClientsPage() {
       const mapped  = rawRows
         .map(mapXlsxRow)
         .filter(r => r.person_type === 'PJ' || r.person_type === 'PF');
-
-      if (mapped.length === 0) {
-        setImportError(t('cl.importEmpty'));
-        return;
-      }
+      if (mapped.length === 0) { setImportError(t('cl.importEmpty')); return; }
       setImportRows(mapped);
       setImportPhase('preview');
-    } catch {
-      setImportError(t('cl.importParseErr'));
-    }
+    } catch { setImportError(t('cl.importParseErr')); }
   }
 
   async function runImport() {
     if (!tenantId || importRows.length === 0) return;
     setImportPhase('importing');
     try {
-      const result = await api.post<ImportResult>('/v1/clients/import', {
-        tenant_id: tenantId,
-        clients:   importRows,
-      });
+      const result = await api.post<ImportResult>('/v1/clients/import', { tenant_id: tenantId, clients: importRows });
       setImportResult(result);
       setImportPhase('done');
-      void load(); // refresh list in background
+      void load();
     } catch (err: unknown) {
       setImportError(err instanceof Error ? err.message : t('cl.errSave'));
       setImportPhase('preview');
@@ -376,6 +469,9 @@ export function ClientsPage() {
   const isPJ = form.person_type === 'PJ';
   const PREVIEW_LIMIT = 5;
 
+  const contactTypeLabel = (type: string) =>
+    t(`cl.contact.${type}` as Parameters<typeof t>[0]) || type;
+
   // ── JSX ───────────────────────────────────────────────────────────────────
 
   return (
@@ -384,11 +480,8 @@ export function ClientsPage() {
       <div className="page-header">
         <h1>{t('cl.title')}</h1>
         <div className="flex-gap">
-          <button
-            className="btn btn-secondary"
-            style={{ width: 'auto' }}
-            onClick={() => { setImportOpen(true); setImportPhase('idle'); }}
-          >
+          <button className="btn btn-secondary" style={{ width: 'auto' }}
+            onClick={() => { setImportOpen(true); setImportPhase('idle'); }}>
             ↑ {t('cl.import')}
           </button>
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
@@ -399,12 +492,8 @@ export function ClientsPage() {
 
       {/* ── Filters ──────────────────────────────────────────────────── */}
       <div className="flex-gap" style={{ marginBottom: 16 }}>
-        <input
-          placeholder={t('cl.searchPH')}
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ maxWidth: 280 }}
-        />
+        <input placeholder={t('cl.searchPH')} value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 280 }} />
         <select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
           <option value="">{t('cl.allTypes')}</option>
           <option value="PJ">{t('cl.pj')}</option>
@@ -447,16 +536,12 @@ export function ClientsPage() {
                     {c.trade_name && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.trade_name}</div>}
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                    {c.person_type === 'PJ'
-                      ? (c.cnpj ? maskCNPJ(c.cnpj) : '—')
-                      : (c.cpf  ? maskCPF(c.cpf)   : '—')}
+                    {c.person_type === 'PJ' ? (c.cnpj ? maskCNPJ(c.cnpj) : '—') : (c.cpf ? maskCPF(c.cpf) : '—')}
                   </td>
                   <td>{c.city && c.state ? `${c.city} / ${c.state}` : '—'}</td>
                   <td>
-                    <span
-                      title={c.icms_taxpayer === '1' ? t('cl.icms1') : c.icms_taxpayer === '2' ? t('cl.icms2') : t('cl.icms9')}
-                      style={{ fontSize: 11, color: 'var(--muted)' }}
-                    >
+                    <span title={c.icms_taxpayer === '1' ? t('cl.icms1') : c.icms_taxpayer === '2' ? t('cl.icms2') : t('cl.icms9')}
+                      style={{ fontSize: 11, color: 'var(--muted)' }}>
                       {c.icms_taxpayer === '1' ? t('cl.contrib') : c.icms_taxpayer === '2' ? t('cl.exempt') : t('cl.nonC')}
                     </span>
                     {c.consumer_type === '1' && (
@@ -502,7 +587,7 @@ export function ClientsPage() {
             </div>
             <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
-                {formError && <div className="alert alert-error">{formError}</div>}
+                {formError && <div className="alert alert-error" role="alert">{formError}</div>}
 
                 <div className="field">
                   <label>{t('cl.personType')} *</label>
@@ -604,13 +689,8 @@ export function ClientsPage() {
                       {t('cl.zip')}
                       {cepLoading && <span style={{ fontSize: 10, color: 'var(--muted)', marginLeft: 4 }}>{t('cl.searching')}</span>}
                     </label>
-                    <input
-                      value={form.zip_code}
-                      onChange={setF('zip_code')}
-                      placeholder="00000-000"
-                      maxLength={9}
-                      onBlur={e => { if (digits(e.target.value).length === 8) void handleCEP(e.target.value); }}
-                    />
+                    <input value={form.zip_code} onChange={setF('zip_code')} placeholder="00000-000" maxLength={9}
+                      onBlur={e => { if (digits(e.target.value).length === 8) void handleCEP(e.target.value); }} />
                   </div>
                   <div className="field" style={{ flex: '0 0 90px' }}>
                     <label>{t('cl.uf')}</label>
@@ -663,8 +743,110 @@ export function ClientsPage() {
 
                 <div className="field">
                   <label>{t('cl.notes')}</label>
-                  <textarea value={form.notes} onChange={setF('notes')} />
+                  <textarea value={form.notes} onChange={setF('notes')} rows={3} />
                 </div>
+
+                {/* ── Contatos (somente no modo edição) ─────────────── */}
+                {editing && (
+                  <>
+                    <SectionLabel label={t('cl.contacts')} />
+
+                    {contactsLoading ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                    ) : (
+                      <>
+                        {contacts.length === 0 && !showContactForm && (
+                          <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 8 }}>{t('cl.noContacts')}</div>
+                        )}
+
+                        {/* Lista de contatos */}
+                        {contacts.map(ct => (
+                          <div key={ct.id} style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 10,
+                            padding: '10px 12px', marginBottom: 6,
+                            border: '1px solid var(--border)', borderRadius: 8,
+                            background: 'var(--surface)',
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                                <span className="badge badge-product" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                                  {contactTypeLabel(ct.contact_type)}
+                                </span>
+                                {ct.name && <strong style={{ fontSize: 13 }}>{ct.name}</strong>}
+                              </div>
+                              {ct.email && <div style={{ fontSize: 12, color: 'var(--muted)' }}>✉ {ct.email}</div>}
+                              {ct.phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>📞 {maskPhone(ct.phone)}</div>}
+                              {ct.notes && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{ct.notes}</div>}
+                            </div>
+                            <div className="flex-gap" style={{ flexShrink: 0 }}>
+                              <button type="button" className="btn btn-secondary btn-sm"
+                                onClick={() => openEditContact(ct)}>{t('c.edit')}</button>
+                              <button type="button" className="btn btn-danger btn-sm"
+                                onClick={() => void handleDeleteContact(ct.id)}>{t('c.del')}</button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Formulário de contato (adicionar / editar) */}
+                        {showContactForm ? (
+                          <div style={{ border: '1px solid var(--primary)', borderRadius: 8, padding: 14, marginTop: 8, background: '#f8f9ff' }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
+                              {editingContact ? t('cl.editContact') : t('cl.addContact')}
+                            </div>
+                            {contactError && <div className="alert alert-error" role="alert" style={{ marginBottom: 10 }}>{contactError}</div>}
+                            <form onSubmit={e => void handleSaveContact(e)} noValidate>
+                              <div className="field-row">
+                                <div className="field">
+                                  <label>{t('cl.contactType')}</label>
+                                  <select value={contactForm.contact_type}
+                                    onChange={e => setContactForm(f => ({ ...f, contact_type: e.target.value }))}>
+                                    {CONTACT_TYPES.map(type => (
+                                      <option key={type} value={type}>{contactTypeLabel(type)}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="field">
+                                  <label>{t('cl.contactName')}</label>
+                                  <input value={contactForm.name}
+                                    onChange={e => setContactForm(f => ({ ...f, name: e.target.value }))} />
+                                </div>
+                              </div>
+                              <div className="field-row">
+                                <div className="field">
+                                  <label>{t('c.email')}</label>
+                                  <input type="email" value={contactForm.email}
+                                    onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))} />
+                                </div>
+                                <div className="field">
+                                  <label>{t('cl.phone')}</label>
+                                  <input value={contactForm.phone} maxLength={15}
+                                    onChange={e => setContactForm(f => ({ ...f, phone: maskPhone(e.target.value) }))} />
+                                </div>
+                              </div>
+                              <div className="field">
+                                <label>{t('cl.notes')}</label>
+                                <input value={contactForm.notes}
+                                  onChange={e => setContactForm(f => ({ ...f, notes: e.target.value }))} />
+                              </div>
+                              <div className="flex-gap" style={{ marginTop: 8 }}>
+                                <button type="button" className="btn btn-secondary btn-sm"
+                                  onClick={() => setShowContactForm(false)}>{t('c.cancel')}</button>
+                                <button type="submit" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={savingContact}>
+                                  {savingContact ? t('c.saving') : t('cl.saveContact')}
+                                </button>
+                              </div>
+                            </form>
+                          </div>
+                        ) : (
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8, width: 'auto' }}
+                            onClick={openAddContact}>
+                            + {t('cl.addContact')}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="drawer-footer">
@@ -683,38 +865,22 @@ export function ClientsPage() {
       {/* ── Import modal ──────────────────────────────────────────────── */}
       {importOpen && (
         <div className="overlay" onClick={closeImport}>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'fixed',
-              top: '50%', left: '50%',
-              transform: 'translate(-50%, -50%)',
-              background: 'white',
-              borderRadius: 12,
-              width: 'min(680px, 95vw)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxShadow: '0 20px 60px rgba(0,0,0,.25)',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {/* Header */}
+          <div onClick={e => e.stopPropagation()} style={{
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'white', borderRadius: 12,
+            width: 'min(680px, 95vw)', maxHeight: '90vh',
+            overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)',
+            display: 'flex', flexDirection: 'column',
+          }}>
             <div className="drawer-header">
               <h2>{t('cl.importTitle')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={closeImport}>✕</button>
             </div>
-
             <div className="drawer-body">
-
-              {/* ── idle: instrutions + file picker ──────────────────── */}
               {importPhase === 'idle' && (
                 <>
-                  <p style={{ color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-                    {t('cl.importDesc')}
-                  </p>
-
-                  {/* Layout reference table */}
+                  <p style={{ color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>{t('cl.importDesc')}</p>
                   <div style={{ overflowX: 'auto', marginBottom: 16 }}>
                     <table style={{ fontSize: 12, minWidth: 400 }}>
                       <thead>
@@ -730,76 +896,38 @@ export function ClientsPage() {
                           <tr key={row.col}>
                             <td style={{ textAlign: 'center', color: 'var(--muted)' }}>{i + 1}</td>
                             <td><code style={{ fontFamily: 'monospace', fontSize: 11 }}>{row.col}</code></td>
-                            <td style={{ color: row.req ? 'var(--primary)' : 'var(--muted)' }}>
-                              {row.req ? '✓' : '—'}
-                            </td>
+                            <td style={{ color: row.req ? 'var(--primary)' : 'var(--muted)' }}>{row.req ? '✓' : '—'}</td>
                             <td style={{ color: 'var(--muted)' }}>{row.ex}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-
-                  <div className="flex-gap" style={{ marginBottom: 20, flexWrap: 'wrap' }}>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ width: 'auto' }}
-                      onClick={downloadTemplate}
-                    >
+                  <div className="flex-gap" style={{ marginBottom: 20 }}>
+                    <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={downloadTemplate}>
                       ↓ {t('cl.importTemplate')}
                     </button>
                   </div>
-
-                  {importError && (
-                    <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>
-                      {importError}
-                    </div>
-                  )}
-
+                  {importError && <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>{importError}</div>}
                   <div className="field">
                     <label>{t('cl.importFile')}</label>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".xlsx,.xls"
-                      onChange={handleFileChange}
-                      style={{ padding: '8px 0' }}
-                    />
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ padding: '8px 0' }} />
                   </div>
                 </>
               )}
-
-              {/* ── preview: show first N rows ───────────────────────── */}
               {importPhase === 'preview' && (
                 <>
-                  <p style={{ marginBottom: 12 }}>
-                    <strong>{importRows.length}</strong> {t('cl.importRows')}
-                  </p>
-
+                  <p style={{ marginBottom: 12 }}><strong>{importRows.length}</strong> {t('cl.importRows')}</p>
                   <div style={{ overflowX: 'auto', marginBottom: 16 }}>
                     <table style={{ fontSize: 12, minWidth: 400 }}>
-                      <thead>
-                        <tr>
-                          <th>{t('c.type')}</th>
-                          <th>{t('cl.name')}</th>
-                          <th>{t('cl.doc')}</th>
-                          <th>{t('c.email')}</th>
-                          <th>{t('cl.city')}</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>{t('c.type')}</th><th>{t('cl.name')}</th><th>{t('cl.doc')}</th><th>{t('c.email')}</th><th>{t('cl.city')}</th></tr></thead>
                       <tbody>
                         {importRows.slice(0, PREVIEW_LIMIT).map((r, i) => (
                           <tr key={i}>
-                            <td>
-                              <span className={`badge badge-${r.person_type === 'PJ' ? 'product' : 'service'}`}>
-                                {r.person_type}
-                              </span>
-                            </td>
+                            <td><span className={`badge badge-${r.person_type === 'PJ' ? 'product' : 'service'}`}>{r.person_type}</span></td>
                             <td>{r.company_name ?? r.full_name ?? '—'}</td>
                             <td style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                              {r.person_type === 'PJ'
-                                ? (r.cnpj ? maskCNPJ(r.cnpj) : '—')
-                                : (r.cpf  ? maskCPF(r.cpf)   : '—')}
+                              {r.person_type === 'PJ' ? (r.cnpj ? maskCNPJ(r.cnpj) : '—') : (r.cpf ? maskCPF(r.cpf) : '—')}
                             </td>
                             <td>{r.email ?? '—'}</td>
                             <td>{r.city && r.state ? `${r.city}/${r.state}` : '—'}</td>
@@ -808,44 +936,23 @@ export function ClientsPage() {
                       </tbody>
                     </table>
                   </div>
-
                   {importRows.length > PREVIEW_LIMIT && (
                     <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
                       {t('cl.importMore')} {importRows.length - PREVIEW_LIMIT} {t('cl.importMoreRows')}
                     </p>
                   )}
-
-                  {importError && (
-                    <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>
-                      {importError}
-                    </div>
-                  )}
+                  {importError && <div role="alert" className="alert alert-error" style={{ marginBottom: 12 }}>{importError}</div>}
                 </>
               )}
-
-              {/* ── importing: spinner ───────────────────────────────── */}
-              {importPhase === 'importing' && (
-                <div className="spinner" style={{ margin: '32px auto' }}>
-                  {t('cl.importDoing')}
-                </div>
-              )}
-
-              {/* ── done: results ────────────────────────────────────── */}
+              {importPhase === 'importing' && <div className="spinner" style={{ margin: '32px auto' }}>{t('cl.importDoing')}</div>}
               {importPhase === 'done' && importResult && (
                 <>
-                  <div
-                    className="alert alert-success"
-                    role="alert"
-                    style={{ marginBottom: 16 }}
-                  >
+                  <div className="alert alert-success" role="alert" style={{ marginBottom: 16 }}>
                     <strong>{importResult.imported}</strong> {t('cl.importSuccess')}
                     {importResult.skipped > 0 && (
-                      <span style={{ marginLeft: 12, color: 'var(--muted)' }}>
-                        · {importResult.skipped} {t('cl.importSkipped')}
-                      </span>
+                      <span style={{ marginLeft: 12, color: 'var(--muted)' }}>· {importResult.skipped} {t('cl.importSkipped')}</span>
                     )}
                   </div>
-
                   {importResult.errors.length > 0 && (
                     <>
                       <p style={{ fontWeight: 600, marginBottom: 8 }}>{t('cl.importErrors')}</p>
@@ -861,44 +968,20 @@ export function ClientsPage() {
                 </>
               )}
             </div>
-
-            {/* Footer buttons — vary by phase */}
             <div className="drawer-footer">
-              {importPhase === 'idle' && (
-                <button className="btn btn-secondary" onClick={closeImport}>
-                  {t('c.cancel')}
-                </button>
-              )}
-
+              {importPhase === 'idle' && <button className="btn btn-secondary" onClick={closeImport}>{t('c.cancel')}</button>}
               {importPhase === 'preview' && (
                 <>
-                  <button className="btn btn-secondary" onClick={() => {
-                    setImportPhase('idle');
-                    setImportRows([]);
-                    setImportError('');
-                    if (fileInputRef.current) fileInputRef.current.value = '';
-                  }}>
+                  <button className="btn btn-secondary" onClick={() => { setImportPhase('idle'); setImportRows([]); setImportError(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
                     ← {t('c.cancel')}
                   </button>
-                  <button
-                    className="btn btn-primary"
-                    style={{ width: 'auto' }}
-                    onClick={() => void runImport()}
-                  >
+                  <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => void runImport()}>
                     {t('cl.importBtn')} {importRows.length} {t('cl.importClients')}
                   </button>
                 </>
               )}
-
-              {importPhase === 'importing' && (
-                <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('cl.importDoing')}</span>
-              )}
-
-              {importPhase === 'done' && (
-                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={closeImport}>
-                  {t('cl.importClose')}
-                </button>
-              )}
+              {importPhase === 'importing' && <span style={{ color: 'var(--muted)', fontSize: 13 }}>{t('cl.importDoing')}</span>}
+              {importPhase === 'done' && <button className="btn btn-primary" style={{ width: 'auto' }} onClick={closeImport}>{t('cl.importClose')}</button>}
             </div>
           </div>
         </div>
@@ -921,30 +1004,30 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
-// ── Import column layout (drives the reference table in the modal) ─────────────
+// ── Import column layout ─────────────────────────────────────────────────────
 
 const IMPORT_LAYOUT: { col: string; req: boolean; ex: string }[] = [
-  { col: 'tipo_pessoa',       req: true,  ex: 'PJ ou PF' },
-  { col: 'razao_social',      req: false, ex: 'ACME Ltda  (obrigatório para PJ)' },
-  { col: 'nome_fantasia',     req: false, ex: 'ACME' },
-  { col: 'cnpj',              req: false, ex: '11444777000161' },
-  { col: 'inscricao_estadual',req: false, ex: '123456789' },
-  { col: 'inscricao_municipal',req: false,ex: '987654' },
-  { col: 'suframa',           req: false, ex: '123456789' },
-  { col: 'nome_completo',     req: false, ex: 'Maria Silva  (obrigatório para PF)' },
-  { col: 'cpf',               req: false, ex: '12345678901' },
-  { col: 'data_nascimento',   req: false, ex: '1985-06-15' },
-  { col: 'email',             req: false, ex: 'contato@acme.com.br' },
-  { col: 'telefone',          req: false, ex: '1199990000' },
-  { col: 'celular',           req: false, ex: '11999990001' },
-  { col: 'cep',               req: false, ex: '01310100' },
-  { col: 'logradouro',        req: false, ex: 'Av Paulista' },
-  { col: 'numero',            req: false, ex: '1000' },
-  { col: 'complemento',       req: false, ex: 'Sala 10' },
-  { col: 'bairro',            req: false, ex: 'Bela Vista' },
-  { col: 'cidade',            req: false, ex: 'São Paulo' },
-  { col: 'uf',                req: false, ex: 'SP' },
-  { col: 'contribuinte_icms', req: false, ex: '9  (1=Contrib · 2=Isento · 9=Não Contrib)' },
-  { col: 'tipo_consumidor',   req: false, ex: '0  (0=B2B · 1=Consumidor Final)' },
-  { col: 'observacoes',       req: false, ex: 'texto livre' },
+  { col: 'tipo_pessoa',        req: true,  ex: 'PJ ou PF' },
+  { col: 'razao_social',       req: false, ex: 'ACME Ltda  (obrigatório para PJ)' },
+  { col: 'nome_fantasia',      req: false, ex: 'ACME' },
+  { col: 'cnpj',               req: false, ex: '11444777000161' },
+  { col: 'inscricao_estadual', req: false, ex: '123456789' },
+  { col: 'inscricao_municipal',req: false, ex: '987654' },
+  { col: 'suframa',            req: false, ex: '123456789' },
+  { col: 'nome_completo',      req: false, ex: 'Maria Silva  (obrigatório para PF)' },
+  { col: 'cpf',                req: false, ex: '12345678901' },
+  { col: 'data_nascimento',    req: false, ex: '1985-06-15' },
+  { col: 'email',              req: false, ex: 'contato@acme.com.br' },
+  { col: 'telefone',           req: false, ex: '1199990000' },
+  { col: 'celular',            req: false, ex: '11999990001' },
+  { col: 'cep',                req: false, ex: '01310100' },
+  { col: 'logradouro',         req: false, ex: 'Av Paulista' },
+  { col: 'numero',             req: false, ex: '1000' },
+  { col: 'complemento',        req: false, ex: 'Sala 10' },
+  { col: 'bairro',             req: false, ex: 'Bela Vista' },
+  { col: 'cidade',             req: false, ex: 'São Paulo' },
+  { col: 'uf',                 req: false, ex: 'SP' },
+  { col: 'contribuinte_icms',  req: false, ex: '9  (1=Contrib · 2=Isento · 9=Não Contrib)' },
+  { col: 'tipo_consumidor',    req: false, ex: '0  (0=B2B · 1=Consumidor Final)' },
+  { col: 'observacoes',        req: false, ex: 'texto livre' },
 ];

@@ -4,7 +4,8 @@ export interface NfeEmitMessage {
   invoice_id: string;
   tenant_id:  string;
   focus_ref:  string;  // unique Focus NF-e reference — we use the invoice UUID
-  ambiente:   1 | 2;  // 1 = produção, 2 = homologação
+  ambiente:    1 | 2;  // 1 = produção, 2 = homologação
+  focus_token?: string; // per-tenant token; falls back to FOCUS_NFE_TOKEN env var in Lambda if absent
 
   emitente: {
     cnpj:              string;
