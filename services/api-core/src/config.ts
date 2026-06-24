@@ -6,9 +6,8 @@ export const config = {
   db: process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,
-        // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1).
-        // rejectUnauthorized: false accepts the self-signed RDS certificate for intra-VPC connections.
-        ssl: { rejectUnauthorized: false },
+        // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1). Disabled locally.
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
       }
     : {
         host: process.env.DB_HOST || 'localhost',

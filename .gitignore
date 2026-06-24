@@ -10,3 +10,9 @@ coverage/
 *.tfstate.backup
 *.tfvars
 !*.tfvars.example
+
+# Local Claude Code settings (per-machine permissions)
+.claude/
+
+# Local Docker Compose port overrides (per-machine)
+docker-compose.override.yml

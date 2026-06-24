@@ -6,8 +6,8 @@ const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
       connectionTimeoutMillis: 15_000,
-      // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1).
-      ssl: { rejectUnauthorized: false },
+      // RDS PostgreSQL 16 enforces SSL (rds.force_ssl=1). Disabled locally.
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     })
   : new Pool({
       host: process.env.DB_HOST || 'localhost',

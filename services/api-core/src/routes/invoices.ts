@@ -84,13 +84,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
           name: it.name, ncm_code: it.ncm_code || null, cfop: it.cfop || null,
           quantity: String(it.quantity), unit_price: String(it.unit_price),
           total: String(n(it.quantity) * n(it.unit_price)),
-          icms_cst: it.icms_cst || null, icms_base: it.icms_base != null ? String(it.icms_base) : null,
-          icms_rate: it.icms_rate != null ? String(it.icms_rate) : null, icms_value: it.icms_value != null ? String(it.icms_value) : null,
-          pis_cst: it.pis_cst || null, pis_base: it.pis_base != null ? String(it.pis_base) : null,
-          pis_rate: it.pis_rate != null ? String(it.pis_rate) : null, pis_value: it.pis_value != null ? String(it.pis_value) : null,
-          cofins_cst: it.cofins_cst || null, cofins_base: it.cofins_base != null ? String(it.cofins_base) : null,
-          cofins_rate: it.cofins_rate != null ? String(it.cofins_rate) : null, cofins_value: it.cofins_value != null ? String(it.cofins_value) : null,
-          ipi_rate: it.ipi_rate != null ? String(it.ipi_rate) : null, ipi_value: it.ipi_value != null ? String(it.ipi_value) : null,
+          icms_cst: it.icms_cst || null, icms_base: String(it.icms_base ?? 0),
+          icms_rate: String(it.icms_rate ?? 0), icms_value: String(it.icms_value ?? 0),
+          pis_cst: it.pis_cst || null, pis_base: String(it.pis_base ?? 0),
+          pis_rate: String(it.pis_rate ?? 0), pis_value: String(it.pis_value ?? 0),
+          cofins_cst: it.cofins_cst || null, cofins_base: String(it.cofins_base ?? 0),
+          cofins_rate: String(it.cofins_rate ?? 0), cofins_value: String(it.cofins_value ?? 0),
+          ipi_rate: String(it.ipi_rate ?? 0), ipi_value: String(it.ipi_value ?? 0),
         } as any);
       }
 
