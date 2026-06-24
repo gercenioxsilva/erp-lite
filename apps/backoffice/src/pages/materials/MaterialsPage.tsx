@@ -9,11 +9,15 @@ interface Material {
   id:               string;
   sku:              string;
   name:             string;
+  description:      string | null;
   type:             string;
-  category:         string;
+  category:         string | null;
+  brand:            string | null;
   unit:             string;
   sale_price:       number;
   cost_price:       number;
+  ncm_code:         string | null;
+  weight_kg:        number | null;
   is_active:        boolean;
   tracks_inventory: boolean;
 }
@@ -133,10 +137,18 @@ export function MaterialsPage() {
   function openEdit(m: Material) {
     setEditing(m);
     setForm({
-      sku: m.sku, name: m.name, description: '', type: m.type,
-      category: m.category ?? '', brand: '', unit: m.unit ?? 'UN',
-      sale_price: String(m.sale_price ?? ''), cost_price: String(m.cost_price ?? ''),
-      ncm_code: '', weight_kg: '', tracks_inventory: m.tracks_inventory,
+      sku:             m.sku,
+      name:            m.name,
+      description:     m.description  ?? '',   // ← bug fix: preenche descrição existente
+      type:            m.type,
+      category:        m.category     ?? '',
+      brand:           m.brand        ?? '',   // ← bug fix: preenche marca existente
+      unit:            m.unit         ?? 'UN',
+      sale_price:      String(m.sale_price ?? ''),
+      cost_price:      String(m.cost_price ?? ''),
+      ncm_code:        m.ncm_code     ?? '',   // ← bug fix: preenche NCM existente
+      weight_kg:       m.weight_kg != null ? String(m.weight_kg) : '',
+      tracks_inventory: m.tracks_inventory,
     });
     setFormError('');
     setDrawerOpen(true);

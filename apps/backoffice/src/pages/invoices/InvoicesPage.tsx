@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useRef, useState, FormEvent } from 'react';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
@@ -11,6 +11,27 @@ interface Invoice {
   client_name: string; order_id: string | null; order_number: string | null;
   subtotal: number; tax_total: number; total: number; notes: string | null;
   issue_date: string | null; created_at: string;
+  nfe_status: string | null;
+  nfe_chave: string | null;
+  nfe_reject_reason: string | null;
+}
+
+interface NfeStatusDetail {
+  nfe_status: string | null;
+  nfe_chave: string | null;
+  nfe_protocol: string | null;
+  nfe_auth_date: string | null;
+  nfe_reject_reason: string | null;
+  nfe_attempts: number;
+  nfe_danfe_url: string | null;
+}
+
+interface NfeEvent {
+  event_type: string;
+  status_code: string | null;
+  protocol: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
 }
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
 interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; }
@@ -94,6 +115,16 @@ export function InvoicesPage() {
   const [taxResult,    setTaxResult]    = useState<TaxResult | null>(null);
   const [calcTaxLoad,  setCalcTaxLoad]  = useState(false);
   const [calcTaxError, setCalcTaxError] = useState('');
+
+  /* NF-e status panel */
+  const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [nfePanelOpen,  setNfePanelOpen] = useState(false);
+  const [nfePanelInv,   setNfePanelInv] = useState<Invoice | null>(null);
+  const [nfeDetail,     setNfeDetail]   = useState<NfeStatusDetail | null>(null);
+  const [nfeEvents,     setNfeEvents]   = useState<NfeEvent[]>([]);
+  const [nfeLoading,    setNfeLoading]  = useState(false);
+  const [nfeEmitting,   setNfeEmitting] = useState(false);
+  const [nfeError,      setNfeError]    = useState('');
 
   const perPage = 20;
 
@@ -266,6 +297,80 @@ export function InvoicesPage() {
     } finally { setSaving(false); }
   }
 
+  /* ── NF-e panel ── */
+  function stopNfePoll() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => () => { stopNfePoll(); }, []);
+
+  async function loadNfeData(invoiceId: string): Promise<NfeStatusDetail> {
+    const [detail, evts] = await Promise.all([
+      api.get<NfeStatusDetail>(`/v1/invoices/${invoiceId}/nfe`),
+      api.get<NfeEvent[]>(`/v1/invoices/${invoiceId}/nfe-events`),
+    ]);
+    setNfeDetail(detail);
+    setNfeEvents(evts);
+    return detail;
+  }
+
+  function startNfePoll(invoiceId: string) {
+    stopNfePoll();
+    pollRef.current = setInterval(async () => {
+      try {
+        const detail = await api.get<NfeStatusDetail>(`/v1/invoices/${invoiceId}/nfe`);
+        setNfeDetail(detail);
+        if (detail.nfe_status !== 'pending' && detail.nfe_status !== 'processing') {
+          stopNfePoll();
+          const evts = await api.get<NfeEvent[]>(`/v1/invoices/${invoiceId}/nfe-events`);
+          setNfeEvents(evts);
+          void load();
+        }
+      } catch { stopNfePoll(); }
+    }, 3000);
+  }
+
+  function openNfePanel(inv: Invoice) {
+    stopNfePoll();
+    setNfePanelInv(inv);
+    setNfePanelOpen(true);
+    setNfeDetail(null);
+    setNfeEvents([]);
+    setNfeError('');
+    setNfeLoading(true);
+    loadNfeData(inv.id)
+      .then(detail => {
+        if (detail.nfe_status === 'pending' || detail.nfe_status === 'processing') {
+          startNfePoll(inv.id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setNfeLoading(false));
+  }
+
+  function closeNfePanel() {
+    stopNfePoll();
+    setNfePanelOpen(false);
+    setNfePanelInv(null);
+    setNfeDetail(null);
+    setNfeEvents([]);
+    setNfeError('');
+  }
+
+  async function emitNfe(invoiceId: string) {
+    setNfeEmitting(true);
+    setNfeError('');
+    try {
+      await api.post(`/v1/invoices/${invoiceId}/emit`, {});
+      const detail = await api.get<NfeStatusDetail>(`/v1/invoices/${invoiceId}/nfe`);
+      setNfeDetail(detail);
+      startNfePoll(invoiceId);
+    } catch (err: unknown) {
+      setNfeError(err instanceof Error ? err.message : t('nfe.errEmit'));
+    } finally { setNfeEmitting(false); }
+  }
+
   /* ── Issue / Cancel ── */
   async function handleIssue(id: string) {
     const ok = await modal.confirm({
@@ -336,10 +441,11 @@ export function InvoicesPage() {
                 <th style={{ width: 100 }}>{t('inv.number')}</th>
                 <th style={{ width: 80 }}>{t('inv.order')}</th>
                 <th>{t('inv.client')}</th>
-                <th style={{ width: 100 }}>{t('inv.status')}</th>
+                <th style={{ width: 90 }}>{t('inv.status')}</th>
+                <th style={{ width: 120 }}>{t('nfe.col')}</th>
                 <th className="text-right" style={{ width: 110 }}>{t('inv.total')}</th>
                 <th style={{ width: 100 }}>{t('inv.issueDate')}</th>
-                <th style={{ width: 130 }}></th>
+                <th style={{ width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -359,18 +465,29 @@ export function InvoicesPage() {
                       {t(`inv.status.${inv.status}` as TKey)}
                     </span>
                   </td>
+                  <td>
+                    <NfeStatusBadge
+                      nfeStatus={inv.nfe_status}
+                      rejectReason={inv.nfe_reject_reason}
+                      onClick={() => openNfePanel(inv)}
+                    />
+                  </td>
                   <td className="text-right">{BRL.format(Number(inv.total))}</td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {inv.issue_date ? new Date(inv.issue_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
                   </td>
                   <td>
                     <div className="flex-gap">
-                      {inv.status === 'draft' && (
+                      {inv.status === 'draft' && !inv.nfe_status && (
                         <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
                           onClick={() => handleIssue(inv.id)}>
                           {t('inv.issue')}
                         </button>
                       )}
+                      <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                        onClick={() => openNfePanel(inv)}>
+                        {t('nfe.viewPanel')}
+                      </button>
                       {inv.status !== 'cancelled' && (
                         <button className="btn btn-danger btn-sm" onClick={() => handleCancel(inv.id)}>
                           {t('inv.cancel')}
@@ -397,6 +514,98 @@ export function InvoicesPage() {
           <button className="btn btn-secondary btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
             {t('c.next')}
           </button>
+        </div>
+      )}
+
+      {/* ── NF-e Status Panel ─────────────────────────────────────────────── */}
+      {nfePanelOpen && nfePanelInv && (
+        <div className="overlay" onClick={closeNfePanel}>
+          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 560, maxWidth: '95vw' }}>
+            <div className="drawer-header">
+              <div>
+                <h2 style={{ marginBottom: 2 }}>{t('nfe.panelTitle')}</h2>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>
+                  {nfePanelInv.client_name} · NF-e {nfePanelInv.serie}/{nfePanelInv.number || t('nfe.pending')}
+                </div>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={closeNfePanel}>✕</button>
+            </div>
+            <div className="drawer-body">
+              {nfeError && <div role="alert" className="alert alert-error" style={{ marginBottom: 14 }}>{nfeError}</div>}
+
+              {nfeLoading ? (
+                <div className="spinner">{t('c.loading')}</div>
+              ) : (
+                <>
+                  {/* ── Status Card ─────────────────────────────────── */}
+                  <NfeStatusCard
+                    detail={nfeDetail}
+                    invoice={nfePanelInv}
+                    onEmit={() => void emitNfe(nfePanelInv.id)}
+                    onRetry={() => void emitNfe(nfePanelInv.id)}
+                    emitting={nfeEmitting}
+                    t={t}
+                  />
+
+                  {/* ── Events timeline ─────────────────────────────── */}
+                  {nfeEvents.length > 0 && (
+                    <>
+                      <p style={{
+                        fontSize: 11, fontWeight: 700, color: 'var(--muted)',
+                        letterSpacing: '.06em', textTransform: 'uppercase',
+                        margin: '20px 0 12px', borderTop: '1px solid var(--border)', paddingTop: 16,
+                      }}>
+                        {t('nfe.events')}
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {nfeEvents.map((ev, i) => (
+                          <div key={i} style={{
+                            padding: '10px 12px',
+                            border: '1px solid var(--border)', borderRadius: 8,
+                            background: ev.event_type === 'emission_rejected' ? '#fff5f5' : 'var(--surface)',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <span className={`badge ${ev.event_type === 'emission' ? 'badge-product' : 'badge-service'}`}
+                                  style={{ fontSize: 10, marginBottom: 4 }}>
+                                  {t(('nfe.evt.' + ev.event_type) as Parameters<typeof t>[0]) || ev.event_type}
+                                </span>
+                                {ev.status_code && (
+                                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>
+                                    cStat: {ev.status_code}
+                                  </span>
+                                )}
+                              </div>
+                              <time style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                {new Date(ev.created_at).toLocaleString('pt-BR')}
+                              </time>
+                            </div>
+                            {ev.protocol && (
+                              <div style={{ fontSize: 11, marginTop: 4, color: 'var(--muted)' }}>
+                                nProt: <code>{ev.protocol}</code>
+                              </div>
+                            )}
+                            {ev.event_type === 'emission_rejected' && !!ev.payload?.['nfe_reject_reason'] && (
+                              <div style={{
+                                marginTop: 8, padding: '6px 10px',
+                                background: '#fee', borderRadius: 6,
+                                fontSize: 12, color: '#b91c1c', lineHeight: 1.5,
+                              }}>
+                                {String(ev.payload['nfe_reject_reason'])}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="drawer-footer">
+              <button className="btn btn-secondary" onClick={closeNfePanel}>{t('c.close')}</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -614,6 +823,149 @@ export function InvoicesPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── NF-e sub-components ─────────────────────────────────────────────────── */
+
+const NFE_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  pending:    { label: 'Enviando…',    color: '#92400e', bg: '#fef3c7', icon: '⏳' },
+  processing: { label: 'Processando…', color: '#1e40af', bg: '#dbeafe', icon: '⏳' },
+  authorized: { label: 'Autorizada',   color: '#166534', bg: '#dcfce7', icon: '✓'  },
+  rejected:   { label: 'Rejeitada',    color: '#991b1b', bg: '#fee2e2', icon: '✗'  },
+};
+
+function NfeStatusBadge({
+  nfeStatus, rejectReason, onClick,
+}: {
+  nfeStatus: string | null;
+  rejectReason: string | null;
+  onClick: () => void;
+}) {
+  if (!nfeStatus) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
+  const cfg = NFE_STATUS_CONFIG[nfeStatus];
+  if (!cfg) return <span style={{ fontSize: 11 }}>{nfeStatus}</span>;
+  const isClickable = true;
+  return (
+    <button
+      onClick={onClick}
+      title={nfeStatus === 'rejected' && rejectReason ? rejectReason : cfg.label}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+        color: cfg.color, background: cfg.bg, border: 'none', cursor: isClickable ? 'pointer' : 'default',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span>{cfg.icon}</span>
+      {cfg.label}
+      {nfeStatus === 'pending' || nfeStatus === 'processing'
+        ? <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 10 }}>↻</span>
+        : null}
+    </button>
+  );
+}
+
+function NfeStatusCard({
+  detail, invoice, onEmit, onRetry, emitting, t,
+}: {
+  detail: NfeStatusDetail | null;
+  invoice: Invoice;
+  onEmit: () => void;
+  onRetry: () => void;
+  emitting: boolean;
+  t: (key: Parameters<ReturnType<typeof import('../../i18n').useI18n>['t']>[0]) => string;
+}) {
+  const ns = detail?.nfe_status;
+  const cfg = ns ? NFE_STATUS_CONFIG[ns] : null;
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      {/* Status header */}
+      <div style={{
+        padding: '14px 16px',
+        background: cfg ? cfg.bg : 'var(--surface)',
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <div style={{ fontSize: 28 }}>{cfg ? cfg.icon : '📄'}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: cfg ? cfg.color : 'var(--text)' }}>
+            {cfg ? cfg.label : t('nfe.notEmitted')}
+          </div>
+          {detail?.nfe_attempts != null && detail.nfe_attempts > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              {detail.nfe_attempts} {t('nfe.attempts')}
+            </div>
+          )}
+        </div>
+        {/* Action buttons */}
+        {(!ns || ns === null) && invoice.status === 'draft' && (
+          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={emitting} onClick={onEmit}>
+            {emitting ? t('c.saving') : t('nfe.emitSefaz')}
+          </button>
+        )}
+        {ns === 'rejected' && (
+          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={emitting} onClick={onRetry}>
+            {emitting ? t('c.saving') : t('nfe.retry')}
+          </button>
+        )}
+      </div>
+
+      {/* Details body */}
+      {detail && (
+        <div style={{ padding: '12px 16px' }}>
+          {/* Error reason */}
+          {ns === 'rejected' && detail.nfe_reject_reason && (
+            <div style={{
+              background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 8,
+              padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#991b1b', lineHeight: 1.6,
+            }}>
+              <strong style={{ display: 'block', marginBottom: 4 }}>{t('nfe.rejectReason')}:</strong>
+              {detail.nfe_reject_reason}
+            </div>
+          )}
+
+          {/* Authorized details */}
+          {ns === 'authorized' && (
+            <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
+              {detail.nfe_chave && (
+                <div>
+                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.key')}</span>
+                  <div style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', marginTop: 2 }}>
+                    {detail.nfe_chave}
+                  </div>
+                </div>
+              )}
+              {detail.nfe_protocol && (
+                <div style={{ display: 'flex', gap: 20 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.protocol')}</span>
+                    <div style={{ fontFamily: 'monospace' }}>{detail.nfe_protocol}</div>
+                  </div>
+                  {detail.nfe_auth_date && (
+                    <div>
+                      <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.authDate')}</span>
+                      <div>{new Date(detail.nfe_auth_date).toLocaleString('pt-BR')}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {detail.nfe_danfe_url && (
+                <a href={detail.nfe_danfe_url} target="_blank" rel="noopener noreferrer"
+                  className="btn btn-secondary btn-sm" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', marginTop: 4 }}>
+                  📄 {t('nfe.danfe')}
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Processing indicator */}
+          {(ns === 'pending' || ns === 'processing') && (
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('nfe.waitingResult')}</div>
+          )}
         </div>
       )}
     </div>

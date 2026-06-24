@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -66,6 +66,51 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 ---
 
 ## Histórico de Prompts
+
+### v5.0 — Tokens Focus NF-e por Tenant + Tela de Configuração NF-e
+
+> **Tokens Focus NF-e por tenant (multi-tenant seguro):**
+> Adicionado suporte a tokens individuais por tenant no Focus NF-e, garantindo que cada empresa
+> sempre emita no ambiente correto (homologação ou produção). O token correto é selecionado
+> automaticamente com base em `focus_ambiente` e incluído na mensagem SQS enviada ao Lambda.
+>
+> **Banco:** migration `0017_nfe_tokens.sql` adiciona `focus_token_homologacao VARCHAR(255)` e
+> `focus_token_producao VARCHAR(255)` à tabela `nfe_configs`. Nullable — se NULL, Lambda usa
+> a variável de ambiente `FOCUS_NFE_TOKEN` como fallback (retrocompatível).
+>
+> **API (`nfe.ts`):** `GET /v1/nfe-config` mascara tokens na resposta (`****XXXX`).
+> `PUT /v1/nfe-config` aceita os novos campos; usa CASE WHEN na cláusula de upsert para só
+> atualizar o token quando um novo valor (não mascarado) é enviado. `POST /v1/invoices/:id/emit`
+> seleciona o token do tenant com base no `focus_ambiente` e inclui em `NfeEmitMessage.focus_token`.
+>
+> **Lambda fiscal:** `nfeService.ts` cria `FocusNfeClient` com `msg.focus_token ?? app.config.focusToken`.
+> `config.ts` torna `FOCUS_NFE_TOKEN` opcional. `types.ts` adiciona `focus_token?: string` ao `NfeEmitMessage`.
+>
+> **Frontend:** nova aba **Dados Fiscais / NF-e** em `Minha Empresa` (`CompanyPage.tsx`) com
+> formulário completo de dados do emitente (CNPJ, razão social, endereço, regime tributário,
+> CFOPs, natureza da operação, ambiente Focus) + seção de tokens com `type="password"` —
+> campos ficam em branco ao carregar (token salvo não é revelado; usuário deixa em branco para manter).
+>
+> **Protocolo anti-alucinação:** regra 1 atualizada com tabelas `client_contacts` e `service_contracts`.
+
+### v4.0 — Monitoramento de Status NF-e + Contatos de Clientes + Contratos de Manutenção
+
+> **Painel de acompanhamento NF-e em tempo real:**
+> Coluna NF-e SEFAZ na tabela de notas fiscais com badges coloridos por status.
+> Clique abre painel modal com: card de status, motivo de rejeição quando rejeitada,
+> link DANFE, chave de acesso, protocolo, data de autorização, histórico de eventos (`nfe_events`),
+> botões "Enviar para SEFAZ" / "Tentar novamente". Polling automático a cada 3 s enquanto
+> status é `pending` ou `processing`, pausa em estado terminal. Toda a visibilidade de erros
+> SEFAZ que antes era opaca agora é exposta ao usuário final.
+>
+> **Bugs corrigidos:** `notes` não salvo na edição de cliente, `description`/`brand`/`ncm_code`
+> não salvos na edição de material (campos ausentes na interface TypeScript e no `openEdit()`).
+>
+> **Contatos de clientes:** seção de contatos no drawer de clientes (GET/POST/PATCH/DELETE
+> `/v1/clients/:id/contacts`). Tipos: comercial, jurídico, compras, manutenção, comprador, outro.
+>
+> **Contratos de manutenção (`ContractsPage.tsx`):** CRUD completo via `GET/POST/PATCH /v1/service-contracts`.
+> Sub-painel de cobranças geradas, botão "Gerar cobrança agora" → `POST /v1/service-contracts/:id/billings`.
 
 ### v3.0 — Módulo de Cobrança (Boleto) + Dados Bancários + lambda-billing
 
@@ -1180,7 +1225,7 @@ erp-lite/
 | cofins_base / cofins_rate / cofins_value | DECIMAL | |
 | ipi_rate / ipi_value | DECIMAL | IPI "por fora" (adicionado ao total da NF-e) |
 
-### `nfe_configs` *(migration: 0009_nfe.sql)*
+### `nfe_configs` *(migration: 0009_nfe.sql + 0017_nfe_tokens.sql)*
 Dados do emitente por tenant — necessários para compor a NF-e. Um registro por tenant.
 | Campo | Tipo | Notas |
 |-------|------|-------|
@@ -1201,6 +1246,8 @@ Dados do emitente por tenant — necessários para compor a NF-e. Um registro po
 | cfop_interestadual | VARCHAR(10) DEFAULT '6102' | CFOP interestadual (outro UF) |
 | natureza_operacao | VARCHAR(60) DEFAULT 'Venda de mercadoria' | |
 | focus_ambiente | SMALLINT DEFAULT 2 | `1`=Produção `2`=Homologação |
+| focus_token_homologacao | VARCHAR(255) | Token Focus NF-e do ambiente de testes — por tenant. Se NULL, Lambda usa `FOCUS_NFE_TOKEN` env var como fallback. |
+| focus_token_producao | VARCHAR(255) | Token Focus NF-e do ambiente de produção — por tenant. Se NULL, Lambda usa `FOCUS_NFE_TOKEN` env var como fallback. |
 
 ### `invoices` — colunas adicionadas pela migration 0009_nfe.sql
 | Campo | Tipo | Notas |
@@ -1979,7 +2026,7 @@ curl -X POST http://localhost:3000/v1/invoices/<ID>/issue
 
 | Variável | Descrição |
 |----------|-----------|
-| `FOCUS_NFE_TOKEN` | Token de API da Focus NF-e (obrigatório) |
+| `FOCUS_NFE_TOKEN` | Token de API da Focus NF-e — **opcional** quando todos os tenants têm token próprio em `nfe_configs`. Usado como fallback quando o tenant não tem token configurado. |
 | `NFE_REQUESTS_QUEUE_URL` | URL da fila SQS nfe-requests (obrigatório) |
 | `NFE_RESULTS_QUEUE_URL` | URL da fila SQS nfe-results (obrigatório) |
 | `NFE_BUCKET` | Nome do bucket S3 para XMLs (obrigatório) |
@@ -2224,7 +2271,7 @@ Secrets necessários no repositório GitHub:
 | `AWS_ACCESS_KEY_ID` | IAM key com permissões ECS/ECR/RDS/S3/CF/Terraform/Lambda/SQS/SES |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret |
 | `TF_VAR_JWT_SECRET` | Segredo para assinar JWTs |
-| `TF_VAR_FOCUS_NFE_TOKEN` | Token de API da Focus NF-e (https://focusnfe.com.br → Configurações → API) |
+| `TF_VAR_FOCUS_NFE_TOKEN` | Token de API da Focus NF-e (https://focusnfe.com.br → Configurações → API) — **opcional** quando todos os tenants configuram tokens próprios via Minha Empresa → Dados Fiscais / NF-e |
 | `TF_VAR_SES_FROM_EMAIL` | Endereço verificado no SES para envio de notificações (ex: `noreply@suaempresa.com`) |
 | `TF_VAR_SES_FROM_NAME` | Nome exibido no remetente (ex: `GAX ERP`) — padrão: `GAX ERP` |
 
@@ -2236,6 +2283,13 @@ Secrets necessários no repositório GitHub:
 > não por tenant). Cada tenant faz upload do certificado A1 (.pfx) diretamente no portal
 > Focus NF-e — o certificado **não transita pelo nosso backend**. O campo `focus_ambiente`
 > em `nfe_configs` controla se a emissão vai para homologação (2) ou produção (1).
+>
+> **Tokens por tenant:** cada tenant pode configurar `focus_token_homologacao` e `focus_token_producao`
+> diretamente na tela **Minha Empresa → Dados Fiscais / NF-e**. O token correto é selecionado
+> automaticamente com base no `focus_ambiente` do tenant e incluído na mensagem SQS. O Lambda
+> usa o token da mensagem com fallback para a variável `FOCUS_NFE_TOKEN`. Tokens são armazenados
+> em texto plano na tabela `nfe_configs` e mascarados na API de leitura (`****XXXX`). Em produção,
+> considere criptografar com AWS KMS antes de persistir.
 
 ```bash
 # Inspecionar outputs após deploy

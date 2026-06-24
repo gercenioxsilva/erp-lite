@@ -20,6 +20,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/payables',   label: t('nav.payables'),   icon: '💸' },
     { to: '/users',      label: t('nav.users'),      icon: '👥' },
     { to: '/company',    label: t('nav.company'),    icon: '🏛️' },
+    { to: '/contracts',  label: t('nav.contracts'),  icon: '📝' },
   ];
 
   function handleLogout() {
