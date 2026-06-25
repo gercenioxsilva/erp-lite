@@ -312,7 +312,7 @@ export function PayablesPage() {
       {/* ── Drawer: Detalhes ── */}
       {detailOpen && selected && (
         <div className="overlay" onClick={() => setDetailOpen(false)}>
-          <div className="drawer" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
+          <div className="drawer" style={{ width: 'min(560px, 96vw)' }} onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <h2>{selected.description}</h2>
               <button onClick={() => setDetailOpen(false)}>{t('c.close')}</button>

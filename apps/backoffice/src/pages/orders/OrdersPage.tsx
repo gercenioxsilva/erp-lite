@@ -334,7 +334,7 @@ export function OrdersPage() {
       {drawerOpen && (
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()}
-               style={{ width: 620, maxWidth: '95vw' }}>
+               style={{ width: 'min(820px, 96vw)' }}>
             <div className="drawer-header">
               <h2>{editing ? t('o.edit') : t('o.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>

@@ -520,7 +520,7 @@ export function InvoicesPage() {
       {/* ── NF-e Status Panel ─────────────────────────────────────────────── */}
       {nfePanelOpen && nfePanelInv && (
         <div className="overlay" onClick={closeNfePanel}>
-          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 560, maxWidth: '95vw' }}>
+          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(560px, 96vw)' }}>
             <div className="drawer-header">
               <div>
                 <h2 style={{ marginBottom: 2 }}>{t('nfe.panelTitle')}</h2>
@@ -613,7 +613,7 @@ export function InvoicesPage() {
       {drawerOpen && (
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()}
-               style={{ width: 640, maxWidth: '95vw' }}>
+               style={{ width: 'min(880px, 96vw)' }}>
             <div className="drawer-header">
               <h2>{t('inv.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
@@ -690,7 +690,7 @@ export function InvoicesPage() {
                     </p>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                      <table style={{ width: '100%', minWidth: 660, fontSize: 14, borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ background: 'var(--surface)' }}>
                             <th style={{ padding: '6px 10px', textAlign: 'left', width: '32%' }}>{t('o.material')}</th>

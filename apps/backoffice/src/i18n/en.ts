@@ -15,6 +15,7 @@ const en: Record<TKey, string> = {
   'nav.signout':     'Sign out',
   'nav.lang':        'PT',
   'nav.contracts':   'Contracts',
+  'nav.menu':        'Menu',
 
   // ── Common ────────────────────────────────────────────────────────────
   'c.save':     'Save',

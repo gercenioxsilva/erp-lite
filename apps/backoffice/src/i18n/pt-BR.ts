@@ -13,6 +13,7 @@ const ptBR = {
   'nav.signout':     'Sair',
   'nav.lang':        'EN',
   'nav.contracts':   'Contratos',
+  'nav.menu':        'Menu',
 
   // ── Comuns ────────────────────────────────────────────────────────────
   'c.save':     'Salvar',

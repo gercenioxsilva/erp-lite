@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
@@ -83,6 +83,14 @@ function IcoContracts() {
   );
 }
 
+function IcoMenu() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M3 5h12M3 9h12M3 13h12"/>
+    </svg>
+  );
+}
+
 type IconFC = () => JSX.Element;
 const NAV_ICONS: Record<string, IconFC> = {
   '/dashboard':   IcoDashboard,
@@ -102,6 +110,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  function closeMenu() {
+    setIsMenuOpen(false);
+  }
 
   const NAV = [
     { to: '/dashboard',   label: t('nav.dashboard')   },
@@ -128,7 +141,9 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {isMenuOpen && <div className="sidebar-backdrop" onClick={closeMenu} />}
+
+      <aside className={`sidebar${isMenuOpen ? ' is-open' : ''}`}>
         <div className="sidebar-logo">
           <GaxLogo size="sm" variant="full" theme="dark" />
         </div>
@@ -137,7 +152,12 @@ export function Layout({ children }: { children: ReactNode }) {
           {NAV.map(n => {
             const Icon = NAV_ICONS[n.to];
             return (
-              <NavLink key={n.to} to={n.to} className={({ isActive }) => isActive ? 'active' : ''}>
+              <NavLink
+                key={n.to}
+                to={n.to}
+                onClick={closeMenu}
+                className={({ isActive }) => isActive ? 'active' : ''}
+              >
                 <span className="nav-icon">{Icon && <Icon />}</span>
                 {n.label}
               </NavLink>
@@ -164,6 +184,17 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="main-area">
+        <div className="mobile-topbar">
+          <button
+            className="menu-toggle"
+            onClick={() => setIsMenuOpen(v => !v)}
+            aria-label={t('nav.menu')}
+            aria-expanded={isMenuOpen}
+          >
+            <IcoMenu />
+          </button>
+          <GaxLogo size="sm" variant="full" theme="light" />
+        </div>
         <div className="page-content">{children}</div>
       </div>
     </div>
