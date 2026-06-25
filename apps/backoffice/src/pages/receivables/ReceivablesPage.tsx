@@ -240,7 +240,7 @@ export function ReceivablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('rec.title')}</h1>
-        <button className="btn btn-primary" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
+        <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
           {t('rec.new')}
         </button>
       </div>

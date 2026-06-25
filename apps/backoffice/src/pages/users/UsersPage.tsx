@@ -114,7 +114,7 @@ export function UsersPage() {
     <div>
       <div className="page-header">
         <h1>{t('u.title')}</h1>
-        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
           + {t('u.new')}
         </button>
       </div>

@@ -143,6 +143,9 @@ textarea { resize: vertical; min-height: 72px; }
 
 .btn-sm { padding: 4px 10px; font-size: var(--text-xs); }
 
+/* CTA: botões que abrem formulários ganham mais respiro lateral */
+.btn-cta { padding-left: 24px; padding-right: 24px; }
+
 /* ── Alert ─────────────────────────────────────────────────────────────── */
 .alert { padding: 10px 14px; border-radius: var(--r-sm); font-size: var(--text-sm); margin-bottom: 14px; font-weight: 500; }
 .alert-error   { background: #fef2f2; color: var(--danger);  border: 1.5px solid #fecaca; }

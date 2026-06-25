@@ -358,10 +358,10 @@ export function MaterialsPage() {
       <div className="page-header">
         <h1>{t('m.title')}</h1>
         <div className="flex-gap">
-          <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setImportOpen(true)}>
+          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }} onClick={() => setImportOpen(true)}>
             ↑ {t('mi.import')}
           </button>
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
             + {t('m.new')}
           </button>
         </div>

@@ -167,7 +167,7 @@ export function PayablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('pay.title')}</h1>
-        <button className="btn btn-primary" onClick={() => {
+        <button className="btn btn-primary btn-cta" onClick={() => {
           setCreateOpen(true); setFormError('');
           setForm({ supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
         }}>{t('pay.new')}</button>

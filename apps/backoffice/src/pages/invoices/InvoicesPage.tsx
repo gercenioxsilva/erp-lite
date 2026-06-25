@@ -421,7 +421,7 @@ export function InvoicesPage() {
       {/* ── Header ── */}
       <div className="page-header">
         <h1>{t('inv.title')}</h1>
-        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
           + {t('inv.new')}
         </button>
       </div>
