@@ -5,19 +5,41 @@ export interface FocusResponse {
   status:                   string;  // processando | autorizado | erro | denegado | cancelado
   chave_nfe?:               string;
   numero_protocolo?:        string;
+  protocolo?:               string;  // Focus v2 retorna o protocolo neste campo
   data_autorizacao?:        string;
   caminho_xml_nota_fiscal?: string;
   caminho_danfe?:           string;
   erros?: Array<{ codigo: string; mensagem: string }>;
   mensagem_sefaz?:          string;
+  // Erros de autenticação/permissão do Focus chegam neste formato (sem `status`)
+  codigo?:                  string;
+  mensagem?:                string;
 }
+
+// Tokens com este prefixo ativam o modo de simulação local (sem rede).
+// `local-reject*` simula uma rejeição; qualquer outro `local-*` simula autorização.
+const SIMULATE_PREFIX = 'local-';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+const onlyDigits = (s: string): string => s.replace(/\D/g, '');
+
+/** Chave de acesso de 44 dígitos determinística a partir do ref (apenas para simulação). */
+function mockChaveAcesso(ref: string): string {
+  const base = (onlyDigits(ref) || '0').repeat(44);
+  return ('35' + base).slice(0, 44);  // '35' = código de SP, restante derivado do ref
+}
+
 export class FocusNfeClient {
   private http: AxiosInstance;
+  private simulate: boolean;
+  private simulateReject: boolean;
 
   constructor(token: string, ambiente: 1 | 2) {
+    // Modo simulação local: não chama a rede, devolve respostas mock.
+    this.simulate       = token.toLowerCase().startsWith(SIMULATE_PREFIX);
+    this.simulateReject = /reject/i.test(token);
+
     const baseURL = ambiente === 1
       ? 'https://api.focusnfe.com.br'
       : 'https://homologacao.focusnfe.com.br';
@@ -30,7 +52,33 @@ export class FocusNfeClient {
     });
   }
 
+  /** Resposta autorizada simulada (homologação local, sem SEFAZ). */
+  private simulatedAuthorized(ref: string, payload: object): FocusResponse {
+    const dataEmissao = (payload as { data_emissao?: string }).data_emissao;
+    return {
+      status:           'autorizado',
+      chave_nfe:        mockChaveAcesso(ref),
+      numero_protocolo: '135' + onlyDigits(ref).padEnd(12, '0').slice(0, 12),
+      data_autorizacao: dataEmissao ?? new Date().toISOString(),
+      caminho_danfe:           `/demo/danfe/${ref}.pdf`,
+      caminho_xml_nota_fiscal: `/demo/xml/${ref}.xml`,
+    };
+  }
+
   async emitir(ref: string, payload: object): Promise<FocusResponse> {
+    if (this.simulate) {
+      if (this.simulateReject) {
+        return {
+          status: 'erro',
+          erros: [{
+            codigo:   '215',
+            mensagem: 'Rejeição simulada (homologação local): falha de schema XML da NF-e',
+          }],
+        };
+      }
+      return this.simulatedAuthorized(ref, payload);
+    }
+
     try {
       const res = await this.http.post(`/v2/nfe?ref=${encodeURIComponent(ref)}`, payload);
       return res.data as FocusResponse;
@@ -42,15 +90,28 @@ export class FocusNfeClient {
   }
 
   async consultar(ref: string): Promise<FocusResponse> {
+    if (this.simulate) {
+      return this.simulateReject
+        ? { status: 'erro', erros: [{ codigo: '215', mensagem: 'Rejeição simulada (homologação local)' }] }
+        : this.simulatedAuthorized(ref, {});
+    }
     const res = await this.http.get(`/v2/nfe/${encodeURIComponent(ref)}`);
     return res.data as FocusResponse;
   }
 
   async downloadXml(ref: string): Promise<string> {
-    const res = await this.http.get<string>(
-      `/v2/nfe/${encodeURIComponent(ref)}/xml`,
-      { responseType: 'text' },
-    );
+    if (this.simulate) {
+      return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<nfeProc versao="4.00"><!-- DEMO/SIMULADO — ref ${ref} -->` +
+        `<protNFe><infProt><chNFe>${mockChaveAcesso(ref)}</chNFe>` +
+        `<nProt>${'135' + onlyDigits(ref).padEnd(12, '0').slice(0, 12)}</nProt>` +
+        `<cStat>100</cStat><xMotivo>Autorizado o uso da NF-e (simulado)</xMotivo>` +
+        `</infProt></protNFe></nfeProc>`;
+    }
+    // Aceita o caminho completo retornado pelo Focus (caminho_xml_nota_fiscal)
+    // ou um ref, montando o endpoint padrão nesse caso.
+    const url = ref.startsWith('/') ? ref : `/v2/nfe/${encodeURIComponent(ref)}/xml`;
+    const res = await this.http.get<string>(url, { responseType: 'text' });
     return res.data;
   }
 
@@ -67,121 +128,95 @@ export class FocusNfeClient {
   }
 }
 
-// ── Focus NF-e payload builder ───────────────────────────────────────────────
+// ── Focus NF-e payload builder (formato flat — Focus NF-e v2) ────────────────
 
-function icmsModalidade(cst?: string, csosn?: string): string {
-  if (csosn) return 'simples_nacional';
-  if (!cst || cst === '40' || cst === '41') return 'isento';
-  return 'tributado_percentual';
-}
+function buildItem(item: NfeItem): Record<string, unknown> {
+  // O sistema guarda o código de ICMS em icms_cst (CST p/ regime normal,
+  // CSOSN p/ Simples). O Focus usa o mesmo campo icms_situacao_tributaria.
+  const icmsSituacao   = item.icms_csosn || item.icms_cst || '102';
+  const isCstTributado = !item.icms_csosn && item.icms_cst === '00';
 
-function pisModalidade(cst?: string): string {
-  if (!cst || ['07', '08', '09'].includes(cst)) return 'nao_tributado';
-  return 'tributado_percentual';
-}
-
-function cofinsModalidade(cst?: string): string {
-  if (!cst || ['70', '71', '72'].includes(cst)) return 'nao_tributado';
-  return 'tributado_percentual';
-}
-
-function buildItem(item: NfeItem) {
   const base: Record<string, unknown> = {
-    numero_item:              item.numero_item,
-    codigo_produto:           item.codigo_produto,
-    descricao:                item.descricao,
-    ncm:                      (item.ncm ?? '00000000').replace(/\D/g, ''),
-    cfop:                     item.cfop,
-    unidade_comercial:        item.unidade_comercial ?? 'UN',
-    quantidade_comercial:     item.quantidade_comercial,
-    valor_unitario_comercial: item.valor_unitario_comercial,
-    valor_bruto:              item.valor_bruto,
-    icms_modalidade:          icmsModalidade(item.icms_cst, item.icms_csosn),
-    icms_origem:              0,
+    numero_item:               item.numero_item,
+    codigo_produto:            item.codigo_produto,
+    descricao:                 item.descricao,
+    cfop:                      item.cfop,
+    codigo_ncm:                (item.ncm ?? '00000000').replace(/\D/g, ''),
+    unidade_comercial:         item.unidade_comercial ?? 'UN',
+    quantidade_comercial:      item.quantidade_comercial,
+    valor_unitario_comercial:  item.valor_unitario_comercial,
+    valor_bruto:               item.valor_bruto,
+    unidade_tributavel:        item.unidade_comercial ?? 'UN',
+    quantidade_tributavel:     item.quantidade_comercial,
+    valor_unitario_tributavel: item.valor_unitario_comercial,
+    icms_origem:               0,
+    icms_situacao_tributaria:  icmsSituacao,
+    pis_situacao_tributaria:    item.pis_cst ?? '07',
+    cofins_situacao_tributaria: item.cofins_cst ?? '07',
   };
 
-  if (item.icms_csosn) {
-    base.icms_csosn = item.icms_csosn;
-  } else if (item.icms_cst) {
-    base.icms_cst = item.icms_cst;
-    if (item.icms_cst === '00' && item.icms_base_calculo) {
-      base.icms_base_calculo = item.icms_base_calculo;
-      base.icms_aliquota     = item.icms_aliquota;
-      base.icms_valor        = item.icms_valor;
-    }
-  }
-
-  base.pis_modalidade = pisModalidade(item.pis_cst);
-  base.pis_cst        = item.pis_cst ?? '07';
-  if (base.pis_modalidade === 'tributado_percentual') {
-    base.pis_base_calculo        = item.pis_base_calculo;
-    base.pis_aliquota_percentual = item.pis_aliquota_percentual;
-    base.pis_valor               = item.pis_valor;
-  }
-
-  base.cofins_modalidade = cofinsModalidade(item.cofins_cst);
-  base.cofins_cst        = item.cofins_cst ?? '70';
-  if (base.cofins_modalidade === 'tributado_percentual') {
-    base.cofins_base_calculo        = item.cofins_base_calculo;
-    base.cofins_aliquota_percentual = item.cofins_aliquota_percentual;
-    base.cofins_valor               = item.cofins_valor;
+  // Regime normal com CST tributado: enviar base/alíquota/valor de ICMS.
+  if (isCstTributado) {
+    base.icms_base_calculo = item.icms_base_calculo;
+    base.icms_aliquota     = item.icms_aliquota;
+    base.icms_valor        = item.icms_valor;
   }
 
   if (item.ipi_valor && item.ipi_valor > 0) {
-    base.ipi_cst      = '50';
-    base.ipi_aliquota = item.ipi_aliquota;
-    base.ipi_valor    = item.ipi_valor;
+    base.ipi_situacao_tributaria = '50';
+    base.ipi_aliquota            = item.ipi_aliquota;
+    base.ipi_valor               = item.ipi_valor;
   }
 
   return base;
 }
 
 export function buildFocusPayload(msg: NfeEmitMessage): object {
-  const { emitente, destinatario, natureza_operacao, data_emissao, itens, pagamentos } = msg;
+  const e = msg.emitente;
+  const d = msg.destinatario;
 
-  return {
-    natureza_operacao,
-    data_emissao,
+  const payload: Record<string, unknown> = {
+    natureza_operacao:  msg.natureza_operacao,
+    data_emissao:       msg.data_emissao,
     tipo_documento:     1,
-    presenca_comprador: 9,
     finalidade_emissao: 1,
-    consumidor_final:   destinatario.cpf ? 1 : 0,
-    local_destino:      emitente.uf === (destinatario.uf ?? emitente.uf) ? 1 : 2,
+    consumidor_final:   d.cpf ? 1 : 0,
+    presenca_comprador: 9,
+    modalidade_frete:   9,
 
-    emitente: {
-      cnpj:              emitente.cnpj.replace(/\D/g, ''),
-      nome:              emitente.razao_social,
-      nome_fantasia:     emitente.nome_fantasia,
-      logradouro:        emitente.logradouro,
-      numero:            emitente.numero,
-      complemento:       emitente.complemento,
-      bairro:            emitente.bairro,
-      municipio:         emitente.municipio,
-      uf:                emitente.uf,
-      cep:               emitente.cep.replace(/\D/g, ''),
-      telefone:          emitente.telefone?.replace(/\D/g, ''),
-      email:             emitente.email,
-      regime_tributario: emitente.regime_tributario,
-    },
+    // Emitente (campos flat). O Focus complementa IE/dados pelo cadastro.
+    cnpj_emitente:              onlyDigits(e.cnpj),
+    nome_emitente:              e.razao_social,
+    nome_fantasia_emitente:     e.nome_fantasia,
+    logradouro_emitente:        e.logradouro,
+    numero_emitente:            e.numero,
+    complemento_emitente:       e.complemento,
+    bairro_emitente:            e.bairro,
+    municipio_emitente:         e.municipio,
+    uf_emitente:                e.uf,
+    cep_emitente:               onlyDigits(e.cep),
+    regime_tributario_emitente: e.regime_tributario,
 
-    destinatario: {
-      cnpj:         destinatario.cnpj?.replace(/\D/g, ''),
-      cpf:          destinatario.cpf?.replace(/\D/g, ''),
-      nome:         destinatario.nome,
-      indicador_ie: destinatario.indicador_ie ?? 9,
-      logradouro:   destinatario.logradouro,
-      numero:       destinatario.numero,
-      complemento:  destinatario.complemento,
-      bairro:       destinatario.bairro,
-      municipio:    destinatario.municipio,
-      uf:           destinatario.uf,
-      cep:          destinatario.cep?.replace(/\D/g, ''),
-      telefone:     destinatario.telefone?.replace(/\D/g, ''),
-      email:        destinatario.email,
-    },
+    // Destinatário (campos flat).
+    nome_destinatario:        d.nome,
+    logradouro_destinatario:  d.logradouro,
+    numero_destinatario:      d.numero,
+    complemento_destinatario: d.complemento,
+    bairro_destinatario:      d.bairro,
+    municipio_destinatario:   d.municipio,
+    uf_destinatario:          d.uf,
+    cep_destinatario:         d.cep ? onlyDigits(d.cep) : undefined,
 
-    items: itens.map(buildItem),
-
-    forma_pagamento: pagamentos,
+    items: msg.itens.map(buildItem),
   };
+
+  // Documento do destinatário: CPF (não exige IE) ou CNPJ (com indicador de IE).
+  if (d.cpf) {
+    payload.cpf_destinatario = onlyDigits(d.cpf);
+  } else if (d.cnpj) {
+    payload.cnpj_destinatario = onlyDigits(d.cnpj);
+    payload.indicador_inscricao_estadual_destinatario = String(d.indicador_ie ?? 9);
+  }
+
+  return payload;
 }

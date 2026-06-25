@@ -92,7 +92,9 @@ async function processResult(result: NfeResultMessage): Promise<void> {
         number,
         issue_date:    new Date().toISOString().slice(0, 10),
         nfe_status:    'authorized',
-        nfe_chave:     nfe_chave     || null,
+        // Focus devolve a chave com prefixo "NFe"; a coluna é CHAR(44), então
+        // normalizamos para somente os 44 dígitos.
+        nfe_chave:     nfe_chave ? nfe_chave.replace(/\D/g, '') : null,
         nfe_protocol:  nfe_protocol  || null,
         nfe_auth_date: nfe_auth_date ? new Date(nfe_auth_date) : null,
         nfe_xml_s3_key: xml_s3_key   || null,

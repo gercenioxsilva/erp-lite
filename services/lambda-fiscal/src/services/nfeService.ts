@@ -4,7 +4,22 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { FastifyInstance } from 'fastify';
 import { buildFocusPayload } from '../lib/focusNfe';
 import { FocusNfeClient } from '../lib/focusNfe';
+import type { FocusResponse } from '../lib/focusNfe';
 import type { NfeEmitMessage, NfeResultMessage } from '../lib/types';
+
+/** Constrói um motivo de rejeição legível a partir da resposta do Focus.
+ *  Nunca devolve "status=undefined" — sempre um texto compreensível. */
+function describeRejection(result: FocusResponse): string {
+  if (result.erros?.length) {
+    return result.erros.map(e => `[${e.codigo}] ${e.mensagem}`).join('; ');
+  }
+  if (result.mensagem_sefaz) return result.mensagem_sefaz;
+  if (result.codigo || result.mensagem) {
+    return [result.codigo, result.mensagem].filter(Boolean).join(': ');
+  }
+  if (result.status) return `Status Focus: ${result.status}`;
+  return 'Falha ao comunicar com o Focus NF-e (sem detalhes no retorno — verifique o token de homologação)';
+}
 
 export async function processRecord(app: FastifyInstance, record: SQSRecord): Promise<void> {
   const msg: NfeEmitMessage = JSON.parse(record.body);
@@ -29,26 +44,34 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
   let resultMsg: NfeResultMessage;
 
   if (result.status === 'autorizado') {
-    const xml    = await focus.downloadXml(focus_ref);
-    const year   = new Date().getFullYear();
-    const xmlKey = `${tenant_id}/${year}/${focus_ref}.xml`;
+    // Download do XML + upload S3 é secundário: nunca deve invalidar a autorização.
+    let xmlKey: string | undefined;
+    try {
+      const xmlPath = result.caminho_xml_nota_fiscal ?? focus_ref;
+      const xml     = await focus.downloadXml(xmlPath);
+      const year    = new Date().getFullYear();
+      xmlKey = `${tenant_id}/${year}/${focus_ref}.xml`;
 
-    await app.s3.send(new PutObjectCommand({
-      Bucket:               app.config.nfeBucket,
-      Key:                  xmlKey,
-      Body:                 xml,
-      ContentType:          'application/xml',
-      ServerSideEncryption: 'AES256',
-      Metadata:             { invoice_id, tenant_id },
-    }));
+      await app.s3.send(new PutObjectCommand({
+        Bucket:               app.config.nfeBucket,
+        Key:                  xmlKey,
+        Body:                 xml,
+        ContentType:          'application/xml',
+        ServerSideEncryption: 'AES256',
+        Metadata:             { invoice_id, tenant_id },
+      }));
+    } catch (err) {
+      xmlKey = undefined;
+      app.log.warn({ event: 'nfe_xml_download_failed', invoice_id, error: String(err) });
+    }
 
     resultMsg = {
       invoice_id,
       tenant_id,
       nfe_status:    'authorized',
       nfe_chave:     result.chave_nfe,
-      nfe_protocol:  result.numero_protocolo,
-      nfe_auth_date: result.data_autorizacao,
+      nfe_protocol:  result.protocolo ?? result.numero_protocolo,
+      nfe_auth_date: result.data_autorizacao ?? msg.data_emissao,
       xml_s3_key:    xmlKey,
       danfe_url:     result.caminho_danfe,
     };
@@ -61,9 +84,7 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
     });
 
   } else {
-    const reason = result.erros?.map(e => `[${e.codigo}] ${e.mensagem}`).join('; ')
-      ?? result.mensagem_sefaz
-      ?? `status=${result.status}`;
+    const reason = describeRejection(result);
 
     resultMsg = { invoice_id, tenant_id, nfe_status: 'rejected', nfe_reject_reason: reason };
     app.log.warn({ event: 'nfe_rejected', invoice_id, reason });

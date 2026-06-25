@@ -13,6 +13,7 @@ const ptBR = {
   'nav.signout':     'Sair',
   'nav.lang':        'EN',
   'nav.contracts':   'Contratos',
+  'nav.menu':        'Menu',
 
   // ── Comuns ────────────────────────────────────────────────────────────
   'c.save':     'Salvar',
@@ -325,6 +326,28 @@ const ptBR = {
   'inv.status.draft':     'Rascunho',
   'inv.status.issued':    'Emitida',
   'inv.status.cancelled': 'Cancelada',
+
+  // ── Filtros (reutilizável entre listagens) ──────────────────────────────
+  'flt.nfeStatus':      'Status SEFAZ',
+  'flt.allNfe':         'Todos (SEFAZ)',
+  'flt.noSefaz':        'Sem envio',
+  'flt.from':           'De',
+  'flt.to':             'Até',
+  'flt.client':         'Cliente',
+  'flt.allClients':     'Todos os clientes',
+  'flt.min':            'Valor mín.',
+  'flt.max':            'Valor máx.',
+  'flt.clear':          'Limpar filtros',
+  'flt.type':           'Tipo',
+  'flt.allTypes':       'Todos os tipos',
+  'flt.category':       'Categoria',
+  'flt.activeAll':      'Ativos e inativos',
+  'flt.activeOnly':     'Somente ativos',
+  'flt.inactiveOnly':   'Somente inativos',
+  'flt.nfe.pending':    'Pendente',
+  'flt.nfe.processing': 'Processando',
+  'flt.nfe.authorized': 'Autorizada',
+  'flt.nfe.rejected':   'Rejeitada',
 
   // ── NF-e monitoring panel ─────────────────────────────────────────────
   'nfe.col':         'NF-e SEFAZ',

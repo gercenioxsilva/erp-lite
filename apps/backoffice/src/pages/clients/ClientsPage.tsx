@@ -479,11 +479,11 @@ export function ClientsPage() {
       <div className="page-header">
         <h1>{t('cl.title')}</h1>
         <div className="flex-gap">
-          <button className="btn btn-secondary" style={{ width: 'auto' }}
+          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
             onClick={() => { setImportOpen(true); setImportPhase('idle'); }}>
             ↑ {t('cl.import')}
           </button>
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
             + {t('cl.new')}
           </button>
         </div>

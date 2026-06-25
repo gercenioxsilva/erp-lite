@@ -57,6 +57,9 @@ export function ReceivablesPage() {
   const [page, setPage]           = useState(1);
   const [statusFilter, setStatus] = useState('');
   const [search, setSearch]       = useState('');
+  const [clientF, setClientF]     = useState('');
+  const [dateFrom, setDateFrom]   = useState('');
+  const [dateTo, setDateTo]       = useState('');
   const [loading, setLoading]     = useState(false);
 
   // Detail drawer
@@ -88,16 +91,17 @@ export function ReceivablesPage() {
     if (!tenantId) return;
     loadItems();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, page, statusFilter, search]);
+  }, [tenantId, page, statusFilter, search, clientF, dateFrom, dateTo]);
 
+  // Carrega clientes (para o filtro e o formulário de criação)
   useEffect(() => {
-    if (!createOpen || !tenantId) return;
+    if (!tenantId) return;
     let cancelled = false;
     api.get<any>(`/v1/clients?tenant_id=${tenantId}&per_page=100&page=1`)
       .then(d => { if (!cancelled) setClients(d.data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [createOpen, tenantId]);
+  }, [tenantId]);
 
   async function loadItems() {
     setLoading(true);
@@ -105,6 +109,9 @@ export function ReceivablesPage() {
       const qs = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
       if (statusFilter) qs.set('status', statusFilter);
       if (search)       qs.set('search', search);
+      if (clientF)      qs.set('client_id', clientF);
+      if (dateFrom)     qs.set('due_date_from', dateFrom);
+      if (dateTo)       qs.set('due_date_to', dateTo);
       const data = await api.get<any>(`/v1/receivables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
@@ -233,7 +240,7 @@ export function ReceivablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('rec.title')}</h1>
-        <button className="btn btn-primary" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
+        <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
           {t('rec.new')}
         </button>
       </div>
@@ -250,6 +257,23 @@ export function ReceivablesPage() {
           <option value="overdue">{t('rec.status.overdue')}</option>
           <option value="cancelled">{t('rec.status.cancelled')}</option>
         </select>
+        <select className="btn btn-secondary" value={clientF}
+          onChange={e => { setClientF(e.target.value); setPage(1); }} style={{ maxWidth: 220 }}>
+          <option value="">{t('flt.allClients')}</option>
+          {clients.map(c => (
+            <option key={c.id} value={c.id}>{c.company_name || c.full_name}</option>
+          ))}
+        </select>
+        <input type="date" title={t('flt.from')} value={dateFrom}
+          onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        <input type="date" title={t('flt.to')} value={dateTo}
+          onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        {(search || statusFilter || clientF || dateFrom || dateTo) && (
+          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+            onClick={() => { setSearch(''); setStatus(''); setClientF(''); setDateFrom(''); setDateTo(''); setPage(1); }}>
+            {t('flt.clear')}
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -361,7 +385,7 @@ export function ReceivablesPage() {
       {/* ── Drawer: Detalhes ── */}
       {detailOpen && selected && (
         <div className="overlay" onClick={() => setDetailOpen(false)}>
-          <div className="drawer" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
+          <div className="drawer" style={{ width: 'min(560px, 96vw)' }} onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <h2>{selected.description}</h2>
               <button onClick={() => setDetailOpen(false)}>{t('c.close')}</button>

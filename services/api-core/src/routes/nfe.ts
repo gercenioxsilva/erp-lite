@@ -134,6 +134,11 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cfop = () => cfg.uf === (invoice.client_state ?? cfg.uf) ? cfg.cfop_padrao : cfg.cfop_interestadual;
 
+    // Simples Nacional (regime 1) usa CSOSN no ICMS; demais regimes usam CST.
+    // O sistema guarda o código (CST ou CSOSN) no campo icms_cst — aqui roteamos
+    // para o campo correto conforme o regime do emitente.
+    const isSimples = cfg.regime_tributario === 1;
+
     // Select the tenant's own token for the configured environment; fallback to env var in Lambda
     const focusToken = cfg.focus_ambiente === 1
       ? (cfg.focus_token_producao    ?? undefined)
@@ -170,8 +175,11 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
         quantidade_comercial:     Number(it.quantity),
         valor_unitario_comercial: Number(it.unit_price),
         valor_bruto:              Number(it.total),
-        icms_cst:  it.icms_cst  || undefined, icms_base_calculo: Number(it.icms_base)  || undefined,
-        icms_aliquota: Number(it.icms_rate)  || undefined, icms_valor: Number(it.icms_value) || undefined,
+        icms_cst:   isSimples ? undefined : (it.icms_cst || undefined),
+        icms_csosn: isSimples ? (it.icms_cst || '102') : undefined,
+        icms_base_calculo: isSimples ? undefined : (Number(it.icms_base)  || undefined),
+        icms_aliquota:     isSimples ? undefined : (Number(it.icms_rate)  || undefined),
+        icms_valor:        isSimples ? undefined : (Number(it.icms_value) || undefined),
         pis_cst:   it.pis_cst   || undefined, pis_base_calculo: Number(it.pis_base)    || undefined,
         pis_aliquota_percentual: Number(it.pis_rate) || undefined, pis_valor: Number(it.pis_value) || undefined,
         cofins_cst: it.cofins_cst || undefined, cofins_base_calculo: Number(it.cofins_base) || undefined,

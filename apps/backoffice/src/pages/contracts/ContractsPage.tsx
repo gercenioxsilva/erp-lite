@@ -253,7 +253,7 @@ export function ContractsPage() {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('sc.title')}</h1>
-        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openCreate}>
+        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
           + {t('sc.new')}
         </button>
       </div>

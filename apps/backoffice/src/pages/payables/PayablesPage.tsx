@@ -50,6 +50,8 @@ export function PayablesPage() {
   const [statusFilter, setStatus] = useState('');
   const [catFilter, setCat]       = useState('');
   const [search, setSearch]       = useState('');
+  const [dateFrom, setDateFrom]   = useState('');
+  const [dateTo, setDateTo]       = useState('');
   const [loading, setLoading]     = useState(false);
 
   const [selected, setSelected]   = useState<(Payable & { payments: Payment[] }) | null>(null);
@@ -72,7 +74,7 @@ export function PayablesPage() {
     if (!tenantId) return;
     loadItems();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, page, statusFilter, catFilter, search]);
+  }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo]);
 
   async function loadItems() {
     setLoading(true);
@@ -81,6 +83,8 @@ export function PayablesPage() {
       if (statusFilter) qs.set('status', statusFilter);
       if (catFilter)    qs.set('category', catFilter);
       if (search)       qs.set('search', search);
+      if (dateFrom)     qs.set('due_date_from', dateFrom);
+      if (dateTo)       qs.set('due_date_to', dateTo);
       const data = await api.get<any>(`/v1/payables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
@@ -163,7 +167,7 @@ export function PayablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('pay.title')}</h1>
-        <button className="btn btn-primary" onClick={() => {
+        <button className="btn btn-primary btn-cta" onClick={() => {
           setCreateOpen(true); setFormError('');
           setForm({ supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
         }}>{t('pay.new')}</button>
@@ -186,6 +190,16 @@ export function PayablesPage() {
           <option value="">{t('pay.allCategories')}</option>
           {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
+        <input type="date" title={t('flt.from')} value={dateFrom}
+          onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        <input type="date" title={t('flt.to')} value={dateTo}
+          onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        {(search || statusFilter || catFilter || dateFrom || dateTo) && (
+          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+            onClick={() => { setSearch(''); setStatus(''); setCat(''); setDateFrom(''); setDateTo(''); setPage(1); }}>
+            {t('flt.clear')}
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -312,7 +326,7 @@ export function PayablesPage() {
       {/* ── Drawer: Detalhes ── */}
       {detailOpen && selected && (
         <div className="overlay" onClick={() => setDetailOpen(false)}>
-          <div className="drawer" style={{ width: 520 }} onClick={e => e.stopPropagation()}>
+          <div className="drawer" style={{ width: 'min(560px, 96vw)' }} onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
               <h2>{selected.description}</h2>
               <button onClick={() => setDetailOpen(false)}>{t('c.close')}</button>
