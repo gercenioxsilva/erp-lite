@@ -385,7 +385,7 @@ export function InvoicesPage() {
     setNfeEmitting(true);
     setNfeError('');
     try {
-      await api.post(`/v1/invoices/${invoiceId}/emit`, {});
+      await api.post(`/v1/invoices/${invoiceId}/emit?tenant_id=${tenantId}`, {});
       const detail = await api.get<NfeStatusDetail>(`/v1/invoices/${invoiceId}/nfe`);
       setNfeDetail(detail);
       startNfePoll(invoiceId);
