@@ -69,10 +69,12 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "PGSSLMODE", value = "require" },
       { name = "JWT_SECRET", value = var.jwt_secret },
       { name = "AWS_REGION", value = var.aws_region },
-      { name = "NFE_REQUESTS_QUEUE_URL",    value = aws_sqs_queue.nfe_requests.url },
-      { name = "NFE_RESULTS_QUEUE_URL",     value = aws_sqs_queue.nfe_results.url },
-      { name = "NFE_BUCKET",                value = aws_s3_bucket.nfe_xmls.bucket },
-      { name = "NOTIFICATIONS_QUEUE_URL",   value = aws_sqs_queue.notifications.url },
+      { name = "NFE_REQUESTS_QUEUE_URL",      value = aws_sqs_queue.nfe_requests.url },
+      { name = "NFE_RESULTS_QUEUE_URL",      value = aws_sqs_queue.nfe_results.url },
+      { name = "NFE_BUCKET",                 value = aws_s3_bucket.nfe_xmls.bucket },
+      { name = "NOTIFICATIONS_QUEUE_URL",    value = aws_sqs_queue.notifications.url },
+      { name = "BILLING_REQUESTS_QUEUE_URL", value = aws_sqs_queue.billing_requests.url },
+      { name = "BILLING_RESULTS_QUEUE_URL",  value = aws_sqs_queue.billing_results.url },
     ]
 
     logConfiguration = {
