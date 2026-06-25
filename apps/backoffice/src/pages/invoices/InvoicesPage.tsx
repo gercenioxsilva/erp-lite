@@ -116,6 +116,7 @@ export function InvoicesPage() {
   const [valueMin,     setValueMin]     = useState('');
   const [valueMax,     setValueMax]     = useState('');
   const [loading,      setLoading]      = useState(true);
+  const [nfeAmbiente,  setNfeAmbiente]  = useState<number | null>(null);
 
   /* drawer */
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -176,13 +177,16 @@ export function InvoicesPage() {
   useEffect(() => { void load(); },
     [tenantId, page, statusFilter, search, nfeStatusF, clientF, dateFrom, dateTo, valueMin, valueMax]);
 
-  /* ── Load clients for the filter dropdown (once per tenant) ── */
+  /* ── Load clients (filtro) + ambiente NF-e (badge/trava) por tenant ── */
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
     api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`)
       .then(r => { if (!cancelled) setClients(r.data ?? []); })
       .catch(() => { /* filtro de cliente fica vazio se falhar */ });
+    api.get<{ focus_ambiente: number }>(`/v1/nfe-config?tenant_id=${tenantId}`)
+      .then(c => { if (!cancelled) setNfeAmbiente(c.focus_ambiente ?? null); })
+      .catch(() => { if (!cancelled) setNfeAmbiente(null); /* NF-e não configurada */ });
     return () => { cancelled = true; };
   }, [tenantId]);
 
@@ -403,6 +407,14 @@ export function InvoicesPage() {
   }
 
   async function emitNfe(invoiceId: string) {
+    // Trava: emitir em produção tem valor fiscal real — pede confirmação explícita
+    if (nfeAmbiente === 1) {
+      const ok = await modal.confirm({
+        title: t('nfe.prodConfirmTitle'), message: t('nfe.prodConfirmMsg'),
+        confirmLabel: t('nfe.prodConfirmBtn'), danger: true,
+      });
+      if (!ok) return;
+    }
     setNfeEmitting(true);
     setNfeError('');
     try {
@@ -441,7 +453,11 @@ export function InvoicesPage() {
     <div>
       {/* ── Header ── */}
       <div className="page-header">
-        <h1>{t('inv.title')}</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <h1>{t('inv.title')}</h1>
+          {nfeAmbiente === 1 && <span className="env-badge env-badge--prod">{t('nfe.envBadge.prod')}</span>}
+          {nfeAmbiente === 2 && <span className="env-badge env-badge--homo">{t('nfe.envBadge.homo')}</span>}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary" onClick={() => exportToXlsx(
             invoices.map(i => ({ number: i.number, client_name: i.client_name, total: i.total, issue_date: i.issue_date, status: i.status, nfe_status: i.nfe_status })),
