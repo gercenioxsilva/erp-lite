@@ -90,6 +90,12 @@ export function InvoicesPage() {
   const [page,         setPage]         = useState(1);
   const [search,       setSearch]       = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusTab>('all');
+  const [nfeStatusF,   setNfeStatusF]   = useState('');
+  const [dateFrom,     setDateFrom]     = useState('');
+  const [dateTo,       setDateTo]       = useState('');
+  const [clientF,      setClientF]      = useState('');
+  const [valueMin,     setValueMin]     = useState('');
+  const [valueMax,     setValueMax]     = useState('');
   const [loading,      setLoading]      = useState(true);
 
   /* drawer */
@@ -136,13 +142,30 @@ export function InvoicesPage() {
       const p = new URLSearchParams({
         tenant_id: tenantId, page: String(page), per_page: String(perPage),
         ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
-        ...(search ? { search } : {}),
+        ...(search     ? { search }                  : {}),
+        ...(nfeStatusF ? { nfe_status: nfeStatusF }  : {}),
+        ...(clientF    ? { client_id: clientF }      : {}),
+        ...(dateFrom   ? { issue_date_from: dateFrom } : {}),
+        ...(dateTo     ? { issue_date_to: dateTo }   : {}),
+        ...(valueMin   ? { total_min: valueMin }     : {}),
+        ...(valueMax   ? { total_max: valueMax }     : {}),
       });
       const r = await api.get<ListResp>(`/v1/invoices?${p}`);
       setInvoices(r.data); setTotal(r.total);
     } catch { /**/ } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [tenantId, page, statusFilter, search]);
+  useEffect(() => { void load(); },
+    [tenantId, page, statusFilter, search, nfeStatusF, clientF, dateFrom, dateTo, valueMin, valueMax]);
+
+  /* ── Load clients for the filter dropdown (once per tenant) ── */
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`)
+      .then(r => { if (!cancelled) setClients(r.data ?? []); })
+      .catch(() => { /* filtro de cliente fica vazio se falhar */ });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   /* ── Load dropdown data when drawer opens ── */
   useEffect(() => {
@@ -415,14 +438,42 @@ export function InvoicesPage() {
         ))}
       </div>
 
-      {/* ── Search ── */}
-      <div style={{ marginBottom: 14 }}>
+      {/* ── Filtros ── */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           placeholder={t('inv.searchPH')}
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ maxWidth: 320 }}
+          style={{ width: 240 }}
         />
+        <select value={nfeStatusF} onChange={e => { setNfeStatusF(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
+          <option value="">{t('flt.allNfe')}</option>
+          <option value="none">{t('flt.noSefaz')}</option>
+          <option value="pending">{t('flt.nfe.pending')}</option>
+          <option value="processing">{t('flt.nfe.processing')}</option>
+          <option value="authorized">{t('flt.nfe.authorized')}</option>
+          <option value="rejected">{t('flt.nfe.rejected')}</option>
+        </select>
+        <select value={clientF} onChange={e => { setClientF(e.target.value); setPage(1); }} style={{ width: 'auto', maxWidth: 220 }}>
+          <option value="">{t('flt.allClients')}</option>
+          {clients.map(c => (
+            <option key={c.id} value={c.id}>{c.company_name ?? c.full_name ?? '—'}</option>
+          ))}
+        </select>
+        <input type="date" title={t('flt.from')} value={dateFrom}
+          onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        <input type="date" title={t('flt.to')} value={dateTo}
+          onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
+        <input type="number" inputMode="decimal" placeholder={t('flt.min')} value={valueMin}
+          onChange={e => { setValueMin(e.target.value); setPage(1); }} style={{ width: 110 }} />
+        <input type="number" inputMode="decimal" placeholder={t('flt.max')} value={valueMax}
+          onChange={e => { setValueMax(e.target.value); setPage(1); }} style={{ width: 110 }} />
+        {(search || nfeStatusF || clientF || dateFrom || dateTo || valueMin || valueMax) && (
+          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+            onClick={() => { setSearch(''); setNfeStatusF(''); setClientF(''); setDateFrom(''); setDateTo(''); setValueMin(''); setValueMax(''); setPage(1); }}>
+            {t('flt.clear')}
+          </button>
+        )}
       </div>
 
       {/* ── Table ── */}

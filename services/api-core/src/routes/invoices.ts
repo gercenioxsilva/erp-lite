@@ -15,7 +15,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/invoices ───────────────────────────────────────────────── */
   fastify.get('/invoices', async (request, reply) => {
-    const { tenant_id, status, search, page = '1', per_page = '20' } =
+    const { tenant_id, status, search, nfe_status, client_id,
+            issue_date_from, issue_date_to, total_min, total_max,
+            page = '1', per_page = '20' } =
       request.query as Record<string, string>;
     if (!tenant_id) return reply.badRequest('tenant_id is required');
 
@@ -26,6 +28,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     const searchFilter = search
       ? sql`AND (i.number ILIKE ${'%' + search + '%'} OR COALESCE(c.company_name, c.full_name) ILIKE ${'%' + search + '%'})`
       : sql``;
+    // 'none' = sem status SEFAZ (rascunhos ainda não enviados)
+    const nfeStatusFilter = nfe_status
+      ? (nfe_status === 'none' ? sql`AND i.nfe_status IS NULL` : sql`AND i.nfe_status = ${nfe_status}`)
+      : sql``;
+    const clientFilter   = client_id       ? sql`AND i.client_id = ${client_id}::uuid`        : sql``;
+    const dateFromFilter = issue_date_from ? sql`AND i.issue_date >= ${issue_date_from}::date` : sql``;
+    const dateToFilter   = issue_date_to   ? sql`AND i.issue_date <= ${issue_date_to}::date`   : sql``;
+    const totalMinFilter = total_min       ? sql`AND i.total >= ${total_min}`                  : sql``;
+    const totalMaxFilter = total_max       ? sql`AND i.total <= ${total_max}`                  : sql``;
+
+    const filters = sql`${statusFilter} ${searchFilter} ${nfeStatusFilter} ${clientFilter} ${dateFromFilter} ${dateToFilter} ${totalMinFilter} ${totalMaxFilter}`;
 
     const [{ rows }, { rows: [cnt] }] = await Promise.all([
       db.execute<any>(sql`
@@ -37,14 +50,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         FROM invoices i
         JOIN clients c ON c.id = i.client_id
         LEFT JOIN orders o ON o.id = i.order_id
-        WHERE i.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+        WHERE i.tenant_id = ${tenant_id} ${filters}
         ORDER BY i.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
       db.execute<{ count: string }>(sql`
         SELECT COUNT(*) AS count FROM invoices i
         JOIN clients c ON c.id = i.client_id
-        WHERE i.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+        WHERE i.tenant_id = ${tenant_id} ${filters}
       `),
     ]);
 

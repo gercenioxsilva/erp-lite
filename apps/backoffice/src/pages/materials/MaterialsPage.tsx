@@ -105,6 +105,9 @@ export function MaterialsPage() {
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
   const [search,     setSearch]     = useState('');
+  const [typeF,      setTypeF]      = useState('');
+  const [catF,       setCatF]       = useState('');
+  const [activeF,    setActiveF]    = useState('');
   const [loading,    setLoading]    = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing,    setEditing]    = useState<Material | null>(null);
@@ -135,7 +138,10 @@ export function MaterialsPage() {
     try {
       const params = new URLSearchParams({
         tenant_id: tenantId, page: String(page), per_page: String(perPage),
-        ...(search ? { search } : {}),
+        ...(search  ? { search }          : {}),
+        ...(typeF   ? { type: typeF }     : {}),
+        ...(catF    ? { category: catF }  : {}),
+        ...(activeF ? { active: activeF } : {}),
       });
       const resp = await api.get<ListResp>(`/v1/materials?${params}`);
       setItems(resp.data);
@@ -143,7 +149,7 @@ export function MaterialsPage() {
     } catch { /**/ } finally { setLoading(false); }
   }
 
-  useEffect(() => { void load(); }, [tenantId, page, search]);
+  useEffect(() => { void load(); }, [tenantId, page, search, typeF, catF, activeF]);
 
   async function loadImages(materialId: string) {
     setImagesLoading(true);
@@ -361,13 +367,36 @@ export function MaterialsPage() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           placeholder={t('m.searchPH')}
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ maxWidth: 320 }}
+          style={{ width: 240 }}
         />
+        <select value={typeF} onChange={e => { setTypeF(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
+          <option value="">{t('flt.allTypes')}</option>
+          {(['product', 'service', 'raw_material', 'asset'] as const).map(tp => (
+            <option key={tp} value={tp}>{typeLabel(tp)}</option>
+          ))}
+        </select>
+        <input
+          placeholder={t('flt.category')}
+          value={catF}
+          onChange={e => { setCatF(e.target.value); setPage(1); }}
+          style={{ width: 160 }}
+        />
+        <select value={activeF} onChange={e => { setActiveF(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
+          <option value="">{t('flt.activeAll')}</option>
+          <option value="true">{t('flt.activeOnly')}</option>
+          <option value="false">{t('flt.inactiveOnly')}</option>
+        </select>
+        {(search || typeF || catF || activeF) && (
+          <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+            onClick={() => { setSearch(''); setTypeF(''); setCatF(''); setActiveF(''); setPage(1); }}>
+            {t('flt.clear')}
+          </button>
+        )}
       </div>
 
       <div className="card">

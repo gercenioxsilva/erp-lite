@@ -329,6 +329,28 @@ const en: Record<TKey, string> = {
   'inv.status.issued':    'Issued',
   'inv.status.cancelled': 'Cancelled',
 
+  // ── Filters (reusable across listings) ──────────────────────────────────
+  'flt.nfeStatus':      'SEFAZ status',
+  'flt.allNfe':         'All (SEFAZ)',
+  'flt.noSefaz':        'Not sent',
+  'flt.from':           'From',
+  'flt.to':             'To',
+  'flt.client':         'Client',
+  'flt.allClients':     'All clients',
+  'flt.min':            'Min value',
+  'flt.max':            'Max value',
+  'flt.clear':          'Clear filters',
+  'flt.type':           'Type',
+  'flt.allTypes':       'All types',
+  'flt.category':       'Category',
+  'flt.activeAll':      'Active and inactive',
+  'flt.activeOnly':     'Active only',
+  'flt.inactiveOnly':   'Inactive only',
+  'flt.nfe.pending':    'Pending',
+  'flt.nfe.processing': 'Processing',
+  'flt.nfe.authorized': 'Authorized',
+  'flt.nfe.rejected':   'Rejected',
+
   // ── Inventory Control ─────────────────────────────────────────────────
   'stk.title':       'Inventory Control',
   'stk.tabPosition': 'Stock Position',
