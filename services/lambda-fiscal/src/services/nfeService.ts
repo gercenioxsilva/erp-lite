@@ -25,6 +25,15 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
   const msg: NfeEmitMessage = JSON.parse(record.body);
   const { invoice_id, tenant_id, focus_ref, ambiente } = msg;
 
+  const focusBaseUrl = ambiente === 1
+    ? 'https://api.focusnfe.com.br'
+    : 'https://homologacao.focusnfe.com.br';
+
+  const toAbsoluteUrl = (path: string | undefined): string | undefined => {
+    if (!path) return undefined;
+    return path.startsWith('http') ? path : `${focusBaseUrl}${path}`;
+  };
+
   app.log.info({ event: 'nfe_start', invoice_id, tenant_id, focus_ref, ambiente });
 
   // Per-tenant token takes precedence; global env var is the fallback
@@ -73,7 +82,7 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
       nfe_protocol:  result.protocolo ?? result.numero_protocolo,
       nfe_auth_date: result.data_autorizacao ?? msg.data_emissao,
       xml_s3_key:    xmlKey,
-      danfe_url:     result.caminho_danfe,
+      danfe_url:     toAbsoluteUrl(result.caminho_danfe),
     };
 
     app.log.info({

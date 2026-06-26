@@ -82,6 +82,17 @@ type StatusTab = typeof STATUS_TABS[number];
 function statusBadge(s: string) {
   return ({ draft: 'badge-service', issued: 'badge-active', cancelled: 'badge-inactive' }[s] ?? 'badge-service');
 }
+
+// Focus returns caminho_danfe as a relative path (/arquivos_development/... or /arquivos/...).
+// Records saved before the lambda fix may still have the relative form — resolve here.
+function toDanfeAbsoluteUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  const base = url.includes('_development') || url.startsWith('/demo')
+    ? 'https://homologacao.focusnfe.com.br'
+    : 'https://api.focusnfe.com.br';
+  return base + url;
+}
 function newItem(): FormItem {
   return { _key: Math.random().toString(36).slice(2), material_id: '', name: '', ncm_code: '', cfop: '', quantity: '1', unit_price: '0' };
 }
@@ -1021,7 +1032,7 @@ function NfeStatusCard({
                 </div>
               )}
               {detail.nfe_danfe_url && (
-                <a href={detail.nfe_danfe_url} target="_blank" rel="noopener noreferrer"
+                <a href={toDanfeAbsoluteUrl(detail.nfe_danfe_url)!} target="_blank" rel="noopener noreferrer"
                   className="btn btn-secondary btn-sm" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', marginTop: 4 }}>
                   📄 {t('nfe.danfe')}
                 </a>
