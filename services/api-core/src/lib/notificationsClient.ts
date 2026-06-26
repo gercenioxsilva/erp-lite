@@ -65,7 +65,10 @@ export interface SystemNotificationPayload {
 /** Sends a system-generated email unconditionally (no notification_configs check). */
 export async function sendSystemNotification(payload: SystemNotificationPayload): Promise<void> {
   const queueUrl = process.env.NOTIFICATIONS_QUEUE_URL;
-  if (!queueUrl) return;
+  if (!queueUrl) {
+    console.warn('[notificationsClient] NOTIFICATIONS_QUEUE_URL not set — e-mail ignorado', { type: payload.type, recipient: payload.recipient.email });
+    return;
+  }
 
   await getSqsClient().send(new SendMessageCommand({
     QueueUrl:    queueUrl,

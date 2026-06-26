@@ -42,6 +42,26 @@ export function Modal() {
     );
   }
 
+  if (state.kind === 'success') {
+    const { opts } = state;
+    return (
+      <div className="modal-backdrop" role="alertdialog" aria-modal onClick={_close}>
+        <div className="modal-dialog modal-dialog--compact" onClick={e => e.stopPropagation()}>
+          <div className="modal-icon-wrap modal-icon-wrap--success">
+            <CheckIcon />
+          </div>
+          <h2 className="modal-title">{opts.title}</h2>
+          <p className="modal-msg">{opts.message}</p>
+          <div className="modal-actions">
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={_close} autoFocus>
+              OK
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (state.kind === 'error') {
     const { opts } = state;
     return (
@@ -102,6 +122,16 @@ function GearIcon({ className }: { className?: string }) {
         fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5"
         strokeLinecap="round" strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="7 12 10.5 15.5 17 9" />
     </svg>
   );
 }

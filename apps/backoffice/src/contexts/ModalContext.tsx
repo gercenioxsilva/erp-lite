@@ -16,9 +16,15 @@ export interface ErrorOptions {
   onRetry?: () => void;
 }
 
+export interface SuccessOptions {
+  title: string;
+  message: string;
+}
+
 export type ModalState =
   | { kind: 'confirm'; opts: ConfirmOptions }
   | { kind: 'error';   opts: ErrorOptions }
+  | { kind: 'success'; opts: SuccessOptions }
   | null;
 
 interface Ctx {
@@ -27,6 +33,7 @@ interface Ctx {
   _close:   () => void;
   confirm:  (opts: ConfirmOptions) => Promise<boolean>;
   error:    (err: unknown, onRetry?: () => void) => void;
+  success:  (message: string, title?: string) => void;
 }
 
 const ModalCtx = createContext<Ctx | null>(null);
@@ -57,8 +64,12 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     setState({ kind: 'error', opts: humanize(err, onRetry) });
   }, []);
 
+  const success = useCallback((message: string, title = 'Sucesso') => {
+    setState({ kind: 'success', opts: { title, message } });
+  }, []);
+
   return (
-    <ModalCtx.Provider value={{ state, _resolve, _close, confirm, error }}>
+    <ModalCtx.Provider value={{ state, _resolve, _close, confirm, error, success }}>
       {children}
     </ModalCtx.Provider>
   );
