@@ -214,7 +214,9 @@ export function InvoicesPage() {
           ? detail.items.map(it => ({
               _key: Math.random().toString(36).slice(2),
               material_id: it.material_id ?? '',
-              name: it.name, ncm_code: '', cfop: '',
+              name: it.name,
+              ncm_code: materials.find(m => m.id === it.material_id)?.ncm_code ?? '',
+              cfop: '',
               quantity: String(it.quantity),
               unit_price: String(it.unit_price),
             }))
