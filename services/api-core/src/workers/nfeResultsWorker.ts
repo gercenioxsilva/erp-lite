@@ -99,7 +99,6 @@ async function processResult(result: NfeResultMessage): Promise<void> {
         nfe_auth_date: nfe_auth_date ? new Date(nfe_auth_date) : null,
         nfe_xml_s3_key: xml_s3_key   || null,
         nfe_danfe_url:  danfe_url    || null,
-        nfe_attempts:  sql`nfe_attempts + 1`,
       })
       .where(and(eq(invoices.id, invoice_id), eq(invoices.nfe_status, 'processing')));
 
@@ -126,9 +125,8 @@ async function processResult(result: NfeResultMessage): Promise<void> {
       .set({
         nfe_status:        'rejected',
         nfe_reject_reason: nfe_reject_reason || null,
-        nfe_attempts:      sql`nfe_attempts + 1`,
       })
-      .where(eq(invoices.id, invoice_id));
+      .where(and(eq(invoices.id, invoice_id), eq(invoices.nfe_status, 'processing')));
 
     await db.insert(nfeEvents).values({
       invoice_id, tenant_id: result.tenant_id,
