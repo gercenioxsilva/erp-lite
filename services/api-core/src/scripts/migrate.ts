@@ -53,6 +53,7 @@ const migrations = [
   '0021_users_password_reset.sql',
   '0022_payables_recurrence.sql',
   '0023_notification_due.sql',
+  '0024_proposals.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
