@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -77,7 +77,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 23. **Notificações de sistema vs. notificações de tenant.** Existem dois helpers em `services/api-core/src/lib/notificationsClient.ts`:
     - `sendNotificationIfEnabled(payload)` — verifica `notification_configs` do tenant (flags `email_enabled`, `notify_*`). Usar para eventos de negócio (NF-e, pedido, boleto).
-    - `sendSystemNotification(payload)` — envia direto para a fila SQS sem verificar config. Usar para e-mails sistêmicos (boas-vindas, reset de senha). Tipos disponíveis: `user_welcome`, `password_reset`. O envio é fire-and-forget (`.catch(() => {})`); nunca deve bloquear a resposta da API.
+    - `sendSystemNotification(payload)` — envia direto para a fila SQS sem verificar config. Usar para e-mails sistêmicos (boas-vindas, reset de senha) e para e-mails de proposta (proposal_sent, proposal_accepted, proposal_rejected). Tipos disponíveis: `user_welcome`, `password_reset`, `receivable_due_soon`, `proposal_sent`, `proposal_accepted`, `proposal_rejected`. O envio é fire-and-forget (`.catch(err => log.error(...))`); nunca deve bloquear a resposta da API. Quando `NOTIFICATIONS_QUEUE_URL` não está definida, loga `console.warn` e retorna sem enviar (visível no CloudWatch). Sempre passar `from_name` explicitamente para e-mails onde o remetente deve ser o tenant (ex: propostas).
 
 26. **Workers ECS in-process — nunca criar nova infra AWS para workers.** Workers de polling/agendamento (ex: `recurringPayablesWorker`, `dueSoonWorker`) rodam dentro do próprio container `api-core` no ECS. São inicializados no hook `onReady` do Fastify e encerrados no `onClose` (graceful shutdown). Padrão: `let running = false; while(running) { /* lógica */ await sleep(intervalMs); }`. Nunca criar nova Lambda, Fargate Task, EventBridge Rule, ou Step Function para lógica que pode rodar em-processo no ECS. Custo zero de infra adicional.
 
@@ -88,6 +88,65 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 ---
 
 ## Histórico de Prompts
+
+### v11.0 — Gestão de Propostas Comerciais + OAuth2 Itaú + Correções
+
+> **Módulo de Propostas Comerciais (Portal Público):**
+> CRUD completo de propostas com status machine: `draft → sent → viewed → accepted | rejected | expired | cancelled`.
+> Cada proposta tem um token público de 64 hex chars (256 bits) para acesso sem login pelo cliente.
+> Conversão direta em pedido de venda (`/v1/proposals/:id/convert`).
+>
+> **Banco:** migration `0024_proposals.sql` — tabelas `proposals` e `proposal_items`.
+> Campos: `public_token VARCHAR(64) UNIQUE`, `seller_email`, `accepted_by_name/email/notes`,
+> `rejected_reason`, `converted_to_order_id FK orders`. Índice parcial em `public_token WHERE NOT NULL`.
+>
+> **API (`proposals.ts`):** CRUD em `/v1/proposals`, ações em `/:id/send`, `/:id/convert`,
+> `/:id/duplicate`, `/:id/cancel`. `tenant_id` sempre do JWT. `send` gera token e envia e-mail
+> ao cliente via SQS→lambda-notifications (fire-and-forget com log de erro).
+> **API pública (`public.ts`):** `/v1/public/proposals/:token` (GET), `/accept`, `/reject` — sem auth,
+> token regex `^[0-9a-f]{64}$` validado antes de qualquer query, sempre retorna 404 para tokens
+> inválidos (nunca 401/403), nunca expõe `tenant_id` na resposta pública.
+>
+> **Frontend:** `ProposalsPage.tsx` (lista com abas de status, drawer com form completo, copy-link,
+> convert/duplicate/cancel). `ProposalPublicPage.tsx` em `/p/:token` (rota pública fora do Layout
+> e do auth guard) — exibe proposta com itens, formulários de aceite/rejeição.
+> `ModalContext` ganhou método `success(message, title?)` e `Modal.tsx` ganhou renderização verde
+> com ícone de check — usado para feedback de convert/duplicate sem erro falso.
+>
+> **E-mail propostas:** templates `proposal_sent`, `proposal_accepted`, `proposal_rejected` em
+> `lambda-notifications`. O `from_name` usa o nome do tenant (`COALESCE(trade_name, company_name)`).
+> **IMPORTANTE:** ao adicionar novos tipos de notificação, a Lambda `lambda-notifications` DEVE ser
+> reconstruída e reimplantada no ECR/Lambda — o código novo não é disponibilizado automaticamente.
+>
+> **OAuth2 Itaú (boleto API v2):** migration `0025_tenant_itau_oauth.sql` adiciona
+> `itau_client_id VARCHAR(100)` e `itau_client_secret VARCHAR(255)` à tabela `tenants`.
+> Campos disponíveis via `PATCH /v1/tenant` e exibidos na aba Dados Bancários da `CompanyPage`
+> (condicional — aparecem apenas quando `billing_provider === 'itau'`).
+> Incluídos no `BillingEmitMessage.banking` para uso pelo Lambda de cobrança.
+>
+> **Correções v11:**
+> - `ClientsPage.tsx`: interface `Client` não incluía campos de endereço (`zip_code`, `street`,
+>   `street_number`, `complement`, `neighborhood`) e `openEdit` não os populava.
+> - `proposals.ts (send)`: `trade_name` pode ser NULL → usar `COALESCE(trade_name, company_name)`.
+>   `APP_URL` fallback corrigido para `https://www.orquestraerp.com.br`.
+> - `modal.error()` era chamado com mensagem de sucesso em `convertToOrder` e `duplicateProposal`.
+>   Corrigido com `modal.success()`.
+>
+> **Protocolo anti-alucinação:** regra 1 atualizada com `proposals`, `proposal_items`,
+> `tenants.itau_client_id/itau_client_secret`; regra 23 atualizada com tipos de proposta e
+> comportamento de log quando `NOTIFICATIONS_QUEUE_URL` não está definida; regra 27 adicionada.
+
+27. **Modal de feedback: nunca usar `modal.error()` para exibir sucesso.** O `ModalContext` tem três
+    métodos: `confirm()` (pergunta com cancelar/confirmar), `error(err)` (exibe erros formatados com
+    ícone de engrenagem vermelha), e `success(message, title?)` (exibe confirmação com ícone verde
+    de check). Usar sempre o método semanticamente correto. Nunca chamar `modal.error(new Error('sucesso...'))`.
+
+28. **lambda-notifications: sempre reimplantar ao adicionar tipos de notificação.** O código do
+    `lambda-notifications` é um container ECR implantado como AWS Lambda. Ao adicionar um novo tipo
+    de notificação (ex: `proposal_sent`) nos templates e no `NotificationType`, o repositório de
+    container ECR precisa ser reconstruído com `docker build` e o Lambda atualizado com a nova imagem.
+    Sem isso, o Lambda em produção não reconhece o novo tipo e a mensagem SQS falha, sendo retentada
+    até ir ao DLQ. Verificar em CloudWatch Logs do Lambda se aparece `Unknown notification type`.
 
 ### v9.0 — Cadastro de Fornecedores + CEP automático
 

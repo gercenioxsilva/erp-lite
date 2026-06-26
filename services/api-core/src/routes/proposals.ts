@@ -207,20 +207,24 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
       UPDATE proposals SET status = 'sent', public_token = ${token} WHERE id = ${id}
     `);
 
+    fastify.log.info({ event: 'proposal_send_email', proposal_id: id, recipient: p.client_email,
+      queue_url_set: !!process.env.NOTIFICATIONS_QUEUE_URL });
+
     sendSystemNotification({
       tenant_id: tenantId,
-      type: 'proposal_sent',
+      type:      'proposal_sent',
+      from_name: p.tenant_name ?? undefined,
       recipient: { email: p.client_email, name: p.client_name ?? '' },
       data: {
         client_name:     p.client_name   ?? 'Cliente',
         proposal_number: p.number,
         proposal_title:  p.title,
         issuer_name:     p.tenant_name   ?? 'Orquestra ERP',
-        proposal_link: proposalLink,
+        proposal_link:   proposalLink,
         valid_until:     p.valid_until   ?? '',
         total:           Number(p.total).toFixed(2),
       },
-    }).catch(err => fastify.log.warn({ event: 'proposal_email_warn', error: String(err) }));
+    }).catch(err => fastify.log.error({ event: 'proposal_email_error', error: String(err) }));
 
     return { ok: true, token, link: proposalLink };
   });

@@ -398,8 +398,9 @@ tr:hover td { background: #fafbfd; }
 .modal-dialog--error   { max-width: 420px; }
 .modal-icon-wrap { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
 .modal-icon-wrap svg { width: 28px; height: 28px; }
-.modal-icon-wrap--danger { background: #fef2f2; color: var(--danger); }
-.modal-icon-wrap--info   { background: #EEF1FF; color: var(--primary); }
+.modal-icon-wrap--danger  { background: #fef2f2; color: var(--danger); }
+.modal-icon-wrap--info    { background: #EEF1FF; color: var(--primary); }
+.modal-icon-wrap--success { background: #f0fdf4; color: #16a34a; }
 .modal-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 8px; letter-spacing: -.3px; }
 .modal-msg   { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 24px; }
 .modal-actions { display: flex; gap: 10px; justify-content: center; }

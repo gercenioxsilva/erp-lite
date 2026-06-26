@@ -232,7 +232,7 @@ export function ProposalsPage() {
     if (!ok) return;
     try {
       const r = await api.post<{ order_id: string; order_number: string }>(`/v1/proposals/${id}/convert`, {});
-      modal.error(new Error(t('prop.convertSuccess') + ' #' + r.order_number));
+      modal.success(t('prop.convertSuccess') + ' #' + r.order_number);
       void load();
     } catch (err: unknown) {
       modal.error(err);
@@ -242,7 +242,7 @@ export function ProposalsPage() {
   async function duplicateProposal(id: string) {
     try {
       const r = await api.post<{ id: string; number: string }>(`/v1/proposals/${id}/duplicate`, {});
-      modal.error(new Error(t('prop.duplicateSuccess') + ' #' + r.number));
+      modal.success(t('prop.duplicateSuccess') + ' #' + r.number);
       void load();
     } catch (err: unknown) {
       modal.error(err);
