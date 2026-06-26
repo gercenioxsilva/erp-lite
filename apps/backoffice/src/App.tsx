@@ -17,6 +17,7 @@ import { ReceivablesPage } from './pages/receivables/ReceivablesPage';
 import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
+import { NfsePage }        from './pages/nfse/NfsePage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -37,6 +38,7 @@ function GuardedRoutes() {
         <Route path="/payables"    element={<PayablesPage />} />
         <Route path="/company"     element={<CompanyPage />} />
         <Route path="/contracts"   element={<ContractsPage />} />
+        <Route path="/nfse"        element={<NfsePage />} />
         <Route path="*"            element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

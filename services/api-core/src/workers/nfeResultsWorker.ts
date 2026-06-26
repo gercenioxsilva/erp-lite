@@ -1,7 +1,7 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, sql } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, invoices, nfeEvents } from '../db';
+import { db, invoices, nfeEvents, nfseInvoices, nfseEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 
 interface NfeResultMessage {
@@ -14,6 +14,21 @@ interface NfeResultMessage {
   xml_s3_key?:        string;
   danfe_url?:         string;
   nfe_reject_reason?: string;
+}
+
+interface NfseResultMessage {
+  type:                'nfse';
+  nfse_id:             string;
+  tenant_id:           string;
+  nfse_status:         'authorized' | 'rejected';
+  nfse_number?:        string;
+  nfse_chave?:         string;
+  nfse_verify_code?:   string;
+  nfse_protocol?:      string;
+  nfse_auth_date?:     string;
+  nfse_pdf_url?:       string;
+  nfse_xml_s3_key?:    string;
+  nfse_reject_reason?: string;
 }
 
 let running = true;
@@ -42,8 +57,13 @@ async function poll(queueUrl: string): Promise<void> {
 
       for (const msg of resp.Messages ?? []) {
         try {
-          const result: NfeResultMessage = JSON.parse(msg.Body!);
-          await processResult(result);
+          const body = JSON.parse(msg.Body!);
+          // type='nfse' → NFS-e result; anything else (incl. undefined) → NF-e result
+          if (body.type === 'nfse') {
+            await processNfseResult(body as NfseResultMessage);
+          } else {
+            await processResult(body as NfeResultMessage);
+          }
           await sqs.send(new DeleteMessageCommand({
             QueueUrl:      queueUrl,
             ReceiptHandle: msg.ReceiptHandle!,
@@ -148,6 +168,88 @@ async function processResult(result: NfeResultMessage): Promise<void> {
         tenant_id: result.tenant_id, type: 'nfe_rejected',
         recipient: { email: rejInv.client_email, name: rejInv.client_name ?? '' },
         data:      { invoice_number: rejInv.number ?? '', reject_reason: nfe_reject_reason ?? '' },
+      }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
+    }
+  }
+}
+
+async function processNfseResult(result: NfseResultMessage): Promise<void> {
+  const { nfse_id, tenant_id, nfse_status, nfse_number, nfse_chave,
+          nfse_verify_code, nfse_protocol, nfse_auth_date,
+          nfse_pdf_url, nfse_xml_s3_key, nfse_reject_reason } = result;
+
+  if (nfse_status === 'authorized') {
+    await db.update(nfseInvoices)
+      .set({
+        nfse_status:      'authorized',
+        nfse_number:      nfse_number      || null,
+        nfse_chave:       nfse_chave       || null,
+        nfse_verify_code: nfse_verify_code || null,
+        nfse_protocol:    nfse_protocol    || null,
+        nfse_auth_date:   nfse_auth_date ? new Date(nfse_auth_date) : null,
+        nfse_pdf_url:     nfse_pdf_url     || null,
+        nfse_xml_s3_key:  nfse_xml_s3_key  || null,
+      })
+      .where(and(eq(nfseInvoices.id, nfse_id), eq(nfseInvoices.nfse_status, 'processing')));
+
+    await db.insert(nfseEvents).values({
+      nfse_id, tenant_id,
+      event_type:  'emission',
+      status_code: '100',
+      protocol:    nfse_protocol || null,
+      payload:     { nfse_number, nfse_chave, nfse_verify_code, nfse_protocol, nfse_auth_date },
+    });
+
+    console.info(JSON.stringify({ event: 'nfse_result_authorized', nfse_id, nfse_number }));
+
+    const { rows: [inv] } = await db.execute<{
+      amount: string; iss_value: string;
+      client_name: string | null; client_email: string | null;
+    }>(sql`
+      SELECT n.amount, n.iss_value,
+             COALESCE(c.company_name, c.full_name) AS client_name,
+             c.email AS client_email
+      FROM nfse_invoices n LEFT JOIN clients c ON c.id = n.client_id
+      WHERE n.id = ${nfse_id}
+    `);
+    if (inv?.client_email) {
+      await sendNotificationIfEnabled({
+        tenant_id, type: 'nfse_authorized',
+        recipient: { email: inv.client_email, name: inv.client_name ?? '' },
+        data: {
+          nfse_number: nfse_number ?? '',
+          valor:       inv.amount ?? '',
+          iss_valor:   inv.iss_value ?? '',
+          pdf_url:     nfse_pdf_url ?? '',
+        },
+      }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
+    }
+
+  } else {
+    await db.update(nfseInvoices)
+      .set({ nfse_status: 'rejected', nfse_reject_reason: nfse_reject_reason || null })
+      .where(and(eq(nfseInvoices.id, nfse_id), eq(nfseInvoices.nfse_status, 'processing')));
+
+    await db.insert(nfseEvents).values({
+      nfse_id, tenant_id,
+      event_type: 'emission_rejected',
+      payload:    { nfse_reject_reason },
+    });
+
+    console.warn(JSON.stringify({ event: 'nfse_result_rejected', nfse_id, nfse_reject_reason }));
+
+    const { rows: [inv] } = await db.execute<{
+      nfse_number: string | null; client_name: string | null; client_email: string | null;
+    }>(sql`
+      SELECT n.nfse_number, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email
+      FROM nfse_invoices n LEFT JOIN clients c ON c.id = n.client_id
+      WHERE n.id = ${nfse_id}
+    `);
+    if (inv?.client_email) {
+      await sendNotificationIfEnabled({
+        tenant_id, type: 'nfse_rejected',
+        recipient: { email: inv.client_email, name: inv.client_name ?? '' },
+        data: { nfse_number: inv.nfse_number ?? '', reject_reason: nfse_reject_reason ?? '' },
       }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
     }
   }

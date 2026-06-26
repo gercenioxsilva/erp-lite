@@ -13,6 +13,7 @@ const ptBR = {
   'nav.signout':     'Sair',
   'nav.lang':        'EN',
   'nav.contracts':   'Contratos',
+  'nav.nfse':        'NFS-e',
   'nav.menu':        'Menu',
 
   // ── Comuns ────────────────────────────────────────────────────────────
@@ -582,6 +583,15 @@ const ptBR = {
   'comp.nfe.errSave':     'Erro ao salvar configuração NF-e.',
   'comp.nfe.errRequired': 'CNPJ e Razão Social são obrigatórios.',
 
+  // ── NFS-e (config) ────────────────────────────────────────────────────
+  'comp.nfse.title':              'NFS-e (Nota Fiscal de Serviços)',
+  'comp.nfse.hint':               'Dados municipais usados na emissão de NFS-e via Focus. Necessário para contratos com NFS-e habilitada.',
+  'comp.nfse.inscricaoMunicipal': 'Inscrição Municipal',
+  'comp.nfse.codigoMunicipioIbge':'Código do Município (IBGE)',
+  'comp.nfse.aliquotaIss':        'Alíquota ISS Padrão (%)',
+  'comp.nfse.codigoServico':      'Código de Serviço LC 116 (Padrão)',
+  'comp.nfse.codigoServicoPH':    'Ex.: 14.01',
+
   // ── Cobrança (Boleto) ─────────────────────────────────────────────────
   'bill.emitBoleto':     'Emitir Boleto',
   'bill.emitting':       'Emitindo…',
@@ -640,6 +650,41 @@ const ptBR = {
   'sc.billing.pending':   'Pendente',
   'sc.billing.billed':    'Cobrado',
   'sc.billing.cancelled': 'Cancelado',
+  'sc.nfseSection':    'NFS-e (Nota Fiscal de Serviços)',
+  'sc.nfseEnabled':    'Emitir NFS-e automaticamente ao gerar cobrança',
+  'sc.servicoCode':    'Código de serviço (LC 116)',
+  'sc.servicoCodePH':  'Usa o padrão da empresa se vazio',
+  'sc.issRate':        'Alíquota ISS (%)',
+  'sc.issRatePH':      'Padrão',
+  'sc.retryNfse':      'Tentar novamente',
+
+  // ── NFS-e (página) ────────────────────────────────────────────────────
+  'nfse.title':        'NFS-e',
+  'nfse.searchPH':     'Pesquisar por cliente ou descrição…',
+  'nfse.allStatus':    'Todos os status',
+  'nfse.empty':        'Nenhuma NFS-e emitida ainda. As NFS-e são geradas a partir das cobranças de contratos.',
+  'nfse.client':       'Cliente',
+  'nfse.description':  'Descrição',
+  'nfse.amount':       'Valor',
+  'nfse.iss':          'ISS',
+  'nfse.number':       'Número',
+  'nfse.status':       'Status',
+  'nfse.date':         'Data',
+  'nfse.detailTitle':  'Detalhes da NFS-e',
+  'nfse.serviceCode':  'Código de serviço',
+  'nfse.period':       'Período',
+  'nfse.verifyCode':   'Código de verificação',
+  'nfse.authDate':     'Data de autorização',
+  'nfse.viewPdf':      'Ver NFS-e (PDF)',
+  'nfse.events':       'Histórico',
+  'nfse.noEvents':     'Nenhum evento registrado.',
+  'nfse.event':        'Evento',
+  'nfse.code':         'Código',
+  'nfse.reemit':       'Reemitir NFS-e',
+  'nfse.status.pending':    'Pendente',
+  'nfse.status.processing': 'Processando…',
+  'nfse.status.authorized': 'Autorizada',
+  'nfse.status.rejected':   'Rejeitada',
 
   // ── Login ─────────────────────────────────────────────────────────────
   'l.welcome':   'Bem-vindo de volta',

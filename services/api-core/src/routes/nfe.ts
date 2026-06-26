@@ -30,7 +30,9 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
             logradouro, numero, complemento, bairro, municipio, uf, cep,
             telefone, email, cfop_padrao, cfop_interestadual,
             natureza_operacao, focus_ambiente,
-            focus_token_homologacao, focus_token_producao } = body;
+            focus_token_homologacao, focus_token_producao,
+            inscricao_municipal, codigo_municipio_ibge,
+            aliquota_iss_padrao, codigo_servico_padrao } = body;
 
     if (!tenant_id || !cnpj || !razao_social || !logradouro || !numero || !bairro || !cep)
       return reply.badRequest('Campos obrigatórios: tenant_id, cnpj, razao_social, logradouro, numero, bairro, cep');
@@ -61,6 +63,10 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
       focus_ambiente:          focus_ambiente     ?? 2,
       focus_token_homologacao: newTokenHomo,
       focus_token_producao:    newTokenProd,
+      inscricao_municipal:     inscricao_municipal   || null,
+      codigo_municipio_ibge:   codigo_municipio_ibge ?? '3550308',
+      aliquota_iss_padrao:     aliquota_iss_padrao != null ? String(aliquota_iss_padrao) : '5.00',
+      codigo_servico_padrao:   codigo_servico_padrao || null,
     }).onConflictDoUpdate({
       target: nfeConfigs.tenant_id,
       set: {
@@ -81,6 +87,10 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
         cfop_interestadual: sql`EXCLUDED.cfop_interestadual`,
         natureza_operacao:  sql`EXCLUDED.natureza_operacao`,
         focus_ambiente:     sql`EXCLUDED.focus_ambiente`,
+        inscricao_municipal:   sql`EXCLUDED.inscricao_municipal`,
+        codigo_municipio_ibge: sql`EXCLUDED.codigo_municipio_ibge`,
+        aliquota_iss_padrao:   sql`EXCLUDED.aliquota_iss_padrao`,
+        codigo_servico_padrao: sql`EXCLUDED.codigo_servico_padrao`,
         // Tokens: only update when a new value was provided (EXCLUDED is non-null), keep existing otherwise
         focus_token_homologacao: sql`CASE WHEN EXCLUDED.focus_token_homologacao IS NOT NULL THEN EXCLUDED.focus_token_homologacao ELSE nfe_configs.focus_token_homologacao END`,
         focus_token_producao:    sql`CASE WHEN EXCLUDED.focus_token_producao IS NOT NULL THEN EXCLUDED.focus_token_producao ELSE nfe_configs.focus_token_producao END`,

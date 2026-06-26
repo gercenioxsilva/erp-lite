@@ -11,6 +11,7 @@ import { ordersRoutes }    from './routes/orders';
 import { invoicesRoutes }  from './routes/invoices';
 import { taxRoutes }       from './routes/tax';
 import { nfeRoutes }                from './routes/nfe';
+import { nfseRoutes }               from './routes/nfse';
 import { notificationConfigRoutes } from './routes/notificationConfig';
 import { receivablesRoutes }        from './routes/receivables';
 import { payablesRoutes }           from './routes/payables';
@@ -55,6 +56,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(invoicesRoutes,  { prefix: '/v1' });
   await app.register(taxRoutes,       { prefix: '/v1' });
   await app.register(nfeRoutes,                { prefix: '/v1' });
+  await app.register(nfseRoutes,               { prefix: '/v1' });
   await app.register(notificationConfigRoutes, { prefix: '/v1' });
   await app.register(receivablesRoutes,        { prefix: '/v1' });
   await app.register(payablesRoutes,           { prefix: '/v1' });

@@ -93,3 +93,75 @@ export interface NfeResultMessage {
   danfe_url?:         string;  // PDF URL from Focus NF-e
   nfe_reject_reason?: string;
 }
+
+/** NFS-e emit message — same SQS queue as NF-e, discriminated by type='nfse' */
+export interface NfseEmitMessage {
+  type:        'nfse';
+  nfse_id:     string;
+  tenant_id:   string;
+  focus_ref:   string;
+  ambiente:    1 | 2;
+  focus_token?: string;
+
+  prestador: {
+    cnpj:                string;
+    razao_social:        string;
+    inscricao_municipal: string;
+    codigo_municipio:    string;
+    logradouro:          string;
+    numero:              string;
+    complemento?:        string;
+    bairro:              string;
+    municipio:           string;
+    uf:                  string;
+    cep:                 string;
+    telefone?:           string;
+    email?:              string;
+  };
+
+  tomador: {
+    cnpj?:        string;
+    cpf?:         string;
+    razao_social: string;
+    email?:       string;
+    logradouro?:  string;
+    numero?:      string;
+    complemento?: string;
+    bairro?:      string;
+    municipio?:   string;
+    uf?:          string;
+    cep?:         string;
+    telefone?:    string;
+  };
+
+  servicos: [{
+    descricao:                     string;
+    codigo_tributario_municipio:   string;
+    aliquota:                      number;
+    valor_servicos:                number;
+    base_calculo:                  number;
+    valor_iss:                     number;
+    deducoes?:                     number;
+  }];
+
+  valor_servicos: number;
+  valor_iss:      number;
+  data_emissao:   string;
+  periodo_servico?: { data_inicial: string; data_final: string };
+}
+
+/** Result from NFS-e Lambda processing */
+export interface NfseResultMessage {
+  type:                'nfse';
+  nfse_id:             string;
+  tenant_id:           string;
+  nfse_status:         'authorized' | 'rejected';
+  nfse_number?:        string;
+  nfse_chave?:         string;
+  nfse_verify_code?:   string;
+  nfse_protocol?:      string;
+  nfse_auth_date?:     string;
+  nfse_pdf_url?:       string;
+  nfse_xml_s3_key?:    string;
+  nfse_reject_reason?: string;
+}

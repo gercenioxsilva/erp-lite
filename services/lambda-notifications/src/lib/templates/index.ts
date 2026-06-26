@@ -1,6 +1,8 @@
 import type { NotificationType, TemplateData, EmailTemplate } from '../types';
 import { nfeAuthorizedTemplate }  from './nfe_authorized';
 import { nfeRejectedTemplate }    from './nfe_rejected';
+import { nfseAuthorizedTemplate } from './nfse_authorized';
+import { nfseRejectedTemplate }   from './nfse_rejected';
 import { orderConfirmedTemplate } from './order_confirmed';
 import { boletoGeneratedTemplate } from './boleto_generated';
 import { userWelcomeTemplate }    from './user_welcome';
@@ -8,6 +10,8 @@ import { userWelcomeTemplate }    from './user_welcome';
 const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplate> = {
   nfe_authorized:   nfeAuthorizedTemplate,
   nfe_rejected:     nfeRejectedTemplate,
+  nfse_authorized:  nfseAuthorizedTemplate,
+  nfse_rejected:    nfseRejectedTemplate,
   order_confirmed:  orderConfirmedTemplate,
   boleto_generated: boletoGeneratedTemplate,
   user_welcome:     userWelcomeTemplate,
