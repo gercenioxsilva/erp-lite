@@ -189,7 +189,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [p] } = await db.execute<any>(sql`
       SELECT p.*, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email,
-             t.trade_name AS tenant_name
+             COALESCE(t.trade_name, t.company_name) AS tenant_name
       FROM proposals p
       LEFT JOIN clients c ON c.id = p.client_id
       LEFT JOIN tenants  t ON t.id = p.tenant_id
@@ -200,7 +200,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!p.client_email) return reply.badRequest('O cliente não possui e-mail cadastrado');
 
     const token = p.public_token || generatePublicToken();
-    const appUrl = process.env.APP_URL || 'https://orquestraerp.com.br';
+    const appUrl = process.env.APP_URL || 'https://www.orquestraerp.com.br';
     const proposalLink = `${appUrl}/p/${token}`;
 
     await db.execute(sql`

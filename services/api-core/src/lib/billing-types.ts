@@ -7,6 +7,8 @@ export interface BankingConfig {
   account_digit: string;
   billing_provider: string;
   billing_days_to_expire: number;
+  itau_client_id?: string | null;
+  itau_client_secret?: string | null;
 }
 
 export interface BillingEmitMessage {

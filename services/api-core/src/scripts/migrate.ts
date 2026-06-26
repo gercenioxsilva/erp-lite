@@ -54,6 +54,7 @@ const migrations = [
   '0022_payables_recurrence.sql',
   '0023_notification_due.sql',
   '0024_proposals.sql',
+  '0025_tenant_itau_oauth.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

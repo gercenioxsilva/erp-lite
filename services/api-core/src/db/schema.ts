@@ -42,6 +42,8 @@ export const tenants = pgTable('tenants', {
   billing_provider:       varchar('billing_provider',       { length: 30  }).notNull().default('brcode'),
   billing_days_to_expire: integer('billing_days_to_expire').notNull().default(30),
   billing_webhook_token:  text('billing_webhook_token'),
+  itau_client_id:         varchar('itau_client_id',     { length: 100 }),
+  itau_client_secret:     varchar('itau_client_secret', { length: 255 }),
   banking_updated_at:     timestamp('banking_updated_at', { withTimezone: true }),
   // SaaS lifecycle
   status:       varchar('status', { length: 20 }).notNull().default('trial'),

@@ -12,6 +12,7 @@ interface Tenant {
   logo_url: string | null; status: string; plan: string;
   bank_code: string | null; agency: string | null; account: string | null; account_digit: string | null;
   billing_provider: string | null; billing_days_to_expire: number | null;
+  itau_client_id: string | null; itau_client_secret: string | null;
 }
 
 interface NfeCfg {
@@ -77,6 +78,7 @@ export function CompanyPage() {
   const [bankForm, setBankForm] = useState({
     bank_code: '', agency: '', account: '', account_digit: '',
     billing_provider: 'itau', billing_days_to_expire: '30',
+    itau_client_id: '', itau_client_secret: '',
   });
   const [bankSaving, setBankSaving] = useState(false);
   const [bankSuccess, setBankSuccess] = useState('');
@@ -128,6 +130,8 @@ export function CompanyPage() {
         account_digit:          data.account_digit          || '',
         billing_provider:       data.billing_provider       || 'itau',
         billing_days_to_expire: String(data.billing_days_to_expire ?? 30),
+        itau_client_id:         data.itau_client_id         || '',
+        itau_client_secret:     data.itau_client_secret     || '',
       });
     } catch (err: any) {
       setError(err.message || t('comp.errLoad'));
@@ -268,6 +272,8 @@ export function CompanyPage() {
         account_digit:          bankForm.account_digit          || null,
         billing_provider:       bankForm.billing_provider       || null,
         billing_days_to_expire: bankForm.billing_days_to_expire ? Number(bankForm.billing_days_to_expire) : null,
+        itau_client_id:         bankForm.itau_client_id         || null,
+        itau_client_secret:     bankForm.itau_client_secret     || null,
       });
       setBankSuccess(t('comp.bank.saved'));
       loadTenant();
@@ -541,6 +547,29 @@ export function CompanyPage() {
                     onChange={e => setBankForm(f => ({ ...f, billing_days_to_expire: e.target.value }))} />
                 </div>
               </div>
+
+              {bankForm.billing_provider === 'itau' && (
+                <>
+                  <div style={{ marginTop: 16, marginBottom: 8, fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>
+                    {t('comp.bank.itauOauth')}
+                  </div>
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('comp.bank.itauClientId')}</label>
+                      <input type="text" value={bankForm.itau_client_id}
+                        placeholder={t('comp.bank.itauClientIdPH')}
+                        onChange={e => setBankForm(f => ({ ...f, itau_client_id: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.bank.itauClientSecret')}</label>
+                      <input type="password" value={bankForm.itau_client_secret}
+                        placeholder={t('comp.bank.itauClientSecretPH')}
+                        autoComplete="new-password"
+                        onChange={e => setBankForm(f => ({ ...f, itau_client_secret: e.target.value }))} />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div style={{ marginTop: 20 }}>
                 <button type="submit" className="btn btn-primary" disabled={bankSaving}>
