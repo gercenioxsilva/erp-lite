@@ -2,6 +2,7 @@ import {
   pgTable, uuid, varchar, text, boolean, timestamp,
   date, decimal, char, smallint, integer, jsonb,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 // ── tenants ───────────────────────────────────────────────────────────────────
 export const tenants = pgTable('tenants', {
@@ -59,6 +60,8 @@ export const users = pgTable('users', {
   password_hash: varchar('password_hash', { length: 255 }).notNull(),
   role:          varchar('role',   { length: 20 }).notNull().default('user'),
   status:        varchar('status', { length: 20 }).notNull().default('active'),
+  password_reset_token:   varchar('password_reset_token',   { length: 255 }),
+  password_reset_expires: timestamp('password_reset_expires', { withTimezone: true }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -321,6 +324,7 @@ export const receivables = pgTable('receivables', {
   due_date:    date('due_date').notNull(),
   status:      varchar('status', { length: 20 }).notNull().default('pending'),
   notes:       text('notes'),
+  due_notification_sent: boolean('due_notification_sent').notNull().default(false),
   created_by:  uuid('created_by'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -425,6 +429,11 @@ export const payables = pgTable('payables', {
   due_date:        date('due_date').notNull(),
   status:          varchar('status', { length: 20 }).notNull().default('pending'),
   notes:           text('notes'),
+  recurrence:                varchar('recurrence', { length: 20 }).notNull().default('none'),
+  recurrence_day:            smallint('recurrence_day'),
+  recurrence_end_date:       date('recurrence_end_date'),
+  recurrence_last_generated: date('recurrence_last_generated'),
+  parent_payable_id:         uuid('parent_payable_id').references((): AnyPgColumn => payables.id, { onDelete: 'set null' }),
   created_by:      uuid('created_by'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -513,6 +522,7 @@ export const notificationConfigs = pgTable('notification_configs', {
   notify_boleto_generated: boolean('notify_boleto_generated').notNull().default(true),
   notify_nfse_authorized: boolean('notify_nfse_authorized').notNull().default(true),
   notify_nfse_rejected:   boolean('notify_nfse_rejected').notNull().default(true),
+  notify_receivable_due_days: smallint('notify_receivable_due_days').notNull().default(3),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -24,6 +24,9 @@ import { materialImagesRoutes }     from './routes/materialImages';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
+import { dashboardRoutes }                                          from './routes/dashboard';
+import { startRecurringPayablesWorker, stopRecurringPayablesWorker } from './workers/recurringPayablesWorker';
+import { startDueSoonWorker, stopDueSoonWorker }                    from './workers/dueSoonWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -67,16 +70,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(clientContactsRoutes,     { prefix: '/v1' });
   await app.register(serviceContractsRoutes,   { prefix: '/v1' });
   await app.register(materialImagesRoutes,     { prefix: '/v1' });
+  await app.register(dashboardRoutes,          { prefix: '/v1' });
 
   app.addHook('onReady', async () => {
     startNfeResultsWorker();
     startBoletoResultsWorker();
     startContractBillingWorker();
+    startRecurringPayablesWorker();
+    startDueSoonWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
     stopBoletoResultsWorker();
     stopContractBillingWorker();
+    stopRecurringPayablesWorker();
+    stopDueSoonWorker();
   });
 
   return app;

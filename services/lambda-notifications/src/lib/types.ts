@@ -1,11 +1,10 @@
 export type NotificationType =
-  | 'nfe_authorized'
-  | 'nfe_rejected'
-  | 'nfse_authorized'
-  | 'nfse_rejected'
-  | 'order_confirmed'
-  | 'boleto_generated'
-  | 'user_welcome';
+  | 'nfe_authorized' | 'nfe_rejected'
+  | 'nfse_authorized' | 'nfse_rejected'
+  | 'order_confirmed' | 'boleto_generated'
+  | 'user_welcome'
+  | 'password_reset'
+  | 'receivable_due_soon';
 
 export type NotificationChannel = 'email';
 

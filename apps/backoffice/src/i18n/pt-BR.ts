@@ -757,6 +757,58 @@ const ptBR = {
   // Payables updates
   'pay.selectSupplier': 'Selecionar fornecedor cadastrado...',
   'pay.supplierFreeText': 'Ou digitar nome do fornecedor',
+
+  // Forgot/Reset password
+  'l.forgotPassword':   'Esqueci a senha',
+  'fp.title':           'Redefinir senha',
+  'fp.subtitle':        'Informe seu e-mail e enviaremos as instruções.',
+  'fp.email':           'E-mail',
+  'fp.send':            'Enviar instruções',
+  'fp.sentTitle':       'E-mail enviado!',
+  'fp.sentMsg':         'Se o e-mail estiver cadastrado, você receberá as instruções em instantes.',
+  'fp.backLogin':       'Voltar ao login',
+  'fp.error':           'Erro ao enviar. Tente novamente.',
+  'rp.title':           'Criar nova senha',
+  'rp.newPassword':     'Nova senha',
+  'rp.confirmPassword': 'Confirmar nova senha',
+  'rp.save':            'Salvar nova senha',
+  'rp.mismatch':        'As senhas não coincidem.',
+  'rp.tooShort':        'A senha deve ter pelo menos 6 caracteres.',
+  'rp.doneTitle':       'Senha alterada!',
+  'rp.doneMsg':         'Você será redirecionado para o login em instantes.',
+  'rp.error':           'Token inválido ou expirado.',
+  'rp.invalidLink':     'Link inválido ou expirado.',
+
+  // Dashboard KPIs
+  'd.revenueMonth':   'Faturamento este mês',
+  'd.vsLastMonth':    'vs. mês anterior',
+  'd.toReceive':      'A Receber',
+  'd.toPayWeek':      'A Pagar esta semana',
+  'd.pendingOrders':  'Pedidos confirmados',
+  'd.ordersConfirmed':'aguardando entrega',
+  'd.invoicesPending':'contas pendentes',
+  'd.billsDue':       'contas no período',
+  'd.overdue':        'vencidas',
+  'd.seeAll':         'Ver todos →',
+  'd.revenue6Months': 'Faturamento — últimos 6 meses',
+  'd.stockAlerts':    'Alertas de estoque mínimo',
+
+  // Payables recurrence
+  'pay.recurrence':   'Recorrência',
+  'pay.recNone':      'Sem recorrência',
+  'pay.recWeekly':    'Semanal',
+  'pay.recMonthly':   'Mensal',
+  'pay.recQuarterly': 'Trimestral',
+  'pay.recYearly':    'Anual',
+  'pay.recDay':       'Dia do mês para vencimento',
+  'pay.recEndDate':   'Data final da recorrência',
+  'pay.recBadge':     '↻',
+
+  // Notification config
+  'comp.tabNotifications': 'Notificações',
+  'nc.hint':          'Configure as notificações automáticas por e-mail para os clientes.',
+  'nc.dueDays':       'Lembrete de vencimento (dias antes)',
+  'nc.dueDaysOff':    'Desativado',
 } as const;
 
 export type TKey = keyof typeof ptBR;

@@ -58,7 +58,7 @@ export function CompanyPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
 
-  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal'>('general');
+  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal' | 'notifications'>('general');
   const [tenant, setTenant]     = useState<Tenant | null>(null);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -90,10 +90,16 @@ export function CompanyPage() {
   const [nfeError, setNfeError]       = useState('');
   const [cepLoading, setCepLoading]   = useState(false);
 
+  const [notifForm, setNotifForm]     = useState({ notify_receivable_due_days: 3 });
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifSuccess, setNotifSuccess] = useState('');
+  const [notifError, setNotifError]   = useState('');
+
   useEffect(() => {
     if (!tenantId) return;
     loadTenant();
     loadNfeConfig();
+    loadNotifConfig();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -175,6 +181,27 @@ export function CompanyPage() {
       // 404 is expected if no config yet; other errors are silent (user sees empty form)
       setNfeForm({ ...EMPTY_NFE_FORM });
     } finally { setNfeLoading(false); }
+  }
+
+  async function loadNotifConfig() {
+    try {
+      const data = await api.get<any>(`/v1/notification-config?tenant_id=${tenantId}`);
+      setNotifForm({ notify_receivable_due_days: data.notify_receivable_due_days ?? 3 });
+    } catch { /* silent */ }
+  }
+
+  async function handleNotifSave(e: React.FormEvent) {
+    e.preventDefault(); setNotifError(''); setNotifSuccess('');
+    setNotifSaving(true);
+    try {
+      await api.put('/v1/notification-config', {
+        tenant_id: tenantId,
+        notify_receivable_due_days: notifForm.notify_receivable_due_days,
+      });
+      setNotifSuccess(t('comp.saved'));
+    } catch (err: any) {
+      setNotifError(err.message || t('comp.errSave'));
+    } finally { setNotifSaving(false); }
   }
 
   async function handleNfeCEP(cep: string) {
@@ -301,7 +328,7 @@ export function CompanyPage() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'banking', 'fiscal'] as const).map(key => (
+        {(['general', 'banking', 'fiscal', 'notifications'] as const).map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -309,7 +336,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : t('comp.tabFiscal')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : t('comp.tabNotifications')}
           </button>
         ))}
       </div>
@@ -734,6 +761,38 @@ export function CompanyPage() {
               </form>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'notifications' && (
+        <div style={{ maxWidth: 600 }}>
+          <div className="card" style={{ padding: 24 }}>
+            <form onSubmit={handleNotifSave} noValidate>
+              {notifError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{notifError}</div>}
+              {notifSuccess && <div role="alert" className="alert alert-success"  style={{ marginBottom: 16 }}>{notifSuccess}</div>}
+
+              <h3 style={{ marginBottom: 8 }}>{t('comp.tabNotifications')}</h3>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('nc.hint')}</p>
+
+              <div className="field">
+                <label>{t('nc.dueDays')}</label>
+                <select value={notifForm.notify_receivable_due_days}
+                  onChange={e => setNotifForm(f => ({ ...f, notify_receivable_due_days: Number(e.target.value) }))}>
+                  <option value={0}>{t('nc.dueDaysOff')}</option>
+                  <option value={1}>1 dia antes</option>
+                  <option value={3}>3 dias antes</option>
+                  <option value={5}>5 dias antes</option>
+                  <option value={7}>7 dias antes</option>
+                </select>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <button type="submit" className="btn btn-primary" disabled={notifSaving}>
+                  {notifSaving ? t('c.saving') : t('c.save')}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

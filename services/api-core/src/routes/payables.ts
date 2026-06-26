@@ -52,7 +52,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { supplier_name, supplier_id, category = 'other', description, document_number,
-            amount, due_date, notes } = request.body as any;
+            amount, due_date, notes,
+            recurrence = 'none', recurrence_day, recurrence_end_date } = request.body as any;
 
     if (!description || typeof description !== 'string' || !description.trim())
       return reply.badRequest('description é obrigatório');
@@ -62,6 +63,10 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest('due_date é obrigatório');
     if (!VALID_CATEGORIES.includes(category))
       return reply.badRequest(`category inválida. Valores aceitos: ${VALID_CATEGORIES.join(', ')}`);
+
+    const VALID_RECURRENCES = ['none', 'weekly', 'monthly', 'quarterly', 'yearly'];
+    if (!VALID_RECURRENCES.includes(recurrence))
+      return reply.badRequest(`recurrence inválido. Valores: ${VALID_RECURRENCES.join(', ')}`);
 
     // If supplier_id provided, resolve supplier name
     let resolvedSupplierName: string | null = supplier_name || null;
@@ -84,6 +89,9 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       due_date,
       status:          'pending',
       notes:           notes || null,
+      recurrence:      recurrence || 'none',
+      recurrence_day:  recurrence_day ? Number(recurrence_day) : null,
+      recurrence_end_date: recurrence_end_date || null,
       created_by:      userId,
     }).returning();
 
@@ -128,14 +136,17 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (existing.status === 'cancelled') return reply.badRequest('Não é possível editar uma conta cancelada');
 
     const patch: Record<string, unknown> = {};
-    if (body.description     !== undefined) patch.description     = body.description;
-    if (body.supplier_name   !== undefined) patch.supplier_name   = body.supplier_name || null;
-    if (body.supplier_id     !== undefined) patch.supplier_id     = body.supplier_id   || null;
-    if (body.category        !== undefined) patch.category        = body.category;
-    if (body.document_number !== undefined) patch.document_number = body.document_number || null;
-    if (body.amount          !== undefined) patch.amount          = String(Number(body.amount).toFixed(2));
-    if (body.due_date        !== undefined) patch.due_date        = body.due_date;
-    if (body.notes           !== undefined) patch.notes           = body.notes;
+    if (body.description          !== undefined) patch.description          = body.description;
+    if (body.supplier_name        !== undefined) patch.supplier_name        = body.supplier_name || null;
+    if (body.supplier_id          !== undefined) patch.supplier_id          = body.supplier_id   || null;
+    if (body.category             !== undefined) patch.category             = body.category;
+    if (body.document_number      !== undefined) patch.document_number      = body.document_number || null;
+    if (body.amount               !== undefined) patch.amount               = String(Number(body.amount).toFixed(2));
+    if (body.due_date             !== undefined) patch.due_date             = body.due_date;
+    if (body.notes                !== undefined) patch.notes                = body.notes;
+    if (body.recurrence           !== undefined) patch.recurrence           = body.recurrence || 'none';
+    if (body.recurrence_day       !== undefined) patch.recurrence_day       = body.recurrence_day ? Number(body.recurrence_day) : null;
+    if (body.recurrence_end_date  !== undefined) patch.recurrence_end_date  = body.recurrence_end_date || null;
 
     if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
 

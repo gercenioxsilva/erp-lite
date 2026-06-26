@@ -6,6 +6,8 @@ import { nfseRejectedTemplate }   from './nfse_rejected';
 import { orderConfirmedTemplate } from './order_confirmed';
 import { boletoGeneratedTemplate } from './boleto_generated';
 import { userWelcomeTemplate }    from './user_welcome';
+import { passwordResetTemplate }    from './password_reset';
+import { receivableDueSoonTemplate } from './receivable_due_soon';
 
 const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplate> = {
   nfe_authorized:   nfeAuthorizedTemplate,
@@ -15,6 +17,8 @@ const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplat
   order_confirmed:  orderConfirmedTemplate,
   boleto_generated: boletoGeneratedTemplate,
   user_welcome:     userWelcomeTemplate,
+  password_reset:   passwordResetTemplate,
+  receivable_due_soon: receivableDueSoonTemplate,
 };
 
 export function getTemplate(type: NotificationType, data: TemplateData): EmailTemplate {

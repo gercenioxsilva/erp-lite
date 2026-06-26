@@ -8,6 +8,7 @@ vi.mock('../db/index', () => ({
   db: {
     select:      vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) })) })),
     insert:      vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) })) })),
+    execute:     vi.fn().mockResolvedValue({ rows: [] }),
     transaction: vi.fn(async (cb: any) => cb({
       insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([{ id: 'tenant-1' }]) })) })),
     })),
@@ -20,6 +21,10 @@ vi.mock('../db/index', () => ({
 vi.mock('drizzle-orm', () => ({
   eq:  vi.fn((a: any, b: any) => ({ col: a, val: b })),
   sql: vi.fn((strings: any) => ({ strings })),
+}));
+
+vi.mock('../lib/notificationsClient', () => ({
+  sendSystemNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { authRoutes } from '../routes/auth';
@@ -85,6 +90,61 @@ describe('Auth Routes — schema validation', () => {
       const res = await app.inject({
         method: 'POST', url: '/v1/auth/register',
         payload: { company_name: 'Test Corp', tax_id: '00000000000000', email: 'owner@test.com', password: 'short' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe('POST /v1/auth/forgot-password', () => {
+    it('returns 400 when email is missing', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/forgot-password',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 200 { ok: true } when email not found (never reveals existence)', async () => {
+      // db.execute returns { rows: [] } by default (user not found)
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/forgot-password',
+        payload: { email: 'notfound@example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true });
+    });
+  });
+
+  describe('POST /v1/auth/reset-password', () => {
+    it('returns 400 when body is empty', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/reset-password',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when token is missing', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/reset-password',
+        payload: { password: 'newpassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when password is too short (< 6 chars)', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/reset-password',
+        payload: { token: 'sometoken', password: 'abc' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 when token is invalid or expired', async () => {
+      // db.execute still returns { rows: [] } — no matching token
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/reset-password',
+        payload: { token: 'invalidtoken', password: 'newpassword123' },
       });
       expect(res.statusCode).toBe(400);
     });

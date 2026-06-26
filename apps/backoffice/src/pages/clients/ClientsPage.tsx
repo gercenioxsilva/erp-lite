@@ -480,6 +480,15 @@ export function ClientsPage() {
         <h1>{t('cl.title')}</h1>
         <div className="flex-gap">
           <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
+            onClick={() => {
+              const ws = XLSX.utils.json_to_sheet(items.map((c: Client) => ({ company_name: c.company_name, full_name: c.full_name, cnpj: c.cnpj, cpf: c.cpf, email: c.email, phone: c.phone, city: c.city, state: c.state, is_active: c.is_active })));
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+              XLSX.writeFile(wb, `clientes-${new Date().toISOString().slice(0,10)}.xlsx`);
+            }}>
+            ↓ Exportar
+          </button>
+          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
             onClick={() => { setImportOpen(true); setImportPhase('idle'); }}>
             ↑ {t('cl.import')}
           </button>

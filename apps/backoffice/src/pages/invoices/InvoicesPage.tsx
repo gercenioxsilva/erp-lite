@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import type { TKey } from '../../i18n/pt-BR';
+
+function exportToXlsx(rows: any[], filename: string) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+  XLSX.writeFile(wb, filename);
+}
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 interface Invoice {
@@ -421,9 +429,15 @@ export function InvoicesPage() {
       {/* ── Header ── */}
       <div className="page-header">
         <h1>{t('inv.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('inv.new')}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => exportToXlsx(
+            invoices.map(i => ({ number: i.number, client_name: i.client_name, total: i.total, issue_date: i.issue_date, status: i.status, nfe_status: i.nfe_status })),
+            `notas-fiscais-${new Date().toISOString().slice(0,10)}.xlsx`
+          )}>↓ Exportar</button>
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('inv.new')}
+          </button>
+        </div>
       </div>
 
       {/* ── Status tabs ── */}

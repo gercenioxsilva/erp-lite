@@ -759,6 +759,58 @@ const en: Record<TKey, string> = {
   // Payables updates
   'pay.selectSupplier': 'Select registered supplier...',
   'pay.supplierFreeText': 'Or type supplier name',
+
+  // Forgot/Reset password
+  'l.forgotPassword':   'Forgot password',
+  'fp.title':           'Reset your password',
+  'fp.subtitle':        'Enter your email and we will send you instructions.',
+  'fp.email':           'Email',
+  'fp.send':            'Send instructions',
+  'fp.sentTitle':       'Email sent!',
+  'fp.sentMsg':         'If the email is registered, you will receive instructions shortly.',
+  'fp.backLogin':       'Back to login',
+  'fp.error':           'Error sending. Please try again.',
+  'rp.title':           'Create new password',
+  'rp.newPassword':     'New password',
+  'rp.confirmPassword': 'Confirm new password',
+  'rp.save':            'Save new password',
+  'rp.mismatch':        'Passwords do not match.',
+  'rp.tooShort':        'Password must be at least 6 characters.',
+  'rp.doneTitle':       'Password changed!',
+  'rp.doneMsg':         'You will be redirected to login shortly.',
+  'rp.error':           'Invalid or expired token.',
+  'rp.invalidLink':     'Invalid or expired link.',
+
+  // Dashboard KPIs
+  'd.revenueMonth':   'Revenue this month',
+  'd.vsLastMonth':    'vs. last month',
+  'd.toReceive':      'To Receive',
+  'd.toPayWeek':      'Due this week',
+  'd.pendingOrders':  'Confirmed orders',
+  'd.ordersConfirmed':'awaiting delivery',
+  'd.invoicesPending':'pending bills',
+  'd.billsDue':       'bills due',
+  'd.overdue':        'overdue',
+  'd.seeAll':         'See all →',
+  'd.revenue6Months': 'Revenue — last 6 months',
+  'd.stockAlerts':    'Low stock alerts',
+
+  // Payables recurrence
+  'pay.recurrence':   'Recurrence',
+  'pay.recNone':      'No recurrence',
+  'pay.recWeekly':    'Weekly',
+  'pay.recMonthly':   'Monthly',
+  'pay.recQuarterly': 'Quarterly',
+  'pay.recYearly':    'Yearly',
+  'pay.recDay':       'Day of month for due date',
+  'pay.recEndDate':   'Recurrence end date',
+  'pay.recBadge':     '↻',
+
+  // Notification config
+  'comp.tabNotifications': 'Notifications',
+  'nc.hint':          'Configure automatic email notifications for clients.',
+  'nc.dueDays':       'Due reminder (days before)',
+  'nc.dueDaysOff':    'Disabled',
 };
 
 export default en;
