@@ -106,8 +106,8 @@ export function ProposalsPage() {
     let cancelled = false;
     setFormError('');
     Promise.all([
-      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=100`),
+      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=100&tenant_id=${tenantId}`),
     ]).then(([cl, mt]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
