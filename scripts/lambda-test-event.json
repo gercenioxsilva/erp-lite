@@ -1,0 +1,22 @@
+{
+  "_comment": "Cole este JSON na aba 'Test' do Lambda erp-lite-fiscal-nfe-prod no console AWS.",
+  "_instrucoes": "Substitua INVOICE_ID e TENANT_ID por UUIDs válidos. focus_ref deve ser único a cada teste.",
+  "Records": [
+    {
+      "messageId": "test-cloudshell-001",
+      "receiptHandle": "mock-receipt-handle",
+      "body": "{\"invoice_id\":\"11111111-0000-0000-0000-000000000001\",\"tenant_id\":\"22222222-0000-0000-0000-000000000002\",\"focus_ref\":\"CONSOLE-TEST-001\",\"ambiente\":2,\"emitente\":{\"cnpj\":\"11444777000161\",\"razao_social\":\"EMPRESA TESTE GAX ERP LTDA\",\"logradouro\":\"Rua das Acacias\",\"numero\":\"100\",\"complemento\":\"Sala 1\",\"bairro\":\"Centro\",\"municipio\":\"SAO PAULO\",\"uf\":\"SP\",\"cep\":\"01310100\",\"telefone\":\"11999990000\",\"email\":\"fiscal@teste.com.br\",\"regime_tributario\":2},\"destinatario\":{\"cnpj\":\"07504505000132\",\"nome\":\"EMPRESA DESTINO TESTE LTDA\",\"indicador_ie\":9,\"logradouro\":\"Av. Paulista\",\"numero\":\"1000\",\"bairro\":\"Bela Vista\",\"municipio\":\"SAO PAULO\",\"uf\":\"SP\",\"cep\":\"01310100\",\"email\":\"destino@teste.com\"},\"natureza_operacao\":\"Venda de mercadoria\",\"data_emissao\":\"2026-06-23T12:00:00-03:00\",\"itens\":[{\"numero_item\":1,\"codigo_produto\":\"PROD-TESTE-001\",\"descricao\":\"Produto de Teste Homologacao\",\"ncm\":\"73181500\",\"cfop\":\"5102\",\"unidade_comercial\":\"UN\",\"quantidade_comercial\":1,\"valor_unitario_comercial\":100.00,\"valor_bruto\":100.00,\"icms_cst\":\"00\",\"icms_base_calculo\":100.00,\"icms_aliquota\":12.00,\"icms_valor\":12.00,\"pis_cst\":\"01\",\"pis_base_calculo\":100.00,\"pis_aliquota_percentual\":0.65,\"pis_valor\":0.65,\"cofins_cst\":\"01\",\"cofins_base_calculo\":100.00,\"cofins_aliquota_percentual\":3.00,\"cofins_valor\":3.00}],\"pagamentos\":[{\"forma_pagamento\":\"99\",\"valor_pagamento\":100.00}]}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1750680000000",
+        "SenderId": "ConsoleTest",
+        "ApproximateFirstReceiveTimestamp": "1750680000000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "mock",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:ACCOUNT_ID:erp-lite-nfe-requests-prod",
+      "awsRegion": "us-east-1"
+    }
+  ]
+}
