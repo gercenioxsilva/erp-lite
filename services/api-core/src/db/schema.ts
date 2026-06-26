@@ -566,3 +566,51 @@ export const nfseEvents = pgTable('nfse_events', {
   payload:     jsonb('payload'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// proposals + proposal_items  (migration 0024)
+// ──────────────────────────────────────────────────────────────────────────────
+export const proposals = pgTable('proposals', {
+  id:                   uuid('id').notNull().defaultRandom().primaryKey(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  client_id:            uuid('client_id').references(() => clients.id,              { onDelete: 'set null' }),
+  number:               varchar('number',  { length: 20  }).notNull(),
+  title:                varchar('title',   { length: 500 }).notNull(),
+  status:               varchar('status',  { length: 20  }).notNull().default('draft'),
+  subtotal:             decimal('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
+  discount:             decimal('discount', { precision: 15, scale: 2 }).notNull().default('0'),
+  shipping:             decimal('shipping', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:                decimal('total',    { precision: 15, scale: 2 }).notNull().default('0'),
+  valid_until:          date('valid_until'),
+  notes:                text('notes'),
+  terms_text:           text('terms_text'),
+  public_token:         varchar('public_token',       { length: 64 }),
+  public_viewed_at:     timestamp('public_viewed_at', { withTimezone: true }),
+  accepted_at:          timestamp('accepted_at',      { withTimezone: true }),
+  accepted_by_name:     varchar('accepted_by_name',   { length: 255 }),
+  accepted_by_email:    varchar('accepted_by_email',  { length: 255 }),
+  accepted_notes:       text('accepted_notes'),
+  rejected_at:          timestamp('rejected_at',      { withTimezone: true }),
+  rejected_reason:      text('rejected_reason'),
+  converted_to_order_id: uuid('converted_to_order_id').references(() => orders.id, { onDelete: 'set null' }),
+  seller_email:         varchar('seller_email', { length: 255 }),
+  created_by:           uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const proposalItems = pgTable('proposal_items', {
+  id:           uuid('id').notNull().defaultRandom().primaryKey(),
+  proposal_id:  uuid('proposal_id').notNull().references(() => proposals.id, { onDelete: 'cascade' }),
+  material_id:  uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  name:         varchar('name', { length: 255 }).notNull(),
+  sku:          varchar('sku',  { length: 100 }),
+  unit:         varchar('unit', { length: 20 }).notNull().default('UN'),
+  quantity:     decimal('quantity',    { precision: 15, scale: 3 }).notNull(),
+  unit_price:   decimal('unit_price',  { precision: 15, scale: 2 }).notNull(),
+  discount_pct: decimal('discount_pct',{ precision: 5,  scale: 2 }).notNull().default('0'),
+  total:        decimal('total',       { precision: 15, scale: 2 }).notNull(),
+  notes:        text('notes'),
+  sort_order:   smallint('sort_order').notNull().default(0),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

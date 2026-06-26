@@ -4,7 +4,10 @@ export type NotificationType =
   | 'order_confirmed' | 'boleto_generated'
   | 'user_welcome'
   | 'password_reset'
-  | 'receivable_due_soon';
+  | 'receivable_due_soon'
+  | 'proposal_sent'
+  | 'proposal_accepted'
+  | 'proposal_rejected';
 
 export type NotificationChannel = 'email';
 

@@ -90,6 +90,13 @@ function IcoNfse() {
     </svg>
   );
 }
+function IcoProposals() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="14" height="14" rx="2"/><path d="M5 6h8M5 9h8M5 12h4"/><path d="M12 11l2 2 3-3"/>
+    </svg>
+  );
+}
 function IcoSuppliers() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -121,6 +128,7 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/company':     IcoCompany,
   '/contracts':   IcoContracts,
   '/nfse':        IcoNfse,
+  '/proposals':   IcoProposals,
 };
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -139,6 +147,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/materials',   label: t('nav.materials')   },
     { to: '/stock',       label: t('nav.stock')       },
     { to: '/orders',      label: t('nav.orders')      },
+    { to: '/proposals',   label: t('nav.proposals')   },
     { to: '/invoices',    label: t('nav.invoices')    },
     { to: '/receivables', label: t('nav.receivables') },
     { to: '/suppliers',   label: t('nav.suppliers')   },

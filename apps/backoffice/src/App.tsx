@@ -21,6 +21,8 @@ import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
+import { ProposalsPage }      from './pages/proposals/ProposalsPage';
+import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -43,6 +45,7 @@ function GuardedRoutes() {
         <Route path="/company"     element={<CompanyPage />} />
         <Route path="/contracts"   element={<ContractsPage />} />
         <Route path="/nfse"        element={<NfsePage />} />
+        <Route path="/proposals"   element={<ProposalsPage />} />
         <Route path="*"            element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
@@ -61,6 +64,7 @@ export function App() {
               <Route path="/register"        element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
+              <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>
