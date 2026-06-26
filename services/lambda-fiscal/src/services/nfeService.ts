@@ -2,10 +2,10 @@ import type { SQSRecord } from 'aws-lambda';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { FastifyInstance } from 'fastify';
-import { buildFocusPayload } from '../lib/focusNfe';
-import { FocusNfeClient } from '../lib/focusNfe';
-import type { FocusResponse } from '../lib/focusNfe';
-import type { NfeEmitMessage, NfeResultMessage } from '../lib/types';
+import { buildFocusPayload, buildFocusNfsePayload } from '../lib/focusNfe';
+import { FocusNfeClient, FocusNfseClient } from '../lib/focusNfe';
+import type { FocusResponse, FocusNfseResponse } from '../lib/focusNfe';
+import type { NfeEmitMessage, NfeResultMessage, NfseEmitMessage, NfseResultMessage } from '../lib/types';
 
 /** Constrói um motivo de rejeição legível a partir da resposta do Focus.
  *  Nunca devolve "status=undefined" — sempre um texto compreensível. */
@@ -88,6 +88,66 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
 
     resultMsg = { invoice_id, tenant_id, nfe_status: 'rejected', nfe_reject_reason: reason };
     app.log.warn({ event: 'nfe_rejected', invoice_id, reason });
+  }
+
+  await app.sqs.send(new SendMessageCommand({
+    QueueUrl:    app.config.nfeResultsQueueUrl,
+    MessageBody: JSON.stringify(resultMsg),
+  }));
+}
+
+/** Motivo de rejeição legível para NFS-e (mesma lógica do NF-e). */
+function describeNfseRejection(result: FocusNfseResponse): string {
+  if (result.erros?.length) {
+    return result.erros.map(e => `[${e.codigo}] ${e.mensagem}`).join('; ');
+  }
+  if (result.mensagem_sefaz) return result.mensagem_sefaz;
+  if (result.codigo || result.mensagem) {
+    return [result.codigo, result.mensagem].filter(Boolean).join(': ');
+  }
+  if (result.status) return `Status Focus: ${result.status}`;
+  return 'Falha ao comunicar com o Focus NFS-e (sem detalhes no retorno — verifique o token e a inscrição municipal)';
+}
+
+export async function processNfseRecord(app: FastifyInstance, record: SQSRecord): Promise<void> {
+  const msg: NfseEmitMessage = JSON.parse(record.body);
+  const { nfse_id, tenant_id, focus_ref, ambiente } = msg;
+
+  app.log.info({ event: 'nfse_start', nfse_id, tenant_id, focus_ref, ambiente });
+
+  const token = msg.focus_token || app.config.focusToken;
+  if (!token) throw new Error(`No Focus token for tenant ${tenant_id} — set FOCUS_NFE_TOKEN or configure per-tenant token`);
+
+  const focus   = new FocusNfseClient(token, ambiente);
+  const payload = buildFocusNfsePayload(msg);
+
+  let result = await focus.emitir(focus_ref, payload);
+  app.log.info({ event: 'nfse_submitted', nfse_id, focus_status: result.status });
+
+  if (result.status === 'processando') {
+    result = await focus.aguardarAutorizacao(focus_ref, 60_000);
+  }
+
+  let resultMsg: NfseResultMessage;
+
+  if (result.status === 'autorizado') {
+    resultMsg = {
+      type:             'nfse',
+      nfse_id,
+      tenant_id,
+      nfse_status:      'authorized',
+      nfse_number:      result.numero_nfse,
+      nfse_chave:       result.chave,
+      nfse_verify_code: result.codigo_verificacao,
+      nfse_protocol:    result.protocolo ?? result.numero_protocolo,
+      nfse_auth_date:   result.data_emissao ?? msg.data_emissao,
+      nfse_pdf_url:     result.link_download_pdf,
+    };
+    app.log.info({ event: 'nfse_authorized', nfse_id, nfse_number: result.numero_nfse });
+  } else {
+    const reason = describeNfseRejection(result);
+    resultMsg = { type: 'nfse', nfse_id, tenant_id, nfse_status: 'rejected', nfse_reject_reason: reason };
+    app.log.warn({ event: 'nfse_rejected', nfse_id, reason });
   }
 
   await app.sqs.send(new SendMessageCommand({

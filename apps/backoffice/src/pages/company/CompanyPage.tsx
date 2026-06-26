@@ -23,6 +23,11 @@ interface NfeCfg {
   natureza_operacao: string; focus_ambiente: number;
   focus_token_homologacao: string | null; // masked from API (****XXXX)
   focus_token_producao:    string | null; // masked from API (****XXXX)
+  // NFS-e
+  inscricao_municipal: string | null;
+  codigo_municipio_ibge: string | null;
+  aliquota_iss_padrao: string | null;
+  codigo_servico_padrao: string | null;
 }
 
 const EMPTY_NFE_FORM = {
@@ -34,6 +39,8 @@ const EMPTY_NFE_FORM = {
   natureza_operacao: 'Venda de mercadoria', focus_ambiente: '2',
   focus_token_homologacao: '', // empty = keep current; filled = update
   focus_token_producao:    '',
+  inscricao_municipal: '', codigo_municipio_ibge: '3550308',
+  aliquota_iss_padrao: '5.00', codigo_servico_padrao: '',
 };
 
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
@@ -157,6 +164,10 @@ export function CompanyPage() {
         focus_ambiente:         String(data.focus_ambiente ?? 2),
         focus_token_homologacao: '', // always start empty — masked value from API is display-only
         focus_token_producao:    '',
+        inscricao_municipal:    data.inscricao_municipal || '',
+        codigo_municipio_ibge:  data.codigo_municipio_ibge || '3550308',
+        aliquota_iss_padrao:    data.aliquota_iss_padrao != null ? String(data.aliquota_iss_padrao) : '5.00',
+        codigo_servico_padrao:  data.codigo_servico_padrao || '',
       });
     } catch {
       // 404 is expected if no config yet; other errors are silent (user sees empty form)
@@ -191,6 +202,10 @@ export function CompanyPage() {
         focus_ambiente:         Number(nfeForm.focus_ambiente),
         focus_token_homologacao: nfeForm.focus_token_homologacao || null,
         focus_token_producao:    nfeForm.focus_token_producao    || null,
+        inscricao_municipal:    nfeForm.inscricao_municipal || null,
+        codigo_municipio_ibge:  nfeForm.codigo_municipio_ibge || null,
+        aliquota_iss_padrao:    nfeForm.aliquota_iss_padrao ? Number(nfeForm.aliquota_iss_padrao) : null,
+        codigo_servico_padrao:  nfeForm.codigo_servico_padrao || null,
       });
       setNfeSuccess(t('comp.nfe.saved'));
       loadNfeConfig();
@@ -655,6 +670,39 @@ export function CompanyPage() {
                       placeholder={nfeCfg?.focus_token_producao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
                       autoComplete="new-password"
                       onChange={e => setNfeForm(f => ({ ...f, focus_token_producao: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* ── NFS-e (Nota Fiscal de Serviços) ── */}
+                <div style={{ marginTop: 16, padding: '16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <h4 style={{ marginBottom: 4 }}>{t('comp.nfse.title')}</h4>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfse.hint')}</p>
+
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('comp.nfse.inscricaoMunicipal')}</label>
+                      <input type="text" value={nfeForm.inscricao_municipal} maxLength={20}
+                        onChange={e => setNfeForm(f => ({ ...f, inscricao_municipal: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.nfse.codigoMunicipioIbge')}</label>
+                      <input type="text" value={nfeForm.codigo_municipio_ibge} maxLength={10}
+                        onChange={e => setNfeForm(f => ({ ...f, codigo_municipio_ibge: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('comp.nfse.aliquotaIss')}</label>
+                      <input type="number" step="0.01" min={0} value={nfeForm.aliquota_iss_padrao}
+                        onChange={e => setNfeForm(f => ({ ...f, aliquota_iss_padrao: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.nfse.codigoServico')}</label>
+                      <input type="text" value={nfeForm.codigo_servico_padrao} maxLength={10}
+                        placeholder={t('comp.nfse.codigoServicoPH')}
+                        onChange={e => setNfeForm(f => ({ ...f, codigo_servico_padrao: e.target.value }))} />
+                    </div>
                   </div>
                 </div>
 

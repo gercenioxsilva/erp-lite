@@ -1,6 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, ilike, or, sql } from 'drizzle-orm';
-import { db, serviceContracts, contractBillings, receivables, clients, materials } from '../db';
+import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices, nfeConfigs } from '../db';
+import { getSqsClient } from '../lib/sqsClient';
+import { buildNfseEmitMessage } from '../lib/nfse';
 
 const FREQUENCIES = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
 const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
@@ -19,6 +22,9 @@ const contractBody = {
     amount:            { type: 'number', minimum: 0.01 },
     status:            { type: 'string', enum: STATUSES },
     notes:             { type: 'string' },
+    nfse_enabled:      { type: 'boolean' },
+    codigo_servico:    { type: 'string' },
+    aliquota_iss:      { type: 'number', minimum: 0 },
   },
   additionalProperties: false,
 };
@@ -104,6 +110,9 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       amount:            String(b.amount),
       status:            'active',
       notes:             (b.notes            ?? null) as string | null,
+      nfse_enabled:      Boolean(b.nfse_enabled ?? false),
+      codigo_servico:    (b.codigo_servico   ?? null) as string | null,
+      aliquota_iss:      b.aliquota_iss != null ? String(b.aliquota_iss) : null,
       created_by:        (b.created_by       ?? null) as string | null,
     }).returning();
 
@@ -150,8 +159,11 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.notFound('Contract not found');
 
     const allowed = ['description', 'client_id', 'material_id', 'start_date', 'end_date',
-                     'billing_frequency', 'billing_day', 'amount', 'status', 'notes'];
+                     'billing_frequency', 'billing_day', 'amount', 'status', 'notes',
+                     'nfse_enabled', 'codigo_servico', 'aliquota_iss'];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
+    if ('aliquota_iss' in updateData && updateData.aliquota_iss != null)
+      updateData.aliquota_iss = String(updateData.aliquota_iss);
     if (!Object.keys(updateData).length) return reply.badRequest('No fields to update');
 
     const [updated] = await db.update(serviceContracts)
@@ -196,7 +208,37 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
     const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     const description = `${contract.description} — ${months[month - 1]}/${year}`;
 
+    // NFS-e opt-in: validate config + service code before creating the document
+    const wantsNfse = contract.nfse_enabled === true;
+    let cfg: any = null;
+    let clientRow: any = null;
+    let serviceCode: string | null = null;
+    let issRate = 0;
+
+    if (wantsNfse) {
+      const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
+      if (!queueUrl) return reply.badRequest('Emissão de NFS-e não configurada neste ambiente');
+
+      [cfg] = await db.select().from(nfeConfigs).where(eq(nfeConfigs.tenant_id, contract.tenant_id));
+      if (!cfg) return reply.badRequest('Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir');
+      if (!cfg.inscricao_municipal)
+        return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e (Empresa → NFS-e)');
+
+      serviceCode = contract.codigo_servico || cfg.codigo_servico_padrao || null;
+      if (!serviceCode)
+        return reply.badRequest('Código de serviço (LC 116) é obrigatório para emitir NFS-e');
+
+      issRate = Number(contract.aliquota_iss ?? cfg.aliquota_iss_padrao ?? 0);
+
+      const { rows: cRows } = await db.execute<any>(sql`SELECT * FROM clients WHERE id = ${contract.client_id}`);
+      clientRow = cRows[0];
+      if (!clientRow) return reply.badRequest('Cliente do contrato não encontrado');
+    }
+
+    const issValue = wantsNfse ? Number((Number(contract.amount) * issRate / 100).toFixed(2)) : 0;
+
     let billing: any;
+    let nfseId: string | null = null;
     await db.transaction(async (tx) => {
       const [rec] = await tx.insert(receivables).values({
         tenant_id:   contract.tenant_id,
@@ -219,9 +261,62 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
         status:        'billed',
       }).returning();
       billing = { ...b, receivable_id: rec.id };
+
+      if (wantsNfse) {
+        const [nfse] = await tx.insert(nfseInvoices).values({
+          tenant_id:           contract.tenant_id,
+          contract_billing_id: b.id,
+          receivable_id:       rec.id,
+          client_id:           contract.client_id,
+          description,
+          amount:              String(contract.amount),
+          iss_rate:            String(issRate),
+          iss_value:           String(issValue),
+          service_code:        serviceCode!,
+          period_start:        periodStart,
+          period_end:          periodEnd,
+          nfse_status:         null,
+        }).returning();
+        nfseId = nfse.id;
+
+        await tx.update(contractBillings)
+          .set({ nfse_id: nfse.id })
+          .where(eq(contractBillings.id, b.id));
+      }
     });
 
-    return reply.code(201).send(billing);
+    let nfseStatus: string | null = null;
+    if (wantsNfse && nfseId) {
+      const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL!;
+      await db.update(nfseInvoices).set({ nfse_status: 'pending', nfse_attempts: sql`nfse_attempts + 1` })
+        .where(eq(nfseInvoices.id, nfseId));
+
+      const message = buildNfseEmitMessage({
+        nfse_id:      nfseId,
+        tenant_id:    contract.tenant_id,
+        description,
+        amount:       Number(contract.amount),
+        iss_rate:     issRate,
+        iss_value:    issValue,
+        service_code: serviceCode!,
+        period_start: periodStart,
+        period_end:   periodEnd,
+        cfg,
+        client:       clientRow,
+      });
+
+      try {
+        await getSqsClient().send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message) }));
+        await db.update(nfseInvoices).set({ nfse_status: 'processing' }).where(eq(nfseInvoices.id, nfseId));
+        nfseStatus = 'processing';
+      } catch (err) {
+        await db.update(nfseInvoices).set({ nfse_status: null }).where(eq(nfseInvoices.id, nfseId));
+        nfseStatus = null;
+        fastify.log.error({ err, nfseId }, 'Failed to enqueue NFS-e emit message');
+      }
+    }
+
+    return reply.code(201).send({ ...billing, nfse_id: nfseId, nfse_status: nfseStatus });
   });
 
   // GET /v1/service-contracts/:id/billings

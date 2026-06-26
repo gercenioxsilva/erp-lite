@@ -1,6 +1,8 @@
 export type NotificationType =
   | 'nfe_authorized'
   | 'nfe_rejected'
+  | 'nfse_authorized'
+  | 'nfse_rejected'
   | 'order_confirmed'
   | 'boleto_generated'
   | 'user_welcome';

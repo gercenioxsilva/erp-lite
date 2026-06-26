@@ -32,6 +32,9 @@ interface Contract {
   amount:            string;
   status:            string;
   notes:             string | null;
+  nfse_enabled:      boolean;
+  codigo_servico:    string | null;
+  aliquota_iss:      string | null;
 }
 
 interface Billing {
@@ -42,6 +45,13 @@ interface Billing {
   amount:           string;
   status:           string;
   receivable_status?: string;
+  nfse_id?:         string | null;
+}
+
+interface NfseLite {
+  id:                 string;
+  nfse_status:        string | null;
+  nfse_number:        string | null;
 }
 
 interface ListResp { data: Contract[]; total: number; page: number; per_page: number; }
@@ -60,6 +70,9 @@ const EMPTY_FORM = {
   amount:            '',
   status:            'active' as string,
   notes:             '',
+  nfse_enabled:      false,
+  codigo_servico:    '',
+  aliquota_iss:      '',
 };
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -100,6 +113,7 @@ export function ContractsPage() {
   const [billings,        setBillings]        = useState<Billing[]>([]);
   const [billingsLoading, setBillingsLoading] = useState(false);
   const [generatingBill,  setGeneratingBill]  = useState(false);
+  const [nfseMap,         setNfseMap]         = useState<Record<string, NfseLite>>({});
 
   const perPage = 20;
 
@@ -149,6 +163,32 @@ export function ContractsPage() {
     else setBillings([]);
   }, [drawerOpen, editing?.id]);
 
+  // Poll NFS-e status for billings while any of them is pending/processing
+  useEffect(() => {
+    if (!drawerOpen || !editing || !tenantId) return;
+    const pending = billings.some(b => b.nfse_id && nfseMap[b.nfse_id]
+      && ['pending', 'processing'].includes(nfseMap[b.nfse_id].nfse_status ?? ''));
+    const unknown = billings.some(b => b.nfse_id && !nfseMap[b.nfse_id]);
+    if (!pending && !unknown) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      const ids = billings.map(b => b.nfse_id).filter(Boolean) as string[];
+      const results = await Promise.all(ids.map(id =>
+        api.get<NfseLite>(`/v1/nfse/${id}?tenant_id=${tenantId}`).catch(() => null)
+      ));
+      if (cancelled) return;
+      setNfseMap(prev => {
+        const next = { ...prev };
+        results.forEach(r => { if (r) next[r.id] = r; });
+        return next;
+      });
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [drawerOpen, editing?.id, tenantId, billings, nfseMap]);
+
   // ── Drawer helpers ─────────────────────────────────────────────────────────
 
   function openCreate() {
@@ -171,6 +211,9 @@ export function ContractsPage() {
       amount:            c.amount,
       status:            c.status,
       notes:             c.notes ?? '',
+      nfse_enabled:      c.nfse_enabled ?? false,
+      codigo_servico:    c.codigo_servico ?? '',
+      aliquota_iss:      c.aliquota_iss != null ? String(c.aliquota_iss) : '',
     });
     setFormError('');
     setDrawerOpen(true);
@@ -200,6 +243,9 @@ export function ContractsPage() {
         amount:            Number(form.amount),
         status:            form.status,
         notes:             form.notes          || undefined,
+        nfse_enabled:      form.nfse_enabled,
+        codigo_servico:    form.nfse_enabled ? (form.codigo_servico || undefined) : undefined,
+        aliquota_iss:      form.nfse_enabled && form.aliquota_iss ? Number(form.aliquota_iss) : undefined,
       };
       if (editing) await api.patch(`/v1/service-contracts/${editing.id}`, payload);
       else         await api.post('/v1/service-contracts', payload);
@@ -229,6 +275,16 @@ export function ContractsPage() {
     } catch (err: unknown) {
       modal.error(err);
     } finally { setGeneratingBill(false); }
+  }
+
+  async function handleReemitNfse(nfseId: string) {
+    if (!tenantId) return;
+    try {
+      await api.post(`/v1/nfse/${nfseId}/emit?tenant_id=${tenantId}`, {});
+      setNfseMap(prev => ({ ...prev, [nfseId]: { ...(prev[nfseId] ?? { id: nfseId, nfse_number: null }), nfse_status: 'processing' } }));
+    } catch (err: unknown) {
+      modal.error(err);
+    }
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -435,6 +491,33 @@ export function ContractsPage() {
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
 
+                {/* ── NFS-e ─────────────────────────────────────────── */}
+                <SectionLabel label={t('sc.nfseSection')} />
+                <div className="field">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.nfse_enabled}
+                      style={{ width: 'auto' }}
+                      onChange={e => setForm(f => ({ ...f, nfse_enabled: e.target.checked }))} />
+                    {t('sc.nfseEnabled')}
+                  </label>
+                </div>
+                {form.nfse_enabled && (
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('sc.servicoCode')}</label>
+                      <input value={form.codigo_servico} maxLength={10}
+                        placeholder={t('sc.servicoCodePH')}
+                        onChange={e => setForm(f => ({ ...f, codigo_servico: e.target.value }))} />
+                    </div>
+                    <div className="field" style={{ flex: '0 0 140px' }}>
+                      <label>{t('sc.issRate')}</label>
+                      <input type="number" min={0} step={0.01} value={form.aliquota_iss}
+                        placeholder={t('sc.issRatePH')}
+                        onChange={e => setForm(f => ({ ...f, aliquota_iss: e.target.value }))} />
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Cobranças geradas ─────────────────────────────── */}
                 {editing && (
                   <>
@@ -461,10 +544,14 @@ export function ContractsPage() {
                               <th>Valor</th>
                               <th>Status cobrança</th>
                               <th>Status recebível</th>
+                              <th>NFS-e</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {billings.map(b => (
+                            {billings.map(b => {
+                              const nfse = b.nfse_id ? nfseMap[b.nfse_id] : undefined;
+                              const ns = nfse?.nfse_status ?? null;
+                              return (
                               <tr key={b.id}>
                                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>
                                   {fmtDate(b.period_start)} – {fmtDate(b.period_end)}
@@ -483,8 +570,23 @@ export function ContractsPage() {
                                     </span>
                                   ) : '—'}
                                 </td>
+                                <td>
+                                  {!b.nfse_id ? '—' : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <span className={`badge ${ns === 'authorized' ? 'badge-product' : ns === 'rejected' ? 'badge-service' : 'badge-raw_material'}`}>
+                                        {ns ? t(`nfse.status.${ns}` as Parameters<typeof t>[0]) || ns : t('nfse.status.processing')}
+                                      </span>
+                                      {ns === 'rejected' && (
+                                        <button type="button" className="btn btn-secondary btn-sm"
+                                          onClick={() => void handleReemitNfse(b.nfse_id!)}>
+                                          {t('sc.retryNfse')}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
                               </tr>
-                            ))}
+                            ); })}
                           </tbody>
                         </table>
                       </div>
