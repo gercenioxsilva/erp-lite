@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, FormEvent } from 'react';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { digits, fetchAddressByCEP } from '../../lib/brazil';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -87,6 +88,7 @@ export function CompanyPage() {
   const [nfeSaving, setNfeSaving]     = useState(false);
   const [nfeSuccess, setNfeSuccess]   = useState('');
   const [nfeError, setNfeError]       = useState('');
+  const [cepLoading, setCepLoading]   = useState(false);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -173,6 +175,20 @@ export function CompanyPage() {
       // 404 is expected if no config yet; other errors are silent (user sees empty form)
       setNfeForm({ ...EMPTY_NFE_FORM });
     } finally { setNfeLoading(false); }
+  }
+
+  async function handleNfeCEP(cep: string) {
+    setCepLoading(true);
+    const addr = await fetchAddressByCEP(cep);
+    setCepLoading(false);
+    if (!addr) return;
+    setNfeForm(f => ({
+      ...f,
+      logradouro: addr.street       || f.logradouro,
+      bairro:     addr.neighborhood || f.bairro,
+      municipio:  addr.city         ? addr.city.toUpperCase() : f.municipio,
+      uf:         addr.state        || f.uf,
+    }));
   }
 
   async function handleNfeSave(e: FormEvent) {
@@ -593,9 +609,13 @@ export function CompanyPage() {
                       onChange={e => setNfeForm(f => ({ ...f, uf: e.target.value.toUpperCase() }))} />
                   </div>
                   <div className="field">
-                    <label>{t('comp.postalCode')}</label>
+                    <label>
+                      {t('comp.postalCode')}
+                      {cepLoading && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{t('sup.searching')}</span>}
+                    </label>
                     <input type="text" value={nfeForm.cep} maxLength={9}
-                      onChange={e => setNfeForm(f => ({ ...f, cep: e.target.value }))} />
+                      onChange={e => setNfeForm(f => ({ ...f, cep: e.target.value }))}
+                      onBlur={e => { if (digits(e.target.value).length === 8) void handleNfeCEP(e.target.value); }} />
                   </div>
                 </div>
 

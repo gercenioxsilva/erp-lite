@@ -4,9 +4,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
 
 interface Payable {
-  id: string; description: string; supplier_name: string | null; category: string;
+  id: string; description: string; supplier_id: string | null; supplier_name: string | null; category: string;
   document_number: string | null; amount: string; paid_amount: string;
   due_date: string; status: string; notes: string | null; created_at: string;
+}
+
+interface SupplierOption {
+  id: string; company_name: string | null; full_name: string | null;
 }
 
 interface Payment {
@@ -59,8 +63,9 @@ export function PayablesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm]             = useState({
-    supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '',
+    supplier_id: null as string | null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '',
   });
+  const [suppliersList, setSuppliersList] = useState<SupplierOption[]>([]);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
 
@@ -75,6 +80,13 @@ export function PayablesPage() {
     loadItems();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (!createOpen || !tenantId) return;
+    api.get<any>('/v1/suppliers?per_page=100&is_active=true')
+      .then(data => setSuppliersList(data.data || []))
+      .catch(() => setSuppliersList([]));
+  }, [createOpen, tenantId]);
 
   async function loadItems() {
     setLoading(true);
@@ -104,7 +116,8 @@ export function PayablesPage() {
     setSaving(true);
     try {
       await api.post('/v1/payables', {
-        supplier_name:   form.supplier_name   || null,
+        supplier_id:     form.supplier_id    || null,
+        supplier_name:   form.supplier_name  || null,
         category:        form.category,
         description:     form.description,
         document_number: form.document_number || null,
@@ -113,7 +126,7 @@ export function PayablesPage() {
         notes:           form.notes || null,
       });
       setCreateOpen(false);
-      setForm({ supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
+      setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
       loadItems();
     } catch (err: any) {
       setFormError(err.message || t('pay.errSave'));
@@ -169,7 +182,7 @@ export function PayablesPage() {
         <h1>{t('pay.title')}</h1>
         <button className="btn btn-primary btn-cta" onClick={() => {
           setCreateOpen(true); setFormError('');
-          setForm({ supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
+          setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
         }}>{t('pay.new')}</button>
       </div>
 
@@ -272,8 +285,24 @@ export function PayablesPage() {
                 <div className="field-row">
                   <div className="field">
                     <label>{t('pay.supplier')}</label>
+                    <select value={form.supplier_id ?? ''} onChange={e => {
+                      const sid = e.target.value;
+                      const sup = suppliersList.find(s => s.id === sid);
+                      setForm(f => ({
+                        ...f,
+                        supplier_id:   sid || null,
+                        supplier_name: sup ? (sup.company_name || sup.full_name || '') : f.supplier_name,
+                      }));
+                    }}>
+                      <option value="">{t('pay.selectSupplier')}</option>
+                      {suppliersList.map(s => (
+                        <option key={s.id} value={s.id}>{s.company_name || s.full_name}</option>
+                      ))}
+                    </select>
                     <input type="text" value={form.supplier_name}
-                      onChange={e => setForm(f => ({ ...f, supplier_name: e.target.value }))} />
+                      placeholder={t('pay.supplierFreeText')}
+                      onChange={e => setForm(f => ({ ...f, supplier_name: e.target.value, supplier_id: null }))}
+                      style={{ marginTop: 4 }} />
                   </div>
                   <div className="field">
                     <label>{t('pay.category')}</label>

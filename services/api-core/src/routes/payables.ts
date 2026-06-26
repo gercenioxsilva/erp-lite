@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, payables, payablePayments } from '../db';
+import { db, payables, payablePayments, suppliers } from '../db';
 
 const VALID_CATEGORIES = ['rent', 'utilities', 'payroll', 'supplies', 'services', 'taxes', 'other'] as const;
 const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -26,17 +26,20 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [{ rows }, { rows: [cnt] }] = await Promise.all([
       db.execute<any>(sql`
-        SELECT id, description, supplier_name, category, document_number,
-               amount, paid_amount, due_date, status, notes, created_at
-        FROM payables
-        WHERE tenant_id = ${tenantId}
+        SELECT p.id, p.description, p.supplier_id,
+               COALESCE(s.company_name, s.full_name, p.supplier_name) AS supplier_name,
+               p.category, p.document_number,
+               p.amount, p.paid_amount, p.due_date, p.status, p.notes, p.created_at
+        FROM payables p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE p.tenant_id = ${tenantId}
           ${statusFilter} ${categoryFilter} ${dateFromFilter} ${dateToFilter} ${searchFilter}
-        ORDER BY due_date ASC, created_at DESC
+        ORDER BY p.due_date ASC, p.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
       db.execute<{ count: string }>(sql`
-        SELECT COUNT(*) AS count FROM payables
-        WHERE tenant_id = ${tenantId}
+        SELECT COUNT(*) AS count FROM payables p
+        WHERE p.tenant_id = ${tenantId}
           ${statusFilter} ${categoryFilter} ${dateFromFilter} ${dateToFilter} ${searchFilter}
       `),
     ]);
@@ -48,7 +51,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/payables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
-    const { supplier_name, category = 'other', description, document_number,
+    const { supplier_name, supplier_id, category = 'other', description, document_number,
             amount, due_date, notes } = request.body as any;
 
     if (!description || typeof description !== 'string' || !description.trim())
@@ -60,9 +63,20 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!VALID_CATEGORIES.includes(category))
       return reply.badRequest(`category inválida. Valores aceitos: ${VALID_CATEGORIES.join(', ')}`);
 
+    // If supplier_id provided, resolve supplier name
+    let resolvedSupplierName: string | null = supplier_name || null;
+    let resolvedSupplierId: string | null = supplier_id || null;
+    if (supplier_id) {
+      const [sup] = await db.select().from(suppliers)
+        .where(and(eq(suppliers.id, supplier_id), eq(suppliers.tenant_id, tenantId)));
+      if (!sup) return reply.badRequest('supplier_id não encontrado');
+      if (!resolvedSupplierName) resolvedSupplierName = sup.company_name || sup.full_name || null;
+    }
+
     const [row] = await db.insert(payables).values({
       tenant_id:       tenantId,
-      supplier_name:   supplier_name   || null,
+      supplier_id:     resolvedSupplierId,
+      supplier_name:   resolvedSupplierName,
       category,
       description:     description.trim(),
       document_number: document_number || null,
@@ -83,7 +97,12 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [{ rows: [pay] }, { rows: payments }] = await Promise.all([
       db.execute<any>(sql`
-        SELECT * FROM payables WHERE id = ${id} AND tenant_id = ${tenantId}
+        SELECT p.*,
+               COALESCE(s.company_name, s.full_name) AS supplier_display_name,
+               s.email AS supplier_email, s.phone AS supplier_phone
+        FROM payables p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`
         SELECT * FROM payable_payments
@@ -111,6 +130,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     const patch: Record<string, unknown> = {};
     if (body.description     !== undefined) patch.description     = body.description;
     if (body.supplier_name   !== undefined) patch.supplier_name   = body.supplier_name || null;
+    if (body.supplier_id     !== undefined) patch.supplier_id     = body.supplier_id   || null;
     if (body.category        !== undefined) patch.category        = body.category;
     if (body.document_number !== undefined) patch.document_number = body.document_number || null;
     if (body.amount          !== undefined) patch.amount          = String(Number(body.amount).toFixed(2));

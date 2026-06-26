@@ -380,10 +380,42 @@ export const receivablePayments = pgTable('receivable_payments', {
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── suppliers ─────────────────────────────────────────────────────────────────
+export const suppliers = pgTable('suppliers', {
+  id:            uuid('id').defaultRandom().primaryKey(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  person_type:   varchar('person_type', { length: 2 }).notNull().default('PJ'),
+  company_name:  varchar('company_name', { length: 255 }),
+  trade_name:    varchar('trade_name', { length: 255 }),
+  cnpj:          varchar('cnpj', { length: 14 }),
+  full_name:     varchar('full_name', { length: 255 }),
+  cpf:           varchar('cpf', { length: 11 }),
+  email:         varchar('email', { length: 255 }),
+  phone:         varchar('phone', { length: 30 }),
+  zip_code:      varchar('zip_code', { length: 8 }),
+  street:        varchar('street', { length: 255 }),
+  street_number: varchar('street_number', { length: 20 }),
+  complement:    varchar('complement', { length: 100 }),
+  neighborhood:  varchar('neighborhood', { length: 100 }),
+  city:          varchar('city', { length: 100 }),
+  state:         char('state', { length: 2 }),
+  bank_code:     varchar('bank_code', { length: 10 }),
+  agency:        varchar('agency', { length: 20 }),
+  account:       varchar('account', { length: 20 }),
+  account_digit: varchar('account_digit', { length: 5 }),
+  pix_key:       varchar('pix_key', { length: 255 }),
+  category:      varchar('category', { length: 50 }).notNull().default('services'),
+  notes:         text('notes'),
+  is_active:     boolean('is_active').notNull().default(true),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── payables ──────────────────────────────────────────────────────────────────
 export const payables = pgTable('payables', {
   id:              uuid('id').primaryKey().defaultRandom(),
   tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  supplier_id:     uuid('supplier_id').references(() => suppliers.id, { onDelete: 'set null' }),
   supplier_name:   varchar('supplier_name',   { length: 255 }),
   category:        varchar('category',        { length: 50  }).notNull().default('other'),
   description:     varchar('description',     { length: 255 }).notNull(),
