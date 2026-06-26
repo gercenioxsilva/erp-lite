@@ -90,6 +90,13 @@ function IcoNfse() {
     </svg>
   );
 }
+function IcoSuppliers() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 14V6l5-4 5 4v8H2z"/><path d="M12 6h4v8h-4"/><path d="M6 14v-3h2v3"/>
+    </svg>
+  );
+}
 
 function IcoMenu() {
   return (
@@ -108,6 +115,7 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/orders':      IcoOrders,
   '/invoices':    IcoInvoices,
   '/receivables': IcoReceivables,
+  '/suppliers':   IcoSuppliers,
   '/payables':    IcoPayables,
   '/users':       IcoUsers,
   '/company':     IcoCompany,
@@ -133,6 +141,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/orders',      label: t('nav.orders')      },
     { to: '/invoices',    label: t('nav.invoices')    },
     { to: '/receivables', label: t('nav.receivables') },
+    { to: '/suppliers',   label: t('nav.suppliers')   },
     { to: '/payables',    label: t('nav.payables')    },
     { to: '/contracts',   label: t('nav.contracts')   },
     { to: '/nfse',        label: t('nav.nfse')        },

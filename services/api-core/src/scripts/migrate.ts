@@ -49,6 +49,7 @@ const migrations = [
   '0017_nfe_tokens.sql',
   '0018_material_images.sql',
   '0019_nfse.sql',
+  '0020_suppliers.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
