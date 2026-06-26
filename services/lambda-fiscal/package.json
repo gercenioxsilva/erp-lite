@@ -5,7 +5,8 @@
   "type": "commonjs",
   "main": "dist/handler.js",
   "scripts": {
-    "build": "tsc -p ."
+    "build": "tsc -p .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",

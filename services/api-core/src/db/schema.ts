@@ -283,6 +283,11 @@ export const nfeConfigs = pgTable('nfe_configs', {
   focus_ambiente:              smallint('focus_ambiente').notNull().default(2),
   focus_token_homologacao: varchar('focus_token_homologacao', { length: 255 }),
   focus_token_producao:    varchar('focus_token_producao',    { length: 255 }),
+  // NFS-e municipal data (migration 0019)
+  inscricao_municipal:   varchar('inscricao_municipal',   { length: 20 }),
+  codigo_municipio_ibge: varchar('codigo_municipio_ibge', { length: 10 }).default('3550308'),
+  aliquota_iss_padrao:   decimal('aliquota_iss_padrao', { precision: 5, scale: 2 }).default('5.00'),
+  codigo_servico_padrao: varchar('codigo_servico_padrao', { length: 10 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -437,6 +442,10 @@ export const serviceContracts = pgTable('service_contracts', {
   amount:            decimal('amount', { precision: 15, scale: 2 }).notNull(),
   status:            varchar('status', { length: 20 }).notNull().default('active'),
   notes:             text('notes'),
+  // NFS-e opt-in (migration 0019)
+  nfse_enabled:      boolean('nfse_enabled').notNull().default(false),
+  codigo_servico:    varchar('codigo_servico', { length: 10 }),
+  aliquota_iss:      decimal('aliquota_iss', { precision: 5, scale: 2 }),
   created_by:        uuid('created_by'),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -454,6 +463,8 @@ export const contractBillings = pgTable('contract_billings', {
   due_date:      date('due_date').notNull(),
   status:        varchar('status', { length: 20 }).notNull().default('pending'),
   notes:         text('notes'),
+  // NFS-e link (migration 0019) — FK to nfseInvoices, declared after this table
+  nfse_id:       uuid('nfse_id'),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -468,6 +479,48 @@ export const notificationConfigs = pgTable('notification_configs', {
   notify_nfe_rejected:    boolean('notify_nfe_rejected').notNull().default(true),
   notify_order_confirmed: boolean('notify_order_confirmed').notNull().default(false),
   notify_boleto_generated: boolean('notify_boleto_generated').notNull().default(true),
+  notify_nfse_authorized: boolean('notify_nfse_authorized').notNull().default(true),
+  notify_nfse_rejected:   boolean('notify_nfse_rejected').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── nfse_invoices ─────────────────────────────────────────────────────────────
+export const nfseInvoices = pgTable('nfse_invoices', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  contract_billing_id: uuid('contract_billing_id').references(() => contractBillings.id, { onDelete: 'set null' }),
+  receivable_id:       uuid('receivable_id').references(() => receivables.id, { onDelete: 'set null' }),
+  client_id:           uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  description:         text('description').notNull(),
+  amount:              decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  iss_rate:            decimal('iss_rate', { precision: 5, scale: 2 }).notNull(),
+  iss_value:           decimal('iss_value', { precision: 15, scale: 2 }).notNull(),
+  service_code:        varchar('service_code', { length: 10 }).notNull(),
+  period_start:        date('period_start'),
+  period_end:          date('period_end'),
+  nfse_status:         varchar('nfse_status', { length: 30 }),
+  nfse_number:         varchar('nfse_number', { length: 50 }),
+  nfse_chave:          varchar('nfse_chave', { length: 255 }),
+  nfse_verify_code:    varchar('nfse_verify_code', { length: 100 }),
+  nfse_protocol:       varchar('nfse_protocol', { length: 50 }),
+  nfse_auth_date:      timestamp('nfse_auth_date', { withTimezone: true }),
+  nfse_reject_reason:  text('nfse_reject_reason'),
+  nfse_attempts:       smallint('nfse_attempts').notNull().default(0),
+  nfse_pdf_url:        text('nfse_pdf_url'),
+  nfse_xml_s3_key:     text('nfse_xml_s3_key'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── nfse_events ───────────────────────────────────────────────────────────────
+export const nfseEvents = pgTable('nfse_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  nfse_id:     uuid('nfse_id').notNull().references(() => nfseInvoices.id, { onDelete: 'cascade' }),
+  tenant_id:   uuid('tenant_id').notNull(),
+  event_type:  varchar('event_type', { length: 30 }).notNull(),
+  status_code: varchar('status_code', { length: 20 }),
+  protocol:    varchar('protocol', { length: 50 }),
+  payload:     jsonb('payload'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

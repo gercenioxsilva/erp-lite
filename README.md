@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas existentes estão listadas na seção "API Reference". Se uma rota não está aqui, ela não existe.
 
@@ -79,9 +79,51 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
     - `sendNotificationIfEnabled(payload)` — verifica `notification_configs` do tenant (flags `email_enabled`, `notify_*`). Usar para eventos de negócio (NF-e, pedido, boleto).
     - `sendSystemNotification(payload)` — envia direto para a fila SQS sem verificar config. Usar para e-mails sistêmicos (boas-vindas, reset de senha). Tipos disponíveis: `user_welcome`. O envio é fire-and-forget (`.catch(() => {})`); nunca deve bloquear a resposta da API.
 
+24. **NFS-e vs NF-e: nunca misturar os dois tipos.** NFS-e usa o endpoint Focus `/v2/nfse`, imposto ISS municipal, e requer `inscricao_municipal` + `codigo_servico` (LC 116). NF-e usa `/v2/nfe`, ICMS federal/estadual, e requer NCM/CFOP. Ambos compartilham a mesma fila SQS `nfe-requests` e a mesma Lambda `lambda-fiscal`, discriminados por `type: 'nfse'` na mensagem (mensagens sem `type` são tratadas como NF-e para retrocompatibilidade). O token Focus é o mesmo para os dois (token de conta, não específico do documento). Nunca enviar campos de NF-e (NCM, CFOP, ICMS) em uma emissão de NFS-e nem vice-versa.
+
 ---
 
 ## Histórico de Prompts
+
+### v8.0 — NFS-e (Nota Fiscal de Serviços)
+
+> **Emissão de NFS-e municipal integrada ao Focus, reaproveitando a infraestrutura de NF-e:**
+> NFS-e (Nota Fiscal de Serviços Eletrônica) é gerada automaticamente a partir das cobranças de
+> contratos de manutenção (`contract_billings`) quando o contrato tem `nfse_enabled = true`.
+> Custo zero de infra nova: reutiliza a fila SQS `nfe-requests`, a Lambda `lambda-fiscal` e a fila
+> `nfe-results`, discriminando por `type: 'nfse'` na mensagem.
+>
+> **Banco:** migration `0019_nfse.sql`. Estende `nfe_configs` (`inscricao_municipal`,
+> `codigo_municipio_ibge`, `aliquota_iss_padrao`, `codigo_servico_padrao`); estende
+> `service_contracts` (`nfse_enabled`, `codigo_servico`, `aliquota_iss`); cria `nfse_invoices`
+> (documento NFS-e, 1 por cobrança) e `nfse_events` (audit trail append-only); adiciona
+> `contract_billings.nfse_id` (FK) e flags `notify_nfse_authorized`/`notify_nfse_rejected` em
+> `notification_configs`.
+>
+> **API:** novas rotas em `nfse.ts` — `GET /v1/nfse` (lista), `GET /v1/nfse/:id` (detalhe +
+> eventos), `GET /v1/nfse/:id/events`, `POST /v1/nfse/:id/emit` (reemissão de rejeitadas).
+> `nfe.ts` estende `GET/PUT /v1/nfe-config` com os campos municipais. `serviceContracts.ts`:
+> `POST /:id/billings` cria a NFS-e na mesma transação da cobrança e enfileira a emissão
+> (status `null → pending → processing`; reverte para `null` se o SQS falhar).
+>
+> **Lambda fiscal:** `FocusNfseClient` + `buildFocusNfsePayload` em `focusNfe.ts` (endpoint
+> `/v2/nfse`, modo simulação com tokens `local-*`). `processNfseRecord` em `nfeService.ts`
+> (o `processRecord` de NF-e permanece intacto). `handler.ts` roteia por `body.type === 'nfse'`.
+>
+> **Worker:** `nfeResultsWorker.ts` ganha um branch `processNfseResult` (mensagens sem `type`
+> continuam tratadas como NF-e). On authorized/rejected: UPDATE `nfse_invoices` (guard
+> `nfse_status='processing'` para idempotência) + INSERT `nfse_events` + notificação.
+>
+> **Notificações:** novos templates `nfse_authorized` e `nfse_rejected` em lambda-notifications.
+>
+> **Frontend:** seção NFS-e na aba Dados Fiscais (`CompanyPage.tsx`); toggle `nfse_enabled` +
+> código de serviço + alíquota ISS no formulário de contratos (`ContractsPage.tsx`) com badge de
+> status e polling por cobrança; nova página `NfsePage.tsx` (lista + drawer de detalhe + reemissão
+> + polling). Rota `/nfse`, item de menu e ícone adicionados. Chaves `nfse.*`, `comp.nfse.*`,
+> `sc.nfse*` em `pt-BR.ts` e `en.ts`.
+>
+> **Protocolo anti-alucinação:** regra 1 atualizada com `nfse_invoices`/`nfse_events`; regra 24
+> (NFS-e vs NF-e) adicionada.
 
 ### v7.0 — E-mail de Boas-Vindas ao Criar Usuário
 
@@ -761,6 +803,56 @@ sequenceDiagram
     API-->>FE: { nfe_status, nfe_chave, nfe_danfe_url, ... }
 ```
 
+### Sequência — Emissão NFS-e Async (mesma Lambda, mesma fila)
+
+> NFS-e reaproveita 100% da infraestrutura de NF-e: a fila `nfe-requests`, a Lambda
+> `lambda-fiscal` e a fila `nfe-results`. As mensagens são discriminadas por `type: 'nfse'`
+> (mensagens sem `type` continuam tratadas como NF-e). O `handler.ts` roteia para
+> `processNfseRecord`, que usa `FocusNfseClient` no endpoint `/v2/nfse` (ISS municipal).
+
+```mermaid
+sequenceDiagram
+    actor User as Usuário
+    participant FE as Backoffice (React)
+    participant API as api-core (ECS Fastify)
+    participant DB as PostgreSQL (RDS)
+    participant SQS_REQ as SQS nfe-requests
+    participant Lambda as lambda-fiscal
+    participant Focus as Focus NFS-e (/v2/nfse)
+    participant SQS_RES as SQS nfe-results
+
+    User->>FE: Gera cobrança de contrato (nfse_enabled)
+    FE->>API: POST /v1/service-contracts/:id/billings
+    API->>DB: BEGIN — INSERT receivable + contract_billing + nfse_invoice (status=null)
+    API->>DB: UPDATE contract_billings SET nfse_id; COMMIT
+    API->>DB: UPDATE nfse_status = 'pending'
+    API->>SQS_REQ: SendMessage (NfseEmitMessage, type='nfse')
+    API->>DB: UPDATE nfse_status = 'processing'
+    API-->>FE: 201 { nfse_id, nfse_status: 'processing' }
+
+    SQS_REQ-->>Lambda: trigger (body.type === 'nfse' → processNfseRecord)
+    Lambda->>Focus: POST /v2/nfse?ref={nfse_id}
+    alt autorizado
+        Focus-->>Lambda: { status, numero_nfse, codigo_verificacao, link_download_pdf }
+        Lambda->>SQS_RES: SendMessage { type:'nfse', nfse_status:'authorized', ... }
+    else rejeitado / erro
+        Focus-->>Lambda: { status:'erro', erros:[...] }
+        Lambda->>SQS_RES: SendMessage { type:'nfse', nfse_status:'rejected', nfse_reject_reason }
+    end
+
+    SQS_RES-->>API: ReceiveMessage (nfeResultsWorker → body.type==='nfse' → processNfseResult)
+    alt authorized
+        API->>DB: UPDATE nfse_invoices (status, number, verify_code, pdf_url) WHERE status='processing'
+        API->>DB: INSERT nfse_events (event_type='emission')
+    else rejected
+        API->>DB: UPDATE nfse_invoices (status='rejected', reject_reason) WHERE status='processing'
+        API->>DB: INSERT nfse_events (event_type='emission_rejected')
+    end
+
+    FE->>API: GET /v1/nfse/:id (polling enquanto pending/processing)
+    API-->>FE: { nfse_status, nfse_number, nfse_pdf_url, events }
+```
+
 ### Sequência — Emissão Boleto Async
 
 ```mermaid
@@ -1007,7 +1099,8 @@ erp-lite/
 │       ├── 0011_tenant_logo.sql    ← ADD COLUMN logo_url TEXT em tenants
 │       ├── 0012_receivables.sql    ← receivables + receivable_payments
 │       ├── 0013_payables.sql       ← payables + payable_payments
-│       └── 0014_billing.sql        ← boletos + boleto_events + colunas billing em tenants + notification_configs
+│       ├── 0014_billing.sql        ← boletos + boleto_events + colunas billing em tenants + notification_configs
+│       └── 0019_nfse.sql           ← nfse_invoices + nfse_events + colunas NFS-e em nfe_configs/service_contracts/contract_billings/notification_configs
 │
 ├── services/lambda-billing/        ← Lambda — emissão async de boletos via API Banco
 │   ├── Dockerfile                  ← multi-stage Node 22 (public.ecr.aws/lambda/nodejs:22)
@@ -1320,7 +1413,7 @@ Armazenamento 1:N de imagens de produto por tenant. Mesmo padrão base64 do `log
 | cofins_base / cofins_rate / cofins_value | DECIMAL | |
 | ipi_rate / ipi_value | DECIMAL | IPI "por fora" (adicionado ao total da NF-e) |
 
-### `nfe_configs` *(migration: 0009_nfe.sql + 0017_nfe_tokens.sql)*
+### `nfe_configs` *(migration: 0009_nfe.sql + 0017_nfe_tokens.sql + 0019_nfse.sql)*
 Dados do emitente por tenant — necessários para compor a NF-e. Um registro por tenant.
 | Campo | Tipo | Notas |
 |-------|------|-------|
@@ -1343,6 +1436,10 @@ Dados do emitente por tenant — necessários para compor a NF-e. Um registro po
 | focus_ambiente | SMALLINT DEFAULT 2 | `1`=Produção `2`=Homologação |
 | focus_token_homologacao | VARCHAR(255) | Token Focus NF-e do ambiente de testes — por tenant. Se NULL, Lambda usa `FOCUS_NFE_TOKEN` env var como fallback. |
 | focus_token_producao | VARCHAR(255) | Token Focus NF-e do ambiente de produção — por tenant. Se NULL, Lambda usa `FOCUS_NFE_TOKEN` env var como fallback. |
+| inscricao_municipal | VARCHAR(20) | *(0019)* Inscrição Municipal do prestador — obrigatória para emitir NFS-e |
+| codigo_municipio_ibge | VARCHAR(10) DEFAULT '3550308' | *(0019)* Código IBGE do município (default = São Paulo) |
+| aliquota_iss_padrao | DECIMAL(5,2) DEFAULT 5.00 | *(0019)* Alíquota ISS padrão (%) usada quando o contrato não define a sua |
+| codigo_servico_padrao | VARCHAR(10) | *(0019)* Código de serviço LC 116 padrão (ex.: `14.01`) |
 
 ### `invoices` — colunas adicionadas pela migration 0009_nfe.sql
 | Campo | Tipo | Notas |
@@ -1369,7 +1466,61 @@ Audit trail imutável de todas as operações NF-e. Nunca deletar.
 | payload | JSONB | Resposta completa da SEFAZ / Focus NF-e |
 | created_at | TIMESTAMPTZ | |
 
-### `notification_configs` *(migration: 0010_notification_configs.sql)*
+### `service_contracts` — colunas adicionadas pela migration 0019_nfse.sql
+Base da tabela definida em `0016_service_contracts.sql`. NFS-e opt-in por contrato:
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| nfse_enabled | BOOLEAN NOT NULL DEFAULT FALSE | Quando `true`, cada cobrança gerada emite uma NFS-e automaticamente |
+| codigo_servico | VARCHAR(10) | Código de serviço LC 116; usa `nfe_configs.codigo_servico_padrao` se vazio |
+| aliquota_iss | DECIMAL(5,2) | Alíquota ISS (%) do contrato; usa `nfe_configs.aliquota_iss_padrao` se vazio |
+
+### `contract_billings` — coluna adicionada pela migration 0019_nfse.sql
+Base da tabela definida em `0016_service_contracts.sql`.
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| nfse_id | UUID FK → nfse_invoices ON DELETE SET NULL | Link para o documento NFS-e gerado |
+
+### `nfse_invoices` *(migration: 0019_nfse.sql)*
+Documento NFS-e (Nota Fiscal de Serviços). Um registro por cobrança de contrato (`contract_billings`).
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| tenant_id | UUID FK → tenants ON DELETE CASCADE | Isolamento multi-tenant |
+| contract_billing_id | UUID FK → contract_billings ON DELETE SET NULL | Cobrança que originou a NFS-e |
+| receivable_id | UUID FK → receivables ON DELETE SET NULL | Conta a receber vinculada |
+| client_id | UUID FK → clients ON DELETE SET NULL | Tomador do serviço |
+| description | TEXT NOT NULL | Discriminação do serviço |
+| amount | DECIMAL(15,2) NOT NULL | Valor dos serviços |
+| iss_rate | DECIMAL(5,2) NOT NULL | Alíquota ISS (%) |
+| iss_value | DECIMAL(15,2) NOT NULL | Valor do ISS |
+| service_code | VARCHAR(10) NOT NULL | Código de serviço LC 116 |
+| period_start / period_end | DATE | Período de competência do serviço |
+| nfse_status | VARCHAR(30) | `null`\|`pending`\|`processing`\|`authorized`\|`rejected` (CHECK) |
+| nfse_number | VARCHAR(50) | Número da NFS-e (após autorização) |
+| nfse_chave | VARCHAR(255) | Chave/identificador da NFS-e |
+| nfse_verify_code | VARCHAR(100) | Código de verificação da prefeitura |
+| nfse_protocol | VARCHAR(50) | Protocolo |
+| nfse_auth_date | TIMESTAMPTZ | Data de autorização |
+| nfse_reject_reason | TEXT | Motivo de rejeição (quando rejected) |
+| nfse_attempts | SMALLINT DEFAULT 0 | Contador de tentativas |
+| nfse_pdf_url | TEXT | URL do PDF da NFS-e |
+| nfse_xml_s3_key | TEXT | Chave S3 do XML |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+### `nfse_events` *(migration: 0019_nfse.sql — append-only, nunca deletar)*
+Audit trail imutável das operações de NFS-e.
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| id | UUID PK | |
+| nfse_id | UUID FK → nfse_invoices ON DELETE CASCADE | |
+| tenant_id | UUID NOT NULL | |
+| event_type | VARCHAR(30) NOT NULL | `emission`, `emission_rejected` |
+| status_code | VARCHAR(20) | Código de status |
+| protocol | VARCHAR(50) | Protocolo |
+| payload | JSONB | Resposta completa do Focus NFS-e |
+| created_at | TIMESTAMPTZ | |
+
+### `notification_configs` *(migration: 0010_notification_configs.sql + 0019_nfse.sql)*
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | tenant_id | UUID PK FK → tenants | Um row por tenant (opt-in via API) |
@@ -1380,6 +1531,8 @@ Audit trail imutável de todas as operações NF-e. Nunca deletar.
 | notify_nfe_rejected | BOOLEAN DEFAULT true | Envia e-mail quando NF-e é rejeitada |
 | notify_order_confirmed | BOOLEAN DEFAULT false | Envia e-mail quando pedido é confirmado |
 | notify_boleto_generated | BOOLEAN DEFAULT false | Envia e-mail quando boleto é gerado (link + PIX copia e cola) |
+| notify_nfse_authorized | BOOLEAN DEFAULT true | *(0019)* Envia e-mail quando NFS-e é autorizada |
+| notify_nfse_rejected | BOOLEAN DEFAULT true | *(0019)* Envia e-mail quando NFS-e é rejeitada |
 | created_at / updated_at | TIMESTAMPTZ | |
 
 ### `receivables` *(migration: 0012_receivables.sql)*
@@ -1700,6 +1853,25 @@ Base URL prod:  `https://<CF_DOMAIN>` (ver `terraform output api_url` — CloudF
 | POST | `/v1/invoices/:id/emit` | Enfileirar emissão NF-e (202 Accepted — async via SQS → Lambda) |
 | GET  | `/v1/invoices/:id/nfe` | Status NF-e em tempo real (nfe_status, nfe_chave, nfe_danfe_url) |
 | GET  | `/v1/invoices/:id/nfe-events` | Audit trail de operações NF-e (emissões, cancelamentos) |
+
+> `GET`/`PUT /v1/nfe-config` também aceitam os campos NFS-e municipais
+> (`inscricao_municipal`, `codigo_municipio_ibge`, `aliquota_iss_padrao`, `codigo_servico_padrao`).
+
+### NFS-e — Nota Fiscal de Serviços *(migration 0019)*
+NFS-e são criadas automaticamente a partir de `POST /v1/service-contracts/:id/billings` quando o
+contrato tem `nfse_enabled = true`. A resposta 201 inclui `nfse_id` e `nfse_status`. Reaproveitam
+a fila SQS `nfe-requests` e a Lambda `lambda-fiscal` (discriminador `type: 'nfse'`).
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET  | `/v1/nfse` | Lista NFS-e do tenant (query: `status`, `client_id`, `page`, `per_page`) |
+| GET  | `/v1/nfse/:id` | NFS-e + histórico de eventos |
+| GET  | `/v1/nfse/:id/events` | Audit trail da NFS-e |
+| POST | `/v1/nfse/:id/emit` | Reemitir NFS-e rejeitada (202 Accepted — async via SQS → Lambda) |
+
+**Pré-requisitos para emissão de NFS-e:**
+- `nfe_configs.inscricao_municipal` preenchido
+- `codigo_servico` no contrato ou `codigo_servico_padrao` em `nfe_configs`
+- `nfse_status` deve ser `null` ou `rejected` (sem emissão em andamento)
 
 **Pré-requisitos para emissão:**
 - `nfe_configs` deve existir para o tenant (PUT /v1/nfe-config primeiro)

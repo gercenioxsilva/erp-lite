@@ -4,7 +4,8 @@ import { db, notificationConfigs } from '../db';
 import { getSqsClient } from './sqsClient';
 
 // Gated types require a notification_configs row with the flag enabled
-type GatedNotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirmed' | 'boleto_generated';
+type GatedNotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirmed' | 'boleto_generated'
+  | 'nfse_authorized' | 'nfse_rejected';
 
 // All notification types — gated + system (always sent, no config check)
 export type NotificationType = GatedNotificationType | 'user_welcome';
@@ -14,6 +15,8 @@ const typeToConfigKey: Record<GatedNotificationType, keyof typeof notificationCo
   nfe_rejected:     'notify_nfe_rejected',
   order_confirmed:  'notify_order_confirmed',
   boleto_generated: 'notify_boleto_generated',
+  nfse_authorized:  'notify_nfse_authorized',
+  nfse_rejected:    'notify_nfse_rejected',
 };
 
 export interface NotificationPayload {

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import type { NfeEmitMessage, NfeItem } from './types';
+import type { NfeEmitMessage, NfeItem, NfseEmitMessage } from './types';
 
 export interface FocusResponse {
   status:                   string;  // processando | autorizado | erro | denegado | cancelado
@@ -216,6 +216,155 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
   } else if (d.cnpj) {
     payload.cnpj_destinatario = onlyDigits(d.cnpj);
     payload.indicador_inscricao_estadual_destinatario = String(d.indicador_ie ?? 9);
+  }
+
+  return payload;
+}
+
+// ── Focus NFS-e (Nota Fiscal de Serviços) ────────────────────────────────────
+// NFS-e usa o endpoint /v2/nfse (ISS municipal), distinto do /v2/nfe (ICMS).
+// O token Focus é o mesmo (token de conta).
+
+export interface FocusNfseResponse {
+  status:               string;  // processando | autorizado | erro | cancelado
+  numero_nfse?:         string;
+  codigo_verificacao?:  string;
+  data_emissao?:        string;
+  link_download_pdf?:   string;
+  caminho_xml_nota_fiscal?: string;
+  protocolo?:           string;
+  numero_protocolo?:    string;
+  chave?:               string;
+  erros?: Array<{ codigo: string; mensagem: string }>;
+  mensagem_sefaz?:      string;
+  codigo?:              string;
+  mensagem?:            string;
+}
+
+export class FocusNfseClient {
+  private http: AxiosInstance;
+  private simulate: boolean;
+  private simulateReject: boolean;
+
+  constructor(token: string, ambiente: 1 | 2) {
+    this.simulate       = token.toLowerCase().startsWith(SIMULATE_PREFIX);
+    this.simulateReject = /reject/i.test(token);
+
+    const baseURL = ambiente === 1
+      ? 'https://api.focusnfe.com.br'
+      : 'https://homologacao.focusnfe.com.br';
+
+    this.http = axios.create({
+      baseURL,
+      auth:    { username: token, password: '' },
+      timeout: 30_000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  /** Resposta autorizada simulada (homologação local, sem prefeitura). */
+  private simulatedAuthorized(ref: string): FocusNfseResponse {
+    return {
+      status:             'autorizado',
+      numero_nfse:        '000001',
+      codigo_verificacao: 'DEMO' + ref.slice(0, 6).toUpperCase(),
+      data_emissao:       new Date().toISOString(),
+      link_download_pdf:  `/demo/nfse/${ref}.pdf`,
+      caminho_xml_nota_fiscal: `/demo/nfse/${ref}.xml`,
+    };
+  }
+
+  async emitir(ref: string, payload: object): Promise<FocusNfseResponse> {
+    if (this.simulate) {
+      if (this.simulateReject) {
+        return {
+          status: 'erro',
+          erros: [{
+            codigo:   'E101',
+            mensagem: 'Rejeição simulada (homologação local): código de serviço inválido para o município',
+          }],
+        };
+      }
+      return this.simulatedAuthorized(ref);
+    }
+
+    try {
+      const res = await this.http.post(`/v2/nfse?ref=${encodeURIComponent(ref)}`, payload);
+      return res.data as FocusNfseResponse;
+    } catch (err) {
+      const e = err as AxiosError<FocusNfseResponse>;
+      if (e.response?.data) return e.response.data;
+      throw err;
+    }
+  }
+
+  async consultar(ref: string): Promise<FocusNfseResponse> {
+    if (this.simulate) {
+      return this.simulateReject
+        ? { status: 'erro', erros: [{ codigo: 'E101', mensagem: 'Rejeição simulada (homologação local)' }] }
+        : this.simulatedAuthorized(ref);
+    }
+    const res = await this.http.get(`/v2/nfse/${encodeURIComponent(ref)}`);
+    return res.data as FocusNfseResponse;
+  }
+
+  /** Poll until Focus NFS-e returns a terminal status (not 'processando'). */
+  async aguardarAutorizacao(ref: string, timeoutMs = 60_000): Promise<FocusNfseResponse> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const r = await this.consultar(ref);
+      if (r.status !== 'processando') return r;
+      await sleep(2_000);
+    }
+    throw new Error(`Timeout aguardando Focus NFS-e após ${timeoutMs}ms — ref=${ref}`);
+  }
+}
+
+/** Constrói o payload flat do Focus NFS-e a partir da mensagem de emissão. */
+export function buildFocusNfsePayload(msg: NfseEmitMessage): object {
+  const p = msg.prestador;
+  const t = msg.tomador;
+  const s = msg.servicos[0];
+
+  const payload: Record<string, unknown> = {
+    data_emissao:   msg.data_emissao,
+    prestador: {
+      cnpj:                onlyDigits(p.cnpj),
+      inscricao_municipal: p.inscricao_municipal,
+      codigo_municipio:    p.codigo_municipio,
+    },
+    tomador: {
+      razao_social: t.razao_social,
+      email:        t.email,
+      endereco: {
+        logradouro:       t.logradouro,
+        numero:           t.numero,
+        complemento:      t.complemento,
+        bairro:           t.bairro,
+        codigo_municipio: undefined,
+        uf:               t.uf,
+        cep:              t.cep ? onlyDigits(t.cep) : undefined,
+      },
+    },
+    servico: {
+      aliquota:                    s.aliquota,
+      discriminacao:               s.descricao,
+      iss_retido:                  false,
+      item_lista_servico:          s.codigo_tributario_municipio,
+      codigo_tributario_municipio: s.codigo_tributario_municipio,
+      valor_servicos:              s.valor_servicos,
+      base_calculo:                s.base_calculo,
+      valor_iss:                   s.valor_iss,
+      codigo_municipio:            p.codigo_municipio,
+    },
+  };
+
+  // Documento do tomador: CPF ou CNPJ.
+  const tomador = payload.tomador as Record<string, unknown>;
+  if (t.cpf) {
+    tomador.cpf = onlyDigits(t.cpf);
+  } else if (t.cnpj) {
+    tomador.cnpj = onlyDigits(t.cnpj);
   }
 
   return payload;

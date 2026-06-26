@@ -15,6 +15,7 @@ const en: Record<TKey, string> = {
   'nav.signout':     'Sign out',
   'nav.lang':        'PT',
   'nav.contracts':   'Contracts',
+  'nav.nfse':        'NFS-e',
   'nav.menu':        'Menu',
 
   // ── Common ────────────────────────────────────────────────────────────
@@ -539,6 +540,15 @@ const en: Record<TKey, string> = {
   'comp.nfe.errSave':     'Error saving NF-e configuration.',
   'comp.nfe.errRequired': 'CNPJ and Legal Name are required.',
 
+  // ── NFS-e (config) ────────────────────────────────────────────────────
+  'comp.nfse.title':              'NFS-e (Service Invoice)',
+  'comp.nfse.hint':               'Municipal data used when issuing NFS-e via Focus. Required for contracts with NFS-e enabled.',
+  'comp.nfse.inscricaoMunicipal': 'Municipal Registration',
+  'comp.nfse.codigoMunicipioIbge':'City Code (IBGE)',
+  'comp.nfse.aliquotaIss':        'Default ISS Rate (%)',
+  'comp.nfse.codigoServico':      'Service Code LC 116 (Default)',
+  'comp.nfse.codigoServicoPH':    'e.g. 14.01',
+
   // ── Billing (Boleto) ──────────────────────────────────────────────────
   'bill.emitBoleto':     'Emit Boleto',
   'bill.emitting':       'Emitting…',
@@ -621,6 +631,41 @@ const en: Record<TKey, string> = {
   'sc.billing.pending':   'Pending',
   'sc.billing.billed':    'Billed',
   'sc.billing.cancelled': 'Cancelled',
+  'sc.nfseSection':    'NFS-e (Service Invoice)',
+  'sc.nfseEnabled':    'Issue NFS-e automatically when generating billing',
+  'sc.servicoCode':    'Service code (LC 116)',
+  'sc.servicoCodePH':  'Uses company default if empty',
+  'sc.issRate':        'ISS Rate (%)',
+  'sc.issRatePH':      'Default',
+  'sc.retryNfse':      'Retry',
+
+  // ── NFS-e (page) ──────────────────────────────────────────────────────
+  'nfse.title':        'NFS-e',
+  'nfse.searchPH':     'Search by client or description…',
+  'nfse.allStatus':    'All statuses',
+  'nfse.empty':        'No NFS-e issued yet. NFS-e are generated from contract billings.',
+  'nfse.client':       'Client',
+  'nfse.description':  'Description',
+  'nfse.amount':       'Amount',
+  'nfse.iss':          'ISS',
+  'nfse.number':       'Number',
+  'nfse.status':       'Status',
+  'nfse.date':         'Date',
+  'nfse.detailTitle':  'NFS-e Details',
+  'nfse.serviceCode':  'Service code',
+  'nfse.period':       'Period',
+  'nfse.verifyCode':   'Verification code',
+  'nfse.authDate':     'Authorization date',
+  'nfse.viewPdf':      'View NFS-e (PDF)',
+  'nfse.events':       'History',
+  'nfse.noEvents':     'No events recorded.',
+  'nfse.event':        'Event',
+  'nfse.code':         'Code',
+  'nfse.reemit':       'Re-issue NFS-e',
+  'nfse.status.pending':    'Pending',
+  'nfse.status.processing': 'Processing…',
+  'nfse.status.authorized': 'Authorized',
+  'nfse.status.rejected':   'Rejected',
 
   // ── NF-e monitoring panel ─────────────────────────────────────────────
   'nfe.col':         'NF-e SEFAZ',
