@@ -37,6 +37,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       'fiscal_contact_name', 'fiscal_contact_phone', 'fiscal_contact_email',
       'bank_code', 'agency', 'account', 'account_digit',
       'billing_provider', 'billing_days_to_expire',
+      'itau_client_id', 'itau_client_secret',
     ];
 
     const patch: Record<string, unknown> = {};

@@ -23,6 +23,11 @@ interface Client {
   email:         string | null;
   phone:         string | null;
   mobile:        string | null;
+  zip_code:      string | null;
+  street:        string | null;
+  street_number: string | null;
+  complement:    string | null;
+  neighborhood:  string | null;
   city:          string | null;
   state:         string | null;
   icms_taxpayer: string;
@@ -268,6 +273,11 @@ export function ClientsPage() {
       email:         c.email         ?? '',
       phone:         c.phone ? maskPhone(c.phone) : '',
       mobile:        c.mobile ? maskPhone(c.mobile) : '',
+      zip_code:      c.zip_code ? maskCEP(c.zip_code) : '',
+      street:        c.street        ?? '',
+      street_number: c.street_number ?? '',
+      complement:    c.complement    ?? '',
+      neighborhood:  c.neighborhood  ?? '',
       city:          c.city          ?? '',
       state:         c.state         ?? 'SP',
       icms_taxpayer: c.icms_taxpayer ?? '9',

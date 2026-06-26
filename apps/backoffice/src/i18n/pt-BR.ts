@@ -554,7 +554,12 @@ const ptBR = {
   'comp.bank.provider':     'Provedor de Cobrança',
   'comp.bank.daysToExpire': 'Dias para vencer o boleto',
   'comp.bank.saved':        'Dados bancários salvos com sucesso.',
-  'comp.bank.errSave':      'Erro ao salvar dados bancários.',
+  'comp.bank.errSave':           'Erro ao salvar dados bancários.',
+  'comp.bank.itauOauth':         'Credenciais OAuth2 Itaú (API v2)',
+  'comp.bank.itauClientId':      'Client ID',
+  'comp.bank.itauClientIdPH':    'client_id fornecido pelo Itaú',
+  'comp.bank.itauClientSecret':  'Client Secret',
+  'comp.bank.itauClientSecretPH':'client_secret fornecido pelo Itaú',
 
   // ── Configuração NF-e (aba Fiscal) ────────────────────────────────────
   'comp.nfe.title':       'Configuração NF-e (Focus NF-e / SEFAZ)',

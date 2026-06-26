@@ -511,7 +511,12 @@ const en: Record<TKey, string> = {
   'comp.bank.provider':     'Billing provider',
   'comp.bank.daysToExpire': 'Boleto expiration (days)',
   'comp.bank.saved':        'Banking data saved successfully.',
-  'comp.bank.errSave':      'Error saving banking data.',
+  'comp.bank.errSave':           'Error saving banking data.',
+  'comp.bank.itauOauth':         'Itaú OAuth2 Credentials (API v2)',
+  'comp.bank.itauClientId':      'Client ID',
+  'comp.bank.itauClientIdPH':    'client_id provided by Itaú',
+  'comp.bank.itauClientSecret':  'Client Secret',
+  'comp.bank.itauClientSecretPH':'client_secret provided by Itaú',
 
   // ── NF-e Configuration (Fiscal tab) ───────────────────────────────────
   'comp.nfe.title':       'NF-e Configuration (Focus NF-e / SEFAZ)',

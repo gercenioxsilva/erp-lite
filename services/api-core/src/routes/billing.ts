@@ -77,6 +77,8 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
           account_digit:          tenant.account_digit,
           billing_provider:       tenant.billing_provider || 'itau',
           billing_days_to_expire: tenant.billing_days_to_expire || 30,
+          itau_client_id:         tenant.itau_client_id     ?? null,
+          itau_client_secret:     tenant.itau_client_secret ?? null,
         },
       };
 
