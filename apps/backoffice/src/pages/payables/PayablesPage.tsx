@@ -1,7 +1,15 @@
 import { useEffect, useState, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+
+function exportToXlsx(rows: any[], filename: string) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+  XLSX.writeFile(wb, filename);
+}
 
 interface Payable {
   id: string; description: string; supplier_id: string | null; supplier_name: string | null; category: string;
@@ -64,6 +72,7 @@ export function PayablesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm]             = useState({
     supplier_id: null as string | null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '',
+    recurrence: 'none', recurrence_day: null as number | null, recurrence_end_date: null as string | null,
   });
   const [suppliersList, setSuppliersList] = useState<SupplierOption[]>([]);
   const [saving, setSaving]         = useState(false);
@@ -124,9 +133,12 @@ export function PayablesPage() {
         amount:          Number(form.amount),
         due_date:        form.due_date,
         notes:           form.notes || null,
+        recurrence:      form.recurrence,
+        recurrence_day:  form.recurrence_day || null,
+        recurrence_end_date: form.recurrence_end_date || null,
       });
       setCreateOpen(false);
-      setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
+      setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null });
       loadItems();
     } catch (err: any) {
       setFormError(err.message || t('pay.errSave'));
@@ -180,10 +192,16 @@ export function PayablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('pay.title')}</h1>
-        <button className="btn btn-primary btn-cta" onClick={() => {
-          setCreateOpen(true); setFormError('');
-          setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '' });
-        }}>{t('pay.new')}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => exportToXlsx(
+            items.map(i => ({ description: i.description, supplier_name: i.supplier_name, category: i.category, document_number: i.document_number, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status })),
+            `contas-a-pagar-${new Date().toISOString().slice(0,10)}.xlsx`
+          )}>↓ Exportar</button>
+          <button className="btn btn-primary btn-cta" onClick={() => {
+            setCreateOpen(true); setFormError('');
+            setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null });
+          }}>{t('pay.new')}</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -237,7 +255,14 @@ export function PayablesPage() {
                 <tr key={pay.id}>
                   <td>{pay.supplier_name || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
                   <td>
-                    <div>{pay.description}</div>
+                    <div>
+                      {pay.description}
+                      {(pay as any).recurrence && (pay as any).recurrence !== 'none' && (
+                        <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--primary)', fontWeight: 700 }}>
+                          {t('pay.recBadge')} {t(`pay.rec${((pay as any).recurrence as string).charAt(0).toUpperCase() + ((pay as any).recurrence as string).slice(1)}` as any)}
+                        </span>
+                      )}
+                    </div>
                     {pay.document_number && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Doc: {pay.document_number}</div>}
                   </td>
                   <td style={{ fontSize: 12 }}>{catLabel(pay.category)}</td>
@@ -334,6 +359,31 @@ export function PayablesPage() {
                       onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} required />
                   </div>
                 </div>
+                <div className="field">
+                  <label>{t('pay.recurrence')}</label>
+                  <select value={form.recurrence ?? 'none'} onChange={e => setForm(f => ({ ...f, recurrence: e.target.value }))}>
+                    <option value="none">{t('pay.recNone')}</option>
+                    <option value="weekly">{t('pay.recWeekly')}</option>
+                    <option value="monthly">{t('pay.recMonthly')}</option>
+                    <option value="quarterly">{t('pay.recQuarterly')}</option>
+                    <option value="yearly">{t('pay.recYearly')}</option>
+                  </select>
+                </div>
+                {form.recurrence !== 'none' && form.recurrence !== 'weekly' && (
+                  <div className="field">
+                    <label>{t('pay.recDay')}</label>
+                    <input type="number" min={1} max={28} value={form.recurrence_day ?? ''}
+                      onChange={e => setForm(f => ({ ...f, recurrence_day: e.target.value ? Number(e.target.value) : null }))}
+                      placeholder="dia do mês (1-28)" />
+                  </div>
+                )}
+                {form.recurrence !== 'none' && (
+                  <div className="field">
+                    <label>{t('pay.recEndDate')}</label>
+                    <input type="date" value={form.recurrence_end_date ?? ''}
+                      onChange={e => setForm(f => ({ ...f, recurrence_end_date: e.target.value || null }))} />
+                  </div>
+                )}
                 <div className="field">
                   <label>{t('pay.notes')}</label>
                   <input type="text" value={form.notes}

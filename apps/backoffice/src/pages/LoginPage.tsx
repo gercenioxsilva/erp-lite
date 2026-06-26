@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+
 import { GaxLogo } from '../components/GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
@@ -179,6 +180,12 @@ export function LoginPage() {
                   {showPwd ? t('l.hide') : t('l.show')}
                 </button>
               </div>
+            </div>
+
+            <div style={{ textAlign: 'right', marginBottom: 8 }}>
+              <Link to="/forgot-password" style={{ fontSize: 13, color: 'var(--muted)' }}>
+                {t('l.forgotPassword')}
+              </Link>
             </div>
 
             <button

@@ -19,6 +19,8 @@ import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
+import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
+import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -55,9 +57,11 @@ export function App() {
           <AuthProvider>
             <Modal />
             <Routes>
-              <Route path="/login"    element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/*"        element={<GuardedRoutes />} />
+              <Route path="/login"           element={<LoginPage />} />
+              <Route path="/register"        element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password"  element={<ResetPasswordPage />} />
+              <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>
         </ModalProvider>

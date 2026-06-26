@@ -1,7 +1,15 @@
 import { useEffect, useState, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+
+function exportToXlsx(rows: any[], filename: string) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+  XLSX.writeFile(wb, filename);
+}
 
 interface Receivable {
   id: string; description: string; amount: string; paid_amount: string;
@@ -240,9 +248,15 @@ export function ReceivablesPage() {
     <div>
       <div className="page-header">
         <h1>{t('rec.title')}</h1>
-        <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
-          {t('rec.new')}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => exportToXlsx(
+            items.map(i => ({ description: i.description, client_name: i.client_name, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status, document_number: '' })),
+            `contas-a-receber-${new Date().toISOString().slice(0,10)}.xlsx`
+          )}>↓ Exportar</button>
+          <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
+            {t('rec.new')}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
