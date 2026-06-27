@@ -14,7 +14,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
       ),
       inflows AS (
         SELECT
-          FLOOR(EXTRACT(EPOCH FROM (due_date::date - CURRENT_DATE)) / 604800)::int AS week_offset,
+          ((due_date::date - CURRENT_DATE) / 7)::int AS week_offset,
           SUM(amount - paid_amount) AS total
         FROM receivables
         WHERE tenant_id = ${tenantId}
@@ -24,7 +24,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
       ),
       outflows AS (
         SELECT
-          FLOOR(EXTRACT(EPOCH FROM (due_date::date - CURRENT_DATE)) / 604800)::int AS week_offset,
+          ((due_date::date - CURRENT_DATE) / 7)::int AS week_offset,
           SUM(amount - paid_amount) AS total
         FROM payables
         WHERE tenant_id = ${tenantId}

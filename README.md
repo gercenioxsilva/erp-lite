@@ -12,7 +12,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
-2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Rotas existentes:
+2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
    - `POST /v1/auth/forgot-password` · `POST /v1/auth/reset-password`
    - `GET|POST|PATCH|DELETE /v1/clients(/:id)?` · `POST /v1/clients/import`
@@ -175,6 +175,361 @@ Infraestrutura (Terraform):
 
 ---
 
+## Diagramas de Fluxo de Negócio
+
+> Os diagramas abaixo usam **Mermaid** e são renderizados automaticamente pelo GitHub.
+> Representam o C4 Model (Contexto e Container) e os principais fluxos de negócio.
+
+---
+
+### C4 Level 1 — Contexto do Sistema
+
+```mermaid
+C4Context
+    title C4 Level 1 — Contexto do Orquestra ERP
+
+    Person(user, "Usuário ERP", "Gestor, vendedor ou financeiro que opera o backoffice via browser")
+    Person_Ext(client, "Cliente Final", "Recebe proposta comercial por e-mail e acessa o portal público")
+
+    System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, financeiro, propostas, relatórios")
+
+    System_Ext(focus, "Focus NF-e API", "Gateway fiscal que abstrai SEFAZ (NF-e) e prefeituras (NFS-e)")
+    System_Ext(sefaz, "SEFAZ / Prefeitura", "Autoridade fiscal federal/estadual/municipal")
+    System_Ext(itau, "Itaú API v2", "Emissão de boleto bancário registrado e PIX via OAuth2")
+    System_Ext(ses, "Amazon SES v2", "Relay de e-mail transacional (boas-vindas, reset, proposta, vencimento)")
+    System_Ext(viacep, "ViaCEP", "Consulta de endereço por CEP — chamado direto do browser, sem backend")
+
+    Rel(user, erp, "Opera via browser", "HTTPS")
+    Rel(client, erp, "Acessa portal /p/:token", "HTTPS (sem autenticação)")
+    Rel(erp, focus, "Emite NF-e e NFS-e", "REST HTTPS")
+    Rel(focus, sefaz, "Transmite e autoriza notas", "SOAP/REST HTTPS")
+    Rel(erp, itau, "Emite boleto e PIX", "REST HTTPS OAuth2 client_credentials")
+    Rel(erp, ses, "Envia e-mails transacionais", "AWS SDK SQS → Lambda → SES")
+    Rel(erp, client, "Notifica por e-mail (proposta, vencimento)", "SES")
+    Rel(user, viacep, "Consulta CEP no cadastro", "REST HTTPS (browser direto)")
+```
+
+---
+
+### C4 Level 2 — Containers
+
+```mermaid
+C4Container
+    title C4 Level 2 — Containers do Orquestra ERP
+
+    Person(user, "Usuário ERP", "Opera o backoffice")
+    Person_Ext(client, "Cliente Final", "Acessa portal de propostas")
+
+    Container_Boundary(aws, "AWS Cloud") {
+        Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA e assets. Roteia /v1/* para NLB. Certificado ACM us-east-1")
+        Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo (auth, pedidos, NF-e, financeiro, relatórios) + portal público /p/:token")
+        Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, recurringPayables, dueSoon")
+        ContainerDb(db, "RDS PostgreSQL 16", "PostgreSQL · SSL obrigatório", "Todos os dados isolados por tenant_id. Migrations em db/migrations/")
+        ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests · nfe-results · billing-requests · billing-results · notifications · notifications-dlq")
+        ContainerDb(s3data, "S3 Data Buckets", "Amazon S3", "nfe-xml (lifecycle 5 anos) · billing-pdf (lifecycle 7 anos)")
+        Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e e NFS-e via Focus. Discrimina por {type:'nfse'}. Salva XML no S3. Converte caminho_danfe para URL absoluta")
+        Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/PIX via Itaú OAuth2 client_credentials. Salva PDF no S3")
+        Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML por tipo e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
+    }
+
+    System_Ext(focus, "Focus NF-e API", "Gateway fiscal")
+    System_Ext(itau, "Itaú API v2", "Boleto + PIX")
+    System_Ext(ses, "Amazon SES v2", "Relay de e-mail")
+
+    Rel(user, cdn, "Acessa", "HTTPS")
+    Rel(client, cdn, "Acessa /p/:token", "HTTPS")
+    Rel(cdn, spa, "Serve SPA", "S3 origin")
+    Rel(cdn, api, "Proxia /v1/*", "HTTPS → NLB → ECS")
+    Rel(spa, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
+    Rel(api, db, "Lê e escreve dados", "Drizzle ORM · SSL TCP 5432")
+    Rel(api, sqs, "Publica mensagens (fire-and-forget)", "AWS SDK v3")
+    Rel(api, sqs, "Consome resultados (long-poll)", "AWS SDK v3 · nfeResultsWorker · boletoResultsWorker")
+    Rel(sqs, lfiscal, "Trigger nfe-requests", "SQS Event Source Mapping")
+    Rel(sqs, lbilling, "Trigger billing-requests", "SQS Event Source Mapping")
+    Rel(sqs, lnotif, "Trigger notifications", "SQS Event Source Mapping")
+    Rel(lfiscal, focus, "POST /v2/nfe ou /v2/nfse", "REST HTTPS")
+    Rel(lfiscal, s3data, "Salva XML da nota", "AWS SDK PutObject")
+    Rel(lfiscal, sqs, "Publica resultado em nfe-results", "AWS SDK v3")
+    Rel(lbilling, itau, "OAuth2 token + POST /boletos", "REST HTTPS")
+    Rel(lbilling, s3data, "Salva PDF do boleto", "AWS SDK PutObject")
+    Rel(lbilling, sqs, "Publica resultado em billing-results", "AWS SDK v3")
+    Rel(lnotif, ses, "SendEmail com template HTML", "AWS SDK v3")
+```
+
+---
+
+### Emissão de NF-e (Nota Fiscal Eletrônica de Produto)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React)
+    participant A as api-core (ECS)
+    participant Q as SQS nfe-requests
+    participant L as lambda-fiscal
+    participant FX as Focus NF-e API
+    participant SF as SEFAZ
+    participant S3
+    participant R as SQS nfe-results
+
+    U->>F: Preenche dados da NF-e (itens, NCM, CFOP)
+    F->>A: POST /v1/invoices
+    A-->>F: 201 {id, status: "draft"}
+
+    U->>F: Clica "Emitir NF-e"
+    F->>A: POST /v1/invoices/:id/emit
+    A->>Q: sendMessage — payload SPED completo
+    A-->>F: 200 {status: "queued"}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>FX: POST /v2/nfe {chave, itens, impostos...}
+    FX->>SF: Transmite XML assinado digitalmente
+    SF-->>FX: Protocolo de autorização + chave 44 dígitos
+    FX-->>L: {status, chave_nfe, caminho_danfe}
+    L->>L: toAbsoluteUrl(caminho_danfe) → URL Focus completa
+    L->>S3: PutObject — XML da nota (lifecycle 5 anos)
+    L->>R: sendMessage — resultado com chave e url_danfe
+
+    Note over A: nfeResultsWorker (long-poll SQS, in-process ECS)
+    R-->>A: Mensagem de resultado
+    A->>A: UPDATE invoices SET status='authorized', chave_nfe=..., url_danfe=...
+    A->>A: sendNotificationIfEnabled(nfe_authorized) → SQS notifications
+
+    U->>F: Consulta status / abre DANFE
+    F->>A: GET /v1/invoices/:id/nfe-status
+    A-->>F: {status, chave_nfe, url_danfe}
+    F-->>U: Link para PDF DANFE (URL absoluta Focus)
+
+    Note over A,R: Status machine invoice
+    Note over A,R: draft → queued → processing → authorized
+    Note over A,R: Em caso de erro: status='rejected', motivo em nfe_events (append-only)
+```
+
+---
+
+### Emissão de NFS-e (Nota Fiscal de Serviços Eletrônica)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React)
+    participant A as api-core (ECS)
+    participant Q as SQS nfe-requests
+    participant L as lambda-fiscal
+    participant FX as Focus NF-e API
+    participant PF as Prefeitura Municipal
+
+    U->>F: Preenche NFS-e (código serviço LC116, ISS, inscrição municipal)
+    F->>A: POST /v1/nfse
+    A-->>F: 201 {id, status: "draft"}
+
+    U->>F: Clica "Emitir NFS-e"
+    F->>A: POST /v1/nfse/:id/emit
+    A->>Q: sendMessage {type:"nfse", inscricao_municipal, codigo_servico, ...}
+    A-->>F: 200 {status: "queued"}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    Note over L: Discrimina pelo campo type:'nfse'
+    L->>FX: POST /v2/nfse {inscricao_municipal, codigo_servico, iss...}
+    FX->>PF: Transmite NFS-e para webservice municipal
+    PF-->>FX: {numero_nfse, codigo_verificacao}
+    FX-->>L: {numero, status, link_nfse}
+    L->>Q: sendMessage (nfe-results) — resultado NFS-e
+
+    Note over A: nfeResultsWorker (mesmo worker, trata ambos)
+    Q-->>A: Mensagem de resultado
+    A->>A: UPDATE nfse_invoices SET status='authorized', numero_nfse=...
+
+    F->>A: GET /v1/nfse/:id
+    A-->>F: {status, numero_nfse, link_nfse}
+
+    Note over L,FX: NFS-e vs NF-e — nunca misturar (regra 24)
+    Note over L,FX: Endpoint Focus: /v2/nfse (não /v2/nfe)
+    Note over L,FX: Imposto: ISS municipal (não ICMS/IPI/PIS/COFINS)
+    Note over L,FX: Tabelas separadas: nfse_invoices, nfse_events
+```
+
+---
+
+### Ciclo de Vida do Pedido de Venda
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> draft : POST /v1/orders\ncria pedido com itens
+
+    draft --> confirmed : POST /orders/:id/confirm\nreserva estoque\n(inventory_movements type=reserve)
+
+    confirmed --> delivered : POST /orders/:id/deliver\nbaixa estoque\n(inventory_movements type=out)
+
+    delivered --> invoiced : POST /v1/invoices\nimporta pedido\n→ emite NF-e
+
+    draft --> cancelled : POST /orders/:id/cancel
+    confirmed --> cancelled : POST /orders/:id/cancel\nestorna reserva\n(type=unreserve)
+
+    invoiced --> [*]
+    cancelled --> [*]
+
+    note right of draft
+        order_items NÃO tem tenant_id.
+        Filtrar SEMPRE via
+        JOIN orders ON orders.tenant_id
+    end note
+
+    note right of invoiced
+        invoices importa os itens do pedido.
+        NCM vem de materials.ncm
+        via materials.find(m => m.id === item.material_id)
+    end note
+```
+
+---
+
+### Emissão de Boleto / PIX (Itaú API v2)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React)
+    participant A as api-core (ECS)
+    participant Q as SQS billing-requests
+    participant L as lambda-billing
+    participant I as Itaú API v2
+    participant S3
+    participant R as SQS billing-results
+
+    U->>F: Clica "Emitir Boleto" no recebível
+    F->>A: POST /v1/receivables/:id/emit-boleto
+    A->>Q: sendMessage — dados do boleto + tenant itau_client_id/secret
+    A-->>F: 200 {status: "pending"}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>I: POST /oauth/token (client_credentials)
+    I-->>L: {access_token, expires_in}
+    L->>I: POST /boletos {nosso_numero, vencimento, sacado, valor...}
+    I-->>L: {nosso_numero, linha_digitavel, codigo_barras, url_pdf}
+    L->>S3: PutObject — PDF boleto (lifecycle 7 anos)
+    L->>R: sendMessage — resultado com linha_digitavel e url_pdf
+
+    Note over A: boletoResultsWorker (long-poll, in-process ECS)
+    R-->>A: Mensagem de resultado
+    A->>A: INSERT boletos (nosso_numero, linha_digitavel, url_pdf)
+    A->>A: UPDATE receivables SET boleto_id=...
+    A->>A: sendNotificationIfEnabled(boleto_registered) → e-mail cliente
+
+    U->>F: Consulta recebível
+    F->>A: GET /v1/receivables/:id
+    A-->>F: {boleto_url, linha_digitavel, nosso_numero}
+    F-->>U: Exibe boleto para envio / download PDF
+
+    Note over F,A: Cancelamento de boleto
+    F->>A: POST /v1/receivables/:id/expire-boleto
+    A->>Q: sendMessage (cancelamento)
+    Q-->>L: Trigger → Itaú API baixa boleto registrado
+```
+
+---
+
+### Proposta Comercial — Ciclo Completo
+
+```mermaid
+sequenceDiagram
+    actor V as Vendedor (backoffice)
+    participant A as api-core
+    participant Q as SQS notifications
+    participant L as lambda-notifications
+    participant S as Amazon SES
+    actor C as Cliente Final
+
+    V->>A: POST /v1/proposals {itens, validade, cliente}
+    A-->>V: 201 {id, token: "64-hex-chars", status: "draft"}
+
+    V->>A: PATCH /v1/proposals/:id (ajusta valores / itens)
+    V->>A: POST /v1/proposals/:id/send
+    A->>Q: sendSystemNotification(proposal_sent, from_name, link /p/:token)
+    A-->>V: 200 {status: "sent"}
+
+    Q-->>L: Trigger SQS
+    L->>S: SendEmail — template proposta com link portal
+    S-->>C: E-mail "Você recebeu uma proposta comercial"
+
+    C->>A: GET /v1/public/proposals/:token (sem JWT)
+    A-->>C: {proposta, itens, validade, empresa}
+    Note over C: Portal /p/:token — React SPA rota pública
+    Note over C: Botão "Imprimir / Salvar PDF" via window.print()
+
+    alt Cliente aceita a proposta
+        C->>A: POST /v1/public/proposals/:token/accept
+        A->>A: UPDATE proposals SET status='accepted'
+        A->>Q: sendSystemNotification(proposal_accepted)
+        Q-->>L: Trigger → e-mail para vendedor
+        V->>A: POST /v1/proposals/:id/convert
+        A->>A: INSERT orders + order_items (a partir dos itens da proposta)
+        A-->>V: 201 {order_id}
+    else Cliente rejeita
+        C->>A: POST /v1/public/proposals/:token/reject {motivo?}
+        A->>A: UPDATE proposals SET status='rejected'
+        A->>Q: sendSystemNotification(proposal_rejected)
+        Q-->>L: Trigger → e-mail de notificação para vendedor
+    end
+
+    Note over V,C: Status machine da proposta
+    Note over V,C: draft → sent → viewed → accepted → (convert → order)
+    Note over V,C:                        └→ rejected
+    Note over V,C:                        └→ expired (validade atingida)
+    Note over V,C:                        └→ cancelled (POST /cancel)
+```
+
+---
+
+### Fluxo de Notificações por E-mail
+
+```mermaid
+flowchart TD
+    subgraph Triggers["Gatilhos de Notificação"]
+        direction TB
+        T1["Evento de negócio\nnfe_authorized · boleto_registered\nnfe_rejected"]
+        T2["Evento sistêmico\nuser_welcome · password_reset\nproposal_sent · proposal_accepted\nproposal_rejected"]
+        T3["dueSoonWorker\n(23h interval)\nrecebíveis vencendo em N dias"]
+    end
+
+    subgraph API["api-core (ECS)"]
+        direction TB
+        N1["sendNotificationIfEnabled()\n━━━━━━━━━━━━━━━━━\nVerifica notification_configs\ndo tenant antes de enviar\nUsar para eventos de negócio"]
+        N2["sendSystemNotification()\n━━━━━━━━━━━━━━━━━\nEnvia direto, sem verificar config\nUsar para e-mails sistêmicos\nfire-and-forget — não bloqueia API"]
+    end
+
+    subgraph Queue["Amazon SQS"]
+        Q["notifications queue"]
+        DLQ["notifications-dlq\nFalhas após retries"]
+    end
+
+    subgraph Lambda["lambda-notifications (ECR)"]
+        TMP["Seleciona template HTML\npor tipo de notificação\nRebuild ECR obrigatório\nao adicionar novo tipo"]
+    end
+
+    SES["Amazon SES v2"]
+    DEST["Destinatário\ne-mail HTML renderizado"]
+
+    T1 --> N1
+    T2 --> N2
+    T3 --> N1
+    N1 -->|"Se tenant tem notify habilitado"| Q
+    N2 --> Q
+    Q --> TMP
+    TMP --> SES
+    SES --> DEST
+    Q -. "falha após 3 retries" .-> DLQ
+
+    style N1 fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    style N2 fill:#dcfce7,stroke:#22c55e,color:#14532d
+    style DLQ fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    style Q fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    style TMP fill:#f3e8ff,stroke:#9333ea,color:#4c1d95
+```
+
+---
+
 ## Módulos do sistema
 
 | Módulo | Rota frontend | Tabelas principais |
@@ -228,11 +583,11 @@ Infraestrutura (Terraform):
 > `already_accepted`, `already_rejected`). CSS `@media print` adicionado ao `index.css`:
 > `.print-hide { display: none }` para ocultar botões e rodapé na impressão.
 >
+> **Diagramas README:** Mermaid C4 Level 1 e Level 2, sequências NF-e/NFS-e/Boleto/Proposta,
+> state diagram de pedidos, flowchart de notificações — substituem os diagramas ASCII anteriores.
+>
 > **i18n:** Chaves `cl.history`, `cl.historyEmpty`, `d.cashflow*`, `nav.reports`, `rep.*`
 > adicionadas em `pt-BR.ts` e `en.ts`.
->
-> **Protocolo anti-alucinação:** Regra 2 atualizada com novos endpoints; regra 3 atualizada
-> com nota sobre padrão de abas com inline styles; regra 29 adicionada (Focus NF-e URL).
 
 ### v11.0 — Gestão de Propostas Comerciais + OAuth2 Itaú + Correções
 
