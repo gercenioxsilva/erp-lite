@@ -855,6 +855,44 @@ const ptBR = {
   'prop.duplicateSuccess': 'Proposta duplicada como',
   'prop.errorNoEmail':     'O cliente não possui e-mail cadastrado.',
 
+  // ── Histórico 360° do cliente ─────────────────────────────────────────────
+  'cl.history':      'Histórico do cliente',
+  'cl.historyEmpty': 'Nenhum pedido, nota fiscal ou recebível encontrado para este cliente.',
+
+  // ── Dashboard — Fluxo de caixa ────────────────────────────────────────────
+  'd.cashflowTitle':   'Fluxo de Caixa — próximas 12 semanas',
+  'd.cashflowInflow':  'A Receber',
+  'd.cashflowOutflow': 'A Pagar',
+  'd.cashflowNet':     'Saldo projetado',
+
+  // ── Relatórios ────────────────────────────────────────────────────────────
+  'nav.reports':         'Relatórios',
+  'rep.title':           'Relatórios',
+  'rep.tabOverdue':      'Inadimplência',
+  'rep.tabTopProducts':  'Ranking de Produtos',
+  'rep.export':          'Exportar XLSX',
+  'rep.overdueCount':    'Clientes inadimplentes',
+  'rep.overdueTotal':    'Total em atraso',
+  'rep.overdueEmpty':    'Nenhuma conta vencida. Parabéns!',
+  'rep.overdueClient':   'Cliente',
+  'rep.overdueDesc':     'Descrição',
+  'rep.overdueAmount':   'Valor',
+  'rep.overdueRemaining':'Restante',
+  'rep.overdueDueDate':  'Vencimento',
+  'rep.overdueDays':     'Dias em atraso',
+  'rep.topPeriod':       'Período',
+  'rep.top7d':           '7 dias',
+  'rep.top30d':          '30 dias',
+  'rep.top90d':          '90 dias',
+  'rep.top180d':         '180 dias',
+  'rep.top365d':         '1 ano',
+  'rep.topProduct':      'Produto / Serviço',
+  'rep.topSku':          'SKU',
+  'rep.topQty':          'Qtd vendida',
+  'rep.topRevenue':      'Faturamento',
+  'rep.topOrders':       'Pedidos',
+  'rep.topEmpty':        'Nenhuma venda encontrada no período.',
+
   // ── Portal público ─────────────────────────────────────────────────────
   'pub.loading':         'Carregando proposta...',
   'pub.notFound':        'Proposta não encontrada',

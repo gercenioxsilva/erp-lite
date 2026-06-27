@@ -857,6 +857,44 @@ const en: Record<TKey, string> = {
   'prop.duplicateSuccess': 'Proposal duplicated as',
   'prop.errorNoEmail':     'The client does not have an email address.',
 
+  // ── Client 360° history ────────────────────────────────────────────────
+  'cl.history':      'Client history',
+  'cl.historyEmpty': 'No orders, invoices or receivables found for this client.',
+
+  // ── Dashboard — Cash flow ──────────────────────────────────────────────
+  'd.cashflowTitle':   'Cash Flow — next 12 weeks',
+  'd.cashflowInflow':  'To Receive',
+  'd.cashflowOutflow': 'To Pay',
+  'd.cashflowNet':     'Projected balance',
+
+  // ── Reports ────────────────────────────────────────────────────────────
+  'nav.reports':         'Reports',
+  'rep.title':           'Reports',
+  'rep.tabOverdue':      'Overdue',
+  'rep.tabTopProducts':  'Top Products',
+  'rep.export':          'Export XLSX',
+  'rep.overdueCount':    'Overdue clients',
+  'rep.overdueTotal':    'Total overdue',
+  'rep.overdueEmpty':    'No overdue receivables. Great job!',
+  'rep.overdueClient':   'Client',
+  'rep.overdueDesc':     'Description',
+  'rep.overdueAmount':   'Amount',
+  'rep.overdueRemaining':'Remaining',
+  'rep.overdueDueDate':  'Due date',
+  'rep.overdueDays':     'Days overdue',
+  'rep.topPeriod':       'Period',
+  'rep.top7d':           '7 days',
+  'rep.top30d':          '30 days',
+  'rep.top90d':          '90 days',
+  'rep.top180d':         '180 days',
+  'rep.top365d':         '1 year',
+  'rep.topProduct':      'Product / Service',
+  'rep.topSku':          'SKU',
+  'rep.topQty':          'Qty sold',
+  'rep.topRevenue':      'Revenue',
+  'rep.topOrders':       'Orders',
+  'rep.topEmpty':        'No sales found for the selected period.',
+
   // ── Public portal ──────────────────────────────────────────────────────
   'pub.loading':         'Loading proposal...',
   'pub.notFound':        'Proposal not found',

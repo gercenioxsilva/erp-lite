@@ -210,4 +210,39 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!result.rowCount) return reply.notFound('Client not found or already inactive');
     return reply.code(204).send();
   });
+
+  // GET /v1/clients/:id/history — 360° view: orders, invoices, receivables
+  fastify.get<{ Params: { id: string } }>('/clients/:id/history', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params;
+
+    const [client] = await db.select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, id), eq(clients.tenant_id, tenantId)));
+    if (!client) return reply.notFound();
+
+    const [ordersResult, invoicesResult, receivablesResult] = await Promise.all([
+      db.execute<any>(sql`
+        SELECT id, number, status, total, created_at
+        FROM orders WHERE client_id = ${id} AND tenant_id = ${tenantId}
+        ORDER BY created_at DESC LIMIT 20
+      `),
+      db.execute<any>(sql`
+        SELECT id, number, status, total, issue_date, nfe_status
+        FROM invoices WHERE client_id = ${id} AND tenant_id = ${tenantId}
+        ORDER BY issue_date DESC NULLS LAST LIMIT 20
+      `),
+      db.execute<any>(sql`
+        SELECT id, description, amount, paid_amount, due_date, status
+        FROM receivables WHERE client_id = ${id} AND tenant_id = ${tenantId}
+        ORDER BY due_date DESC LIMIT 20
+      `),
+    ]);
+
+    return {
+      orders:      ordersResult.rows,
+      invoices:    invoicesResult.rows,
+      receivables: receivablesResult.rows,
+    };
+  });
 };

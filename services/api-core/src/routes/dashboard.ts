@@ -3,6 +3,63 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db';
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
+
+  // GET /v1/dashboard/cashflow — Projected cash flow (next 12 weeks, grouped by week)
+  fastify.get('/dashboard/cashflow', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+    const tenantId = (request as any).user.tenantId;
+
+    const result = await db.execute<any>(sql`
+      WITH week_series AS (
+        SELECT generate_series(0, 11) AS week_offset
+      ),
+      inflows AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM (due_date::date - CURRENT_DATE)) / 604800)::int AS week_offset,
+          SUM(amount - paid_amount) AS total
+        FROM receivables
+        WHERE tenant_id = ${tenantId}
+          AND status IN ('pending', 'partial')
+          AND due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 83
+        GROUP BY 1
+      ),
+      outflows AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM (due_date::date - CURRENT_DATE)) / 604800)::int AS week_offset,
+          SUM(amount - paid_amount) AS total
+        FROM payables
+        WHERE tenant_id = ${tenantId}
+          AND status IN ('pending', 'partial')
+          AND due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 83
+        GROUP BY 1
+      )
+      SELECT
+        w.week_offset,
+        (CURRENT_DATE + (w.week_offset * 7))::text AS week_start,
+        COALESCE(i.total, 0) AS inflow,
+        COALESCE(o.total, 0) AS outflow
+      FROM week_series w
+      LEFT JOIN inflows  i ON i.week_offset = w.week_offset
+      LEFT JOIN outflows o ON o.week_offset = w.week_offset
+      ORDER BY w.week_offset
+    `);
+
+    const weeks = result.rows.map(r => ({
+      week_start: String(r.week_start),
+      inflow:     Number(r.inflow),
+      outflow:    Number(r.outflow),
+      net:        Number(r.inflow) - Number(r.outflow),
+    }));
+
+    return {
+      weeks,
+      summary: {
+        total_inflow:  weeks.reduce((a, w) => a + w.inflow,  0),
+        total_outflow: weeks.reduce((a, w) => a + w.outflow, 0),
+        net_balance:   weeks.reduce((a, w) => a + w.net,     0),
+      },
+    };
+  });
+
   fastify.get('/dashboard', { onRequest: [(fastify as any).authenticate] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
