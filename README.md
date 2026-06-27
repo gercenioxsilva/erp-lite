@@ -12,7 +12,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
-2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Rotas existentes:
+2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
    - `POST /v1/auth/forgot-password` · `POST /v1/auth/reset-password`
    - `GET|POST|PATCH|DELETE /v1/clients(/:id)?` · `POST /v1/clients/import`
@@ -172,6 +172,291 @@ Infraestrutura (Terraform):
 | Fiscal | Focus NF-e API (`api.focusnfe.com.br` / `homologacao.focusnfe.com.br`) |
 | E-mail | Amazon SES v2, SQS → lambda-notifications |
 | Cobrança | Itaú API v2 OAuth2 `client_credentials` → boleto + PIX |
+
+---
+
+## Diagramas de Fluxo de Negócio
+
+### Contexto de Integração entre Microserviços
+
+```
+                              ┌──────────────────────────────────────────────────┐
+                              │              USUÁRIO FINAL (browser)              │
+                              └────────────────────┬─────────────────────────────┘
+                                                   │ HTTPS
+                              ┌────────────────────▼─────────────────────────────┐
+                              │             CloudFront + S3 (SPA)                 │
+                              │   /     → React app (apps/backoffice)             │
+                              │   /p/*  → Portal público propostas (sem auth)     │
+                              │   /v1/* → NLB → ECS api-core                      │
+                              └────────────────────┬─────────────────────────────┘
+                                                   │
+                    ┌──────────────────────────────▼──────────────────────────────┐
+                    │                  ECS api-core (Fastify)                      │
+                    │                                                               │
+                    │  Publica em SQS:          Consome de SQS (long-poll):        │
+                    │  ├─ nfe-requests  ─────▶  ├─ nfe-results (nfeResultsWorker) │
+                    │  ├─ billing-requests ──▶  ├─ billing-results (boletoWorker) │
+                    │  └─ notifications  ─────▶  └─ (fire-and-forget)             │
+                    │                                                               │
+                    │  Workers in-process (interval):                               │
+                    │  ├─ recurringPayablesWorker (23h)                            │
+                    │  └─ dueSoonWorker (23h) → publica em SQS notifications       │
+                    │                                                               │
+                    │  ─────────────────────────────────────────────────────────── │
+                    │  RDS PostgreSQL 16   │   S3 (leitura de logo/assets)         │
+                    └──────┬──────────────┴──────────────────────────────────────┘
+                           │ SQS triggers (independentes)
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+  ┌────────────────┐ ┌──────────────┐ ┌────────────────────┐
+  │ lambda-fiscal  │ │lambda-billing│ │lambda-notifications│
+  │                │ │              │ │                    │
+  │ Focus NF-e API │ │ Itaú OAuth2  │ │ Amazon SES v2      │
+  │ → SEFAZ        │ │ → Boleto PDF │ │ → E-mail HTML      │
+  │ → S3 XML       │ │ → S3 PDF     │ │                    │
+  │ → SQS results  │ │ → SQS results│ │                    │
+  └────────────────┘ └──────────────┘ └────────────────────┘
+```
+
+---
+
+### Fluxo de Emissão de NF-e (Nota Fiscal Eletrônica de Produto)
+
+```
+  Frontend          api-core            SQS               lambda-fiscal       Focus/SEFAZ
+     │                  │                 │                     │                  │
+     │ ①POST /invoices  │                 │                     │                  │
+     │─────────────────▶│                 │                     │                  │
+     │  (cria rascunho) │                 │                     │                  │
+     │◀─────────────────│                 │                     │                  │
+     │                  │                 │                     │                  │
+     │ ②POST /emit      │                 │                     │                  │
+     │─────────────────▶│                 │                     │                  │
+     │                  │ sendMessage     │                     │                  │
+     │                  │────────────────▶│ nfe-requests        │                  │
+     │  {status:queued} │                 │                     │                  │
+     │◀─────────────────│                 │─── trigger ────────▶│                  │
+     │                  │                 │                     │ POST /v2/nfe     │
+     │                  │                 │                     │─────────────────▶│
+     │                  │                 │                     │                  │→ SEFAZ
+     │                  │                 │                     │ {chave, protocolo}│
+     │                  │                 │                     │◀─────────────────│
+     │                  │                 │                     │ PUT XML → S3     │
+     │                  │ nfe-results     │                     │                  │
+     │                  │◀────────────────────────────────────── │                  │
+     │                  │ UPDATE invoices │                     │                  │
+     │                  │ status=authorized                     │                  │
+     │                  │ sendNotification(nfe_authorized)      │                  │
+     │                  │                 │                     │                  │
+     │ ③GET /nfe-status │                 │                     │                  │
+     │─────────────────▶│                 │                     │                  │
+     │ {status,chave,   │                 │                     │                  │
+     │  url_danfe}      │                 │                     │                  │
+     │◀─────────────────│                 │                     │                  │
+
+  Status machine: draft ──▶ queued ──▶ processing ──▶ authorized
+                                                  └──▶ rejected
+                                                  └──▶ error
+
+  Notas:
+  · url_danfe = caminho_danfe (path relativo Focus) convertido para URL absoluta
+    em lambda-fiscal antes de salvar no DB. Ver regra 29.
+  · Em caso de rejected: lambda-fiscal grava motivo em nfe_events (append-only).
+  · Cancelamento: POST /v1/invoices/:id/cancel → Focus POST /v2/nfe/:ref/cancela
+```
+
+---
+
+### Fluxo de Emissão de NFS-e (Nota Fiscal de Serviços Eletrônica)
+
+```
+  Frontend          api-core            SQS               lambda-fiscal       Focus/Prefeitura
+     │                  │                 │                     │                   │
+     │ ①POST /nfse      │                 │                     │                   │
+     │─────────────────▶│                 │                     │                   │
+     │  (cria rascunho) │                 │                     │                   │
+     │◀─────────────────│                 │                     │                   │
+     │                  │                 │                     │                   │
+     │ ②POST /emit      │                 │                     │                   │
+     │─────────────────▶│                 │                     │                   │
+     │                  │ sendMessage     │                     │                   │
+     │                  │ {type:'nfse'}  ▶│ nfe-requests        │                   │
+     │  {status:queued} │                 │─── trigger ────────▶│                   │
+     │◀─────────────────│                 │                     │ POST /v2/nfse     │
+     │                  │                 │                     │──────────────────▶│
+     │                  │                 │                     │                   │→ Prefeitura
+     │                  │                 │                     │ {numero, codigo}  │
+     │                  │                 │                     │◀──────────────────│
+     │                  │ nfe-results     │                     │                   │
+     │                  │◀────────────────────────────────────── │                   │
+     │                  │ UPDATE nfse_invoices status=authorized │                   │
+
+  Diferenças NFS-e vs NF-e (regra 24):
+  · Endpoint Focus: /v2/nfse (não /v2/nfe)
+  · Imposto: ISS municipal (não ICMS/IPI/PIS/COFINS)
+  · Campos obrigatórios: inscricao_municipal + codigo_servico (LC 116)
+  · Discriminado na mensagem SQS por: { type: 'nfse' }
+  · Tabelas: nfse_invoices, nfse_events (separadas de invoices/nfe_events)
+```
+
+---
+
+### Fluxo de Pedido de Venda
+
+```
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                     CICLO DE VIDA DO PEDIDO                              │
+  │                                                                           │
+  │  ┌────────┐    ┌───────────┐    ┌───────────┐    ┌───────────────────┐   │
+  │  │ draft  │───▶│ confirmed │───▶│ delivered │    │ invoiced (NF-e)   │   │
+  │  └────────┘    └─────┬─────┘    └─────┬─────┘    └───────────────────┘   │
+  │       │              │                 │                   ▲              │
+  │       │              ▼                 └───────────────────┘              │
+  │       │        ┌──────────┐           (pós-entrega: converte para        │
+  │       └───────▶│cancelled │            invoice e emite NF-e)             │
+  │                └──────────┘                                               │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  Endpoints por transição:
+  · draft     → POST /v1/orders            (cria com itens)
+  · confirmed → POST /v1/orders/:id/confirm
+  · delivered → POST /v1/orders/:id/deliver
+  · invoiced  → POST /v1/invoices (importando pedido) → POST /v1/invoices/:id/emit
+  · cancelled → POST /v1/orders/:id/cancel
+
+  Impacto no estoque:
+  · confirm: reserva estoque (inventory_movements type='reserve')
+  · deliver: baixa estoque  (inventory_movements type='out')
+  · cancel:  estorna reserva (inventory_movements type='unreserve')
+
+  Campos de order_items:
+  · order_items NÃO tem tenant_id — filtrar SEMPRE via JOIN com orders.tenant_id
+```
+
+---
+
+### Fluxo de Emissão de Boleto / PIX
+
+```
+  Frontend          api-core            SQS               lambda-billing      Itaú API v2
+     │                  │                 │                     │                  │
+     │ POST /emit-boleto│                 │                     │                  │
+     │─────────────────▶│                 │                     │                  │
+     │                  │ sendMessage     │                     │                  │
+     │                  │────────────────▶│ billing-requests    │                  │
+     │  {status:pending}│                 │─── trigger ────────▶│                  │
+     │◀─────────────────│                 │                     │ OAuth2 token     │
+     │                  │                 │                     │─────────────────▶│
+     │                  │                 │                     │ POST /boletos    │
+     │                  │                 │                     │─────────────────▶│
+     │                  │                 │                     │ {nosso_numero,   │
+     │                  │                 │                     │  linha_digitavel, │
+     │                  │                 │                     │  url_pdf}        │
+     │                  │                 │                     │◀─────────────────│
+     │                  │                 │                     │ PUT PDF → S3     │
+     │                  │ billing-results │                     │                  │
+     │                  │◀────────────────────────────────────── │                  │
+     │                  │ INSERT boleto  │                     │                  │
+     │                  │ UPDATE receivable.boleto_id          │                  │
+     │                  │                 │                     │                  │
+     │ GET /receivables  │                 │                     │                  │
+     │─────────────────▶│                 │                     │                  │
+     │ {boleto_url,     │                 │                     │                  │
+     │  linha_digitavel}│                 │                     │                  │
+     │◀─────────────────│                 │                     │                  │
+
+  Cancelamento: POST /v1/receivables/:id/expire-boleto → lambda-billing → Itaú baixa boleto
+  Autenticação Itaú: OAuth2 client_credentials com tenants.itau_client_id/secret (migration 0025)
+```
+
+---
+
+### Fluxo de Proposta Comercial
+
+```
+  Vendedor (backoffice)                   api-core              Cliente (portal público)
+          │                                   │                          │
+          │ POST /v1/proposals                │                          │
+          │ (status: draft)                   │                          │
+          │──────────────────────────────────▶│                          │
+          │                                   │                          │
+          │ POST /v1/proposals/:id/send       │                          │
+          │──────────────────────────────────▶│                          │
+          │                                   │ sendSystemNotification   │
+          │                                   │ (proposal_sent)          │
+          │                                   │──── SQS notifications ──▶│ e-mail c/ link
+          │  {status: sent}                   │                          │
+          │◀──────────────────────────────────│                          │
+          │                                   │                          │
+          │                                   │ GET /v1/public/proposals/:token
+          │                                   │◀─────────────────────────│
+          │                                   │  {proposta, itens, ...}  │
+          │                                   │─────────────────────────▶│ portal /p/:token
+          │                                   │                          │
+          │                                   │ POST /token/accept       │ (cliente aceita)
+          │                                   │◀─────────────────────────│
+          │                                   │ status = accepted        │
+          │                                   │ sendSystemNotification(proposal_accepted)
+          │◀──────────────────── e-mail ──────│                          │
+          │                                   │                          │
+          │ POST /v1/proposals/:id/convert    │                          │
+          │──────────────────────────────────▶│                          │
+          │ (gera pedido de venda)            │ INSERT orders + items    │
+          │◀──────────────────────────────────│                          │
+
+  Status machine:
+  draft ──▶ sent ──▶ viewed ──▶ accepted ──▶ (convert para order)
+                           └──▶ rejected
+                           └──▶ expired (duração configurável)
+                           └──▶ cancelled
+
+  Impressão: GET /p/:token (portal público) tem botão "Imprimir/Salvar PDF"
+             que chama window.print(). CSS @media print oculta .print-hide.
+```
+
+---
+
+### Fluxo de Notificações por E-mail
+
+```
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │                      DOIS TIPOS DE NOTIFICAÇÃO                                │
+  ├────────────────────────────────┬─────────────────────────────────────────────┤
+  │  sendNotificationIfEnabled()   │  sendSystemNotification()                    │
+  │  (eventos de negócio)          │  (e-mails sistêmicos)                         │
+  │                                │                                               │
+  │  Verifica notification_configs │  Envia direto — sem verificar config          │
+  │  do tenant antes de enviar     │                                               │
+  │                                │  Tipos:                                       │
+  │  Tipos:                        │  · user_welcome   (novo usuário)              │
+  │  · nfe_authorized              │  · password_reset (reset de senha)            │
+  │  · nfe_rejected                │  · proposal_sent  (proposta enviada)          │
+  │  · boleto_registered           │  · proposal_accepted                          │
+  │  · receivable_due_soon *       │  · proposal_rejected                          │
+  │                                │                                               │
+  │  * via dueSoonWorker (23h)     │                                               │
+  └────────────────────────────────┴─────────────────────────────────────────────┘
+
+  Caminho técnico (ambos os tipos):
+
+  api-core                    SQS                    lambda-notifications      SES v2
+     │                          │                            │                    │
+     │ sendMessage(payload)     │                            │                    │
+     │─────────────────────────▶│ notifications              │                    │
+     │  (fire-and-forget)       │─── trigger ───────────────▶│                    │
+     │                          │                            │ renderiza HTML     │
+     │                          │                            │ template           │
+     │                          │                            │ SendEmail ─────────▶
+     │                          │                            │                    │→ destinatário
+     │                          │                            │                    │
+
+  Regras operacionais:
+  · Se NOTIFICATIONS_QUEUE_URL não definida: console.warn + retorna (não lança erro)
+  · Envio é fire-and-forget: nunca bloqueia a resposta HTTP da api-core
+  · Ao adicionar novo tipo: rebuild obrigatório do container lambda-notifications (regra 28)
+  · Falhas de envio vão para SQS DLQ (notifications-dlq) — nunca perdem a mensagem
+```
 
 ---
 
