@@ -4,13 +4,18 @@ import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n';
 
-// Interface do endpoint /v1/dashboard
 interface DashboardData {
   receivables: { pending_count: number; pending_amount: number; overdue_count: number; overdue_amount: number };
   payables:    { due_week_count: number; due_week_amount: number; overdue_count: number; overdue_amount: number };
   revenue:     { this_month: number; last_month: number };
   orders:      { pending_count: number };
   revenue_by_month: Array<{ month: string; total: number }>;
+}
+
+interface CashflowWeek { week_start: string; inflow: number; outflow: number; net: number; }
+interface CashflowData {
+  weeks:   CashflowWeek[];
+  summary: { total_inflow: number; total_outflow: number; net_balance: number };
 }
 
 interface StockAlert { id: string; name: string; sku: string; quantity: number; min_qty: number; }
@@ -41,17 +46,20 @@ const QUICK_LINKS = [
 export function DashboardPage() {
   const { tenantId, user } = useAuth();
   const { t } = useI18n();
-  const [data,    setData]    = useState<DashboardData | null>(null);
-  const [alerts,  setAlerts]  = useState<StockAlert[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [data,     setData]     = useState<DashboardData | null>(null);
+  const [cashflow, setCashflow] = useState<CashflowData | null>(null);
+  const [alerts,   setAlerts]   = useState<StockAlert[]>([]);
+  const [loading,  setLoading]  = useState(true);
 
   useEffect(() => {
     if (!tenantId) return;
     Promise.all([
       api.get<DashboardData>('/v1/dashboard'),
+      api.get<CashflowData>('/v1/dashboard/cashflow'),
       api.get<StockAlert[]>(`/v1/stock/alerts?tenant_id=${tenantId}`),
-    ]).then(([dash, al]) => {
+    ]).then(([dash, cf, al]) => {
       setData(dash as DashboardData);
+      setCashflow(cf as CashflowData);
       setAlerts(al as StockAlert[]);
     }).catch(() => {}).finally(() => setLoading(false));
   }, [tenantId]);
@@ -141,6 +149,48 @@ export function DashboardPage() {
             </div>
           ))}
           <Link to="/stock" style={{ fontSize: 13, color: 'var(--primary)', marginTop: 12, display: 'block' }}>{t('d.seeAll')}</Link>
+        </div>
+      )}
+
+      {/* Fluxo de caixa projetado — próximas 12 semanas */}
+      {cashflow && (
+        <div className="bento-card" style={{ marginTop: 16, padding: 24 }}>
+          <div className="bento-label" style={{ marginBottom: 4 }}>{t('d.cashflowTitle')}</div>
+          <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13 }}>
+              <span style={{ color: '#22c55e', fontWeight: 700 }}>↑ {t('d.cashflowInflow')}: </span>
+              {fmt(cashflow.summary.total_inflow)}
+            </span>
+            <span style={{ fontSize: 13 }}>
+              <span style={{ color: '#ef4444', fontWeight: 700 }}>↓ {t('d.cashflowOutflow')}: </span>
+              {fmt(cashflow.summary.total_outflow)}
+            </span>
+            <span style={{ fontSize: 13 }}>
+              <span style={{ color: cashflow.summary.net_balance >= 0 ? '#3B5CE4' : '#ef4444', fontWeight: 700 }}>
+                = {t('d.cashflowNet')}:{' '}
+              </span>
+              {fmt(cashflow.summary.net_balance)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', height: 80, overflowX: 'auto' }}>
+            {cashflow.weeks.map((w, i) => {
+              const maxVal = Math.max(...cashflow.weeks.flatMap(x => [x.inflow, x.outflow]), 1);
+              const label  = new Date(w.week_start + 'T12:00:00Z').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+              return (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 40, flex: '1 0 40px' }}>
+                  <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 56 }}>
+                    <div title={`A receber: ${fmt(w.inflow)}`} style={{ width: 10, height: `${Math.max(2, Math.round((w.inflow / maxVal) * 56))}px`, background: '#22c55e', borderRadius: 2 }} />
+                    <div title={`A pagar: ${fmt(w.outflow)}`} style={{ width: 10, height: `${Math.max(2, Math.round((w.outflow / maxVal) * 56))}px`, background: '#ef4444', borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: '#22c55e' }}>■ {t('d.cashflowInflow')}</span>
+            <span style={{ fontSize: 11, color: '#ef4444' }}>■ {t('d.cashflowOutflow')}</span>
+          </div>
         </div>
       )}
 

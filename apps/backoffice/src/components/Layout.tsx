@@ -104,6 +104,14 @@ function IcoSuppliers() {
     </svg>
   );
 }
+function IcoReports() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="14" height="14" rx="2"/>
+      <path d="M5 12V9M8 12V7M11 12V5M14 12V8"/>
+    </svg>
+  );
+}
 
 function IcoMenu() {
   return (
@@ -129,6 +137,7 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/contracts':   IcoContracts,
   '/nfse':        IcoNfse,
   '/proposals':   IcoProposals,
+  '/reports':     IcoReports,
 };
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -154,6 +163,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/payables',    label: t('nav.payables')    },
     { to: '/contracts',   label: t('nav.contracts')   },
     { to: '/nfse',        label: t('nav.nfse')        },
+    { to: '/reports',     label: t('nav.reports')     },
     { to: '/users',       label: t('nav.users')       },
     { to: '/company',     label: t('nav.company')     },
   ];

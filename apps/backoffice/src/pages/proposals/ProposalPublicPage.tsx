@@ -369,7 +369,19 @@ export function ProposalPublicPage() {
         </div>
       </div>
 
-      <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+      {/* Print / PDF */}
+      {(state === 'view' || state === 'already_accepted' || state === 'already_rejected') && (
+        <div style={{ marginBottom: 16 }} className="print-hide">
+          <button
+            style={{ ...btnSecondary, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => window.print()}
+          >
+            🖨 Imprimir / Salvar PDF
+          </button>
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }} className="print-hide">
         Powered by Orquestra ERP
       </div>
     </div>

@@ -204,6 +204,10 @@ export function ClientsPage() {
   const [savingContact,    setSavingContact]    = useState(false);
   const [contactError,     setContactError]     = useState('');
 
+  // ── History state (within drawer, edit mode only) ─────────────────────────
+  const [history,        setHistory]        = useState<{ orders: any[]; invoices: any[]; receivables: any[] } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // ── Import state ───────────────────────────────────────────────────────────
   const [importOpen,   setImportOpen]   = useState(false);
   const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
@@ -232,6 +236,16 @@ export function ClientsPage() {
   }
 
   useEffect(() => { void load(); }, [tenantId, page, search, filter]);
+
+  // Load history when drawer opens for edit
+  useEffect(() => {
+    if (!drawerOpen || !editing) { setHistory(null); return; }
+    setHistoryLoading(true);
+    api.get<{ orders: any[]; invoices: any[]; receivables: any[] }>(`/v1/clients/${editing.id}/history`)
+      .then(r => setHistory(r))
+      .catch(() => setHistory(null))
+      .finally(() => setHistoryLoading(false));
+  }, [drawerOpen, editing?.id]);
 
   // Load contacts when drawer opens for edit
   useEffect(() => {
@@ -864,6 +878,69 @@ export function ClientsPage() {
                         )}
                       </>
                     )}
+                  </>
+                )}
+                {/* ── Histórico 360° (somente no modo edição) ───────── */}
+                {editing && (
+                  <>
+                    <SectionLabel label={t('cl.history')} />
+                    {historyLoading ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                    ) : history ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        {/* Pedidos */}
+                        {history.orders.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 6 }}>{t('nav.orders')}</div>
+                            {history.orders.map((o: any) => (
+                              <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                                <span>#{o.number} <span className={`badge badge-${o.status}`} style={{ fontSize: 10, marginLeft: 4 }}>{o.status}</span></span>
+                                <span style={{ fontWeight: 600 }}>
+                                  {Number(o.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Notas Fiscais */}
+                        {history.invoices.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 6 }}>{t('nav.invoices')}</div>
+                            {history.invoices.map((inv: any) => (
+                              <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                                <span>NF-e {inv.number ?? '—'} <span className={`badge badge-${inv.status}`} style={{ fontSize: 10, marginLeft: 4 }}>{inv.status}</span></span>
+                                <span style={{ fontWeight: 600 }}>
+                                  {Number(inv.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Contas a Receber */}
+                        {history.receivables.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 6 }}>{t('nav.receivables')}</div>
+                            {history.receivables.map((r: any) => (
+                              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                                <span>
+                                  {r.description}
+                                  <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                                    {new Date(r.due_date + 'T12:00:00Z').toLocaleDateString('pt-BR')}
+                                  </span>
+                                  <span className={`badge badge-${r.status === 'paid' ? 'service' : r.status === 'overdue' ? 'raw_material' : 'product'}`} style={{ fontSize: 10, marginLeft: 4 }}>{r.status}</span>
+                                </span>
+                                <span style={{ fontWeight: 600 }}>
+                                  {Number(r.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {history.orders.length === 0 && history.invoices.length === 0 && history.receivables.length === 0 && (
+                          <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('cl.historyEmpty')}</div>
+                        )}
+                      </div>
+                    ) : null}
                   </>
                 )}
               </div>
