@@ -12,6 +12,7 @@ import { ClientsPage }    from './pages/clients/ClientsPage';
 import { UsersPage }      from './pages/users/UsersPage';
 import { OrdersPage }      from './pages/orders/OrdersPage';
 import { InvoicesPage }    from './pages/invoices/InvoicesPage';
+import { InvoiceNewPage }  from './pages/invoices/InvoiceNewPage';
 import { StockPage }       from './pages/stock/StockPage';
 import { ReceivablesPage } from './pages/receivables/ReceivablesPage';
 import { SuppliersPage }   from './pages/suppliers/SuppliersPage';
@@ -38,7 +39,8 @@ function GuardedRoutes() {
         <Route path="/materials"  element={<MaterialsPage />} />
         <Route path="/users"      element={<UsersPage />} />
         <Route path="/orders"      element={<OrdersPage />} />
-        <Route path="/invoices"    element={<InvoicesPage />} />
+        <Route path="/invoices"     element={<InvoicesPage />} />
+        <Route path="/invoices/new" element={<InvoiceNewPage />} />
         <Route path="/stock"       element={<StockPage />} />
         <Route path="/receivables" element={<ReceivablesPage />} />
         <Route path="/suppliers"   element={<SuppliersPage />} />

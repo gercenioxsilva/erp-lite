@@ -1,0 +1,44 @@
+.ds-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  border: none;
+  cursor: default;
+  font-family: inherit;
+}
+
+button.ds-status-pill { cursor: pointer; }
+button.ds-status-pill:hover { opacity: .85; }
+
+.ds-status-pill--authorized {
+  background: var(--status-authorized-bg);
+  color: var(--status-authorized-fg);
+}
+.ds-status-pill--rejected {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-fg);
+}
+.ds-status-pill--pending {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-fg);
+}
+.ds-status-pill--processing {
+  background: var(--status-processing-bg);
+  color: var(--status-processing-fg);
+}
+
+.ds-status-pill__spinner {
+  display: inline-block;
+  animation: ds-spin .8s linear infinite;
+  font-size: 10px;
+}
+
+@keyframes ds-spin {
+  to { transform: rotate(360deg); }
+}

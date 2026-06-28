@@ -12,6 +12,7 @@
     "migrate:dev": "ts-node --transpile-only src/scripts/migrate.ts",
     "seed": "node dist/scripts/seed.js",
     "seed:nfe": "ts-node --transpile-only src/scripts/seed-nfe.ts",
+    "seed:nfse": "ts-node --transpile-only src/scripts/seed-nfse.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

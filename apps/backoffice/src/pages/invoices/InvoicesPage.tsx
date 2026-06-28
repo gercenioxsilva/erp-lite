@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState, FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { StatusPill, Drawer, Timeline } from '../../ds';
+import type { FiscalStatus } from '../../ds';
 import type { TKey } from '../../i18n/pt-BR';
 
 function exportToXlsx(rows: any[], filename: string) {
@@ -42,40 +45,11 @@ interface NfeEvent {
   created_at: string;
 }
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
-interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; }
-interface OrderOption    { id: string; number: string; client_id: string; client_name: string; }
-
-interface FormItem {
-  _key: string; material_id: string; name: string;
-  ncm_code: string; cfop: string; quantity: string; unit_price: string;
-  // tax values populated after calculateTaxes
-  icms_cst?: string;    icms_rate?: number;    icms_value?: number;
-  pis_cst?: string;     pis_rate?: number;     pis_value?: number;
-  cofins_cst?: string;  cofins_rate?: number;  cofins_value?: number;
-  ipi_rate?: string;    ipi_value?: number;
-}
-
-interface TaxTotals {
-  subtotal: number; icms_total: number; pis_total: number;
-  cofins_total: number; ipi_total: number; embedded_tax_total: number; grand_total: number;
-}
-interface TaxApplied { icms: number; pis: number; cofins: number; }
-interface TaxResult {
-  lines: Array<{
-    icms_cst: string; icms_base: number; icms_rate: number; icms_value: number;
-    pis_cst: string;  pis_base: number;  pis_rate: number;  pis_value: number;
-    cofins_cst: string; cofins_base: number; cofins_rate: number; cofins_value: number;
-    ipi_base: number; ipi_rate: number; ipi_value: number;
-  }>;
-  totals: TaxTotals;
-  applied_rates: TaxApplied;
-}
 
 interface ListResp { data: Invoice[]; total: number; page: number; per_page: number; }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const PCT = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 const STATUS_TABS = ['all', 'draft', 'issued', 'cancelled'] as const;
 type StatusTab = typeof STATUS_TABS[number];
 
@@ -93,15 +67,12 @@ function toDanfeAbsoluteUrl(url: string | null): string | null {
     : 'https://api.focusnfe.com.br';
   return base + url;
 }
-function newItem(): FormItem {
-  return { _key: Math.random().toString(36).slice(2), material_id: '', name: '', ncm_code: '', cfop: '', quantity: '1', unit_price: '0' };
-}
-
 /* ── Component ──────────────────────────────────────────────────────────── */
 export function InvoicesPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
+  const navigate = useNavigate();
 
   /* list */
   const [invoices,     setInvoices]     = useState<Invoice[]>([]);
@@ -117,30 +88,7 @@ export function InvoicesPage() {
   const [valueMax,     setValueMax]     = useState('');
   const [loading,      setLoading]      = useState(true);
   const [nfeAmbiente,  setNfeAmbiente]  = useState<number | null>(null);
-
-  /* drawer */
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [saving,     setSaving]     = useState(false);
-  const [formError,  setFormError]  = useState('');
-
-  /* form */
-  const [formClientId,   setFormClientId]   = useState('');
-  const [formOrderId,    setFormOrderId]    = useState('');
-  const [formNotes,      setFormNotes]      = useState('');
-  const [formSerie,      setFormSerie]      = useState('1');
-  const [formItems,      setFormItems]      = useState<FormItem[]>([]);
-  const [formTaxRegime,  setFormTaxRegime]  = useState('lucro_presumido');
-  const [formDestState,  setFormDestState]  = useState('SP');
-
-  /* dropdown data */
-  const [clients,   setClients]   = useState<ClientOption[]>([]);
-  const [materials, setMaterials] = useState<MaterialOption[]>([]);
-  const [orders,    setOrders]    = useState<OrderOption[]>([]);
-
-  /* tax calculation */
-  const [taxResult,    setTaxResult]    = useState<TaxResult | null>(null);
-  const [calcTaxLoad,  setCalcTaxLoad]  = useState(false);
-  const [calcTaxError, setCalcTaxError] = useState('');
+  const [clients,      setClients]      = useState<ClientOption[]>([]);
 
   /* NF-e status panel */
   const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -189,161 +137,6 @@ export function InvoicesPage() {
       .catch(() => { if (!cancelled) setNfeAmbiente(null); /* NF-e não configurada */ });
     return () => { cancelled = true; };
   }, [tenantId]);
-
-  /* ── Load dropdown data when drawer opens ── */
-  useEffect(() => {
-    if (!drawerOpen || !tenantId) return;
-    let cancelled = false;
-    setFormError('');
-    Promise.all([
-      api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
-    ])
-      .then(([cl, mt, or]) => {
-        if (cancelled) return;
-        setClients(cl.data ?? []);
-        setMaterials(mt.data ?? []);
-        setOrders((or.data ?? []).filter(o => !['cancelled', 'delivered'].includes((o as any).status)));
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setFormError(err instanceof Error ? err.message : t('cl.errSave'));
-      });
-    return () => { cancelled = true; };
-  }, [drawerOpen, tenantId]);
-
-  /* ── When order is selected, auto-fill client + items ── */
-  async function handleOrderChange(orderId: string) {
-    setFormOrderId(orderId);
-    setTaxResult(null);
-    if (!orderId) { setFormClientId(''); setFormItems([newItem()]); return; }
-    try {
-      const detail = await api.get<{
-        client_id: string;
-        items: Array<{ material_id: string | null; name: string; quantity: number; unit_price: number; }>;
-      }>(`/v1/orders/${orderId}`);
-      setFormClientId(detail.client_id);
-      setFormItems(
-        detail.items.length > 0
-          ? detail.items.map(it => ({
-              _key: Math.random().toString(36).slice(2),
-              material_id: it.material_id ?? '',
-              name: it.name,
-              ncm_code: materials.find(m => m.id === it.material_id)?.ncm_code ?? '',
-              cfop: '',
-              quantity: String(it.quantity),
-              unit_price: String(it.unit_price),
-            }))
-          : [newItem()],
-      );
-    } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : t('cl.errSave'));
-    }
-  }
-
-  /* ── Drawer open helper ── */
-  function openCreate() {
-    setFormClientId(''); setFormOrderId(''); setFormNotes(''); setFormSerie('1');
-    setFormItems([newItem()]); setFormTaxRegime('lucro_presumido'); setFormDestState('SP');
-    setTaxResult(null); setCalcTaxError(''); setFormError('');
-    setDrawerOpen(true);
-  }
-
-  /* ── Item helpers ── */
-  function addItem()               { setFormItems(prev => [...prev, newItem()]); setTaxResult(null); }
-  function removeItem(idx: number) { setFormItems(prev => prev.filter((_, i) => i !== idx)); setTaxResult(null); }
-
-  function updateItem(idx: number, field: string, val: string) {
-    setTaxResult(null);
-    setFormItems(prev => prev.map((item, i) => {
-      if (i !== idx) return item;
-      if (field === 'material_id') {
-        const mat = materials.find(m => m.id === val);
-        return { ...item, material_id: val, name: mat?.name ?? '',
-                 ncm_code: mat?.ncm_code ?? '',
-                 unit_price: mat?.sale_price ? String(mat.sale_price) : item.unit_price };
-      }
-      return { ...item, [field]: val };
-    }));
-  }
-
-  /* ── Tax calculation ── */
-  async function handleCalculateTaxes() {
-    const validItems = formItems.filter(it => it.name && Number(it.quantity) > 0);
-    if (!validItems.length) { setCalcTaxError(t('o.errNoItems')); return; }
-
-    setCalcTaxLoad(true); setCalcTaxError('');
-    try {
-      const result = await api.post<TaxResult>('/v1/tax/calculate', {
-        origin_state:      'SP',
-        destination_state: formDestState.toUpperCase() || 'SP',
-        tax_regime:        formTaxRegime,
-        lines: validItems.map(it => ({
-          ncm_code:   it.ncm_code || undefined,
-          quantity:   Number(it.quantity),
-          unit_price: Number(it.unit_price),
-          ipi_rate:   it.ipi_rate ? Number(it.ipi_rate) : 0,
-        })),
-      });
-
-      // Merge tax values back into form items (aligned by valid item index)
-      let ri = 0;
-      setFormItems(prev => prev.map(item => {
-        if (!item.name || !(Number(item.quantity) > 0)) return item;
-        const line = result.lines[ri++];
-        if (!line) return item;
-        return {
-          ...item,
-          icms_cst: line.icms_cst, icms_rate: line.icms_rate, icms_value: line.icms_value,
-          pis_cst:  line.pis_cst,  pis_rate:  line.pis_rate,  pis_value:  line.pis_value,
-          cofins_cst: line.cofins_cst, cofins_rate: line.cofins_rate, cofins_value: line.cofins_value,
-          ipi_value: line.ipi_value,
-        };
-      }));
-      setTaxResult(result);
-    } catch (err: unknown) {
-      setCalcTaxError(err instanceof Error ? err.message : 'Erro ao calcular impostos');
-    } finally { setCalcTaxLoad(false); }
-  }
-
-  /* ── Computed subtotal ── */
-  const subtotalCalc = formItems.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
-
-  /* ── Save ── */
-  async function handleSave(e: FormEvent) {
-    e.preventDefault();
-    if (!tenantId) return;
-    if (!formClientId) { setFormError(t('inv.errNoClient')); return; }
-    if (!formItems.some(it => it.name)) { setFormError(t('o.errNoItems')); return; }
-    setSaving(true); setFormError('');
-    try {
-      await api.post('/v1/invoices', {
-        tenant_id: tenantId, client_id: formClientId,
-        order_id: formOrderId || undefined, serie: formSerie,
-        notes: formNotes || null,
-        tax_regime:   formTaxRegime,
-        origin_state: 'SP',
-        items: formItems.filter(it => it.name).map(it => ({
-          material_id: it.material_id || undefined, name: it.name,
-          ncm_code: it.ncm_code || undefined, cfop: it.cfop || undefined,
-          quantity: Number(it.quantity), unit_price: Number(it.unit_price),
-          icms_cst: it.icms_cst,   icms_base: (Number(it.quantity)||0) * (Number(it.unit_price)||0),
-          icms_rate: it.icms_rate  ?? 0, icms_value:   it.icms_value   ?? 0,
-          pis_cst:  it.pis_cst,    pis_base:  (Number(it.quantity)||0) * (Number(it.unit_price)||0),
-          pis_rate: it.pis_rate    ?? 0, pis_value:    it.pis_value    ?? 0,
-          cofins_cst: it.cofins_cst, cofins_base: (Number(it.quantity)||0) * (Number(it.unit_price)||0),
-          cofins_rate: it.cofins_rate ?? 0, cofins_value: it.cofins_value ?? 0,
-          ipi_rate: it.ipi_rate ? Number(it.ipi_rate) : 0,
-          ipi_value: it.ipi_value ?? 0,
-        })),
-      });
-      setDrawerOpen(false);
-      void load();
-    } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : t('cl.errSave'));
-    } finally { setSaving(false); }
-  }
 
   /* ── NF-e panel ── */
   function stopNfePoll() {
@@ -463,7 +256,7 @@ export function InvoicesPage() {
             invoices.map(i => ({ number: i.number, client_name: i.client_name, total: i.total, issue_date: i.issue_date, status: i.status, nfe_status: i.nfe_status })),
             `notas-fiscais-${new Date().toISOString().slice(0,10)}.xlsx`
           )}>↓ Exportar</button>
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={() => navigate('/invoices/new')}>
             + {t('inv.new')}
           </button>
         </div>
@@ -526,7 +319,7 @@ export function InvoicesPage() {
         ) : invoices.length === 0 ? (
           <div className="empty-state">
             {t('inv.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('inv.new')}</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/invoices/new')}>{t('inv.new')}</button>
           </div>
         ) : (
           <table>
@@ -560,11 +353,13 @@ export function InvoicesPage() {
                     </span>
                   </td>
                   <td>
-                    <NfeStatusBadge
-                      nfeStatus={inv.nfe_status}
-                      rejectReason={inv.nfe_reject_reason}
-                      onClick={() => openNfePanel(inv)}
-                    />
+                    {inv.nfe_status ? (
+                      <StatusPill
+                        status={inv.nfe_status as FiscalStatus}
+                        onClick={() => openNfePanel(inv)}
+                        title={inv.nfe_reject_reason ?? undefined}
+                      />
+                    ) : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>}
                   </td>
                   <td className="text-right">{BRL.format(Number(inv.total))}</td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -612,456 +407,94 @@ export function InvoicesPage() {
       )}
 
       {/* ── NF-e Status Panel ─────────────────────────────────────────────── */}
-      {nfePanelOpen && nfePanelInv && (
-        <div className="overlay" onClick={closeNfePanel}>
-          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(560px, 96vw)' }}>
-            <div className="drawer-header">
-              <div>
-                <h2 style={{ marginBottom: 2 }}>{t('nfe.panelTitle')}</h2>
-                <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>
-                  {nfePanelInv.client_name} · NF-e {nfePanelInv.serie}/{nfePanelInv.number || t('nfe.pending')}
+      <Drawer
+        open={nfePanelOpen && !!nfePanelInv}
+        onClose={closeNfePanel}
+        title={t('nfe.panelTitle')}
+        subTitle={nfePanelInv ? `${nfePanelInv.client_name} · NF-e ${nfePanelInv.serie}/${nfePanelInv.number || t('nfe.pending')}` : ''}
+      >
+        <Drawer.Body>
+          {nfeError && <div role="alert" className="alert alert-error" style={{ marginBottom: 14 }}>{nfeError}</div>}
+          {nfeLoading ? (
+            <div className="spinner">{t('c.loading')}</div>
+          ) : nfePanelInv && (
+            <>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '14px 16px', background: 'var(--surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {nfeDetail?.nfe_status && <StatusPill status={nfeDetail.nfe_status as FiscalStatus} />}
+                  <div style={{ flex: 1, fontSize: 13, color: 'var(--muted)' }}>
+                    {nfeDetail?.nfe_attempts != null && nfeDetail.nfe_attempts > 0
+                      ? `${nfeDetail.nfe_attempts} ${t('nfe.attempts')}` : t('nfe.notEmitted')}
+                  </div>
+                  {!nfeDetail?.nfe_status && nfePanelInv.status === 'draft' && (
+                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                      disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
+                      {nfeEmitting ? t('c.saving') : t('nfe.emitSefaz')}
+                    </button>
+                  )}
+                  {nfeDetail?.nfe_status === 'rejected' && (
+                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                      disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
+                      {nfeEmitting ? t('c.saving') : t('nfe.retry')}
+                    </button>
+                  )}
                 </div>
-              </div>
-              <button className="btn btn-secondary btn-sm" onClick={closeNfePanel}>✕</button>
-            </div>
-            <div className="drawer-body">
-              {nfeError && <div role="alert" className="alert alert-error" style={{ marginBottom: 14 }}>{nfeError}</div>}
-
-              {nfeLoading ? (
-                <div className="spinner">{t('c.loading')}</div>
-              ) : (
-                <>
-                  {/* ── Status Card ─────────────────────────────────── */}
-                  <NfeStatusCard
-                    detail={nfeDetail}
-                    invoice={nfePanelInv}
-                    onEmit={() => void emitNfe(nfePanelInv.id)}
-                    onRetry={() => void emitNfe(nfePanelInv.id)}
-                    emitting={nfeEmitting}
-                    t={t}
-                  />
-
-                  {/* ── Events timeline ─────────────────────────────── */}
-                  {nfeEvents.length > 0 && (
-                    <>
-                      <p style={{
-                        fontSize: 11, fontWeight: 700, color: 'var(--muted)',
-                        letterSpacing: '.06em', textTransform: 'uppercase',
-                        margin: '20px 0 12px', borderTop: '1px solid var(--border)', paddingTop: 16,
-                      }}>
-                        {t('nfe.events')}
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {nfeEvents.map((ev, i) => (
-                          <div key={i} style={{
-                            padding: '10px 12px',
-                            border: '1px solid var(--border)', borderRadius: 8,
-                            background: ev.event_type === 'emission_rejected' ? '#fff5f5' : 'var(--surface)',
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              <div>
-                                <span className={`badge ${ev.event_type === 'emission' ? 'badge-product' : 'badge-service'}`}
-                                  style={{ fontSize: 10, marginBottom: 4 }}>
-                                  {t(('nfe.evt.' + ev.event_type) as Parameters<typeof t>[0]) || ev.event_type}
-                                </span>
-                                {ev.status_code && (
-                                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>
-                                    cStat: {ev.status_code}
-                                  </span>
-                                )}
-                              </div>
-                              <time style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                                {new Date(ev.created_at).toLocaleString('pt-BR')}
-                              </time>
+                {nfeDetail && (
+                  <div style={{ padding: '12px 16px' }}>
+                    {nfeDetail.nfe_status === 'rejected' && nfeDetail.nfe_reject_reason && (
+                      <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#991b1b', lineHeight: 1.6 }}>
+                        <strong style={{ display: 'block', marginBottom: 4 }}>{t('nfe.rejectReason')}:</strong>
+                        {nfeDetail.nfe_reject_reason}
+                      </div>
+                    )}
+                    {nfeDetail.nfe_status === 'authorized' && (
+                      <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
+                        {nfeDetail.nfe_chave && (
+                          <div>
+                            <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.key')}</span>
+                            <div style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', marginTop: 2 }}>{nfeDetail.nfe_chave}</div>
+                          </div>
+                        )}
+                        {nfeDetail.nfe_protocol && (
+                          <div style={{ display: 'flex', gap: 20 }}>
+                            <div>
+                              <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.protocol')}</span>
+                              <div style={{ fontFamily: 'monospace' }}>{nfeDetail.nfe_protocol}</div>
                             </div>
-                            {ev.protocol && (
-                              <div style={{ fontSize: 11, marginTop: 4, color: 'var(--muted)' }}>
-                                nProt: <code>{ev.protocol}</code>
-                              </div>
-                            )}
-                            {ev.event_type === 'emission_rejected' && !!ev.payload?.['nfe_reject_reason'] && (
-                              <div style={{
-                                marginTop: 8, padding: '6px 10px',
-                                background: '#fee', borderRadius: 6,
-                                fontSize: 12, color: '#b91c1c', lineHeight: 1.5,
-                              }}>
-                                {String(ev.payload['nfe_reject_reason'])}
+                            {nfeDetail.nfe_auth_date && (
+                              <div>
+                                <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.authDate')}</span>
+                                <div>{new Date(nfeDetail.nfe_auth_date).toLocaleString('pt-BR')}</div>
                               </div>
                             )}
                           </div>
-                        ))}
+                        )}
+                        {nfeDetail.nfe_danfe_url && (
+                          <a href={toDanfeAbsoluteUrl(nfeDetail.nfe_danfe_url) ?? '#'} target="_blank" rel="noopener noreferrer"
+                            className="btn btn-secondary btn-sm" style={{ width: 'auto', display: 'inline-flex' }}>
+                            {t('nfe.danfe')}
+                          </a>
+                        )}
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
+                )}
+              </div>
+              {nfeEvents.length > 0 && (
+                <>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.06em', textTransform: 'uppercase', margin: '0 0 12px' }}>
+                    {t('nfe.events')}
+                  </p>
+                  <Timeline events={nfeEvents} />
                 </>
               )}
-            </div>
-            <div className="drawer-footer">
-              <button className="btn btn-secondary" onClick={closeNfePanel}>{t('c.close')}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Drawer ── */}
-      {drawerOpen && (
-        <div className="overlay" onClick={() => setDrawerOpen(false)}>
-          <div className="drawer" onClick={e => e.stopPropagation()}
-               style={{ width: 'min(880px, 96vw)' }}>
-            <div className="drawer-header">
-              <h2>{t('inv.new')}</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
-            </div>
-
-            <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
-              <div className="drawer-body">
-                {formError && (
-                  <div role="alert" className="alert alert-error">{formError}</div>
-                )}
-
-                {/* Order + Serie */}
-                <div className="field-row">
-                  <div className="field">
-                    <label htmlFor="inv-order">{t('inv.fromOrder')}</label>
-                    <select id="inv-order" value={formOrderId}
-                            onChange={e => void handleOrderChange(e.target.value)}>
-                      <option value="">{t('inv.selectOrder')}</option>
-                      {orders.map(o => (
-                        <option key={o.id} value={o.id}>#{o.number} — {o.client_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field" style={{ flex: '0 0 100px' }}>
-                    <label htmlFor="inv-serie">{t('inv.serie')}</label>
-                    <input id="inv-serie" value={formSerie}
-                           onChange={e => setFormSerie(e.target.value)} maxLength={10} />
-                  </div>
-                </div>
-
-                {/* Client */}
-                <div className="field">
-                  <label htmlFor="inv-client">{t('inv.client')} *</label>
-                  <select id="inv-client" value={formClientId}
-                          onChange={e => setFormClientId(e.target.value)}>
-                    <option value="">{t('o.selectClient')}</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.company_name ?? c.full_name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Tax regime + Destination state */}
-                <div className="field-row">
-                  <div className="field">
-                    <label htmlFor="inv-regime">{t('tax.regime')}</label>
-                    <select id="inv-regime" value={formTaxRegime}
-                            onChange={e => { setFormTaxRegime(e.target.value); setTaxResult(null); }}>
-                      <option value="lucro_presumido">{t('tax.regimeLLP')}</option>
-                      <option value="lucro_real">{t('tax.regimeLR')}</option>
-                      <option value="simples_nacional">{t('tax.regimeSN')}</option>
-                      <option value="mei">{t('tax.regimeMEI')}</option>
-                    </select>
-                  </div>
-                  <div className="field" style={{ flex: '0 0 130px' }}>
-                    <label htmlFor="inv-dest">{t('tax.destState')}</label>
-                    <input id="inv-dest" value={formDestState} maxLength={2}
-                           onChange={e => { setFormDestState(e.target.value.toUpperCase()); setTaxResult(null); }}
-                           placeholder="SP" />
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 4 }}>
-                  <div style={{ padding: '10px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ fontSize: 13 }}>{t('o.items')}</strong>
-                    <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={addItem}>
-                      + {t('o.addItem')}
-                    </button>
-                  </div>
-                  {formItems.length === 0 ? (
-                    <p style={{ padding: '14px 16px', color: 'var(--muted)', fontSize: 13, margin: 0 }}>
-                      {t('o.noItems')}
-                    </p>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', minWidth: 660, fontSize: 14, borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ background: 'var(--surface)' }}>
-                            <th style={{ padding: '6px 10px', textAlign: 'left', width: '32%' }}>{t('o.material')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '12%' }}>{t('o.qty')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '16%' }}>{t('o.unitPrice')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '14%' }}>{t('inv.ncm')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '14%' }}>{t('inv.cfop')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'right', width: '8%' }}>{t('o.lineTotal')}</th>
-                            <th style={{ width: '4%' }}></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {formItems.map((item, idx) => (
-                            <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
-                              <td style={{ padding: '6px 10px' }}>
-                                <select aria-label={t('o.material')} value={item.material_id}
-                                        onChange={e => updateItem(idx, 'material_id', e.target.value)}
-                                        style={{ width: '100%', fontSize: 12 }}>
-                                  <option value="">{t('o.selectMat')}</option>
-                                  {materials.map(m => (
-                                    <option key={m.id} value={m.id}>{m.sku} — {m.name}</option>
-                                  ))}
-                                </select>
-                                {!item.material_id && (
-                                  <input aria-label={t('o.namePH')} placeholder={t('o.namePH')}
-                                         value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)}
-                                         style={{ marginTop: 4, fontSize: 12 }} />
-                                )}
-                              </td>
-                              <td style={{ padding: '6px 8px' }}>
-                                <input aria-label={t('o.qty')} type="number" min="0.001" step="0.001"
-                                       value={item.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                                       style={{ fontSize: 12 }} />
-                              </td>
-                              <td style={{ padding: '6px 8px' }}>
-                                <input aria-label={t('o.unitPrice')} type="number" min="0" step="0.01"
-                                       value={item.unit_price} onChange={e => updateItem(idx, 'unit_price', e.target.value)}
-                                       style={{ fontSize: 12 }} />
-                              </td>
-                              <td style={{ padding: '6px 8px' }}>
-                                <input aria-label={t('inv.ncm')} placeholder="0000.00.00"
-                                       value={item.ncm_code} onChange={e => updateItem(idx, 'ncm_code', e.target.value)}
-                                       style={{ fontSize: 12 }} />
-                              </td>
-                              <td style={{ padding: '6px 8px' }}>
-                                <input aria-label={t('inv.cfop')} placeholder="5102"
-                                       value={item.cfop} onChange={e => updateItem(idx, 'cfop', e.target.value)}
-                                       style={{ fontSize: 12 }} />
-                              </td>
-                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 12 }}>
-                                {BRL.format((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))}
-                              </td>
-                              <td style={{ textAlign: 'center' }}>
-                                <button type="button" aria-label={`remove-item-${idx}`}
-                                        data-testid={`inv-remove-item-${idx}`}
-                                        onClick={() => removeItem(idx)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 8px' }}>
-                                  ×
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                {/* Notes */}
-                <div className="field">
-                  <label htmlFor="inv-notes">{t('o.notes')}</label>
-                  <textarea id="inv-notes" value={formNotes}
-                            onChange={e => setFormNotes(e.target.value)} rows={2} />
-                </div>
-
-                {/* Tax breakdown + totals */}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px' }}>
-                  {/* Calculate button */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: taxResult ? 10 : 0 }}>
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('tax.breakdown')}</span>
-                    <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-                            disabled={calcTaxLoad} onClick={handleCalculateTaxes}>
-                      {calcTaxLoad ? t('tax.calculating') : `⊕ ${t('tax.calculate')}`}
-                    </button>
-                  </div>
-
-                  {calcTaxError && (
-                    <p style={{ color: 'var(--danger)', fontSize: 12, margin: '6px 0 0' }}>{calcTaxError}</p>
-                  )}
-
-                  {/* Embedded tax breakdown */}
-                  {taxResult && (
-                    <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 10, marginTop: 6, fontSize: 13 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 4 }}>
-                        <span>{t('tax.icms')} {PCT(taxResult.applied_rates.icms)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
-                        <span>{BRL.format(taxResult.totals.icms_total)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 4 }}>
-                        <span>{t('tax.pis')} {PCT(taxResult.applied_rates.pis)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
-                        <span>{BRL.format(taxResult.totals.pis_total)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 10 }}>
-                        <span>{t('tax.cofins')} {PCT(taxResult.applied_rates.cofins)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
-                        <span>{BRL.format(taxResult.totals.cofins_total)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: 6, marginBottom: 8 }}>
-                        <span>Carga tributária total embutida</span>
-                        <span>{BRL.format(taxResult.totals.embedded_tax_total)}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Subtotal + total line */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: taxResult ? '1px solid var(--border)' : 'none', paddingTop: taxResult ? 8 : 0 }}>
-                    <span>{taxResult ? t('tax.grandTotal') : t('inv.total')}</span>
-                    <span data-testid="inv-total-value" style={{ color: 'var(--primary)' }}>
-                      {BRL.format(taxResult ? taxResult.totals.grand_total : subtotalCalc)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="drawer-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
-                  {t('c.cancel')}
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                  {saving ? t('c.saving') : t('inv.create')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── NF-e sub-components ─────────────────────────────────────────────────── */
-
-const NFE_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  pending:    { label: 'Enviando…',    color: '#92400e', bg: '#fef3c7', icon: '⏳' },
-  processing: { label: 'Processando…', color: '#1e40af', bg: '#dbeafe', icon: '⏳' },
-  authorized: { label: 'Autorizada',   color: '#166534', bg: '#dcfce7', icon: '✓'  },
-  rejected:   { label: 'Rejeitada',    color: '#991b1b', bg: '#fee2e2', icon: '✗'  },
-};
-
-function NfeStatusBadge({
-  nfeStatus, rejectReason, onClick,
-}: {
-  nfeStatus: string | null;
-  rejectReason: string | null;
-  onClick: () => void;
-}) {
-  if (!nfeStatus) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
-  const cfg = NFE_STATUS_CONFIG[nfeStatus];
-  if (!cfg) return <span style={{ fontSize: 11 }}>{nfeStatus}</span>;
-  const isClickable = true;
-  return (
-    <button
-      onClick={onClick}
-      title={nfeStatus === 'rejected' && rejectReason ? rejectReason : cfg.label}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-        color: cfg.color, background: cfg.bg, border: 'none', cursor: isClickable ? 'pointer' : 'default',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span>{cfg.icon}</span>
-      {cfg.label}
-      {nfeStatus === 'pending' || nfeStatus === 'processing'
-        ? <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 10 }}>↻</span>
-        : null}
-    </button>
-  );
-}
-
-function NfeStatusCard({
-  detail, invoice, onEmit, onRetry, emitting, t,
-}: {
-  detail: NfeStatusDetail | null;
-  invoice: Invoice;
-  onEmit: () => void;
-  onRetry: () => void;
-  emitting: boolean;
-  t: (key: Parameters<ReturnType<typeof import('../../i18n').useI18n>['t']>[0]) => string;
-}) {
-  const ns = detail?.nfe_status;
-  const cfg = ns ? NFE_STATUS_CONFIG[ns] : null;
-
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-      {/* Status header */}
-      <div style={{
-        padding: '14px 16px',
-        background: cfg ? cfg.bg : 'var(--surface)',
-        display: 'flex', alignItems: 'center', gap: 12,
-      }}>
-        <div style={{ fontSize: 28 }}>{cfg ? cfg.icon : '📄'}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: cfg ? cfg.color : 'var(--text)' }}>
-            {cfg ? cfg.label : t('nfe.notEmitted')}
-          </div>
-          {detail?.nfe_attempts != null && detail.nfe_attempts > 0 && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-              {detail.nfe_attempts} {t('nfe.attempts')}
-            </div>
+            </>
           )}
-        </div>
-        {/* Action buttons */}
-        {(!ns || ns === null) && invoice.status === 'draft' && (
-          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={emitting} onClick={onEmit}>
-            {emitting ? t('c.saving') : t('nfe.emitSefaz')}
-          </button>
-        )}
-        {ns === 'rejected' && (
-          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={emitting} onClick={onRetry}>
-            {emitting ? t('c.saving') : t('nfe.retry')}
-          </button>
-        )}
-      </div>
-
-      {/* Details body */}
-      {detail && (
-        <div style={{ padding: '12px 16px' }}>
-          {/* Error reason */}
-          {ns === 'rejected' && detail.nfe_reject_reason && (
-            <div style={{
-              background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 8,
-              padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#991b1b', lineHeight: 1.6,
-            }}>
-              <strong style={{ display: 'block', marginBottom: 4 }}>{t('nfe.rejectReason')}:</strong>
-              {detail.nfe_reject_reason}
-            </div>
-          )}
-
-          {/* Authorized details */}
-          {ns === 'authorized' && (
-            <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
-              {detail.nfe_chave && (
-                <div>
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.key')}</span>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', marginTop: 2 }}>
-                    {detail.nfe_chave}
-                  </div>
-                </div>
-              )}
-              {detail.nfe_protocol && (
-                <div style={{ display: 'flex', gap: 20 }}>
-                  <div>
-                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.protocol')}</span>
-                    <div style={{ fontFamily: 'monospace' }}>{detail.nfe_protocol}</div>
-                  </div>
-                  {detail.nfe_auth_date && (
-                    <div>
-                      <span style={{ color: 'var(--muted)', fontSize: 11 }}>{t('nfe.authDate')}</span>
-                      <div>{new Date(detail.nfe_auth_date).toLocaleString('pt-BR')}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {detail.nfe_danfe_url && (
-                <a href={toDanfeAbsoluteUrl(detail.nfe_danfe_url)!} target="_blank" rel="noopener noreferrer"
-                  className="btn btn-secondary btn-sm" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', marginTop: 4 }}>
-                  📄 {t('nfe.danfe')}
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* Processing indicator */}
-          {(ns === 'pending' || ns === 'processing') && (
-            <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('nfe.waitingResult')}</div>
-          )}
-        </div>
-      )}
+        </Drawer.Body>
+        <Drawer.Footer>
+          <button className="btn btn-secondary" onClick={closeNfePanel}>{t('c.close')}</button>
+        </Drawer.Footer>
+      </Drawer>
     </div>
   );
 }
