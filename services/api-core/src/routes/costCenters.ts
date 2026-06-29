@@ -215,7 +215,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT
           cm.id, cm.direction, cm.quantity, cm.unit_cost, cm.total_cost,
-          cm.balance_after, cm.source, cm.source_id, cm.note, cm.created_at,
+          cm.balance_after, cm.source, cm.source_id, cm.note, cm.created_at AS occurred_at,
           m.name AS material_name
         FROM cost_center_movements cm
         JOIN materials m ON m.id = cm.material_id

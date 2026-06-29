@@ -3,8 +3,13 @@
 -- cost_center_movements: razão append-only de todas as entradas e saídas.
 
 -- ENUMs
-CREATE TYPE cc_movement_direction AS ENUM ('in', 'out');
-CREATE TYPE cc_movement_source    AS ENUM ('manual_entry', 'adjustment', 'payable', 'order', 'invoice');
+DO $$ BEGIN
+  CREATE TYPE cc_movement_direction AS ENUM ('in', 'out');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE cc_movement_source AS ENUM ('manual_entry', 'adjustment', 'payable', 'order', 'invoice');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Saldo por (centro de custo × material)
 CREATE TABLE IF NOT EXISTS cost_center_stock (

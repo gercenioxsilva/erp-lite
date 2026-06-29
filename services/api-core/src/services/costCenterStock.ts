@@ -230,7 +230,7 @@ export async function applyExit(args: ApplyArgs, db: DrizzleDB): Promise<CcMovem
 
 // ── applyAdjustment ───────────────────────────────────────────────────────────
 
-export async function applyAdjustment(args: AdjustArgs, db: DrizzleDB): Promise<CcMovement> {
+export async function applyAdjustment(args: AdjustArgs, db: DrizzleDB): Promise<CcMovement | { skipped: true; reason: string }> {
   const { targetQuantity, ...baseArgs } = args;
 
   return db.transaction(async (tx) => {
@@ -247,26 +247,7 @@ export async function applyAdjustment(args: AdjustArgs, db: DrizzleDB): Promise<
     const current = row ? parseFloat(row.quantity) : 0;
     const delta   = targetQuantity - current;
 
-    if (delta === 0) {
-      // No-op: return a synthetic movement record (not persisted)
-      return {
-        id:              'noop',
-        tenant_id:       args.tenantId,
-        cost_center_id:  args.costCenterId,
-        material_id:     args.materialId,
-        direction:       'in',
-        quantity:        '0.0000',
-        unit_cost:       null,
-        total_cost:      null,
-        balance_after:   current.toFixed(4),
-        source:          'adjustment',
-        source_id:       args.sourceId ?? null,
-        note:            args.note ?? null,
-        idempotency_key: `adjustment:${args.sourceId ?? 'manual'}:${args.materialId}`,
-        created_by:      args.userId ?? null,
-        created_at:      new Date(),
-      } as CcMovement;
-    }
+    if (delta === 0) return { skipped: true, reason: 'no change' };
 
     if (delta > 0) {
       return applyEntry(

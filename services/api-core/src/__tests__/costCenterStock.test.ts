@@ -295,6 +295,7 @@ describe('applyAdjustment', () => {
       db
     );
 
+    if ('skipped' in mov) throw new Error('Expected a movement, got skipped');
     expect(mov.direction).toBe('in');
     expect(parseFloat(mov.balance_after as string)).toBe(8);
     expect(upsertedStock[0]).toBeDefined();
@@ -312,13 +313,14 @@ describe('applyAdjustment', () => {
       db
     );
 
+    if ('skipped' in mov) throw new Error('Expected a movement, got skipped');
     expect(mov.direction).toBe('out');
     expect(parseFloat(mov.balance_after as string)).toBe(4);
     expect(upsertedStock[0]).toBeDefined();
     expect(parseFloat(upsertedStock[0].quantity as string)).toBe(4);
   });
 
-  it('delta = 0 → returns no-op synthetic movement, nothing written', async () => {
+  it('delta = 0 → returns skipped, nothing written', async () => {
     const { db, insertedMovements, upsertedStock } = makeMockDb({
       stockRow: { quantity: '5', avg_unit_cost: '10' },
     });
@@ -328,7 +330,7 @@ describe('applyAdjustment', () => {
       db
     );
 
-    expect(mov.id).toBe('noop');
+    expect('skipped' in mov && mov.skipped).toBe(true);
     expect(insertedMovements).toHaveLength(0);
     expect(upsertedStock).toHaveLength(0);
   });

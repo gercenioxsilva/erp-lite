@@ -148,6 +148,7 @@ async function processResult(result: NfeResultMessage): Promise<void> {
 
         for (const item of items) {
           if (!item.material_id) continue;
+          // NF-e lifecycle: once cancelled, a new invoice must be issued (new ID). Reuse of this invoiceId is impossible.
           await applyExit({
             tenantId:     result.tenant_id,
             costCenterId,

@@ -226,7 +226,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
             quantity:     Number(item.quantity),
             unitCost:     Number(item.unit_price),
             source:       'adjustment',
-            sourceId:     `cancel:${id}:${item.material_id}`,
+            sourceId:     `cancel:${id}`,
             note:         `Estorno cancelamento NF-e ${id}`,
           }, db);
         }
