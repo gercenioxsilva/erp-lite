@@ -620,7 +620,7 @@ export function PosPage() {
 
       {/* ── Cancel modal ── */}
       {showCancel && (
-        <div className="fixed inset-0 bg-black/60 z-60 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center">
           <div className="bg-gray-800 border border-gray-600 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <h2 className="text-lg font-bold text-white">Cancelar Venda</h2>
             <p className="text-sm text-gray-400">Informe o motivo do cancelamento (opcional):</p>
@@ -652,7 +652,7 @@ export function PosPage() {
 
       {/* ── Finalize modal ── */}
       {showModal && sale && (
-        <div className="fixed inset-0 bg-black/70 z-60 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center">
           <div className="bg-gray-800 border border-gray-600 rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-5">
 
             {/* processando */}
