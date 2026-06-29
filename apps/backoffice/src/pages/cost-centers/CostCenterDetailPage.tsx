@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
 import { EditDrawer, EntryDrawer, AdjustDrawer } from './CostCenterDrawers';
 import type { MaterialOption } from './CostCenterDrawers';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ export function CostCenterDetailPage() {
     if (!tenantId) return;
     try {
       const resp = await api.get<MaterialsResp>(
-        `/v1/materials?tenant_id=${tenantId}&per_page=200`,
+        `/v1/materials?tenant_id=${tenantId}&per_page=500`,
       );
       setMaterials(resp.data ?? []);
     } catch {
@@ -480,16 +481,16 @@ export function CostCenterDetailPage() {
           {/* Filters */}
           <div className="flex-gap" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
             {materials.length > 0 ? (
-              <select
-                value={movFilters.material_id}
-                onChange={e => { setMovFilters(f => ({ ...f, material_id: e.target.value })); setMovPage(1); }}
-                style={{ maxWidth: 220 }}
-              >
-                <option value="">Todos os materiais</option>
-                {materials.map(m => (
-                  <option key={m.id} value={m.id}>{m.sku ? `${m.sku} — ` : ''}{m.name}</option>
-                ))}
-              </select>
+              <div style={{ maxWidth: 220, width: '100%' }}>
+                <ProductPicker
+                  options={materials}
+                  value={movFilters.material_id}
+                  onChange={id => { setMovFilters(f => ({ ...f, material_id: id })); setMovPage(1); }}
+                  placeholder="Todos os materiais"
+                  emptyLabel="Nenhum produto encontrado"
+                  ariaLabel="Filtrar por material"
+                />
+              </div>
             ) : null}
 
             <select

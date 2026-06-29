@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface Material {
   id:   string;
   name: string;
   sku:  string;
+  description?: string | null;
 }
 
 interface Contract {
@@ -140,12 +142,12 @@ export function ContractsPage() {
       api.get<{ data: { id: string; company_name: string | null; full_name: string | null }[] }>(
         `/v1/clients?tenant_id=${tenantId}&per_page=500`
       ).catch(() => ({ data: [] })),
-      api.get<{ data: { id: string; name: string; sku: string }[] }>(
+      api.get<{ data: { id: string; name: string; sku: string; description: string | null }[] }>(
         `/v1/materials?tenant_id=${tenantId}&per_page=500`
       ).catch(() => ({ data: [] })),
     ]);
     setClients(cl.data.map(c => ({ id: c.id, name: c.company_name ?? c.full_name ?? c.id })));
-    setMaterials(mt.data.map(m => ({ id: m.id, name: m.name, sku: m.sku })));
+    setMaterials(mt.data.map(m => ({ id: m.id, name: m.name, sku: m.sku, description: m.description })));
   }
 
   async function loadBillings(contractId: string) {
@@ -418,13 +420,14 @@ export function ContractsPage() {
                 {/* Serviço / Produto */}
                 <div className="field">
                   <label>{t('sc.service')}</label>
-                  <select value={form.material_id}
-                    onChange={e => setForm(f => ({ ...f, material_id: e.target.value }))}>
-                    <option value="">Nenhum (sem vínculo)</option>
-                    {materials.map(m => (
-                      <option key={m.id} value={m.id}>{m.sku} — {m.name}</option>
-                    ))}
-                  </select>
+                  <ProductPicker
+                    options={materials}
+                    value={form.material_id}
+                    onChange={id => setForm(f => ({ ...f, material_id: id }))}
+                    placeholder="Nenhum (sem vínculo)"
+                    emptyLabel="Nenhum produto encontrado"
+                    ariaLabel={t('sc.service')}
+                  />
                 </div>
 
                 {/* Descrição */}

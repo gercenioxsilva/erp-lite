@@ -4,6 +4,17 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { ProductPicker, type ProductPickerOption } from '../../ds/components/ProductPicker';
+
+interface KitComp {
+  _key:         string;
+  component_id: string;
+  quantity:     string;
+}
+
+function newKitComp(): KitComp {
+  return { _key: Math.random().toString(36).slice(2), component_id: '', quantity: '1' };
+}
 
 interface Material {
   id:               string;
@@ -18,6 +29,9 @@ interface Material {
   cost_price:       number;
   ncm_code:         string | null;
   weight_kg:        number | null;
+  length_cm:        number | null;
+  width_cm:         number | null;
+  height_cm:        number | null;
   is_active:        boolean;
   tracks_inventory: boolean;
 }
@@ -38,7 +52,7 @@ interface ListResp { data: Material[]; total: number; page: number; per_page: nu
 const EMPTY_FORM = {
   sku: '', name: '', description: '', type: 'product', category: '',
   brand: '', unit: 'UN', sale_price: '', cost_price: '', ncm_code: '',
-  weight_kg: '', tracks_inventory: true,
+  weight_kg: '', length_cm: '', width_cm: '', height_cm: '', tracks_inventory: true,
 };
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -115,6 +129,10 @@ export function MaterialsPage() {
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
 
+  // Kit state
+  const [kitComponents, setKitComponents] = useState<KitComp[]>([]);
+  const [pickList,      setPickList]      = useState<(ProductPickerOption & { sale_price: number })[]>([]);
+
   // Image state
   const [images,          setImages]          = useState<MaterialImage[]>([]);
   const [imagesLoading,   setImagesLoading]   = useState(false);
@@ -151,6 +169,25 @@ export function MaterialsPage() {
 
   useEffect(() => { void load(); }, [tenantId, page, search, typeF, catF, activeF]);
 
+  // Lista de peças disponíveis para compor kits (exclui kits, evita aninhamento).
+  async function loadPickList() {
+    if (!tenantId) return;
+    try {
+      const resp = await api.get<ListResp>(`/v1/materials?tenant_id=${tenantId}&per_page=500&active=true`);
+      setPickList(
+        (resp.data ?? [])
+          .filter(m => m.type !== 'kit')
+          .map(m => ({ id: m.id, sku: m.sku, name: m.name, description: m.description, sale_price: Number(m.sale_price ?? 0) })),
+      );
+    } catch { setPickList([]); }
+  }
+
+  // Preço sugerido = soma (preço da peça × qtd).
+  const kitSuggestedPrice = kitComponents.reduce((sum, c) => {
+    const part = pickList.find(p => p.id === c.component_id);
+    return sum + (part ? part.sale_price * (Number(c.quantity) || 0) : 0);
+  }, 0);
+
   async function loadImages(materialId: string) {
     setImagesLoading(true);
     setImageError('');
@@ -167,12 +204,32 @@ export function MaterialsPage() {
     setFormError('');
     setImages([]);
     setImageError('');
+    setKitComponents([]);
+    void loadPickList();
     setDrawerOpen(true);
+  }
+
+  async function loadKitComponents(kitId: string) {
+    try {
+      const resp = await api.get<{ data: { component_id: string; quantity: string }[] }>(
+        `/v1/materials/${kitId}/components`,
+      );
+      setKitComponents(
+        (resp.data ?? []).map(c => ({
+          _key: Math.random().toString(36).slice(2),
+          component_id: c.component_id,
+          quantity: String(c.quantity ?? '1'),
+        })),
+      );
+    } catch { setKitComponents([]); }
   }
 
   function openEdit(m: Material) {
     setEditing(m);
     void loadImages(m.id);
+    void loadPickList();
+    if (m.type === 'kit') void loadKitComponents(m.id);
+    else setKitComponents([]);
     setForm({
       sku:             m.sku,
       name:            m.name,
@@ -185,6 +242,9 @@ export function MaterialsPage() {
       cost_price:      String(m.cost_price ?? ''),
       ncm_code:        m.ncm_code     ?? '',   // ← bug fix: preenche NCM existente
       weight_kg:       m.weight_kg != null ? String(m.weight_kg) : '',
+      length_cm:       m.length_cm != null ? String(m.length_cm) : '',
+      width_cm:        m.width_cm  != null ? String(m.width_cm)  : '',
+      height_cm:       m.height_cm != null ? String(m.height_cm) : '',
       tracks_inventory: m.tracks_inventory,
     });
     setFormError('');
@@ -211,6 +271,14 @@ export function MaterialsPage() {
         sale_price: form.sale_price ? Number(form.sale_price) : undefined,
         cost_price: form.cost_price ? Number(form.cost_price) : undefined,
         weight_kg:  form.weight_kg  ? Number(form.weight_kg)  : undefined,
+        length_cm:  form.length_cm  ? Number(form.length_cm)  : undefined,
+        width_cm:   form.width_cm   ? Number(form.width_cm)   : undefined,
+        height_cm:  form.height_cm  ? Number(form.height_cm)  : undefined,
+        ...(form.type === 'kit'
+          ? { components: kitComponents
+              .filter(c => c.component_id)
+              .map(c => ({ component_id: c.component_id, quantity: Number(c.quantity) || 1 })) }
+          : {}),
       };
       if (editing) await api.patch(`/v1/materials/${editing.id}`, payload);
       else         await api.post('/v1/materials', payload);
@@ -376,7 +444,7 @@ export function MaterialsPage() {
         />
         <select value={typeF} onChange={e => { setTypeF(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
           <option value="">{t('flt.allTypes')}</option>
-          {(['product', 'service', 'raw_material', 'asset'] as const).map(tp => (
+          {(['product', 'service', 'raw_material', 'asset', 'kit'] as const).map(tp => (
             <option key={tp} value={tp}>{typeLabel(tp)}</option>
           ))}
         </select>
@@ -513,6 +581,7 @@ export function MaterialsPage() {
                       <option value="service">{t('m.type.service')}</option>
                       <option value="raw_material">{t('m.type.raw_material')}</option>
                       <option value="asset">{t('m.type.asset')}</option>
+                      <option value="kit">{t('m.type.kit')}</option>
                     </select>
                   </div>
                   <div className="field">
@@ -520,6 +589,53 @@ export function MaterialsPage() {
                     <input value={form.category} onChange={setF('category')} />
                   </div>
                 </div>
+
+                {form.type === 'kit' && (
+                  <div className="field" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <label style={{ margin: 0, fontWeight: 600 }}>{t('m.kit.components')}</label>
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                        onClick={() => setKitComponents(prev => [...prev, newKitComp()])}>
+                        + {t('m.kit.addPart')}
+                      </button>
+                    </div>
+
+                    {kitComponents.length === 0 ? (
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0' }}>{t('m.kit.empty')}</p>
+                    ) : (
+                      kitComponents.map((c, idx) => (
+                        <div key={c._key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <ProductPicker
+                              options={pickList}
+                              value={c.component_id}
+                              onChange={cid => setKitComponents(prev => prev.map((x, i) => i === idx ? { ...x, component_id: cid } : x))}
+                              placeholder={t('o.selectMat')}
+                              emptyLabel={t('o.noMatch')}
+                              ariaLabel={t('m.kit.part')}
+                            />
+                          </div>
+                          <input type="number" min="0.001" step="0.001" value={c.quantity} style={{ width: 80, fontSize: 12 }}
+                            aria-label={t('m.kit.qty')}
+                            onChange={e => setKitComponents(prev => prev.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))} />
+                          <button type="button" aria-label={`${t('c.del')} ${idx + 1}`}
+                            onClick={() => setKitComponents(prev => prev.filter((_, i) => i !== idx))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1 }}>×</button>
+                        </div>
+                      ))
+                    )}
+
+                    {kitComponents.length > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 13 }}>
+                        <span>{t('m.kit.suggested')}: <strong>{BRL.format(kitSuggestedPrice)}</strong></span>
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                          onClick={() => setForm(f => ({ ...f, sale_price: kitSuggestedPrice.toFixed(2) }))}>
+                          {t('m.kit.useSuggested')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="field-row">
                   <div className="field">
@@ -540,6 +656,18 @@ export function MaterialsPage() {
                   <div className="field">
                     <label>{t('m.weight')}</label>
                     <input type="number" step="0.001" min="0" value={form.weight_kg} onChange={setF('weight_kg')} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>{t('m.dimensions')}</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input type="number" step="0.1" min="0" value={form.length_cm} onChange={setF('length_cm')}
+                      placeholder={t('m.length')} aria-label={t('m.length')} />
+                    <input type="number" step="0.1" min="0" value={form.width_cm} onChange={setF('width_cm')}
+                      placeholder={t('m.width')} aria-label={t('m.width')} />
+                    <input type="number" step="0.1" min="0" value={form.height_cm} onChange={setF('height_cm')}
+                      placeholder={t('m.height')} aria-label={t('m.height')} />
                   </div>
                 </div>
 

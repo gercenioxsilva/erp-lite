@@ -1,5 +1,6 @@
 import { FormEvent } from 'react';
 import { useI18n } from '../../i18n';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 
 // ── Shared types ───────────────────────────────────────────────────────────────
 
@@ -7,6 +8,7 @@ export interface MaterialOption {
   id:   string;
   name: string;
   sku:  string;
+  description?: string | null;
 }
 
 // ── MaterialSelect ─────────────────────────────────────────────────────────────
@@ -22,14 +24,14 @@ function MaterialSelect({
 }) {
   if (materials.length > 0) {
     return (
-      <select value={value} onChange={e => onChange(e.target.value)}>
-        <option value="">Selecione um material…</option>
-        {materials.map(m => (
-          <option key={m.id} value={m.id}>
-            {m.sku ? `${m.sku} — ` : ''}{m.name}
-          </option>
-        ))}
-      </select>
+      <ProductPicker
+        options={materials}
+        value={value}
+        onChange={onChange}
+        placeholder="Selecione um material…"
+        emptyLabel="Nenhum produto encontrado"
+        ariaLabel="Material"
+      />
     );
   }
   return (

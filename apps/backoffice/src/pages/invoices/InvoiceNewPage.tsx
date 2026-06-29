@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 import { SectionCard, StepProgress } from '../../ds';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { Step } from '../../ds';
 import './InvoiceNewPage.css';
 
@@ -12,7 +14,8 @@ const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 const PCT = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
-interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; }
+interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; description?: string | null; type?: string | null; }
+interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; ncm_code: string | null; }
 interface OrderOption    { id: string; number: string; client_id: string; client_name: string; status: string; }
 interface CostCenter { id: string; code: string; name: string; }
 interface StockItem  { material_id: string; quantity: number; }
@@ -58,6 +61,7 @@ const STEPS: Step[] = [
 export function InvoiceNewPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const modal = useModal();
   const navigate = useNavigate();
 
   const [formClientId,   setFormClientId]   = useState('');
@@ -95,7 +99,7 @@ export function InvoiceNewPage() {
     let cancelled = false;
     Promise.all([
       api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
       api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
       api.get<{ focus_ambiente: number | null }>(`/v1/nfe-config?tenant_id=${tenantId}`).catch(() => ({ focus_ambiente: null })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
@@ -149,6 +153,44 @@ export function InvoiceNewPage() {
   }
 
   function addItem() { setFormItems(prev => [...prev, newItem()]); setTaxResult(null); }
+
+  function handlePickMaterial(idx: number, id: string) {
+    if (!id) { updateItem(idx, 'material_id', ''); return; }
+    const mat = materials.find(m => m.id === id);
+    if (mat?.type === 'kit') { void addKit(idx, id); return; }
+    updateItem(idx, 'material_id', id);
+  }
+
+  async function addKit(idx: number, kitId: string) {
+    let comps: KitComponentRow[] = [];
+    try {
+      const resp = await api.get<{ data: KitComponentRow[] }>(`/v1/materials/${kitId}/components`);
+      comps = resp.data ?? [];
+    } catch { comps = []; }
+
+    const expand = comps.length > 0 && await modal.confirm({
+      title:        t('o.kit.title'),
+      message:      t('o.kit.message'),
+      confirmLabel: t('o.kit.expand'),
+      cancelLabel:  t('o.kit.closed'),
+    });
+
+    if (expand) {
+      const lines: FormItem[] = comps.map(c => ({
+        _key:        Math.random().toString(36).slice(2),
+        material_id: c.component_id,
+        name:        c.name,
+        ncm_code:    c.ncm_code ?? '',
+        cfop:        '',
+        quantity:    String(Number(c.quantity) || 1),
+        unit_price:  c.sale_price ? String(c.sale_price) : '0',
+      }));
+      setFormItems(prev => [...prev.slice(0, idx), ...lines, ...prev.slice(idx + 1)]);
+      setTaxResult(null);
+    } else {
+      updateItem(idx, 'material_id', kitId);
+    }
+  }
   function removeItem(idx: number) { setFormItems(prev => prev.filter((_, i) => i !== idx)); setTaxResult(null); }
 
   function updateItem(idx: number, field: string, val: string) {
@@ -350,14 +392,15 @@ export function InvoiceNewPage() {
                       {formItems.map((item, idx) => (
                         <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '6px 10px' }}>
-                            <select value={item.material_id}
-                              onChange={e => updateItem(idx, 'material_id', e.target.value)}
-                              style={{ width: '100%', fontSize: 12 }}>
-                              <option value="">{t('o.selectMat')}</option>
-                              {materials.map(m => (
-                                <option key={m.id} value={m.id}>{m.sku} — {m.name}</option>
-                              ))}
-                            </select>
+                            <ProductPicker
+                              options={materials}
+                              value={item.material_id}
+                              onChange={id => handlePickMaterial(idx, id)}
+                              placeholder={t('o.selectMat')}
+                              emptyLabel={t('o.noMatch')}
+                              ariaLabel={t('o.material')}
+                              kitLabel={t('o.kit.badge')}
+                            />
                             {!item.material_id && (
                               <input placeholder={t('o.namePH')} value={item.name}
                                 onChange={e => updateItem(idx, 'name', e.target.value)}

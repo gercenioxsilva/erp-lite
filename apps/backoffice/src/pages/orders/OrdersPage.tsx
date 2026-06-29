@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -20,7 +21,8 @@ interface OrderItemRow {
   unit: string; quantity: number; unit_price: number; total: number; notes: string | null;
 }
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
-interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; }
+interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
+interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; }
 interface FormItem {
   _key: string; material_id: string; name: string; sku: string;
   unit: string; quantity: string; unit_price: string;
@@ -105,7 +107,7 @@ export function OrdersPage() {
 
     Promise.all([
       api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
     ])
       .then(([cl, mt]) => {
         if (cancelled) return;
@@ -159,6 +161,44 @@ export function OrdersPage() {
 
   /* ── Item helpers ── */
   function addItem() { setFormItems(prev => [...prev, newItem()]); }
+
+  // Seleção de produto: se for um kit, abre o fluxo de kit; senão, seleção normal.
+  function handlePickMaterial(idx: number, id: string) {
+    if (!id) { updateItem(idx, 'material_id', ''); return; }
+    const mat = materials.find(m => m.id === id);
+    if (mat?.type === 'kit') { void addKit(idx, id); return; }
+    updateItem(idx, 'material_id', id);
+  }
+
+  async function addKit(idx: number, kitId: string) {
+    let comps: KitComponentRow[] = [];
+    try {
+      const resp = await api.get<{ data: KitComponentRow[] }>(`/v1/materials/${kitId}/components`);
+      comps = resp.data ?? [];
+    } catch { comps = []; }
+
+    const expand = comps.length > 0 && await modal.confirm({
+      title:        t('o.kit.title'),
+      message:      t('o.kit.message'),
+      confirmLabel: t('o.kit.expand'),
+      cancelLabel:  t('o.kit.closed'),
+    });
+
+    if (expand) {
+      const lines: FormItem[] = comps.map(c => ({
+        _key:        Math.random().toString(36).slice(2),
+        material_id: c.component_id,
+        name:        c.name,
+        sku:         c.sku ?? '',
+        unit:        c.unit ?? 'UN',
+        quantity:    String(Number(c.quantity) || 1),
+        unit_price:  c.sale_price ? String(c.sale_price) : '0',
+      }));
+      setFormItems(prev => [...prev.slice(0, idx), ...lines, ...prev.slice(idx + 1)]);
+    } else {
+      updateItem(idx, 'material_id', kitId);   // 1 linha fechada (usa o preço do kit)
+    }
+  }
   function removeItem(idx: number) { setFormItems(prev => prev.filter((_, i) => i !== idx)); }
 
   function updateItem(idx: number, field: string, val: string) {
@@ -429,17 +469,15 @@ export function OrdersPage() {
                           {formItems.map((item, idx) => (
                             <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
                               <td style={{ padding: '6px 10px' }}>
-                                <select
+                                <ProductPicker
+                                  options={materials}
                                   value={item.material_id}
-                                  onChange={e => updateItem(idx, 'material_id', e.target.value)}
-                                  style={{ width: '100%', fontSize: 12 }}
-                                  aria-label={t('o.material')}
-                                >
-                                  <option value="">{t('o.selectMat')}</option>
-                                  {materials.map(m => (
-                                    <option key={m.id} value={m.id}>{m.sku} — {m.name}</option>
-                                  ))}
-                                </select>
+                                  onChange={id => handlePickMaterial(idx, id)}
+                                  placeholder={t('o.selectMat')}
+                                  emptyLabel={t('o.noMatch')}
+                                  ariaLabel={t('o.material')}
+                                  kitLabel={t('o.kit.badge')}
+                                />
                                 {!item.material_id && (
                                   <input
                                     placeholder={t('o.namePH')}

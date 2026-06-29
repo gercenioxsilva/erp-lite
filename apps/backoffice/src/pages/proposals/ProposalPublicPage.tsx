@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 interface ProposalData {
   number: string; title: string; status: string;
   valid_until: string | null; notes: string | null; terms_text: string | null;
+  delivery_time: string | null; payment_method: string | null;
   subtotal: number; discount: number; shipping: number; total: number;
   accepted_at: string | null; accepted_by_name: string | null;
   rejected_at: string | null; rejected_reason: string | null;
@@ -13,6 +14,12 @@ interface ItemData {
   quantity: number; unit_price: number; discount_pct: number; total: number; notes: string | null;
 }
 interface IssuerData { name: string; logo_url: string | null; }
+
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: 'À vista', pix: 'PIX', boleto: 'Boleto', card: 'Cartão de crédito',
+  card_installments: 'Cartão parcelado', transfer: 'Transferência / TED', to_agree: 'A combinar',
+};
+const paymentLabel = (k: string | null): string => (k ? (PAYMENT_LABELS[k] ?? k) : '');
 interface PublicProposal {
   proposal: ProposalData;
   items: ItemData[];
@@ -209,6 +216,12 @@ export function ProposalPublicPage() {
             )}
             {proposal.valid_until && (
               <div><span style={labelStyle}>Válida até: </span><strong>{fmt(proposal.valid_until)}</strong></div>
+            )}
+            {proposal.delivery_time && (
+              <div><span style={labelStyle}>Prazo de entrega: </span><strong>{proposal.delivery_time}</strong></div>
+            )}
+            {proposal.payment_method && (
+              <div><span style={labelStyle}>Pagamento: </span><strong>{paymentLabel(proposal.payment_method)}</strong></div>
             )}
             {(state === 'already_accepted' || proposal.status === 'accepted') && proposal.accepted_by_name && (
               <div><span style={{ ...labelStyle, color: '#16a34a' }}>Aceita por: </span><strong style={{ color: '#16a34a' }}>{proposal.accepted_by_name}</strong></div>

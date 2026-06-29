@@ -63,7 +63,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     const tenantId = (request as any).user.tenantId;
     const userEmail = (request as any).user.email;
     const userId    = (request as any).user.id;
-    const { client_id, title, valid_until, notes, terms_text, discount = 0, shipping = 0, items } =
+    const { client_id, title, valid_until, notes, terms_text, delivery_time, payment_method, discount = 0, shipping = 0, items } =
       request.body as any;
 
     if (!title?.trim())                             return reply.badRequest('title é obrigatório');
@@ -85,10 +85,11 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     const { rows: [p] } = await db.execute<any>(sql`
       INSERT INTO proposals (tenant_id, client_id, number, title, status,
         subtotal, discount, shipping, total, valid_until, notes, terms_text,
-        seller_email, created_by)
+        delivery_time, payment_method, seller_email, created_by)
       VALUES (${tenantId}, ${client_id || null}, ${number}, ${title.trim()}, 'draft',
         ${subtotal}, ${Number(discount)}, ${Number(shipping)}, ${total},
         ${valid_until || null}, ${notes || null}, ${terms_text || null},
+        ${delivery_time || null}, ${payment_method || null},
         ${userEmail || null}, ${userId || null})
       RETURNING id, number
     `);
@@ -132,7 +133,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch('/proposals/:id', auth, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
-    const { title, client_id, valid_until, notes, terms_text, discount, shipping, items } =
+    const { title, client_id, valid_until, notes, terms_text, delivery_time, payment_method, discount, shipping, items } =
       request.body as any;
 
     const { rows: [existing] } = await db.execute<any>(sql`
@@ -169,8 +170,10 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     await db.execute(sql`
       UPDATE proposals SET
-        title       = COALESCE(${title?.trim() || null}, title),
-        client_id   = COALESCE(${client_id || null}, client_id),
+        title          = COALESCE(${title?.trim() || null}, title),
+        client_id      = COALESCE(${client_id || null}, client_id),
+        delivery_time  = COALESCE(${delivery_time || null}, delivery_time),
+        payment_method = COALESCE(${payment_method || null}, payment_method),
         discount    = ${finalDiscount},
         shipping    = ${finalShipping},
         subtotal    = ${subtotal},
@@ -300,10 +303,11 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     const { rows: [newP] } = await db.execute<any>(sql`
       INSERT INTO proposals (tenant_id, client_id, number, title, status,
         subtotal, discount, shipping, total, valid_until, notes, terms_text,
-        seller_email, created_by)
+        delivery_time, payment_method, seller_email, created_by)
       VALUES (${tenantId}, ${p.client_id || null}, ${newNumber}, ${p.title}, 'draft',
         ${Number(p.subtotal)}, ${Number(p.discount)}, ${Number(p.shipping)}, ${Number(p.total)},
         ${p.valid_until || null}, ${p.notes || null}, ${p.terms_text || null},
+        ${p.delivery_time || null}, ${p.payment_method || null},
         ${userEmail || null}, ${userId || null})
       RETURNING id, number
     `);

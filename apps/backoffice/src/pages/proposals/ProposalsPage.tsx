@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
 
 interface Proposal {
@@ -17,6 +18,7 @@ interface Proposal {
 interface ProposalDetail extends Proposal {
   subtotal: number; discount: number; shipping: number;
   notes: string | null; terms_text: string | null;
+  delivery_time: string | null; payment_method: string | null;
   client_id: string | null;
   items: ProposalItemRow[];
 }
@@ -25,7 +27,8 @@ interface ProposalItemRow {
   unit: string; quantity: number; unit_price: number; discount_pct: number; total: number; notes: string | null;
 }
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
-interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; }
+interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
+interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; }
 interface FormItem {
   _key: string; material_id: string; name: string; sku: string;
   unit: string; quantity: string; unit_price: string; discount_pct: string;
@@ -75,6 +78,8 @@ export function ProposalsPage() {
   const [formValidUntil,setFormValidUntil] = useState('');
   const [formNotes,     setFormNotes]    = useState('');
   const [formTerms,     setFormTerms]    = useState('');
+  const [formDelivery,  setFormDelivery] = useState('');
+  const [formPayment,   setFormPayment]  = useState('');
   const [formDiscount,  setFormDiscount] = useState('0');
   const [formShipping,  setFormShipping] = useState('0');
   const [formItems,     setFormItems]    = useState<FormItem[]>([]);
@@ -107,7 +112,7 @@ export function ProposalsPage() {
     setFormError('');
     Promise.all([
       api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=100&tenant_id=${tenantId}`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=500&tenant_id=${tenantId}`),
     ]).then(([cl, mt]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
@@ -122,7 +127,8 @@ export function ProposalsPage() {
   function openCreate() {
     setEditing(null);
     setFormTitle(''); setFormClientId(''); setFormValidUntil('');
-    setFormNotes(''); setFormTerms(''); setFormDiscount('0'); setFormShipping('0');
+    setFormNotes(''); setFormTerms(''); setFormDelivery(''); setFormPayment('');
+    setFormDiscount('0'); setFormShipping('0');
     setFormItems([newItem()]);
     setFormError('');
     setDrawerOpen(true);
@@ -139,6 +145,8 @@ export function ProposalsPage() {
       setFormValidUntil(detail.valid_until ?? '');
       setFormNotes(detail.notes ?? '');
       setFormTerms(detail.terms_text ?? '');
+      setFormDelivery(detail.delivery_time ?? '');
+      setFormPayment(detail.payment_method ?? '');
       setFormDiscount(String(detail.discount));
       setFormShipping(String(detail.shipping));
       setFormItems(detail.items.map(it => ({
@@ -153,6 +161,44 @@ export function ProposalsPage() {
   }
 
   function addItem() { setFormItems(prev => [...prev, newItem()]); }
+
+  function handlePickMaterial(idx: number, id: string) {
+    if (!id) { updateItem(idx, 'material_id', ''); return; }
+    const mat = materials.find(m => m.id === id);
+    if (mat?.type === 'kit') { void addKit(idx, id); return; }
+    updateItem(idx, 'material_id', id);
+  }
+
+  async function addKit(idx: number, kitId: string) {
+    let comps: KitComponentRow[] = [];
+    try {
+      const resp = await api.get<{ data: KitComponentRow[] }>(`/v1/materials/${kitId}/components`);
+      comps = resp.data ?? [];
+    } catch { comps = []; }
+
+    const expand = comps.length > 0 && await modal.confirm({
+      title:        t('o.kit.title'),
+      message:      t('o.kit.message'),
+      confirmLabel: t('o.kit.expand'),
+      cancelLabel:  t('o.kit.closed'),
+    });
+
+    if (expand) {
+      const lines: FormItem[] = comps.map(c => ({
+        _key:         Math.random().toString(36).slice(2),
+        material_id:  c.component_id,
+        name:         c.name,
+        sku:          c.sku ?? '',
+        unit:         c.unit ?? 'UN',
+        quantity:     String(Number(c.quantity) || 1),
+        unit_price:   c.sale_price ? String(c.sale_price) : '0',
+        discount_pct: '0',
+      }));
+      setFormItems(prev => [...prev.slice(0, idx), ...lines, ...prev.slice(idx + 1)]);
+    } else {
+      updateItem(idx, 'material_id', kitId);
+    }
+  }
   function removeItem(idx: number) { setFormItems(prev => prev.filter((_, i) => i !== idx)); }
 
   function updateItem(idx: number, field: string, val: string) {
@@ -187,6 +233,8 @@ export function ProposalsPage() {
         valid_until: formValidUntil || undefined,
         notes: formNotes || undefined,
         terms_text: formTerms || undefined,
+        delivery_time: formDelivery || undefined,
+        payment_method: formPayment || undefined,
         discount: Number(formDiscount) || 0,
         shipping: Number(formShipping) || 0,
         items: namedItems.map(it => ({
@@ -488,17 +536,15 @@ export function ProposalsPage() {
                             return (
                               <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
                                 <td style={{ padding: '6px 10px' }}>
-                                  <select
+                                  <ProductPicker
+                                    options={materials}
                                     value={item.material_id}
-                                    onChange={e => updateItem(idx, 'material_id', e.target.value)}
-                                    style={{ width: '100%', fontSize: 11, marginBottom: 2 }}
-                                    aria-label={t('o.material')}
-                                  >
-                                    <option value="">{t('o.selectMat')}</option>
-                                    {materials.map(m => (
-                                      <option key={m.id} value={m.id}>{m.sku} — {m.name}</option>
-                                    ))}
-                                  </select>
+                                    onChange={id => handlePickMaterial(idx, id)}
+                                    placeholder={t('o.selectMat')}
+                                    emptyLabel={t('o.noMatch')}
+                                    ariaLabel={t('o.material')}
+                                    kitLabel={t('o.kit.badge')}
+                                  />
                                   <input
                                     placeholder={t('prop.itemName')}
                                     value={item.name}
@@ -536,6 +582,23 @@ export function ProposalsPage() {
                       </table>
                     </div>
                   )}
+                </div>
+
+                <div className="field-row">
+                  <div className="field">
+                    <label htmlFor="prop-delivery">{t('prop.deliveryTime')}</label>
+                    <input id="prop-delivery" value={formDelivery}
+                      onChange={e => setFormDelivery(e.target.value)} placeholder={t('prop.deliveryPH')} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="prop-payment">{t('prop.paymentMethod')}</label>
+                    <select id="prop-payment" value={formPayment} onChange={e => setFormPayment(e.target.value)}>
+                      <option value="">{t('prop.payChoose')}</option>
+                      {(['cash', 'pix', 'boleto', 'card', 'card_installments', 'transfer', 'to_agree'] as const).map(k => (
+                        <option key={k} value={k}>{t(`prop.pay.${k}` as TKey)}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="field">

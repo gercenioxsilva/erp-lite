@@ -1,24 +1,63 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { eq, ilike, or, and, sql } from 'drizzle-orm';
-import { db, materials, inventory, inventoryMovements } from '../db';
+import { eq, ilike, or, and, sql, asc } from 'drizzle-orm';
+import { db, materials, inventory, inventoryMovements, materialComponents } from '../db';
 
 const materialBody = {
   type: 'object',
   properties: {
     sku: { type: 'string', minLength: 1, maxLength: 100 }, name: { type: 'string', minLength: 1, maxLength: 255 },
-    description: { type: 'string' }, type: { type: 'string', enum: ['product', 'service', 'raw_material', 'asset'] },
+    description: { type: 'string' }, type: { type: 'string', enum: ['product', 'service', 'raw_material', 'asset', 'kit'] },
     category: { type: 'string', maxLength: 100 }, brand: { type: 'string', maxLength: 100 },
     unit: { type: 'string', maxLength: 20, default: 'UN' },
     sale_price: { type: 'number', minimum: 0 }, cost_price: { type: 'number', minimum: 0 },
     ncm_code: { type: 'string', maxLength: 10 }, tax_group: { type: 'string', maxLength: 50 },
     weight_kg: { type: 'number', minimum: 0 }, is_active: { type: 'boolean' },
+    length_cm: { type: 'number', minimum: 0 }, width_cm: { type: 'number', minimum: 0 }, height_cm: { type: 'number', minimum: 0 },
     tracks_inventory: { type: 'boolean' },
+    // Componentes do kit (apenas quando type === 'kit')
+    components: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['component_id'],
+        properties: {
+          component_id: { type: 'string', format: 'uuid' },
+          quantity:     { type: 'number', minimum: 0 },
+        },
+      },
+    },
   },
 } as const;
 
 const idParam = {
   type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'],
 } as const;
+
+type KitComponentInput = { component_id?: string; quantity?: number };
+
+/** Substitui (replace-all) os componentes de um kit. */
+async function replaceKitComponents(
+  tx: any,
+  tenantId: string,
+  kitId: string,
+  raw: unknown,
+): Promise<void> {
+  if (raw === undefined) return;            // não enviou => não mexe
+  const list = Array.isArray(raw) ? (raw as KitComponentInput[]) : [];
+  await tx.delete(materialComponents).where(eq(materialComponents.kit_id, kitId));
+  let sort = 0;
+  for (const c of list) {
+    if (!c?.component_id || c.component_id === kitId) continue; // ignora vazio / auto-referência
+    const qty = c.quantity != null && c.quantity > 0 ? c.quantity : 1;
+    await tx.insert(materialComponents).values({
+      tenant_id:    tenantId,
+      kit_id:       kitId,
+      component_id: c.component_id,
+      quantity:     String(qty),
+      sort_order:   sort++,
+    }).onConflictDoNothing();
+  }
+}
 
 export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
@@ -30,8 +69,9 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     const tenantId = (b.tenant_id as string) ?? null;
     if (!tenantId) return reply.badRequest('tenant_id is required');
 
+    // Um kit não controla estoque próprio — quem controla são as peças.
     const tracksInventory = b.tracks_inventory !== undefined
-      ? Boolean(b.tracks_inventory) : (b.type !== 'service');
+      ? Boolean(b.tracks_inventory) : (b.type !== 'service' && b.type !== 'kit');
 
     try {
       const material = await db.transaction(async (tx) => {
@@ -48,6 +88,9 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
           ncm_code:     (b.ncm_code     ?? null) as string | null,
           tax_group:    (b.tax_group    ?? null) as string | null,
           weight_kg:    (b.weight_kg    != null ? String(b.weight_kg) : null) as string | null,
+          length_cm:    (b.length_cm    != null ? String(b.length_cm) : null) as string | null,
+          width_cm:     (b.width_cm     != null ? String(b.width_cm)  : null) as string | null,
+          height_cm:    (b.height_cm    != null ? String(b.height_cm) : null) as string | null,
           is_active:        b.is_active !== false,
           tracks_inventory: tracksInventory,
         }).returning();
@@ -57,6 +100,10 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
             tenant_id: tenantId, material_id: mat.id,
             quantity: '0', min_qty: '0',
           }).onConflictDoNothing();
+        }
+
+        if (mat.type === 'kit') {
+          await replaceKitComponents(tx, tenantId, mat.id, b.components);
         }
         return mat;
       });
@@ -89,7 +136,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
       const s = String(v ?? '').trim().toUpperCase();
       return s === 'SIM' || s === 'S' || s === '1' || s === 'TRUE';
     };
-    const VALID_TYPES = new Set(['product', 'service', 'raw_material', 'asset']);
+    const VALID_TYPES = new Set(['product', 'service', 'raw_material', 'asset', 'kit']);
 
     let imported = 0; let skipped = 0;
     const errors: { row: number; message: string }[] = [];
@@ -148,7 +195,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
           tenant_id: { type: 'string', format: 'uuid' },
           page:     { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 500, default: 20 },
-          type:     { type: 'string', enum: ['product', 'service', 'raw_material', 'asset'] },
+          type:     { type: 'string', enum: ['product', 'service', 'raw_material', 'asset', 'kit'] },
           category: { type: 'string' }, active: { type: 'boolean' }, search: { type: 'string' },
         },
         required: ['tenant_id'],
@@ -191,12 +238,35 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     return reply.send(row);
   });
 
+  // GET /v1/materials/:id/components — peças que compõem um kit
+  app.get('/materials/:id/components', { schema: { params: idParam } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select({
+        id:           materialComponents.id,
+        component_id: materialComponents.component_id,
+        quantity:     materialComponents.quantity,
+        sort_order:   materialComponents.sort_order,
+        sku:          materials.sku,
+        name:         materials.name,
+        unit:         materials.unit,
+        sale_price:   materials.sale_price,
+        ncm_code:     materials.ncm_code,
+      })
+      .from(materialComponents)
+      .innerJoin(materials, eq(materials.id, materialComponents.component_id))
+      .where(eq(materialComponents.kit_id, id))
+      .orderBy(asc(materialComponents.sort_order));
+    return reply.send({ data: rows });
+  });
+
   // PATCH /v1/materials/:id
   app.patch('/materials/:id', { schema: { params: idParam, body: materialBody } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const b = request.body as Record<string, unknown>;
     const allowed = ['sku','name','description','type','category','brand','unit',
                      'sale_price','cost_price','ncm_code','tax_group','weight_kg',
+                     'length_cm','width_cm','height_cm',
                      'is_active','tracks_inventory'];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
     if (!Object.keys(updateData).length) return reply.badRequest('No valid fields to update');
@@ -206,6 +276,13 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
       .where(eq(materials.id, id))
       .returning();
     if (!row) return reply.notFound('Material not found');
+
+    // Atualiza a composição quando enviada e o material é um kit.
+    if (b.components !== undefined && row.type === 'kit') {
+      await db.transaction(async (tx) => {
+        await replaceKitComponents(tx, row.tenant_id, row.id, b.components);
+      });
+    }
     return reply.send(row);
   });
 

@@ -133,6 +133,9 @@ export const materials = pgTable('materials', {
   ncm_code:  varchar('ncm_code',  { length: 10 }),
   tax_group: varchar('tax_group', { length: 50 }),
   weight_kg: decimal('weight_kg', { precision: 10, scale: 3 }),
+  length_cm: decimal('length_cm', { precision: 10, scale: 2 }),
+  width_cm:  decimal('width_cm',  { precision: 10, scale: 2 }),
+  height_cm: decimal('height_cm', { precision: 10, scale: 2 }),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -150,6 +153,18 @@ export const materialImages = pgTable('material_images', {
   is_cover:    boolean('is_cover').notNull().default(false),
   alt:         text('alt'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── material_components ───────────────────────────────────────────────────────
+// Composição de um kit: liga um material 'kit' às suas peças (componentes).
+export const materialComponents = pgTable('material_components', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  kit_id:       uuid('kit_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  component_id: uuid('component_id').notNull().references(() => materials.id, { onDelete: 'restrict' }),
+  quantity:     decimal('quantity', { precision: 15, scale: 3 }).notNull().default('1'),
+  sort_order:   integer('sort_order').notNull().default(0),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── inventory ─────────────────────────────────────────────────────────────────
@@ -601,6 +616,8 @@ export const proposals = pgTable('proposals', {
   valid_until:          date('valid_until'),
   notes:                text('notes'),
   terms_text:           text('terms_text'),
+  delivery_time:        varchar('delivery_time',  { length: 120 }),
+  payment_method:       varchar('payment_method', { length: 40  }),
   public_token:         varchar('public_token',       { length: 64 }),
   public_viewed_at:     timestamp('public_viewed_at', { withTimezone: true }),
   accepted_at:          timestamp('accepted_at',      { withTimezone: true }),
