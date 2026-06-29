@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS cost_centers (
 CREATE INDEX IF NOT EXISTS idx_cost_centers_tenant ON cost_centers(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_cost_centers_active ON cost_centers(tenant_id, is_active);
 
+DROP TRIGGER IF EXISTS trg_cost_centers_updated_at ON cost_centers;
 CREATE TRIGGER trg_cost_centers_updated_at
   BEFORE UPDATE ON cost_centers
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();

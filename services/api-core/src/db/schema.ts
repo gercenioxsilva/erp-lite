@@ -1,7 +1,7 @@
 import {
   pgTable, uuid, varchar, text, boolean, timestamp,
   date, decimal, char, smallint, integer, jsonb,
-  numeric, pgEnum,
+  numeric, pgEnum, primaryKey, unique,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
@@ -653,7 +653,9 @@ export const costCenterStock = pgTable('cost_center_stock', {
   quantity:       numeric('quantity',      { precision: 14, scale: 4 }).notNull().default('0'),
   avg_unit_cost:  numeric('avg_unit_cost', { precision: 14, scale: 2 }).notNull().default('0'),
   updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  pk: primaryKey({ columns: [t.cost_center_id, t.material_id] }),
+}));
 
 export const costCenterMovements = pgTable('cost_center_movements', {
   id:              uuid('id').primaryKey().defaultRandom(),
@@ -671,4 +673,6 @@ export const costCenterMovements = pgTable('cost_center_movements', {
   idempotency_key: varchar('idempotency_key', { length: 160 }).notNull(),
   created_by:      uuid('created_by'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  uq: unique().on(t.tenant_id, t.idempotency_key),
+}));
