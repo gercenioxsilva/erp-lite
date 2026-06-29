@@ -96,11 +96,10 @@ export function PayablesPage() {
   }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo, costCenterFilter]);
 
   useEffect(() => {
-    if (!tenantId) return;
-    api.get<any>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
-      .then(d => setCostCenters(d.data ?? []))
+    api.get<CostCenter[]>('/v1/cost-centers/active')
+      .then(d => setCostCenters(Array.isArray(d) ? d : []))
       .catch(() => setCostCenters([]));
-  }, [tenantId]);
+  }, []);
 
   useEffect(() => {
     if (!createOpen || !tenantId) return;
