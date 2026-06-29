@@ -26,12 +26,12 @@ interface ListResp {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const FISCAL_BADGE: Record<string, string> = {
-  none: 'bg-gray-100 text-gray-600',
-  processando: 'bg-yellow-100 text-yellow-700',
-  autorizado: 'bg-green-100 text-green-700',
-  erro_autorizacao: 'bg-red-100 text-red-700',
-  cancelado: 'bg-gray-200 text-gray-500',
-  pendente: 'bg-blue-100 text-blue-700',
+  none:            'badge-inactive',
+  processando:     'badge-pending',
+  autorizado:      'badge-paid',
+  erro_autorizacao:'badge-cancelled',
+  cancelado:       'badge-inactive',
+  pendente:        'badge-issued',
 };
 
 const FISCAL_LABEL: Record<string, string> = {
@@ -55,9 +55,10 @@ const PAYMENT_LABELS: Record<string, string> = {
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function saleBadgeClass(status: string): string {
-  if (status === 'finalized') return 'badge badge-active';
-  if (status === 'cancelled') return 'badge badge-inactive';
-  return 'badge badge-service';
+  if (status === 'finalized') return 'badge badge-paid';
+  if (status === 'cancelled') return 'badge badge-cancelled';
+  if (status === 'open')      return 'badge badge-pending';
+  return 'badge badge-inactive';
 }
 
 function saleBadgeLabel(status: string): string {
@@ -126,31 +127,35 @@ export function PosHistoryPage() {
     <div>
       {/* ── Header ── */}
       <div className="page-header">
-        <h1>Histórico PDV</h1>
+        <div>
+          <h1>Histórico de Vendas PDV</h1>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>
+            Consulte e gerencie todas as vendas realizadas no PDV
+          </p>
+        </div>
       </div>
 
       {/* ── Filtros ── */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="card" style={{ padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
-          placeholder="Sessão (ID)"
+          placeholder="Buscar por sessão (ID)…"
           value={sessionFilter}
           onChange={e => { setSessionFilter(e.target.value); setPage(1); }}
-          style={{ width: 220 }}
+          style={{ flex: 1, minWidth: 180 }}
         />
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-          style={{ width: 'auto' }}
+          style={{ width: 180 }}
         >
           <option value="">Todos os status</option>
-          <option value="open">Aberto</option>
-          <option value="finalized">Finalizado</option>
-          <option value="cancelled">Cancelado</option>
+          <option value="open">Aberta</option>
+          <option value="finalized">Finalizada</option>
+          <option value="cancelled">Cancelada</option>
         </select>
         {(sessionFilter || statusFilter) && (
           <button
             className="btn btn-secondary btn-sm"
-            style={{ width: 'auto' }}
             onClick={() => { setSessionFilter(''); setStatusFilter(''); setPage(1); }}
           >
             Limpar filtros
@@ -214,10 +219,7 @@ export function PosHistoryPage() {
                     </span>
                   </td>
                   <td>
-                    <span
-                      className={`badge ${FISCAL_BADGE[sale.fiscal_status] ?? FISCAL_BADGE['none']}`}
-                      style={{ fontSize: 11 }}
-                    >
+                    <span className={`badge ${FISCAL_BADGE[sale.fiscal_status] ?? FISCAL_BADGE['none']}`}>
                       {FISCAL_LABEL[sale.fiscal_status] ?? sale.fiscal_status}
                     </span>
                   </td>

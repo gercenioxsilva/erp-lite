@@ -189,13 +189,13 @@ export function PosTerminalsPage() {
       {/* ── Modal ── */}
       {modalOpen && (
         <div
-          className="modal-overlay"
+          className="modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="terminal-modal-title"
           onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
         >
-          <div className="modal-box" style={{ maxWidth: 420 }}>
+          <div className="modal-dialog" style={{ maxWidth: 420, textAlign: 'left' }}>
             <h2 id="terminal-modal-title" style={{ marginBottom: 20 }}>
               {editingId ? 'Editar Terminal' : 'Novo Terminal'}
             </h2>
