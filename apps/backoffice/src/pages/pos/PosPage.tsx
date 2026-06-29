@@ -103,8 +103,10 @@ export function PosPage() {
   const [custName, setCustName]   = useState('');
 
   // Finalize modal
-  const [showModal, setShowModal] = useState(false);
-  const pollRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showModal, setShowModal]     = useState(false);
+  const pollRef                       = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Idempotency key — one per sale, stable across F9 retries
+  const idempotencyKeyRef             = useRef<string>(crypto.randomUUID());
 
   // Cancel modal
   const [showCancel, setShowCancel] = useState(false);
@@ -242,7 +244,7 @@ export function PosPage() {
     if (!saleId || !canFinalize) return;
     setLoading(true);
     try {
-      await api.post(`/v1/pos/sales/${saleId}/finalize`, {});
+      await api.post(`/v1/pos/sales/${saleId}/finalize`, { idempotency_key: idempotencyKeyRef.current });
       await loadSale(saleId);
       setShowModal(true);
     } catch (e: unknown) { showError(e instanceof Error ? e.message : 'Erro ao finalizar venda'); }
@@ -279,6 +281,7 @@ export function PosPage() {
     setShowModal(false);
     setSaleId(null); setSale(null);
     setCustDoc(''); setCustName(''); setPayAmount('');
+    idempotencyKeyRef.current = crypto.randomUUID();
     createSale();
   }
 

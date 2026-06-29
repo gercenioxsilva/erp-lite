@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import {
-  openSession, addCashMovement, getSessionSummary, closeSession,
+  openSession, addCashMovement, closeSession,
 } from '../services/pos/posSessionService';
 import {
   createSale, addItem, updateItem, removeItem, setCustomer,
@@ -94,18 +94,46 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // GET /v1/pos/sessions/:id — get session summary
+  // GET /v1/pos/sessions/:id — get session with aggregated totals
   fastify.get('/pos/sessions/:id', async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
-    try {
-      const summary = await getSessionSummary(id, tenantId);
-      return summary;
-    } catch (err: unknown) {
-      const e = err as { statusCode?: number; message: string };
-      return reply.status(e.statusCode ?? 500).send({ message: e.message });
-    }
+
+    const sessionRows = await db.execute(
+      sql`SELECT s.id, s.status, s.terminal_id, s.operator_id,
+                 s.opening_amount, s.opened_at, s.closed_at,
+                 s.closing_counted, s.closing_expected, s.difference
+          FROM pos_sessions s
+          WHERE s.id = ${id} AND s.tenant_id = ${tenantId}
+          LIMIT 1`
+    );
+    if (!sessionRows.rows.length) return reply.notFound('Session not found');
+    const session = sessionRows.rows[0] as Record<string, unknown>;
+
+    const salesAgg = await db.execute(
+      sql`SELECT COUNT(*)::int AS total_sales,
+                 COALESCE(SUM(total), 0)::text AS total_revenue
+          FROM pos_sales
+          WHERE session_id = ${id} AND tenant_id = ${tenantId} AND status = 'finalized'`
+    );
+    const cashAgg = await db.execute(
+      sql`SELECT COALESCE(SUM(sp.amount), 0)::text AS total_cash
+          FROM pos_sale_payments sp
+          JOIN pos_sales s ON s.id = sp.sale_id
+          WHERE s.session_id = ${id} AND s.tenant_id = ${tenantId}
+            AND s.status = 'finalized' AND sp.method = 'cash'`
+    );
+
+    const agg  = salesAgg.rows[0] as { total_sales: number; total_revenue: string };
+    const cash = cashAgg.rows[0]  as { total_cash: string };
+
+    return {
+      ...session,
+      total_sales:   agg.total_sales   ?? 0,
+      total_revenue: agg.total_revenue  ?? '0.00',
+      total_cash:    cash.total_cash    ?? '0.00',
+    };
   });
 
   // POST /v1/pos/sessions/:id/close — close session
