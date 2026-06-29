@@ -84,6 +84,9 @@ export function PosHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [reissuing, setReissuing] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [cancelTarget, setCancelTarget] = useState<PosSale | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   const perPage = 20;
 
@@ -118,6 +121,24 @@ export function PosHistoryPage() {
       setError(err instanceof Error ? err.message : 'Erro ao reemitir fiscal.');
     } finally {
       setReissuing(null);
+    }
+  }
+
+  async function handleCancelConfirm() {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await api.post(`/v1/pos/sales/${cancelTarget.id}/cancel`, {
+        reason: cancelReason.trim() || 'Cancelamento pelo operador',
+      });
+      setCancelTarget(null);
+      setCancelReason('');
+      void load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao cancelar venda.');
+      setCancelTarget(null);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -249,6 +270,15 @@ export function PosHistoryPage() {
                           {reissuing === sale.id ? 'Enviando…' : 'Reemitir'}
                         </button>
                       )}
+                      {sale.status !== 'cancelled' && (
+                        <button
+                          className="btn btn-danger btn-sm"
+                          style={{ width: 'auto' }}
+                          onClick={() => { setCancelTarget(sale); setCancelReason(''); }}
+                        >
+                          Cancelar
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -257,6 +287,51 @@ export function PosHistoryPage() {
           </table>
         )}
       </div>
+
+      {/* ── Cancel Modal ── */}
+      {cancelTarget && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog" style={{ maxWidth: 420 }}>
+            <h3 style={{ marginBottom: 4 }}>Cancelar venda</h3>
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
+              {cancelTarget.status === 'finalized'
+                ? 'Esta venda já foi finalizada. O cancelamento reverterá o estoque e, se a NFC-e estiver autorizada, ela também será cancelada junto à SEFAZ.'
+                : 'Esta venda em aberto será cancelada.'}
+            </p>
+            <p style={{ fontSize: 13, marginBottom: 8, fontWeight: 500 }}>
+              Total: {BRL.format(Number(cancelTarget.total))}
+            </p>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>
+              Motivo (opcional)
+            </label>
+            <input
+              autoFocus
+              placeholder="Cancelamento pelo operador"
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              style={{ marginBottom: 20 }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ width: 'auto' }}
+                disabled={cancelling}
+                onClick={() => { setCancelTarget(null); setCancelReason(''); }}
+              >
+                Voltar
+              </button>
+              <button
+                className="btn btn-danger"
+                style={{ width: 'auto' }}
+                disabled={cancelling}
+                onClick={() => void handleCancelConfirm()}
+              >
+                {cancelling ? 'Cancelando…' : 'Confirmar cancelamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Pagination ── */}
       {totalPages > 1 && (
