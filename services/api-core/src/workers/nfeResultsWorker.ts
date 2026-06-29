@@ -1,8 +1,9 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, sql } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, invoices, nfeEvents, nfseInvoices, nfseEvents } from '../db';
+import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
+import { applyExit } from '../services/costCenterStock';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -131,6 +132,38 @@ async function processResult(result: NfeResultMessage): Promise<void> {
     });
 
     console.info(JSON.stringify({ event: 'nfe_result_authorized', invoice_id, nfe_chave }));
+
+    // ── Stock OUT trigger (fire-and-forget, idempotent) ──────────────────────
+    try {
+      const { rows: invoiceRows } = await db.execute<{
+        cost_center_id: string | null;
+      }>(sql`SELECT cost_center_id FROM invoices WHERE id = ${invoice_id}`);
+      const costCenterId = invoiceRows[0]?.cost_center_id ?? null;
+
+      if (costCenterId) {
+        const { rows: items } = await db.execute<{
+          material_id: string | null;
+          quantity: string;
+        }>(sql`SELECT material_id, quantity FROM invoice_items WHERE invoice_id = ${invoice_id}`);
+
+        for (const item of items) {
+          if (!item.material_id) continue;
+          // NF-e lifecycle: once cancelled, a new invoice must be issued (new ID). Reuse of this invoiceId is impossible.
+          await applyExit({
+            tenantId:     result.tenant_id,
+            costCenterId,
+            materialId:   item.material_id,
+            quantity:     Number(item.quantity),
+            source:       'invoice',
+            sourceId:     invoice_id,
+            userId:       undefined,
+          }, db);
+        }
+      }
+    } catch (stockErr) {
+      console.error(JSON.stringify({ event: 'stock_exit_error', invoice_id, error: String(stockErr) }));
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     if (inv.client_email) {
       await sendNotificationIfEnabled({

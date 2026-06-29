@@ -83,13 +83,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           email:    email,
           name:     company_name,
           metadata: { tenant_id: result.tenant.id },
-        }).then(async (customer) => {
+        }).then(async (customer: { id: string }) => {
           await db.execute(sql`
             UPDATE tenants
             SET stripe_customer_id = ${customer.id}, trial_ends_at = ${trialEnds.toISOString()}
             WHERE id = ${result.tenant.id}
           `);
-        }).catch((err) => {
+        }).catch((err: unknown) => {
           fastify.log.warn({ event: 'stripe_customer_create_warn', error: String(err) });
         });
       }

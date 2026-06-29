@@ -35,6 +35,8 @@ interface BoletoInfo {
 
 interface Client { id: string; company_name: string | null; full_name: string | null; }
 
+interface CostCenter { id: string; code: string; name: string; }
+
 const STATUS_COLORS: Record<string, string> = {
   pending: '#d97706', partial: '#2563eb', paid: '#16a34a',
   overdue: '#dc2626', cancelled: '#6b7280',
@@ -69,6 +71,8 @@ export function ReceivablesPage() {
   const [dateFrom, setDateFrom]   = useState('');
   const [dateTo, setDateTo]       = useState('');
   const [loading, setLoading]     = useState(false);
+  const [costCenterFilter, setCostCenterFilter] = useState('');
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
 
   // Detail drawer
   const [selected, setSelected]   = useState<(Receivable & { payments: Payment[] }) | null>(null);
@@ -77,7 +81,7 @@ export function ReceivablesPage() {
   // Create drawer
   const [createOpen, setCreateOpen] = useState(false);
   const [clients, setClients]       = useState<Client[]>([]);
-  const [form, setForm]             = useState({ client_id: '', description: '', amount: '', due_date: '', notes: '' });
+  const [form, setForm]             = useState({ client_id: '', description: '', amount: '', due_date: '', notes: '', cost_center_id: '' });
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
 
@@ -99,14 +103,17 @@ export function ReceivablesPage() {
     if (!tenantId) return;
     loadItems();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, page, statusFilter, search, clientF, dateFrom, dateTo]);
+  }, [tenantId, page, statusFilter, search, clientF, dateFrom, dateTo, costCenterFilter]);
 
-  // Carrega clientes (para o filtro e o formulário de criação)
+  // Carrega clientes e centros de custo (para filtros e formulário de criação)
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
     api.get<any>(`/v1/clients?tenant_id=${tenantId}&per_page=100&page=1`)
       .then(d => { if (!cancelled) setClients(d.data); })
+      .catch(() => {});
+    api.get<any>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
+      .then(d => { if (!cancelled) setCostCenters(d.data ?? []); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -120,6 +127,7 @@ export function ReceivablesPage() {
       if (clientF)      qs.set('client_id', clientF);
       if (dateFrom)     qs.set('due_date_from', dateFrom);
       if (dateTo)       qs.set('due_date_to', dateTo);
+      if (costCenterFilter) qs.set('cost_center_id', costCenterFilter);
       const data = await api.get<any>(`/v1/receivables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
@@ -152,14 +160,15 @@ export function ReceivablesPage() {
     setSaving(true);
     try {
       await api.post('/v1/receivables', {
-        client_id:   form.client_id || null,
-        description: form.description,
-        amount:      Number(form.amount),
-        due_date:    form.due_date,
-        notes:       form.notes || null,
+        client_id:      form.client_id || null,
+        description:    form.description,
+        amount:         Number(form.amount),
+        due_date:       form.due_date,
+        notes:          form.notes || null,
+        cost_center_id: form.cost_center_id || null,
       });
       setCreateOpen(false);
-      setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' });
+      setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '', cost_center_id: '' });
       loadItems();
     } catch (err: any) {
       setFormError(err.message || t('rec.errSave'));
@@ -253,7 +262,7 @@ export function ReceivablesPage() {
             items.map(i => ({ description: i.description, client_name: i.client_name, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status, document_number: '' })),
             `contas-a-receber-${new Date().toISOString().slice(0,10)}.xlsx`
           )}>↓ Exportar</button>
-          <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '' }); }}>
+          <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '', cost_center_id: '' }); }}>
             {t('rec.new')}
           </button>
         </div>
@@ -282,9 +291,16 @@ export function ReceivablesPage() {
           onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
         <input type="date" title={t('flt.to')} value={dateTo}
           onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
-        {(search || statusFilter || clientF || dateFrom || dateTo) && (
+        <select className="btn btn-secondary" value={costCenterFilter}
+          onChange={e => { setCostCenterFilter(e.target.value); setPage(1); }}>
+          <option value="">{t('cc.costCenter')}: {t('cc.none')}</option>
+          {costCenters.map(cc => (
+            <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+          ))}
+        </select>
+        {(search || statusFilter || clientF || dateFrom || dateTo || costCenterFilter) && (
           <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-            onClick={() => { setSearch(''); setStatus(''); setClientF(''); setDateFrom(''); setDateTo(''); setPage(1); }}>
+            onClick={() => { setSearch(''); setStatus(''); setClientF(''); setDateFrom(''); setDateTo(''); setCostCenterFilter(''); setPage(1); }}>
             {t('flt.clear')}
           </button>
         )}
@@ -382,6 +398,15 @@ export function ReceivablesPage() {
                   <label>{t('rec.notes')}</label>
                   <input type="text" value={form.notes}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label>{t('cc.costCenter')}</label>
+                  <select value={form.cost_center_id} onChange={e => setForm(f => ({ ...f, cost_center_id: e.target.value }))}>
+                    <option value="">{t('cc.none')}</option>
+                    {costCenters.map(cc => (
+                      <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="drawer-footer">

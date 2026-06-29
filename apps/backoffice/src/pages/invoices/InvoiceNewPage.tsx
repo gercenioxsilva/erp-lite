@@ -14,6 +14,8 @@ const PCT = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
 interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; }
 interface OrderOption    { id: string; number: string; client_id: string; client_name: string; status: string; }
+interface CostCenter { id: string; code: string; name: string; }
+interface StockItem  { material_id: string; quantity: number; }
 
 interface FormItem {
   _key: string; material_id: string; name: string;
@@ -76,6 +78,10 @@ export function InvoiceNewPage() {
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [orders,    setOrders]    = useState<OrderOption[]>([]);
 
+  const [costCenters,      setCostCenters]      = useState<CostCenter[]>([]);
+  const [formCostCenterId, setFormCostCenterId] = useState('');
+  const [ccStock,          setCcStock]          = useState<StockItem[]>([]);
+
   const hasClient = !!formClientId;
   const hasItems  = formItems.some(it => it.name);
   const hasFiscal = !!(formTaxRegime && formDestState);
@@ -92,12 +98,14 @@ export function InvoiceNewPage() {
       api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
       api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
       api.get<{ focus_ambiente: number | null }>(`/v1/nfe-config?tenant_id=${tenantId}`).catch(() => ({ focus_ambiente: null })),
-    ]).then(([cl, mt, or, cfg]) => {
+      api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
+    ]).then(([cl, mt, or, cfg, cc]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
       setMaterials(mt.data ?? []);
       setOrders((or.data ?? []).filter(o => !['cancelled', 'delivered'].includes(o.status)));
       setNfeAmbiente(cfg.focus_ambiente ?? null);
+      setCostCenters(cc.data ?? []);
     }).catch(() => {/* non-fatal */});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -128,6 +136,16 @@ export function InvoiceNewPage() {
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('cl.errSave'));
     }
+  }
+
+  async function handleCostCenterChange(id: string) {
+    setFormCostCenterId(id);
+    setCcStock([]);
+    if (!id) return;
+    try {
+      const resp = await api.get<{ data: StockItem[] }>(`/v1/cost-centers/${id}/stock`);
+      setCcStock(resp.data ?? []);
+    } catch { /* non-fatal */ }
   }
 
   function addItem() { setFormItems(prev => [...prev, newItem()]); setTaxResult(null); }
@@ -199,6 +217,7 @@ export function InvoiceNewPage() {
         tenant_id: tenantId, client_id: formClientId,
         order_id: formOrderId || undefined, serie: formSerie,
         notes: formNotes || null,
+        cost_center_id: formCostCenterId || null,
         tax_regime: formTaxRegime, origin_state: 'SP',
         items: formItems.filter(it => it.name).map(it => {
           const base = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
@@ -274,6 +293,16 @@ export function InvoiceNewPage() {
                   onChange={e => setFormSerie(e.target.value)} maxLength={10} />
               </div>
             </div>
+            <div className="field">
+              <label htmlFor="inv-cost-center">{t('cc.costCenter')}</label>
+              <select id="inv-cost-center" value={formCostCenterId}
+                onChange={e => void handleCostCenterChange(e.target.value)}>
+                <option value="">{t('cc.none')}</option>
+                {costCenters.map(cc => (
+                  <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                ))}
+              </select>
+            </div>
           </SectionCard>
 
           {/* Step 2 — Cliente */}
@@ -334,6 +363,17 @@ export function InvoiceNewPage() {
                                 onChange={e => updateItem(idx, 'name', e.target.value)}
                                 style={{ marginTop: 4, fontSize: 12 }} />
                             )}
+                            {formCostCenterId && item.material_id && (() => {
+                              const stock = ccStock.find(s => s.material_id === item.material_id);
+                              if (stock && stock.quantity < Number(item.quantity)) {
+                                return (
+                                  <div style={{ fontSize: 11, color: '#d97706', marginTop: 4 }}>
+                                    ⚠ Saldo insuficiente no centro de custo para este material (disponível: {stock.quantity})
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
                           </td>
                           <td style={{ padding: '6px 8px' }}>
                             <input type="number" min="0.001" step="0.001" value={item.quantity}

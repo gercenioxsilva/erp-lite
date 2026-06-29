@@ -29,7 +29,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
         SELECT p.id, p.description, p.supplier_id,
                COALESCE(s.company_name, s.full_name, p.supplier_name) AS supplier_name,
                p.category, p.document_number,
-               p.amount, p.paid_amount, p.due_date, p.status, p.notes, p.created_at
+               p.amount, p.paid_amount, p.due_date, p.status, p.notes, p.created_at,
+               p.cost_center_id
         FROM payables p
         LEFT JOIN suppliers s ON s.id = p.supplier_id
         WHERE p.tenant_id = ${tenantId}
@@ -53,7 +54,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     const userId   = (request as any).user.userId;
     const { supplier_name, supplier_id, category = 'other', description, document_number,
             amount, due_date, notes,
-            recurrence = 'none', recurrence_day, recurrence_end_date } = request.body as any;
+            recurrence = 'none', recurrence_day, recurrence_end_date,
+            cost_center_id } = request.body as any;
 
     if (!description || typeof description !== 'string' || !description.trim())
       return reply.badRequest('description é obrigatório');
@@ -92,6 +94,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       recurrence:      recurrence || 'none',
       recurrence_day:  recurrence_day ? Number(recurrence_day) : null,
       recurrence_end_date: recurrence_end_date || null,
+      cost_center_id:  cost_center_id || null,
       created_by:      userId,
     }).returning();
 
@@ -107,7 +110,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT p.*,
                COALESCE(s.company_name, s.full_name) AS supplier_display_name,
-               s.email AS supplier_email, s.phone AS supplier_phone
+               s.email AS supplier_email, s.phone AS supplier_phone,
+               p.cost_center_id
         FROM payables p
         LEFT JOIN suppliers s ON s.id = p.supplier_id
         WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
@@ -147,6 +151,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.recurrence           !== undefined) patch.recurrence           = body.recurrence || 'none';
     if (body.recurrence_day       !== undefined) patch.recurrence_day       = body.recurrence_day ? Number(body.recurrence_day) : null;
     if (body.recurrence_end_date  !== undefined) patch.recurrence_end_date  = body.recurrence_end_date || null;
+    if (body.cost_center_id       !== undefined) patch.cost_center_id       = body.cost_center_id || null;
 
     if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
 

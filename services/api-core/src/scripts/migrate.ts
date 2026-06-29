@@ -56,7 +56,9 @@ const migrations = [
   '0024_proposals.sql',
   '0025_tenant_itau_oauth.sql',
   '0026_stripe_billing.sql',
-  '0027_stripe_price_ids.sql',
+  '0027_cost_centers.sql',
+  '0028_cost_center_stock.sql',
+  '0029_stripe_price_ids.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

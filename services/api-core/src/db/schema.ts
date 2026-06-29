@@ -1,6 +1,7 @@
 import {
   pgTable, uuid, varchar, text, boolean, timestamp,
-  date, decimal, char, smallint, integer, jsonb, numeric,
+  date, decimal, char, smallint, integer, jsonb,
+  numeric, pgEnum, primaryKey, unique,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
@@ -193,6 +194,8 @@ export const orders = pgTable('orders', {
   created_by: uuid('created_by'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Centro de Custo (migration 0026)
+  cost_center_id: uuid('cost_center_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -241,6 +244,8 @@ export const invoices = pgTable('invoices', {
   nfe_danfe_url:     varchar('nfe_danfe_url',      { length: 500 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Centro de Custo (migration 0026)
+  cost_center_id: uuid('cost_center_id'),
 });
 
 // ── invoice_items ─────────────────────────────────────────────────────────────
@@ -336,6 +341,8 @@ export const receivables = pgTable('receivables', {
   created_by:  uuid('created_by'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Centro de Custo (migration 0026)
+  cost_center_id: uuid('cost_center_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────
@@ -445,6 +452,8 @@ export const payables = pgTable('payables', {
   created_by:      uuid('created_by'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Centro de Custo (migration 0026)
+  cost_center_id: uuid('cost_center_id'),
 });
 
 // ── payable_payments (append-only) ────────────────────────────────────────────
@@ -622,6 +631,57 @@ export const proposalItems = pgTable('proposal_items', {
   sort_order:   smallint('sort_order').notNull().default(0),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Centro de Custo  (migrations 0027 + 0028)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const costCenters = pgTable('cost_centers', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  code:           varchar('code',        { length: 20  }).notNull(),
+  name:           varchar('name',        { length: 255 }).notNull(),
+  description:    text('description'),
+  allow_negative: boolean('allow_negative').notNull().default(false),
+  is_active:      boolean('is_active').notNull().default(true),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ENUMs for cost_center_movements
+export const ccMovementDirectionEnum = pgEnum('cc_movement_direction', ['in', 'out']);
+export const ccMovementSourceEnum    = pgEnum('cc_movement_source',    ['manual_entry', 'adjustment', 'payable', 'order', 'invoice']);
+
+export const costCenterStock = pgTable('cost_center_stock', {
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id,      { onDelete: 'cascade' }),
+  cost_center_id: uuid('cost_center_id').notNull().references(() => costCenters.id, { onDelete: 'cascade' }),
+  material_id:    uuid('material_id').notNull().references(() => materials.id),
+  quantity:       numeric('quantity',      { precision: 14, scale: 4 }).notNull().default('0'),
+  avg_unit_cost:  numeric('avg_unit_cost', { precision: 14, scale: 2 }).notNull().default('0'),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.cost_center_id, t.material_id] }),
+}));
+
+export const costCenterMovements = pgTable('cost_center_movements', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id,          { onDelete: 'cascade' }),
+  cost_center_id:  uuid('cost_center_id').notNull().references(() => costCenters.id, { onDelete: 'cascade' }),
+  material_id:     uuid('material_id').notNull().references(() => materials.id),
+  direction:       ccMovementDirectionEnum('direction').notNull(),
+  quantity:        numeric('quantity',      { precision: 14, scale: 4 }).notNull(),
+  unit_cost:       numeric('unit_cost',     { precision: 14, scale: 2 }),
+  total_cost:      numeric('total_cost',    { precision: 14, scale: 2 }),
+  balance_after:   numeric('balance_after', { precision: 14, scale: 4 }).notNull(),
+  source:          ccMovementSourceEnum('source').notNull(),
+  source_id:       uuid('source_id'),
+  note:            text('note'),
+  idempotency_key: varchar('idempotency_key', { length: 160 }).notNull(),
+  created_by:      uuid('created_by'),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uq: unique().on(t.tenant_id, t.idempotency_key),
+}));
 
 // ── plans ─────────────────────────────────────────────────────────────────────
 export const plans = pgTable('plans', {

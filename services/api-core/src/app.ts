@@ -22,9 +22,10 @@ import { clientContactsRoutes }     from './routes/clientContacts';
 import { serviceContractsRoutes }   from './routes/serviceContracts';
 import { materialImagesRoutes }     from './routes/materialImages';
 import { dashboardRoutes }                                          from './routes/dashboard';
-import { proposalsRoutes } from './routes/proposals';
-import { publicRoutes }    from './routes/public';
-import { reportsRoutes }   from './routes/reports';
+import { proposalsRoutes }    from './routes/proposals';
+import { publicRoutes }       from './routes/public';
+import { reportsRoutes }      from './routes/reports';
+import { costCentersRoutes }  from './routes/costCenters';
 import { subscriptionRoutes, subscriptionWebhookRoute } from './routes/subscription';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
@@ -79,6 +80,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(proposalsRoutes,          { prefix: '/v1' });
   await app.register(publicRoutes,             { prefix: '/v1' });
   await app.register(reportsRoutes,            { prefix: '/v1' });
+  await app.register(costCentersRoutes,        { prefix: '/v1' });
   await app.register(subscriptionRoutes,       { prefix: '/v1' });
   await app.register(subscriptionWebhookRoute, { prefix: '/v1' });
 

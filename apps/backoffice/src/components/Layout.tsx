@@ -105,6 +105,13 @@ function IcoSuppliers() {
     </svg>
   );
 }
+function IcoCostCenters() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="14" height="12" rx="2"/><path d="M6 7h2M6 10h2M10 7h2M10 10h2"/><path d="M2 6h14"/>
+    </svg>
+  );
+}
 function IcoReports() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -139,7 +146,8 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/orders':      IcoOrders,
   '/invoices':    IcoInvoices,
   '/receivables': IcoReceivables,
-  '/suppliers':   IcoSuppliers,
+  '/suppliers':    IcoSuppliers,
+  '/cost-centers': IcoCostCenters,
   '/payables':    IcoPayables,
   '/users':       IcoUsers,
   '/company':     IcoCompany,
@@ -203,7 +211,8 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/proposals',   label: t('nav.proposals')   },
     { to: '/invoices',    label: t('nav.invoices')    },
     { to: '/receivables', label: t('nav.receivables') },
-    { to: '/suppliers',   label: t('nav.suppliers')   },
+    { to: '/suppliers',    label: t('nav.suppliers')    },
+    { to: '/cost-centers', label: t('nav.costCenters') },
     { to: '/payables',    label: t('nav.payables')    },
     { to: '/contracts',   label: t('nav.contracts')   },
     { to: '/nfse',        label: t('nav.nfse')        },

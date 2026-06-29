@@ -712,6 +712,28 @@ const ptBR = {
   'l.errNetwork': 'Sem conexão com o servidor. Verifique se o Docker está rodando.',
   'l.errServer':  'Erro interno do servidor. Tente novamente em instantes.',
 
+  // ── Centros de Custo ─────────────────────────────────────────────────────
+  'nav.costCenters':      'Centros de Custo',
+  'cc.title':             'Centros de Custo',
+  'cc.new':               'Novo Centro de Custo',
+  'cc.code':              'Código',
+  'cc.name':              'Nome',
+  'cc.description':       'Descrição',
+  'cc.allowNegative':     'Permitir saldo negativo',
+  'cc.search':            'Buscar por código ou nome...',
+  'cc.costCenter':        'Centro de Custo',
+  'cc.none':              'Sem centro de custo',
+  'cc.stock':             'Estoque',
+  'cc.movements':         'Movimentações',
+  'cc.entry':             'Entrada de material',
+  'cc.adjustment':        'Ajuste de inventário',
+  'cc.quantity':          'Quantidade',
+  'cc.unitCost':          'Custo unitário',
+  'cc.balance':           'Saldo',
+  'cc.direction.in':      'Entrada',
+  'cc.direction.out':     'Saída',
+  'cc.insufficientStock': 'Saldo insuficiente neste centro de custo',
+
   // ── Assinatura / Billing ──────────────────────────────────────────────────
   'nav.billing':              'Assinatura',
   'billing.title':            'Assinatura',
