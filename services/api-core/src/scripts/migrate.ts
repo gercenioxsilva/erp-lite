@@ -58,6 +58,7 @@ const migrations = [
   '0026_stripe_billing.sql',
   '0027_cost_centers.sql',
   '0028_cost_center_stock.sql',
+  '0029_pos.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
