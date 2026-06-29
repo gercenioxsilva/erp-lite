@@ -63,6 +63,8 @@ const migrations = [
   '0031_materials_kit_type.sql',
   '0032_material_dimensions.sql',
   '0033_proposal_terms.sql',
+  '0034_pos.sql',
+  '0035_pos_fiscal_fix.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

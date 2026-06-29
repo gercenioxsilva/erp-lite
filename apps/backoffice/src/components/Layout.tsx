@@ -1,5 +1,5 @@
 import { ReactNode, useState, useEffect } from 'react';
-import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
@@ -129,6 +129,16 @@ function IcoBilling() {
   );
 }
 
+function IcoPDV() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="14" height="10" rx="1.5"/>
+      <path d="M5 6V4a4 4 0 018 0v2"/>
+      <path d="M6 11h6M9 9v4"/>
+    </svg>
+  );
+}
+
 function IcoMenu() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -185,8 +195,22 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [pdvOpen, setPdvOpen] = useState(() => location.pathname.startsWith('/pos'));
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/pos')) setPdvOpen(true);
+  }, [location.pathname]);
+
+  const PDV_ITEMS = [
+    { to: '/pos/caixa',     label: 'Caixa',     end: false },
+    { to: '/pos',           label: 'Venda',     end: true  },
+    { to: '/pos/sales',     label: 'Histórico', end: false },
+    { to: '/pos/terminals', label: 'Terminais', end: false },
+    { to: '/pos/sessions',  label: 'Sessões',   end: false },
+  ] as const;
 
   useEffect(() => {
     api.get<{ status: string; days_left: number | null; stripe_enabled: boolean }>('/v1/subscription')
@@ -255,6 +279,33 @@ export function Layout({ children }: { children: ReactNode }) {
               </NavLink>
             );
           })}
+
+          {/* Grupo PDV colapsável */}
+          <button
+            onClick={() => setPdvOpen(o => !o)}
+            className={`nav-group${location.pathname.startsWith('/pos') ? ' active' : ''}`}
+          >
+            <span className="nav-icon"><IcoPDV /></span>
+            <span style={{ flex: 1, textAlign: 'left' }}>PDV</span>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+                 style={{ transform: pdvOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 180ms ease', opacity: 0.5, flexShrink: 0 }}>
+              <path d="M2 4l4 4 4-4"/>
+            </svg>
+          </button>
+
+          {pdvOpen && (
+            <div className="nav-sub">
+              {PDV_ITEMS.map(item => (
+                <NavLink key={item.to} to={item.to} end={item.end}
+                         onClick={closeMenu}
+                         className={({ isActive }) => isActive ? 'active' : ''}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
 
         <div className="sidebar-footer">
