@@ -6,7 +6,7 @@ import { costCenters, costCenterStock, costCenterMovements } from '../db/schema'
 
 export type DrizzleDB = typeof _db;
 
-export type CcMovementSource = 'manual_entry' | 'adjustment' | 'payable' | 'order' | 'invoice';
+export type CcMovementSource = 'manual_entry' | 'adjustment' | 'payable' | 'order' | 'invoice' | 'pos_sale';
 
 export type ApplyArgs = {
   tenantId: string;
