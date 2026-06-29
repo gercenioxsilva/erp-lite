@@ -89,6 +89,8 @@ export function InvoicesPage() {
   const [loading,      setLoading]      = useState(true);
   const [nfeAmbiente,  setNfeAmbiente]  = useState<number | null>(null);
   const [clients,      setClients]      = useState<ClientOption[]>([]);
+  const [costCenterFilter, setCostCenterFilter] = useState('');
+  const [costCenters, setCostCenters] = useState<{ id: string; code: string; name: string }[]>([]);
 
   /* NF-e status panel */
   const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -117,15 +119,16 @@ export function InvoicesPage() {
         ...(dateTo     ? { issue_date_to: dateTo }   : {}),
         ...(valueMin   ? { total_min: valueMin }     : {}),
         ...(valueMax   ? { total_max: valueMax }     : {}),
+        ...(costCenterFilter ? { cost_center_id: costCenterFilter } : {}),
       });
       const r = await api.get<ListResp>(`/v1/invoices?${p}`);
       setInvoices(r.data); setTotal(r.total);
     } catch { /**/ } finally { setLoading(false); }
   }
   useEffect(() => { void load(); },
-    [tenantId, page, statusFilter, search, nfeStatusF, clientF, dateFrom, dateTo, valueMin, valueMax]);
+    [tenantId, page, statusFilter, search, nfeStatusF, clientF, dateFrom, dateTo, valueMin, valueMax, costCenterFilter]);
 
-  /* ── Load clients (filtro) + ambiente NF-e (badge/trava) por tenant ── */
+  /* ── Load clients (filtro) + ambiente NF-e (badge/trava) + cost centers por tenant ── */
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
@@ -135,6 +138,9 @@ export function InvoicesPage() {
     api.get<{ focus_ambiente: number }>(`/v1/nfe-config?tenant_id=${tenantId}`)
       .then(c => { if (!cancelled) setNfeAmbiente(c.focus_ambiente ?? null); })
       .catch(() => { if (!cancelled) setNfeAmbiente(null); /* NF-e não configurada */ });
+    api.get<{ data: { id: string; code: string; name: string }[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
+      .then(d => { if (!cancelled) setCostCenters(d.data ?? []); })
+      .catch(() => { /* filtro de CC fica vazio se falhar */ });
     return () => { cancelled = true; };
   }, [tenantId]);
 
@@ -304,9 +310,16 @@ export function InvoicesPage() {
           onChange={e => { setValueMin(e.target.value); setPage(1); }} style={{ width: 110 }} />
         <input type="number" inputMode="decimal" placeholder={t('flt.max')} value={valueMax}
           onChange={e => { setValueMax(e.target.value); setPage(1); }} style={{ width: 110 }} />
-        {(search || nfeStatusF || clientF || dateFrom || dateTo || valueMin || valueMax) && (
+        <select className="btn btn-secondary" value={costCenterFilter}
+          onChange={e => { setCostCenterFilter(e.target.value); setPage(1); }}>
+          <option value="">{t('cc.costCenter')}: {t('cc.none')}</option>
+          {costCenters.map(c => (
+            <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+          ))}
+        </select>
+        {(search || nfeStatusF || clientF || dateFrom || dateTo || valueMin || valueMax || costCenterFilter) && (
           <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-            onClick={() => { setSearch(''); setNfeStatusF(''); setClientF(''); setDateFrom(''); setDateTo(''); setValueMin(''); setValueMax(''); setPage(1); }}>
+            onClick={() => { setSearch(''); setNfeStatusF(''); setClientF(''); setDateFrom(''); setDateTo(''); setValueMin(''); setValueMax(''); setCostCenterFilter(''); setPage(1); }}>
             {t('flt.clear')}
           </button>
         )}

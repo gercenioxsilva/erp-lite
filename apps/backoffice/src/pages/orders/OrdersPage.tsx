@@ -10,6 +10,7 @@ interface Order {
   id: string; number: string; status: string; client_name: string;
   subtotal: number; discount: number; shipping: number; total: number;
   notes: string | null; created_at: string; client_id: string;
+  cost_center_id: string | null;
 }
 interface OrderDetail extends Order {
   items: OrderItemRow[];
@@ -105,13 +106,11 @@ export function OrdersPage() {
     Promise.all([
       api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
       api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`),
     ])
-      .then(([cl, mt, cc]) => {
+      .then(([cl, mt]) => {
         if (cancelled) return;
         setClients(cl.data ?? []);
         setMaterials(mt.data ?? []);
-        setCostCenters(cc.data ?? []);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -142,7 +141,7 @@ export function OrdersPage() {
     setEditing(o);
     setFormClientId(o.client_id); setFormNotes(o.notes ?? '');
     setFormDiscount(String(o.discount)); setFormShipping(String(o.shipping));
-    setFormCostCenterId((o as any).cost_center_id ?? '');
+    setFormCostCenterId(o.cost_center_id ?? '');
     setFormItems([]);
     setFormError('');
     setDrawerOpen(true);
