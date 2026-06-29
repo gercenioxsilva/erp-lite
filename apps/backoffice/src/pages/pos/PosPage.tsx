@@ -303,224 +303,234 @@ export function PosPage() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="pos-shell">
-
-      {/* ── Top bar ── */}
-      <header className="pos-topbar">
-        <span className="pos-topbar-brand">PDV</span>
-        {saleId && <span className="pos-topbar-id">#{saleId.slice(0, 8)}</span>}
-        {error && <span className="pos-error-bar">{error}</span>}
-        <div className="pos-topbar-actions">
-          <button onClick={handleNewSale} className="pos-kbd pos-kbd-primary">F2 Nova venda</button>
-          <button onClick={() => setShowCancel(true)} className="pos-kbd pos-kbd-danger">F4 Cancelar</button>
-          <button onClick={() => navigate('/pos/caixa')} className="pos-kbd pos-kbd-ghost">← Caixa</button>
+    <>
+      {/* Page header — DS standard */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Venda</h1>
+          {saleId && <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>#{saleId.slice(0, 8)}</span>}
+          {error && <span style={{ fontSize: 12, color: 'var(--danger)', marginLeft: 12 }}>{error}</span>}
         </div>
-      </header>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleNewSale} className="btn btn-secondary" style={{ fontSize: 12 }}>
+            F2 Nova venda
+          </button>
+          <button onClick={() => setShowCancel(true)} className="btn btn-danger" style={{ fontSize: 12 }}>
+            F4 Cancelar
+          </button>
+          <button onClick={() => navigate('/pos/caixa')} className="btn btn-secondary" style={{ fontSize: 12 }}>
+            ← Caixa
+          </button>
+        </div>
+      </div>
 
-      {/* ── Main area ── */}
-      <div className="pos-body">
+      {/* Two-column layout */}
+      <div className="pos-layout">
 
         {/* ── Left: Cart ── */}
-        <div className="pos-cart">
-
-          {/* Search */}
-          <div className="pos-search-wrap">
-            <span className="pos-search-icon"><IcoSearch /></span>
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onFocus={() => products.length > 0 && setShowDrop(true)}
-              placeholder="Buscar produto — F2 para focar…"
-              className="pos-search"
-            />
-            {showDrop && products.length > 0 && (
-              <div className="pos-search-drop">
-                {products.map(p => (
-                  <button key={p.id} onClick={() => handleAddProduct(p)} className="pos-search-item">
-                    <span>{p.name}</span>
-                    <span className="pos-search-price">{fmtBRL(p.sale_price)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Cart items */}
-          <div className="pos-items">
-            {(!sale || sale.items.length === 0) ? (
-              <div className="pos-items-empty">
-                <span className="pos-items-empty-icon">🛒</span>
-                <p className="pos-items-empty-text">Carrinho vazio</p>
-                <p className="pos-items-empty-hint">Busque um produto acima ou pressione F2</p>
-              </div>
-            ) : (
-              <table className="pos-table">
-                <thead>
-                  <tr>
-                    <th>Produto</th>
-                    <th className="center">Qtd</th>
-                    <th className="right">Preço</th>
-                    <th className="right">Total</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sale.items.map(item => (
-                    <tr key={item.id}>
-                      <td className="td-name">{item.description}</td>
-                      <td className="td-qty">
-                        <input
-                          type="number"
-                          min="0.001"
-                          step="1"
-                          defaultValue={item.quantity}
-                          onBlur={e => handleQtyBlur(item.id, e.target.value)}
-                          className="pos-qty-input"
-                        />
-                      </td>
-                      <td className="td-price">{fmtBRL(item.unit_price)}</td>
-                      <td className="td-total">{fmtBRL(item.total)}</td>
-                      <td className="td-action">
-                        <button onClick={() => handleRemoveItem(item.id)} className="pos-remove-btn" title="Remover">×</button>
-                      </td>
-                    </tr>
+        <div className="pos-cart-panel">
+          <div className="card" style={{ padding: 0, overflow: 'visible' }}>
+            {/* Search */}
+            <div className="pos-search-wrap" style={{ padding: 14 }}>
+              <span className="pos-search-icon"><IcoSearch /></span>
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={() => products.length > 0 && setShowDrop(true)}
+                placeholder="Buscar produto — F2 para focar…"
+                className="pos-search"
+              />
+              {showDrop && products.length > 0 && (
+                <div className="pos-search-drop">
+                  {products.map(p => (
+                    <button key={p.id} onClick={() => handleAddProduct(p)} className="pos-search-item">
+                      <span>{p.name}</span>
+                      <span className="pos-search-price">{fmtBRL(p.sale_price)}</span>
+                    </button>
                   ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
 
-          {/* Customer */}
-          <div className="pos-customer">
-            <input
-              type="text"
-              value={custDoc}
-              onChange={e => setCustDoc(e.target.value)}
-              onBlur={handleCustomerBlur}
-              placeholder="CPF / CNPJ"
-              className="pos-customer-input pos-customer-doc"
-            />
-            <input
-              type="text"
-              value={custName}
-              onChange={e => setCustName(e.target.value)}
-              onBlur={handleCustomerBlur}
-              placeholder="Nome do cliente (opcional)"
-              className="pos-customer-input pos-customer-name"
-            />
+            {/* Cart items */}
+            <div style={{ padding: '0 14px' }}>
+              {(!sale || sale.items.length === 0) ? (
+                <div className="pos-items-empty">
+                  <span className="pos-items-empty-icon">🛒</span>
+                  <p className="pos-items-empty-text">Carrinho vazio</p>
+                  <p className="pos-items-empty-hint">Busque um produto acima ou pressione F2</p>
+                </div>
+              ) : (
+                <table className="pos-table">
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th className="center">Qtd</th>
+                      <th className="right">Preço</th>
+                      <th className="right">Total</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sale.items.map(item => (
+                      <tr key={item.id}>
+                        <td className="td-name">{item.description}</td>
+                        <td className="td-qty">
+                          <input
+                            type="number"
+                            min="0.001"
+                            step="1"
+                            defaultValue={item.quantity}
+                            onBlur={e => handleQtyBlur(item.id, e.target.value)}
+                            className="pos-qty-input"
+                          />
+                        </td>
+                        <td className="td-price">{fmtBRL(item.unit_price)}</td>
+                        <td className="td-total">{fmtBRL(item.total)}</td>
+                        <td className="td-action">
+                          <button onClick={() => handleRemoveItem(item.id)} className="pos-remove-btn" title="Remover">×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Customer */}
+            <div className="pos-customer" style={{ padding: '12px 14px' }}>
+              <input
+                type="text"
+                value={custDoc}
+                onChange={e => setCustDoc(e.target.value)}
+                onBlur={handleCustomerBlur}
+                placeholder="CPF / CNPJ"
+                className="pos-customer-input pos-customer-doc"
+              />
+              <input
+                type="text"
+                value={custName}
+                onChange={e => setCustName(e.target.value)}
+                onBlur={handleCustomerBlur}
+                placeholder="Nome do cliente (opcional)"
+                className="pos-customer-input"
+              />
+            </div>
           </div>
         </div>
 
         {/* ── Right: Payment panel ── */}
-        <aside className="pos-payment">
-
-          {/* Totals — signature element */}
-          <div className="pos-total-block">
-            <div className="pos-total-row">
-              <span className="pos-total-label">Subtotal</span>
-              <span className="pos-total-value">{fmtBRL(sale?.subtotal)}</span>
-            </div>
-            {Number(sale?.discount_amount ?? 0) > 0 && (
+        <div className="pos-pay-panel">
+          {/* Totals */}
+          <div className="card" style={{ padding: 0 }}>
+            <div className="pos-total-block">
               <div className="pos-total-row">
-                <span className="pos-total-label pos-total-discount-label">Desconto</span>
-                <span className="pos-total-value pos-total-discount-value">−{fmtBRL(sale?.discount_amount)}</span>
+                <span className="pos-total-label">Subtotal</span>
+                <span className="pos-total-value">{fmtBRL(sale?.subtotal)}</span>
               </div>
-            )}
-            <div className="pos-grand-total">
-              <span className="pos-grand-label">Total</span>
-              <span className="pos-grand-value">{fmtBRL(sale?.total)}</span>
-            </div>
-            <div className={`pos-remaining ${remaining > 0.001 ? 'pos-remaining-due' : 'pos-remaining-ok'}`}>
-              <span>{remaining > 0.001 ? 'Falta pagar' : 'Troco'}</span>
-              <span className="pos-remaining-value">
-                {remaining > 0.001 ? fmtBRL(remaining) : fmtBRL(totalPaid - saleTotal)}
-              </span>
+              {Number(sale?.discount_amount ?? 0) > 0 && (
+                <div className="pos-total-row">
+                  <span className="pos-total-label pos-total-discount-label">Desconto</span>
+                  <span className="pos-total-value pos-total-discount-value">−{fmtBRL(sale?.discount_amount)}</span>
+                </div>
+              )}
+              <div className="pos-grand-total">
+                <span className="pos-grand-label">Total</span>
+                <span className="pos-grand-value">{fmtBRL(sale?.total)}</span>
+              </div>
+              <div className={`pos-remaining ${remaining > 0.001 ? 'pos-remaining-due' : 'pos-remaining-ok'}`}>
+                <span>{remaining > 0.001 ? 'Falta pagar' : 'Troco'}</span>
+                <span className="pos-remaining-value">
+                  {remaining > 0.001 ? fmtBRL(remaining) : fmtBRL(totalPaid - saleTotal)}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Payment method */}
-          <div className="pos-method-block">
-            <p className="pos-method-label">Forma de pagamento</p>
-            <div className="pos-methods">
-              {PAYMENT_METHODS.map(m => (
-                <button
-                  key={m}
-                  onClick={() => setPayMethod(m)}
-                  className={`pos-method-btn${payMethod === m ? ' selected' : ''}`}
-                >
-                  {PAYMENT_LABELS[m]}
+          {/* Payment method + amount */}
+          <div className="card" style={{ padding: 0 }}>
+            <div className="pos-method-block">
+              <p className="pos-method-label">Forma de pagamento</p>
+              <div className="pos-methods">
+                {PAYMENT_METHODS.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setPayMethod(m)}
+                    className={`pos-method-btn${payMethod === m ? ' selected' : ''}`}
+                  >
+                    {PAYMENT_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pos-amount-block">
+              <div className="pos-amount-row">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddPayment()}
+                  placeholder="0,00"
+                  className="pos-amount-input"
+                />
+                <button onClick={handleAddPayment} disabled={!payAmount || loading} className="pos-ok-btn">
+                  OK
                 </button>
-              ))}
+              </div>
             </div>
-          </div>
 
-          {/* Amount */}
-          <div className="pos-amount-block">
-            <div className="pos-amount-row">
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={payAmount}
-                onChange={e => setPayAmount(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAddPayment()}
-                placeholder="0,00"
-                className="pos-amount-input"
-              />
-              <button onClick={handleAddPayment} disabled={!payAmount || loading} className="pos-ok-btn">
-                OK
+            {/* Payments list */}
+            <div className="pos-payments-list">
+              {(sale?.payments ?? []).length === 0 ? (
+                <p className="pos-payment-empty">Nenhum pagamento lançado</p>
+              ) : (
+                (sale?.payments ?? []).map(p => (
+                  <div key={p.id} className="pos-payment-item">
+                    <span className="pos-payment-method">{PAYMENT_LABELS[p.method] ?? p.method}</span>
+                    <div className="pos-payment-row-right">
+                      <span className="pos-payment-amount">{fmtBRL(p.amount)}</span>
+                      <button onClick={() => handleRemovePayment(p.id)} className="pos-remove-btn" title="Remover">×</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Finalize */}
+            <div className="pos-finalize-block">
+              <button
+                onClick={handleFinalize}
+                disabled={!canFinalize || loading}
+                className="pos-finalize-btn"
+              >
+                {loading ? 'Processando…' : 'F9  FINALIZAR'}
               </button>
             </div>
           </div>
-
-          {/* Payments list */}
-          <div className="pos-payments-list">
-            {(sale?.payments ?? []).length === 0 ? (
-              <p className="pos-payment-empty">Nenhum pagamento lançado</p>
-            ) : (
-              (sale?.payments ?? []).map(p => (
-                <div key={p.id} className="pos-payment-item">
-                  <span className="pos-payment-method">{PAYMENT_LABELS[p.method] ?? p.method}</span>
-                  <div className="pos-payment-row-right">
-                    <span className="pos-payment-amount">{fmtBRL(p.amount)}</span>
-                    <button onClick={() => handleRemovePayment(p.id)} className="pos-remove-btn" title="Remover">×</button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Finalize */}
-          <div className="pos-finalize-block">
-            <button
-              onClick={handleFinalize}
-              disabled={!canFinalize || loading}
-              className="pos-finalize-btn"
-            >
-              {loading ? 'Processando…' : 'F9  FINALIZAR'}
-            </button>
-          </div>
-        </aside>
+        </div>
       </div>
 
       {/* ── Cancel modal ── */}
       {showCancel && (
-        <div className="pos-modal-backdrop">
-          <div className="pos-modal">
-            <p className="pos-modal-title">Cancelar venda</p>
-            <p className="pos-modal-sub">Motivo do cancelamento (opcional):</p>
+        <div className="modal-backdrop">
+          <div className="modal-dialog" style={{ maxWidth: 420 }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Cancelar venda</h3>
+            <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>Motivo do cancelamento (opcional):</p>
             <input
               type="text"
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
               placeholder="Ex: Desistência do cliente"
-              className="pos-modal-input"
+              style={{ width: '100%', boxSizing: 'border-box', border: '1.5px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 14, marginBottom: 20, outline: 'none', fontFamily: 'var(--font)' }}
             />
-            <div className="pos-modal-footer">
-              <button onClick={() => setShowCancel(false)} className="pos-modal-cancel">Voltar</button>
-              <button onClick={handleCancel} disabled={loading} className="pos-modal-confirm">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setShowCancel(false)} className="btn btn-secondary">Voltar</button>
+              <button onClick={handleCancel} disabled={loading} className="btn btn-danger">
                 {loading ? 'Cancelando…' : 'Confirmar cancelamento'}
               </button>
             </div>
@@ -530,8 +540,8 @@ export function PosPage() {
 
       {/* ── Finalize modal ── */}
       {showModal && sale && (
-        <div className="pos-modal-backdrop">
-          <div className="pos-modal">
+        <div className="modal-backdrop">
+          <div className="modal-dialog" style={{ maxWidth: 420 }}>
 
             {sale.fiscal_status === 'processando' && (
               <div className="pos-modal-spinner">
@@ -541,7 +551,7 @@ export function PosPage() {
             )}
 
             {sale.fiscal_status === 'autorizado' && (
-              <div className="pos-modal-success">
+              <div style={{ textAlign: 'center' }}>
                 <p className="pos-modal-success-title">✓ NFC-e Autorizada</p>
                 {sale.fiscal_qrcode && (
                   <img src={sale.fiscal_qrcode} alt="QR Code NFC-e" className="pos-modal-qr" />
@@ -558,7 +568,7 @@ export function PosPage() {
             )}
 
             {sale.fiscal_status === 'pendente' && (
-              <div className="pos-modal-pending">
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
                 <p className="pos-modal-pending-title">Venda Finalizada</p>
                 <p className="pos-modal-pending-sub">NFC-e não configurada · modo offline</p>
               </div>
@@ -576,13 +586,13 @@ export function PosPage() {
               </div>
             )}
 
-            <hr className="pos-modal-divider" />
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '20px 0 16px' }} />
             <button onClick={handleNewSale} className="pos-modal-new-btn">
               Nova venda (F2)
             </button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
