@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db, invoices, invoiceItems, receivables } from '../db';
+import { applyEntry } from '../services/costCenterStock';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -180,10 +181,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── POST /v1/invoices/:id/cancel ───────────────────────────────────── */
   fastify.post('/invoices/:id/cancel', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [invoice] = await db.select({ id: invoices.id, order_id: invoices.order_id, status: invoices.status })
-      .from(invoices).where(eq(invoices.id, id));
-    if (!invoice)                      return reply.notFound('Nota fiscal não encontrada');
+    const [invoice] = await db.select({
+      id:             invoices.id,
+      order_id:       invoices.order_id,
+      status:         invoices.status,
+      nfe_status:     invoices.nfe_status,
+      cost_center_id: invoices.cost_center_id,
+      tenant_id:      invoices.tenant_id,
+    }).from(invoices).where(eq(invoices.id, id));
+    if (!invoice)                       return reply.notFound('Nota fiscal não encontrada');
     if (invoice.status === 'cancelled') return reply.badRequest('Nota já cancelada');
+
+    const wasAuthorized = invoice.nfe_status === 'authorized';
 
     await db.transaction(async (tx) => {
       await tx.update(invoices).set({ status: 'cancelled' }).where(eq(invoices.id, id));
@@ -198,6 +207,34 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         `);
       }
     });
+
+    // ── Stock IN estorno (fire-and-forget, idempotent) ───────────────────────
+    if (wasAuthorized && invoice.cost_center_id && invoice.tenant_id) {
+      try {
+        const { rows: items } = await db.execute<{
+          material_id: string | null;
+          quantity: string;
+          unit_price: string;
+        }>(sql`SELECT material_id, quantity, unit_price FROM invoice_items WHERE invoice_id = ${id}`);
+
+        for (const item of items) {
+          if (!item.material_id) continue;
+          await applyEntry({
+            tenantId:     invoice.tenant_id,
+            costCenterId: invoice.cost_center_id,
+            materialId:   item.material_id,
+            quantity:     Number(item.quantity),
+            unitCost:     Number(item.unit_price),
+            source:       'adjustment',
+            sourceId:     `cancel:${id}:${item.material_id}`,
+            note:         `Estorno cancelamento NF-e ${id}`,
+          }, db);
+        }
+      } catch (stockErr) {
+        console.error(JSON.stringify({ event: 'stock_estorno_error', invoice_id: id, error: String(stockErr) }));
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     return { ok: true, status: 'cancelled' };
   });
