@@ -282,31 +282,24 @@ export function Layout({ children }: { children: ReactNode }) {
           {/* Grupo PDV colapsável */}
           <button
             onClick={() => setPdvOpen(o => !o)}
-            className={location.pathname.startsWith('/pos') ? 'active' : ''}
-            style={{ width: '100%', display: 'flex', alignItems: 'center',
-                     justifyContent: 'space-between', background: 'none',
-                     border: 'none', cursor: 'pointer', padding: 0 }}
+            className={`nav-group${location.pathname.startsWith('/pos') ? ' active' : ''}`}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="nav-icon"><IcoPDV /></span>
-              <span>PDV</span>
-            </span>
+            <span className="nav-icon"><IcoPDV /></span>
+            <span style={{ flex: 1, textAlign: 'left' }}>PDV</span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
                  style={{ transform: pdvOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 180ms ease', opacity: 0.6 }}>
+                          transition: 'transform 180ms ease', opacity: 0.5, flexShrink: 0 }}>
               <path d="M2 4l4 4 4-4"/>
             </svg>
           </button>
 
           {pdvOpen && (
-            <div style={{ marginLeft: 16, borderLeft: '1.5px solid rgba(255,255,255,.1)',
-                          paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div className="nav-sub">
               {PDV_ITEMS.map(item => (
                 <NavLink key={item.to} to={item.to} end={item.end}
                          onClick={closeMenu}
-                         className={({ isActive }) => isActive ? 'active' : ''}
-                         style={{ fontSize: 13 }}>
+                         className={({ isActive }) => isActive ? 'active' : ''}>
                   {item.label}
                 </NavLink>
               ))}
