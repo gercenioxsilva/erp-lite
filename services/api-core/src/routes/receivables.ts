@@ -27,7 +27,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
     const [{ rows }, { rows: [cnt] }] = await Promise.all([
       db.execute<any>(sql`
         SELECT r.id, r.description, r.amount, r.paid_amount, r.due_date, r.status,
-               r.invoice_id, r.notes, r.created_at,
+               r.invoice_id, r.notes, r.created_at, r.cost_center_id,
                COALESCE(c.company_name, c.full_name) AS client_name, c.id AS client_id
         FROM receivables r
         LEFT JOIN clients c ON c.id = r.client_id
@@ -52,7 +52,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/receivables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
-    const { client_id, invoice_id, description, amount, due_date, notes } = request.body as any;
+    const { client_id, invoice_id, description, amount, due_date, notes, cost_center_id } = request.body as any;
 
     if (!description || typeof description !== 'string' || !description.trim())
       return reply.badRequest('description é obrigatório');
@@ -68,9 +68,10 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
       description: description.trim(),
       amount:      String(Number(amount).toFixed(2)),
       due_date,
-      status:      'pending',
-      notes:       notes || null,
-      created_by:  userId,
+      status:         'pending',
+      notes:          notes || null,
+      cost_center_id: cost_center_id || null,
+      created_by:     userId,
     }).returning();
 
     return reply.code(201).send(row);
@@ -116,7 +117,8 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.amount      !== undefined) patch.amount      = String(Number(body.amount).toFixed(2));
     if (body.due_date    !== undefined) patch.due_date    = body.due_date;
     if (body.notes       !== undefined) patch.notes       = body.notes;
-    if (body.client_id   !== undefined) patch.client_id   = body.client_id || null;
+    if (body.client_id      !== undefined) patch.client_id      = body.client_id || null;
+    if (body.cost_center_id !== undefined) patch.cost_center_id = body.cost_center_id || null;
 
     if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
 

@@ -44,7 +44,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT i.id, i.number, i.serie, i.status, i.issue_date,
                i.subtotal, i.total, i.notes, i.order_id, i.created_at,
-               i.nfe_status, i.nfe_chave, i.nfe_reject_reason,
+               i.nfe_status, i.nfe_chave, i.nfe_reject_reason, i.cost_center_id,
                COALESCE(c.company_name, c.full_name) AS client_name,
                o.number AS order_number
         FROM invoices i
@@ -68,7 +68,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/invoices', async (request, reply) => {
     const body = request.body as any;
     const { tenant_id, client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP' } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id } = body;
     if (!tenant_id || !client_id) return reply.badRequest('tenant_id and client_id are required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
@@ -89,6 +89,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         status: 'draft',
         tax_regime, origin_state,
         icms_total: String(icmsTotal), pis_total: String(pisTotal), cofins_total: String(cofinsTotal),
+        cost_center_id: cost_center_id || null,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
       for (const it of items as InvoiceItemPayload[]) {
