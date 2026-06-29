@@ -1,8 +1,9 @@
-import { ReactNode, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { ReactNode, useState, useEffect } from 'react';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
 import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
+import { api }      from '../lib/api';
 
 function IcoDashboard() {
   return (
@@ -119,6 +120,14 @@ function IcoReports() {
     </svg>
   );
 }
+function IcoBilling() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="14" height="11" rx="2"/>
+      <path d="M2 8h14M6 12h2M10 12h2"/>
+    </svg>
+  );
+}
 
 function IcoMenu() {
   return (
@@ -146,13 +155,48 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/nfse':        IcoNfse,
   '/proposals':   IcoProposals,
   '/reports':     IcoReports,
+  '/billing':     IcoBilling,
 };
+
+function TrialBanner({ daysLeft }: { daysLeft: number }) {
+  const { t } = useI18n();
+  return (
+    <div style={{
+      background: daysLeft <= 3 ? '#fef2f2' : '#fffbeb',
+      borderBottom: `1px solid ${daysLeft <= 3 ? '#fca5a5' : '#fcd34d'}`,
+      padding: '8px 20px',
+      fontSize: 13,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      flexWrap: 'wrap',
+    }}>
+      <span style={{ color: daysLeft <= 3 ? '#dc2626' : '#b45309', fontWeight: 500 }}>
+        {t('billing.trialBanner').replace('{n}', String(daysLeft))}
+      </span>
+      <Link to="/billing" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: 13 }}>
+        {t('billing.choosePlan')} →
+      </Link>
+    </div>
+  );
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    api.get<{ status: string; days_left: number | null; stripe_enabled: boolean }>('/v1/subscription')
+      .then(data => {
+        if (data.stripe_enabled && data.status === 'trial' && data.days_left !== null) {
+          setTrialDaysLeft(data.days_left);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function closeMenu() {
     setIsMenuOpen(false);
@@ -173,6 +217,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/contracts',   label: t('nav.contracts')   },
     { to: '/nfse',        label: t('nav.nfse')        },
     { to: '/reports',     label: t('nav.reports')     },
+    { to: '/billing',     label: t('nav.billing')     },
     { to: '/users',       label: t('nav.users')       },
     { to: '/company',     label: t('nav.company')     },
   ];
@@ -242,6 +287,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
           <GaxLogo size="sm" variant="full" theme="light" />
         </div>
+        {trialDaysLeft !== null && <TrialBanner daysLeft={trialDaysLeft} />}
         <div className="page-content">{children}</div>
       </div>
     </div>
