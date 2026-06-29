@@ -2,7 +2,8 @@
 
 > **Este README é o prompt principal para geração de código por IA.**
 > Antes de implementar qualquer funcionalidade, leia este arquivo na íntegra.
-> Ele define a fonte da verdade sobre schema, rotas, componentes e convenções.
+> Ele define a fonte da verdade sobre schema, rotas, componentes e convenções
+> — tanto para o backoffice **web** quanto para o **app mobile Flutter**.
 
 ---
 
@@ -10,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -42,6 +43,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET /v1/dashboard` · `GET /v1/dashboard/cashflow` — KPIs + fluxo de caixa projetado (próximas 12 semanas)
    - `GET /v1/reports/overdue` — contas a receber vencidas com nome do cliente
    - `GET /v1/reports/top-products?days=30` — ranking de produtos por faturamento
+   - `GET /v1/cost-centers` · `POST /v1/cost-centers` · `GET /v1/cost-centers/active`
+   - `GET /v1/cost-centers/:id` · `PATCH /v1/cost-centers/:id` · `DELETE /v1/cost-centers/:id`
+   - `GET /v1/cost-centers/:id/stock` · `GET /v1/cost-centers/:id/movements`
+   - `POST /v1/cost-centers/:id/entries` · `POST /v1/cost-centers/:id/adjustments`
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -64,51 +69,43 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em todas as rotas de listagem. Valores maiores são silenciosamente truncados para 100.
 
-13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor — isso evita adicionar dependência de parser Excel no backend Fastify. O endpoint de importação usa `ON CONFLICT DO NOTHING RETURNING id` para detectar duplicatas sem lançar exceção.
+13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor.
 
-14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. Ele é puro (sem I/O). O endpoint `POST /v1/tax/calculate` delega para ele. O frontend chama esse endpoint e armazena os valores calculados nos campos `icms_*`, `pis_*`, `cofins_*` dos itens antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro" (embutidos no preço — não aumentam o total). IPI é "por fora" (adicionado ao total). O total da NF-e = subtotal + ipi_total.
+14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. O frontend chama `POST /v1/tax/calculate` e armazena os valores calculados antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro". IPI é "por fora". Total NF-e = subtotal + ipi_total.
 
-15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um OCI manifest index (manifest list) que o AWS Lambda rejeita com `InvalidParameterValueException: image manifest ... not supported`. Lambda exige Docker Image Manifest V2 Schema 2 single-platform. A api-core (ECS) não precisa dessas flags — apenas as Lambdas.
+15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um manifest list que o AWS Lambda rejeita. Lambda exige Docker Image Manifest V2 Schema 2 single-platform.
 
-16. **Nunca definir variáveis reservadas do Lambda runtime em `environment.variables` do Terraform.** O runtime do Lambda injeta automaticamente: `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_LAMBDA_FUNCTION_NAME`, `AWS_LAMBDA_FUNCTION_VERSION`, `AWS_LAMBDA_FUNCTION_MEMORY_SIZE`, `LAMBDA_TASK_ROOT`, `LAMBDA_RUNTIME_DIR`. Tentar definir qualquer uma delas resulta em `InvalidParameterValueException: environment variables contains reserved keys`. O código acessa `process.env.AWS_REGION` normalmente — o valor já está disponível em runtime sem configuração manual.
+16. **Nunca definir variáveis reservadas do Lambda runtime em `environment.variables` do Terraform.** O runtime injeta automaticamente: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, e outras variáveis `AWS_LAMBDA_*`. Tentar definir qualquer uma resulta em `InvalidParameterValueException`.
 
-17. **O arquivo `GaxLogo.tsx` é o logo Orquestra ERP.** O arquivo mantém o nome antigo para não quebrar imports. O componente renderiza a identidade visual Orquestra ERP: arco 270° com gradiente `#3B5CE4→#00B4D8`, nó central, dois braços com pontos, wordmark "Orquestra" + subtítulo "ERP". **Não recriar nem renomear o arquivo.** Tamanhos: `sm=28`, `md=36`, `lg=48`, `xl=64`, `xxl=88` (px de altura). Na LoginPage: hero usa `size="xxl"`, formulário usa `size="xl"`.
+17. **O arquivo `GaxLogo.tsx` é o logo Orquestra ERP.** O componente renderiza arco 270° com gradiente `#3B5CE4→#00B4D8`, nó central, dois braços com pontos, wordmark "Orquestra" + subtítulo "ERP". **Não recriar nem renomear o arquivo.** Tamanhos: `sm=28`, `md=36`, `lg=48`, `xl=64`, `xxl=88` (px de altura).
 
-18. **Domínio público: `orquestraerp.com.br`.** Route 53 hosted zone provisionada (`terraform/dns.tf`). Aliases CloudFront e certificado ACM (us-east-1) ativados. A URL pública de produção é `https://orquestraerp.com.br`. Nunca usar o domínio `*.cloudfront.net` como URL pública para o usuário final.
+18. **Domínio público: `orquestraerp.com.br`.** A URL pública de produção é `https://orquestraerp.com.br`. Nunca usar o domínio `*.cloudfront.net` como URL pública para o usuário final.
 
-19. **Variáveis CSS foram atualizadas para o tema Orquestra ERP.** Paleta atual em `apps/backoffice/src/index.css`: `--primary: #3B5CE4` (azul Orquestra), `--primary-h: #2945C8`, `--accent: #00B4D8` (ciano). Nunca usar cores da identidade anterior (ex: `--primary: #2563eb`). Todas as classes CSS existentes continuam válidas — apenas os valores das variáveis mudaram.
+19. **Variáveis CSS foram atualizadas para o tema Orquestra ERP.** Paleta atual em `apps/backoffice/src/index.css`: `--primary: #3B5CE4` (azul Orquestra), `--primary-h: #2945C8`, `--accent: #00B4D8` (ciano). Nunca usar cores da identidade anterior.
 
-20. **PostgreSQL `ALTER TABLE` multi-coluna: nunca usar parênteses.** A sintaxe `ADD COLUMN (col1 type, col2 type)` é MySQL — o PostgreSQL a rejeita com `syntax error at "("` (código `42601`). A forma correta é uma cláusula `ADD COLUMN` por coluna separada por vírgula, sem parênteses englobante:
-    ```sql
-    -- ✅ PostgreSQL correto
-    ALTER TABLE minha_tabela
-      ADD COLUMN coluna1 VARCHAR(10),
-      ADD COLUMN coluna2 TEXT,
-      ADD COLUMN coluna3 INT NOT NULL DEFAULT 0;
-    ```
+20. **PostgreSQL `ALTER TABLE` multi-coluna: nunca usar parênteses.** A sintaxe `ADD COLUMN (col1, col2)` é MySQL — o PostgreSQL rejeita com `syntax error at "("`. A forma correta é uma cláusula `ADD COLUMN` por coluna, separadas por vírgula, sem parênteses englobante.
 
-21. **SSL do Pool pg: nunca usar `ssl: false` quando PGSSLMODE=require está no ambiente.** O `pg` v8 trata `ssl: false` explícito como override absoluto — ignora `PGSSLMODE`. O ECS define `NODE_ENV=prod` (não `"production"`), então qualquer check `=== 'production'` falha silenciosamente. A forma correta é derivar o ssl da variável `PGSSLMODE` diretamente:
-    ```typescript
-    ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
-    ```
+21. **SSL do Pool pg: nunca usar `ssl: false` quando PGSSLMODE=require está no ambiente.** A forma correta: `ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false`.
 
-22. **Formulários aninhados (`<form>` dentro de `<form>`) são inválidos em HTML.** O browser descarta a tag `<form>` interna — seus campos viram filhos do form externo e o submit button aciona o handler errado. Sempre usar `<div>` para o container interno e `type="button" onClick={handler}` no botão de submit interno.
+22. **Formulários aninhados (`<form>` dentro de `<form>`) são inválidos em HTML.** Sempre usar `<div>` para o container interno e `type="button" onClick={handler}` no botão de submit interno.
 
-23. **Notificações de sistema vs. notificações de tenant.** Existem dois helpers em `services/api-core/src/lib/notificationsClient.ts`:
-    - `sendNotificationIfEnabled(payload)` — verifica `notification_configs` do tenant. Usar para eventos de negócio (NF-e, pedido, boleto).
-    - `sendSystemNotification(payload)` — envia direto para a fila SQS sem verificar config. Usar para e-mails sistêmicos (boas-vindas, reset de senha, propostas). Tipos disponíveis: `user_welcome`, `password_reset`, `receivable_due_soon`, `proposal_sent`, `proposal_accepted`, `proposal_rejected`. O envio é fire-and-forget; nunca deve bloquear a resposta da API. Quando `NOTIFICATIONS_QUEUE_URL` não está definida, loga `console.warn` e retorna sem enviar. Sempre passar `from_name` explicitamente para e-mails de proposta.
+23. **Notificações de sistema vs. notificações de tenant.** Dois helpers em `services/api-core/src/lib/notificationsClient.ts`: `sendNotificationIfEnabled(payload)` verifica `notification_configs` do tenant (eventos de negócio). `sendSystemNotification(payload)` envia direto sem verificar config (e-mails sistêmicos). Tipos: `user_welcome`, `password_reset`, `receivable_due_soon`, `proposal_sent`, `proposal_accepted`, `proposal_rejected`. Fire-and-forget; nunca bloqueia a resposta da API.
 
-24. **NFS-e vs NF-e: nunca misturar os dois tipos.** NFS-e usa o endpoint Focus `/v2/nfse`, imposto ISS municipal, e requer `inscricao_municipal` + `codigo_servico` (LC 116). NF-e usa `/v2/nfe`, ICMS federal/estadual, e requer NCM/CFOP. Ambos compartilham a mesma fila SQS `nfe-requests` e a mesma Lambda `lambda-fiscal`, discriminados por `type: 'nfse'` na mensagem. Nunca enviar campos de NF-e em uma emissão de NFS-e nem vice-versa.
+24. **NFS-e vs NF-e: nunca misturar os dois tipos.** NFS-e usa `/v2/nfse`, imposto ISS, requer `inscricao_municipal` + `codigo_servico`. NF-e usa `/v2/nfe`, ICMS federal/estadual, requer NCM/CFOP. Ambos usam a mesma fila SQS e a mesma Lambda, discriminados por `type: 'nfse'`.
 
-25. **CEP automático via ViaCEP — nunca criar endpoint backend para isso.** A função `fetchAddressByCEP(cep)` já existe em `apps/backoffice/src/lib/brazil.ts`. Ela chama `https://viacep.com.br/ws/{cep}/json/` diretamente do browser. Nunca criar uma rota `/v1/cep/:cep` no backend.
+25. **CEP automático via ViaCEP — nunca criar endpoint backend para isso.** A função `fetchAddressByCEP(cep)` existe em `apps/backoffice/src/lib/brazil.ts`. Ela chama `https://viacep.com.br/ws/{cep}/json/` direto do browser.
 
-26. **Workers ECS in-process — nunca criar nova infra AWS para workers.** Workers de polling/agendamento rodam dentro do próprio container `api-core` no ECS, inicializados no hook `onReady` do Fastify. Padrão: `let running = false; while(running) { /* lógica */ await sleep(intervalMs); }`. Nunca criar nova Lambda, Fargate Task, EventBridge Rule, ou Step Function para lógica que pode rodar em-processo no ECS.
+26. **Workers ECS in-process — nunca criar nova infra AWS para workers.** Workers rodam dentro do container `api-core` no ECS, inicializados no hook `onReady` do Fastify.
 
-27. **Modal de feedback: nunca usar `modal.error()` para exibir sucesso.** O `ModalContext` tem três métodos: `confirm()` (pergunta), `error(err)` (erros com ícone vermelho), e `success(message, title?)` (confirmação com ícone verde). Usar sempre o método semanticamente correto.
+27. **Modal de feedback: nunca usar `modal.error()` para exibir sucesso.** O `ModalContext` tem três métodos: `confirm()`, `error(err)`, `success(message, title?)`.
 
-28. **lambda-notifications: sempre reimplantar ao adicionar tipos de notificação.** O código do `lambda-notifications` é um container ECR implantado como AWS Lambda. Ao adicionar um novo tipo de notificação, o repositório de container ECR precisa ser reconstruído e o Lambda atualizado com a nova imagem. Sem isso, a mensagem SQS falha e vai ao DLQ.
+28. **lambda-notifications: sempre reimplantar ao adicionar tipos de notificação.** O código é um container ECR. Sem rebuild + redeploy, a mensagem SQS vai ao DLQ.
 
-29. **Focus NF-e: `caminho_danfe` retorna path relativo, não URL absoluta.** A função `toAbsoluteUrl` em `services/lambda-fiscal/src/services/nfeService.ts` e `toDanfeAbsoluteUrl` em `InvoicesPage.tsx` convertem o path relativo para URL absoluta usando `https://api.focusnfe.com.br` (prod) ou `https://homologacao.focusnfe.com.br` (homolog). Nunca exibir ou salvar o path relativo sem conversão.
+29. **Focus NF-e: `caminho_danfe` retorna path relativo, não URL absoluta.** Usar `toDanfeAbsoluteUrl` em `InvoicesPage.tsx` para converter. Nunca exibir o path relativo.
+
+30. **Centro de Custo: motor de estoque é server-authoritative.** O serviço `costCenterStock.ts` é a única fonte de verdade para saldo de materiais. Toda escrita usa `SELECT FOR UPDATE` dentro de `db.transaction()`. A chave de idempotência tem formato `${source}:${sourceId}:${materialId}` e é UNIQUE por `(tenant_id, idempotency_key)`. Custo médio ponderado usa `toFixed(4)`. Saldo negativo é bloqueado por padrão (HTTP 422) — override por `allow_negative = true` no centro de custo. O gatilho de saída (OUT) é ativado quando `nfe_status = 'authorized'` pelo `nfeResultsWorker`. O estorno é ativado no cancelamento de NF-e autorizada. Nunca chamar `applyEntry`/`applyExit`/`applyAdjustment` diretamente nas rotas — usar apenas via transação existente no serviço.
+
+31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
 
 ---
 
@@ -116,7 +113,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Usuário final (browser)                                        │
+│  Usuário final (browser / app mobile)                           │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ HTTPS
 ┌─────────────────────────▼───────────────────────────────────────┐
@@ -143,7 +140,6 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 ┌───────────────────────┐  ┌────────────────────────┐  ┌──────────────────────────┐
 │  Lambda: lambda-fiscal│  │ Lambda: lambda-billing │  │ Lambda: lambda-notifications│
 │  (ECR container)      │  │ (ECR container)        │  │ (ECR container)          │
-│                       │  │                        │  │                          │
 │  SQS trigger          │  │ SQS trigger            │  │ SQS trigger              │
 │  → Focus NF-e API     │  │ → Itaú API v2 OAuth2   │  │ → SESv2 (e-mail HTML)   │
 │  → SEFAZ              │  │ → Boleto + PIX          │  │ Templates: welcome,      │
@@ -151,8 +147,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 │  → SQS nfe-results    │  │ → SQS billing-results   │  │ proposta, vencimento     │
 └───────────────────────┘  └────────────────────────┘  └──────────────────────────┘
 
+┌─────────────────────────────────────────────────────────────────┐
+│  App Mobile Flutter  (apps/mobile)                              │
+│  Android & iOS — mesma API REST /v1/* — JWT Bearer              │
+└─────────────────────────────────────────────────────────────────┘
+
 Infraestrutura (Terraform):
-  Route 53 (dns.tf) → ACM us-east-1 → CloudFront → NLB → ECS
+  Route 53 → ACM us-east-1 → CloudFront → NLB → ECS
   ECR: api-core, lambda-fiscal, lambda-billing, lambda-notifications
   SQS: nfe-requests/results, billing-requests/results, notifications, notifications-dlq
   S3: static (SPA), nfe-xml (lifecycle 5 anos), billing-pdf (lifecycle 7 anos)
@@ -164,10 +165,11 @@ Infraestrutura (Terraform):
 
 | Camada | Tecnologia |
 |--------|-----------|
-| Frontend | React 18, TypeScript, React Router, SheetJS (XLSX), Vite |
+| Frontend Web | React 18, TypeScript, React Router v6, SheetJS (XLSX), Vite |
+| App Mobile | Flutter 3.x, Dart 3.x, Riverpod 2.x, Dio, GoRouter |
 | Backend API | Node 22, Fastify, Drizzle ORM, `@fastify/jwt`, `@fastify/sensible` |
 | Banco de dados | PostgreSQL 16 (RDS), Drizzle schema em `src/db/schema.ts` |
-| Lambdas | Node 22, Fastify DI, AWS SDK v3, ECR container images |
+| Lambdas | Node 22, AWS SDK v3, ECR container images |
 | Infra | Terraform, GitHub Actions CI/CD, ECS Fargate Spot |
 | Fiscal | Focus NF-e API (`api.focusnfe.com.br` / `homologacao.focusnfe.com.br`) |
 | E-mail | Amazon SES v2, SQS → lambda-notifications |
@@ -178,7 +180,6 @@ Infraestrutura (Terraform):
 ## Diagramas de Fluxo de Negócio
 
 > Os diagramas abaixo usam **Mermaid** e são renderizados automaticamente pelo GitHub.
-> Representam o C4 Model (Contexto e Container) e os principais fluxos de negócio.
 
 ---
 
@@ -188,25 +189,27 @@ Infraestrutura (Terraform):
 C4Context
     title C4 Level 1 — Contexto do Orquestra ERP
 
-    Person(user, "Usuário ERP", "Gestor, vendedor ou financeiro que opera o backoffice via browser")
+    Person(user, "Usuário ERP", "Gestor, vendedor ou financeiro — acessa via browser ou app mobile")
     Person_Ext(client, "Cliente Final", "Recebe proposta comercial por e-mail e acessa o portal público")
 
-    System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, financeiro, propostas, relatórios")
+    System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, financeiro, propostas, centros de custo, relatórios")
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal que abstrai SEFAZ (NF-e) e prefeituras (NFS-e)")
     System_Ext(sefaz, "SEFAZ / Prefeitura", "Autoridade fiscal federal/estadual/municipal")
     System_Ext(itau, "Itaú API v2", "Emissão de boleto bancário registrado e PIX via OAuth2")
-    System_Ext(ses, "Amazon SES v2", "Relay de e-mail transacional (boas-vindas, reset, proposta, vencimento)")
+    System_Ext(ses, "Amazon SES v2", "Relay de e-mail transacional")
     System_Ext(viacep, "ViaCEP", "Consulta de endereço por CEP — chamado direto do browser, sem backend")
+    System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications para o app mobile")
 
-    Rel(user, erp, "Opera via browser", "HTTPS")
+    Rel(user, erp, "Opera via browser ou app mobile", "HTTPS")
     Rel(client, erp, "Acessa portal /p/:token", "HTTPS (sem autenticação)")
     Rel(erp, focus, "Emite NF-e e NFS-e", "REST HTTPS")
     Rel(focus, sefaz, "Transmite e autoriza notas", "SOAP/REST HTTPS")
     Rel(erp, itau, "Emite boleto e PIX", "REST HTTPS OAuth2 client_credentials")
     Rel(erp, ses, "Envia e-mails transacionais", "AWS SDK SQS → Lambda → SES")
-    Rel(erp, client, "Notifica por e-mail (proposta, vencimento)", "SES")
-    Rel(user, viacep, "Consulta CEP no cadastro", "REST HTTPS (browser direto)")
+    Rel(erp, fcm, "Envia push notifications", "Firebase Admin SDK")
+    Rel(erp, client, "Notifica por e-mail", "SES")
+    Rel(user, viacep, "Consulta CEP (browser direto)", "REST HTTPS")
 ```
 
 ---
@@ -217,42 +220,44 @@ C4Context
 C4Container
     title C4 Level 2 — Containers do Orquestra ERP
 
-    Person(user, "Usuário ERP", "Opera o backoffice")
+    Person(user, "Usuário ERP", "Opera o backoffice ou o app mobile")
     Person_Ext(client, "Cliente Final", "Acessa portal de propostas")
 
     Container_Boundary(aws, "AWS Cloud") {
         Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA e assets. Roteia /v1/* para NLB. Certificado ACM us-east-1")
-        Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo (auth, pedidos, NF-e, financeiro, relatórios) + portal público /p/:token")
+        Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo + portal público /p/:token")
+        Container(mobile, "App Mobile", "Flutter 3.x · Dart 3.x", "Android & iOS — consome API /v1/*. JWT Bearer. Push via FCM")
         Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, recurringPayables, dueSoon")
         ContainerDb(db, "RDS PostgreSQL 16", "PostgreSQL · SSL obrigatório", "Todos os dados isolados por tenant_id. Migrations em db/migrations/")
         ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests · nfe-results · billing-requests · billing-results · notifications · notifications-dlq")
         ContainerDb(s3data, "S3 Data Buckets", "Amazon S3", "nfe-xml (lifecycle 5 anos) · billing-pdf (lifecycle 7 anos)")
-        Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e e NFS-e via Focus. Discrimina por {type:'nfse'}. Salva XML no S3. Converte caminho_danfe para URL absoluta")
-        Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/PIX via Itaú OAuth2 client_credentials. Salva PDF no S3")
-        Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML por tipo e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
+        Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e e NFS-e via Focus. Discrimina por {type:'nfse'}. Salva XML no S3")
+        Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/PIX via Itaú OAuth2. Salva PDF no S3")
+        Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
     }
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal")
     System_Ext(itau, "Itaú API v2", "Boleto + PIX")
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail")
+    System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications")
 
-    Rel(user, cdn, "Acessa", "HTTPS")
+    Rel(user, cdn, "Acessa via browser", "HTTPS")
+    Rel(user, mobile, "Acessa via app", "iOS / Android")
     Rel(client, cdn, "Acessa /p/:token", "HTTPS")
     Rel(cdn, spa, "Serve SPA", "S3 origin")
     Rel(cdn, api, "Proxia /v1/*", "HTTPS → NLB → ECS")
     Rel(spa, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
+    Rel(mobile, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
     Rel(api, db, "Lê e escreve dados", "Drizzle ORM · SSL TCP 5432")
-    Rel(api, sqs, "Publica mensagens (fire-and-forget)", "AWS SDK v3")
-    Rel(api, sqs, "Consome resultados (long-poll)", "AWS SDK v3 · nfeResultsWorker · boletoResultsWorker")
+    Rel(api, sqs, "Publica + consome mensagens", "AWS SDK v3")
+    Rel(api, fcm, "Push notifications", "Firebase Admin SDK")
     Rel(sqs, lfiscal, "Trigger nfe-requests", "SQS Event Source Mapping")
     Rel(sqs, lbilling, "Trigger billing-requests", "SQS Event Source Mapping")
     Rel(sqs, lnotif, "Trigger notifications", "SQS Event Source Mapping")
     Rel(lfiscal, focus, "POST /v2/nfe ou /v2/nfse", "REST HTTPS")
-    Rel(lfiscal, s3data, "Salva XML da nota", "AWS SDK PutObject")
-    Rel(lfiscal, sqs, "Publica resultado em nfe-results", "AWS SDK v3")
+    Rel(lfiscal, s3data, "Salva XML", "AWS SDK PutObject")
     Rel(lbilling, itau, "OAuth2 token + POST /boletos", "REST HTTPS")
-    Rel(lbilling, s3data, "Salva PDF do boleto", "AWS SDK PutObject")
-    Rel(lbilling, sqs, "Publica resultado em billing-results", "AWS SDK v3")
+    Rel(lbilling, s3data, "Salva PDF", "AWS SDK PutObject")
     Rel(lnotif, ses, "SendEmail com template HTML", "AWS SDK v3")
 ```
 
@@ -293,15 +298,10 @@ sequenceDiagram
     Note over A: nfeResultsWorker (long-poll SQS, in-process ECS)
     R-->>A: Mensagem de resultado
     A->>A: UPDATE invoices SET status='authorized', chave_nfe=..., url_danfe=...
-    A->>A: sendNotificationIfEnabled(nfe_authorized) → SQS notifications
+    A->>A: Se invoice.cost_center_id → applyExit por item (OUT de estoque)
+    A->>A: sendNotificationIfEnabled(nfe_authorized)
 
-    U->>F: Consulta status / abre DANFE
-    F->>A: GET /v1/invoices/:id/nfe-status
-    A-->>F: {status, chave_nfe, url_danfe}
-    F-->>U: Link para PDF DANFE (URL absoluta Focus)
-
-    Note over A,R: Status machine invoice
-    Note over A,R: draft → queued → processing → authorized
+    Note over A,R: Status machine: draft → queued → processing → authorized
     Note over A,R: Em caso de erro: status='rejected', motivo em nfe_events (append-only)
 ```
 
@@ -340,13 +340,9 @@ sequenceDiagram
     Q-->>A: Mensagem de resultado
     A->>A: UPDATE nfse_invoices SET status='authorized', numero_nfse=...
 
-    F->>A: GET /v1/nfse/:id
-    A-->>F: {status, numero_nfse, link_nfse}
-
     Note over L,FX: NFS-e vs NF-e — nunca misturar (regra 24)
     Note over L,FX: Endpoint Focus: /v2/nfse (não /v2/nfe)
     Note over L,FX: Imposto: ISS municipal (não ICMS/IPI/PIS/COFINS)
-    Note over L,FX: Tabelas separadas: nfse_invoices, nfse_events
 ```
 
 ---
@@ -385,6 +381,48 @@ stateDiagram-v2
 
 ---
 
+### Centro de Custo — Ledger de Materiais
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend
+    participant A as api-core
+    participant CS as costCenterStock.ts
+    participant DB as PostgreSQL
+
+    Note over CS,DB: Entrada manual de material
+    U->>F: POST /v1/cost-centers/:id/entries {material_id, quantity, unit_cost}
+    F->>A: requisição autenticada (JWT)
+    A->>CS: applyEntry({source:'manual_entry', materialId, qty, unitCost, ...})
+    CS->>DB: BEGIN TRANSACTION
+    CS->>DB: SELECT FOR UPDATE → cost_center_stock row (previne race condition)
+    CS->>DB: avg = (old_qty*old_avg + qty*unit_cost) / (old_qty+qty) → toFixed(4)
+    CS->>DB: INSERT cost_center_movements (idempotency_key UNIQUE — catch 23505)
+    CS->>DB: UPSERT cost_center_stock (quantity+, avg_unit_cost)
+    CS->>DB: COMMIT
+    A-->>F: 201 {movement, stock}
+
+    Note over CS,DB: Saída automática (NF-e autorizada com cost_center_id)
+    A->>A: nfeResultsWorker detecta nfe_status='authorized'
+    A->>CS: applyExit per item se invoice.cost_center_id != null
+    CS->>DB: SELECT FOR UPDATE + verificar saldo
+    CS->>DB: HTTP 422 DomainError se qty < 0 e allow_negative=false
+    CS->>DB: INSERT movement + UPDATE stock (quantity-) + COMMIT
+
+    Note over CS,DB: Estorno (cancelamento de NF-e autorizada)
+    A->>CS: applyEntry({source:'adjustment', sourceId:'cancel:invoiceId'})
+    CS->>DB: Reverte as saídas — chave 'adjustment:cancel:id:materialId' é única
+
+    Note over CS,DB: Ajuste manual
+    A->>CS: applyAdjustment({costCenterId, materialId, newQty, ...})
+    CS->>DB: BEGIN TRANSACTION + SELECT FOR UPDATE (lê saldo DENTRO da tx)
+    CS->>DB: delta>0 → applyEntry, delta<0 → applyExit, delta=0 → {skipped:true}
+    CS->>DB: COMMIT
+```
+
+---
+
 ### Emissão de Boleto / PIX (Itaú API v2)
 
 ```mermaid
@@ -416,16 +454,6 @@ sequenceDiagram
     A->>A: INSERT boletos (nosso_numero, linha_digitavel, url_pdf)
     A->>A: UPDATE receivables SET boleto_id=...
     A->>A: sendNotificationIfEnabled(boleto_registered) → e-mail cliente
-
-    U->>F: Consulta recebível
-    F->>A: GET /v1/receivables/:id
-    A-->>F: {boleto_url, linha_digitavel, nosso_numero}
-    F-->>U: Exibe boleto para envio / download PDF
-
-    Note over F,A: Cancelamento de boleto
-    F->>A: POST /v1/receivables/:id/expire-boleto
-    A->>Q: sendMessage (cancelamento)
-    Q-->>L: Trigger → Itaú API baixa boleto registrado
 ```
 
 ---
@@ -444,7 +472,6 @@ sequenceDiagram
     V->>A: POST /v1/proposals {itens, validade, cliente}
     A-->>V: 201 {id, token: "64-hex-chars", status: "draft"}
 
-    V->>A: PATCH /v1/proposals/:id (ajusta valores / itens)
     V->>A: POST /v1/proposals/:id/send
     A->>Q: sendSystemNotification(proposal_sent, from_name, link /p/:token)
     A-->>V: 200 {status: "sent"}
@@ -456,28 +483,21 @@ sequenceDiagram
     C->>A: GET /v1/public/proposals/:token (sem JWT)
     A-->>C: {proposta, itens, validade, empresa}
     Note over C: Portal /p/:token — React SPA rota pública
-    Note over C: Botão "Imprimir / Salvar PDF" via window.print()
 
-    alt Cliente aceita a proposta
+    alt Cliente aceita
         C->>A: POST /v1/public/proposals/:token/accept
         A->>A: UPDATE proposals SET status='accepted'
         A->>Q: sendSystemNotification(proposal_accepted)
-        Q-->>L: Trigger → e-mail para vendedor
         V->>A: POST /v1/proposals/:id/convert
-        A->>A: INSERT orders + order_items (a partir dos itens da proposta)
+        A->>A: INSERT orders + order_items
         A-->>V: 201 {order_id}
     else Cliente rejeita
         C->>A: POST /v1/public/proposals/:token/reject {motivo?}
         A->>A: UPDATE proposals SET status='rejected'
         A->>Q: sendSystemNotification(proposal_rejected)
-        Q-->>L: Trigger → e-mail de notificação para vendedor
     end
 
-    Note over V,C: Status machine da proposta
-    Note over V,C: draft → sent → viewed → accepted → (convert → order)
-    Note over V,C:                        └→ rejected
-    Note over V,C:                        └→ expired (validade atingida)
-    Note over V,C:                        └→ cancelled (POST /cancel)
+    Note over V,C: Status machine: draft → sent → viewed → accepted | rejected | expired | cancelled
 ```
 
 ---
@@ -487,16 +507,14 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     subgraph Triggers["Gatilhos de Notificação"]
-        direction TB
-        T1["Evento de negócio\nnfe_authorized · boleto_registered\nnfe_rejected"]
-        T2["Evento sistêmico\nuser_welcome · password_reset\nproposal_sent · proposal_accepted\nproposal_rejected"]
+        T1["Evento de negócio\nnfe_authorized · boleto_registered · nfe_rejected"]
+        T2["Evento sistêmico\nuser_welcome · password_reset\nproposal_sent · proposal_accepted · proposal_rejected"]
         T3["dueSoonWorker\n(23h interval)\nrecebíveis vencendo em N dias"]
     end
 
     subgraph API["api-core (ECS)"]
-        direction TB
-        N1["sendNotificationIfEnabled()\n━━━━━━━━━━━━━━━━━\nVerifica notification_configs\ndo tenant antes de enviar\nUsar para eventos de negócio"]
-        N2["sendSystemNotification()\n━━━━━━━━━━━━━━━━━\nEnvia direto, sem verificar config\nUsar para e-mails sistêmicos\nfire-and-forget — não bloqueia API"]
+        N1["sendNotificationIfEnabled()\nVerifica notification_configs do tenant\nUsar para eventos de negócio"]
+        N2["sendSystemNotification()\nEnvia direto, sem verificar config\nFire-and-forget — não bloqueia API"]
     end
 
     subgraph Queue["Amazon SQS"]
@@ -505,7 +523,7 @@ flowchart TD
     end
 
     subgraph Lambda["lambda-notifications (ECR)"]
-        TMP["Seleciona template HTML\npor tipo de notificação\nRebuild ECR obrigatório\nao adicionar novo tipo"]
+        TMP["Seleciona template HTML por tipo\nRebuild ECR obrigatório\nao adicionar novo tipo"]
     end
 
     SES["Amazon SES v2"]
@@ -530,7 +548,7 @@ flowchart TD
 
 ---
 
-## Módulos do sistema
+## Módulos do sistema (Web — backoffice)
 
 | Módulo | Rota frontend | Tabelas principais |
 |--------|--------------|-------------------|
@@ -545,6 +563,7 @@ flowchart TD
 | Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events |
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
 | Contas a Receber | `/receivables` | receivables, receivable_payments, boletos |
+| Centro de Custo | `/cost-centers`, `/cost-centers/:id` | cost_centers, cost_center_stock, cost_center_movements |
 | Contas a Pagar | `/payables` | payables, payable_payments |
 | Contratos | `/contracts` | service_contracts, contract_billings |
 | Fornecedores | `/suppliers` | suppliers |
@@ -554,91 +573,357 @@ flowchart TD
 
 ---
 
+## 📱 App Mobile — Flutter (Android & iOS)
+
+> **Esta seção é o prompt principal para geração do app mobile.**
+> O app consome a **mesma API REST** (`/v1/*`) do backoffice web.
+> Toda autenticação usa JWT Bearer. Nenhuma rota nova é criada exclusivamente para o mobile
+> sem estar documentada na regra 2 acima.
+
+### Localização no monorepo
+
+```
+apps/
+  backoffice/          # React SPA (web)
+  mobile/              # Flutter app — Android & iOS
+    lib/
+    android/
+    ios/
+    pubspec.yaml
+```
+
+### Stack do App Mobile
+
+| Camada | Pacote | Versão mínima |
+|--------|--------|---------------|
+| UI framework | Flutter | 3.x (stable) |
+| Linguagem | Dart | 3.x |
+| State management | Riverpod | 2.x (`@riverpod` annotations) |
+| HTTP client | Dio | 5.x |
+| Navegação | GoRouter | 14.x |
+| Autenticação segura | flutter_secure_storage | 9.x |
+| Formulários | flutter_form_builder | 9.x |
+| PDF viewer / DANFE | url_launcher | 6.x (abre link Focus no browser) |
+| QR Code / Código de barras | mobile_scanner | 5.x |
+| Formatação (datas, moeda) | intl | 0.19.x |
+| Push notifications | firebase_messaging | 15.x |
+| Deep links | app_links | 6.x |
+| Compartilhamento | share_plus | 10.x |
+
+### Funcionalidades do App Mobile
+
+| Funcionalidade | Telas | Ações disponíveis |
+|---------------|-------|-------------------|
+| Login / Auth | Login, Esqueci a senha | Autenticar, redefinir senha, biometria opcional |
+| Dashboard | KPIs resumidos | Totais de a receber, a pagar, faturamento |
+| Clientes | Lista, Detalhe, Cadastro | Buscar, criar, editar, histórico 360° |
+| Materiais | Lista, Detalhe | Buscar, visualizar, escanear código de barras |
+| Pedidos | Lista, Detalhe, Criar | Criar, confirmar, entregar, cancelar |
+| Notas Fiscais | Lista, Detalhe | Status, abrir DANFE no browser, copiar chave |
+| Contas a Receber | Lista, Detalhe | Registrar pagamento, emitir boleto, visualizar linha digitável |
+| Contas a Pagar | Lista, Detalhe | Registrar pagamento, visualizar vencimentos |
+| Centro de Custo | Lista, Detalhe | Saldo por material, lançar entrada manual |
+| Propostas | Lista, Detalhe, Criar | Criar, enviar por e-mail, converter em pedido |
+| Fornecedores | Lista, Detalhe | Buscar, ver contas a pagar vinculadas |
+| Estoque | Visão geral, Alertas | Saldo atual, alertas de mínimo |
+
+### Regras para IA — App Mobile
+
+As regras abaixo são obrigatórias ao gerar código Flutter para este projeto:
+
+1. **Nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2 do Protocolo Anti-alucinação. Se uma funcionalidade exige uma rota nova, ela deve ser adicionada ao backend e listada na regra 2.
+
+2. **tenant_id sempre vem do JWT.** O app armazena o token JWT no `flutter_secure_storage` e injeta `Authorization: Bearer <token>` em todas as requisições via interceptor do Dio. Nunca passar `tenant_id` como query param ou body explícito.
+
+3. **Todos os valores monetários em BRL.** Usar `NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$')` do pacote `intl`. Nunca exibir valores sem formatação.
+
+4. **Todas as datas no padrão brasileiro.** Usar `DateFormat('dd/MM/yyyy', 'pt_BR')` do pacote `intl`. Datas com horário: `DateFormat('dd/MM/yyyy HH:mm', 'pt_BR')`.
+
+5. **Paleta de cores idêntica ao web.** `primaryColor = Color(0xFF3B5CE4)`, `accentColor = Color(0xFF00B4D8)`, `backgroundColor = Color(0xFFF9FAFB)`. O app deve ter identidade visual consistente com o backoffice.
+
+6. **Soft-delete: nunca deletar fisicamente.** As mesmas regras da tabela "Soft-delete por módulo" se aplicam — o app chama `PATCH` com `is_active: false` ou os endpoints de soft-delete documentados na regra 2.
+
+7. **Paginação: sempre enviar `page` e `per_page`.** Nunca carregar todos os registros de uma vez. Default: `per_page=20`. Implementar scroll infinito (`ListView.builder` + detector de fim de lista).
+
+8. **Erros da API: sempre exibir feedback visível.** Status 422 (DomainError) exibe a mensagem do campo `error`. Status 401 redireciona para o login e limpa o token. Status 5xx exibe "Erro interno — tente novamente".
+
+9. **Nunca definir Widgets dentro do método `build()`.** No Flutter, nunca fazer `Widget card = Container(...)` dentro de `build()`. Extrair sempre como método privado `Widget _buildCard()` ou como classe separada com `StatelessWidget`.
+
+10. **Estado de loading em toda requisição assíncrona.** Toda tela que faz fetch exibe `CircularProgressIndicator` durante o carregamento e trata os estados `loading`, `data` e `error` separadamente (usar `AsyncValue` do Riverpod).
+
+11. **DANFE e PDF de boleto: abrir no browser externo.** Usar `url_launcher` (`launchUrl`) para abrir URLs do Focus NF-e e URLs de PDF do Itaú. Nunca tentar renderizar PDF inline.
+
+12. **Deep link `/p/:token`: redirecionar para tela de proposta no app.** Configurar `app_links` para capturar `orquestraerp.com.br/p/:token` e navegar via GoRouter para `/proposals/public/:token`.
+
+13. **QR Code / código de barras: usar `mobile_scanner`.** Ao escanear em materiais, chamar `GET /v1/materials?search=<codigo>`. Ao escanear boleto, exibir linha digitável para cópia.
+
+14. **Status machines são as mesmas do web.** Orders: `draft → confirmed → delivered → invoiced`. Proposals: `draft → sent → viewed → accepted | rejected | expired | cancelled`. Invoices: `draft → queued → processing → authorized | rejected | cancelled`. Nunca inventar status novos.
+
+### Estrutura de Pastas do Projeto Flutter
+
+```
+apps/mobile/
+├── lib/
+│   ├── core/
+│   │   ├── api/
+│   │   │   ├── api_client.dart          # Dio + AuthInterceptor (inject JWT)
+│   │   │   ├── api_exception.dart       # DomainError, NetworkError, AuthError
+│   │   │   └── endpoints.dart           # Constantes de todas as rotas /v1/*
+│   │   ├── auth/
+│   │   │   ├── auth_repository.dart     # login, logout, me, forgot-password
+│   │   │   ├── auth_provider.dart       # @riverpod AuthState
+│   │   │   └── secure_storage.dart      # flutter_secure_storage wrapper
+│   │   ├── theme/
+│   │   │   ├── app_theme.dart           # ThemeData com paleta Orquestra ERP
+│   │   │   └── app_colors.dart          # primaryColor #3B5CE4, accent #00B4D8
+│   │   ├── i18n/
+│   │   │   └── strings_pt_br.dart       # Strings pt-BR (espelha chaves do web)
+│   │   ├── widgets/
+│   │   │   ├── app_scaffold.dart        # BottomNavigationBar + AppBar padrão
+│   │   │   ├── status_badge.dart        # StatusBadge(status: 'authorized')
+│   │   │   ├── currency_text.dart       # Exibe valor em R$
+│   │   │   ├── loading_overlay.dart     # Overlay durante fetch
+│   │   │   ├── error_card.dart          # Card de erro com ação de retry
+│   │   │   └── empty_state.dart         # Tela vazia com ícone + ação
+│   │   └── utils/
+│   │       ├── date_formatter.dart      # dd/MM/yyyy pt-BR
+│   │       └── currency_formatter.dart  # NumberFormat.currency pt-BR
+│   ├── features/
+│   │   ├── auth/
+│   │   │   ├── login_page.dart
+│   │   │   └── forgot_password_page.dart
+│   │   ├── dashboard/
+│   │   │   ├── dashboard_page.dart
+│   │   │   ├── dashboard_provider.dart
+│   │   │   └── kpi_card.dart
+│   │   ├── clients/
+│   │   │   ├── clients_list_page.dart
+│   │   │   ├── client_detail_page.dart
+│   │   │   ├── client_form_page.dart
+│   │   │   └── clients_provider.dart
+│   │   ├── materials/
+│   │   │   ├── materials_list_page.dart
+│   │   │   ├── material_detail_page.dart
+│   │   │   └── materials_provider.dart
+│   │   ├── orders/
+│   │   │   ├── orders_list_page.dart
+│   │   │   ├── order_detail_page.dart
+│   │   │   ├── order_create_page.dart
+│   │   │   └── orders_provider.dart
+│   │   ├── invoices/
+│   │   │   ├── invoices_list_page.dart
+│   │   │   ├── invoice_detail_page.dart
+│   │   │   └── invoices_provider.dart
+│   │   ├── receivables/
+│   │   │   ├── receivables_list_page.dart
+│   │   │   ├── receivable_detail_page.dart
+│   │   │   └── receivables_provider.dart
+│   │   ├── payables/
+│   │   │   ├── payables_list_page.dart
+│   │   │   ├── payable_detail_page.dart
+│   │   │   └── payables_provider.dart
+│   │   ├── cost_centers/
+│   │   │   ├── cost_centers_list_page.dart
+│   │   │   ├── cost_center_detail_page.dart
+│   │   │   ├── cost_center_stock_tab.dart
+│   │   │   ├── cost_center_movements_tab.dart
+│   │   │   ├── entry_bottom_sheet.dart
+│   │   │   └── cost_centers_provider.dart
+│   │   ├── proposals/
+│   │   │   ├── proposals_list_page.dart
+│   │   │   ├── proposal_detail_page.dart
+│   │   │   ├── proposal_create_page.dart
+│   │   │   └── proposals_provider.dart
+│   │   ├── suppliers/
+│   │   │   ├── suppliers_list_page.dart
+│   │   │   └── supplier_detail_page.dart
+│   │   └── stock/
+│   │       ├── stock_page.dart
+│   │       └── stock_provider.dart
+│   ├── router.dart                      # GoRouter — todas as rotas do app
+│   └── main.dart                        # ProviderScope + MaterialApp.router
+├── android/
+├── ios/
+└── pubspec.yaml
+```
+
+### Autenticação — Fluxo JWT no App
+
+```dart
+// core/api/api_client.dart — interceptor de autenticação
+class AuthInterceptor extends Interceptor {
+  final SecureStorage _storage;
+  AuthInterceptor(this._storage);
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    final token = await _storage.readToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode == 401) {
+      await _storage.deleteToken();
+      router.go('/login');   // GoRouter global
+    }
+    handler.next(err);
+  }
+}
+```
+
+### Padrão de Provider (Riverpod)
+
+```dart
+// features/clients/clients_provider.dart
+@riverpod
+class ClientsNotifier extends _$ClientsNotifier {
+  @override
+  Future<ClientsState> build() async => ClientsState.empty();
+
+  Future<void> load({String search = '', int page = 1}) async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() async {
+      final res = await ref.read(apiClientProvider)
+          .get('/v1/clients', queryParameters: {
+            'search': search, 'page': page, 'per_page': 20,
+          });
+      return ClientsState.fromJson(res.data);
+    });
+  }
+}
+```
+
+### Navegação — GoRouter
+
+```dart
+// router.dart
+final router = GoRouter(
+  initialLocation: '/login',
+  redirect: (context, state) {
+    final auth = ProviderScope.containerOf(context).read(authProvider);
+    final loggedIn = auth.valueOrNull?.token != null;
+    final onLogin = state.matchedLocation == '/login';
+    if (!loggedIn && !onLogin) return '/login';
+    if (loggedIn && onLogin) return '/dashboard';
+    return null;
+  },
+  routes: [
+    GoRoute(path: '/login',      builder: (_, __) => const LoginPage()),
+    GoRoute(path: '/dashboard',  builder: (_, __) => const DashboardPage()),
+    GoRoute(path: '/clients',    builder: (_, __) => const ClientsListPage()),
+    GoRoute(path: '/clients/:id', builder: (_, s) => ClientDetailPage(id: s.pathParameters['id']!)),
+    GoRoute(path: '/orders',     builder: (_, __) => const OrdersListPage()),
+    GoRoute(path: '/orders/:id', builder: (_, s) => OrderDetailPage(id: s.pathParameters['id']!)),
+    GoRoute(path: '/invoices',   builder: (_, __) => const InvoicesListPage()),
+    GoRoute(path: '/invoices/:id', builder: (_, s) => InvoiceDetailPage(id: s.pathParameters['id']!)),
+    GoRoute(path: '/receivables', builder: (_, __) => const ReceivablesListPage()),
+    GoRoute(path: '/payables',   builder: (_, __) => const PayablesListPage()),
+    GoRoute(path: '/cost-centers', builder: (_, __) => const CostCentersListPage()),
+    GoRoute(path: '/cost-centers/:id', builder: (_, s) => CostCenterDetailPage(id: s.pathParameters['id']!)),
+    GoRoute(path: '/proposals',  builder: (_, __) => const ProposalsListPage()),
+    GoRoute(path: '/proposals/public/:token', builder: (_, s) => ProposalPublicPage(token: s.pathParameters['token']!)),
+    GoRoute(path: '/suppliers',  builder: (_, __) => const SuppliersListPage()),
+    GoRoute(path: '/stock',      builder: (_, __) => const StockPage()),
+    GoRoute(path: '/materials',  builder: (_, __) => const MaterialsListPage()),
+  ],
+);
+```
+
+### Checklist para nova feature mobile
+
+Ao adicionar uma nova funcionalidade ao app Flutter:
+
+1. Confirmar que a rota de API existe na regra 2 deste README
+2. Criar `features/<modulo>/` com pages + provider
+3. Adicionar rota em `router.dart`
+4. Adicionar entry no `app_scaffold.dart` (BottomNav ou Drawer)
+5. Adicionar strings em `strings_pt_br.dart`
+6. Tratar todos os estados: loading, error, empty, data (usar `AsyncValue`)
+7. Testar em Android (emulador API 34+) e iOS (simulator iOS 17+)
+8. Verificar scroll e layout em telas estreitas (320dp) e tablets
+
+---
+
 ## Histórico de versões relevantes
+
+### v13.0 — Centro de Custo + Design System UI + NF-e/NFS-e UI Redesign
+
+> **Centro de Custo (migrations 0026 + 0027):**
+> Novo módulo de controle de materiais por projeto/departamento.
+> `cost_centers`: `id`, `tenant_id`, `code VARCHAR(20) UNIQUE(tenant)`, `name`, `description`, `allow_negative BOOL DEFAULT false`, `is_active BOOL DEFAULT true`.
+> `cost_center_stock`: saldo materializado por `(cost_center_id, material_id)` — PK composta. Custo médio ponderado `avg_unit_cost NUMERIC(12,4)`.
+> `cost_center_movements`: ledger append-only com UNIQUE `(tenant_id, idempotency_key)`. ENUMs: `cc_movement_direction ('in','out')` e `cc_movement_source ('manual_entry','adjustment','payable','order','invoice')`.
+>
+> **Gatilhos automáticos:**
+> - OUT: `nfeResultsWorker` ao detectar `nfe_status='authorized'` com `invoice.cost_center_id` → `applyExit` por item.
+> - Estorno: cancelamento de NF-e autorizada com CC → `applyEntry({source:'adjustment', sourceId:'cancel:invoiceId'})` por item.
+>
+> **Motor de estoque (`costCenterStock.ts`):** `applyEntry`, `applyExit`, `applyAdjustment`. `SELECT FOR UPDATE` em toda escrita. Idempotência via catch-23505 no UNIQUE de `idempotency_key`. `toFixed(4)` para avg. `applyAdjustment` lê o saldo dentro da própria transação. `delta=0` retorna `{skipped:true}`.
+>
+> **API:** 10 rotas em `costCenters.ts`. `DomainError` (saldo insuficiente) → HTTP 422.
+>
+> **FK opcional** em payables, orders, invoices, receivables: `cost_center_id UUID REFERENCES cost_centers(id) ON DELETE SET NULL`.
+>
+> **Frontend web:** `CostCentersPage.tsx` (CRUD list), `CostCenterDetailPage.tsx` (tabs Estoque + Movimentações), `CostCenterDrawers.tsx` (MaterialSelect fora do corpo do componente — evita remount). Dropdown CC + filtro por CC em 5 páginas (Payables, Orders, Invoices, InvoiceNew, Receivables). InvoiceNewPage: aviso amber inline por item quando quantidade excede saldo do CC — advisory, não bloqueia emissão.
+>
+> **Design System:** Tokens CSS unificados. **NF-e/NFS-e UI Redesign:** Formulários de emissão com novo layout editorial.
 
 ### v12.0 — Fluxo de Caixa + Histórico 360° + Relatórios + Impressão de Proposta
 
-> **Fluxo de Caixa Projetado (`GET /v1/dashboard/cashflow`):**
-> Novo endpoint agrupa vencimentos de receivables e payables em semanas (próximas 12).
-> Retorna `{ weeks: [{ week_start, inflow, outflow, net }], summary }`.
-> `DashboardPage` exibe gráfico de barras duplas (verde=a receber, vermelho=a pagar) e
-> totais de entrada/saída/saldo projetado.
->
-> **Histórico 360° do Cliente (`GET /v1/clients/:id/history`):**
-> Novo endpoint retorna os 20 pedidos mais recentes, 20 notas fiscais e 20 contas a receber
-> do cliente. `ClientsPage` exibe nova seção "Histórico" no drawer de edição (somente edit mode),
-> abaixo da seção de contatos. Carregado via `useEffect([drawerOpen, editing?.id])`.
->
-> **Relatórios (`GET /v1/reports/overdue` + `GET /v1/reports/top-products`):**
-> Novo arquivo `services/api-core/src/routes/reports.ts` registrado em `app.ts`.
-> Nova página `apps/backoffice/src/pages/reports/ReportsPage.tsx` com duas abas:
-> - **Inadimplência**: receivables vencidas (status pending/partial, due_date < today)
->   com nome do cliente via LEFT JOIN, dias em atraso, exportação XLSX.
-> - **Ranking de Produtos**: top 20 produtos por faturamento com filtro de período (7/30/90/180/365 dias),
->   via `order_items` JOIN `orders` (filtra tenant por orders.tenant_id), exportação XLSX.
-> Rota `/reports` adicionada ao `App.tsx`. Nav item + ícone adicionados ao `Layout.tsx`.
->
-> **Impressão de Proposta (`window.print()`):**
-> Botão "Imprimir / Salvar PDF" adicionado ao `ProposalPublicPage.tsx` (estados `view`,
-> `already_accepted`, `already_rejected`). CSS `@media print` adicionado ao `index.css`:
-> `.print-hide { display: none }` para ocultar botões e rodapé na impressão.
->
-> **Diagramas README:** Mermaid C4 Level 1 e Level 2, sequências NF-e/NFS-e/Boleto/Proposta,
-> state diagram de pedidos, flowchart de notificações — substituem os diagramas ASCII anteriores.
->
-> **i18n:** Chaves `cl.history`, `cl.historyEmpty`, `d.cashflow*`, `nav.reports`, `rep.*`
-> adicionadas em `pt-BR.ts` e `en.ts`.
+> **`GET /v1/dashboard/cashflow`:** Agrupa vencimentos em 12 semanas. `DashboardPage` exibe gráfico de barras duplas.
+> **`GET /v1/clients/:id/history`:** 20 pedidos, 20 notas, 20 recebíveis do cliente.
+> **Relatórios:** `ReportsPage.tsx` com abas Inadimplência e Ranking de Produtos. Exportação XLSX.
+> **Impressão de Proposta:** `window.print()` no portal público.
+> **i18n:** Chaves `cl.history`, `d.cashflow*`, `nav.reports`, `rep.*`.
 
-### v11.0 — Gestão de Propostas Comerciais + OAuth2 Itaú + Correções
+### v11.0 — Gestão de Propostas Comerciais + OAuth2 Itaú
 
-> **Módulo de Propostas Comerciais:** CRUD completo com status machine
-> `draft → sent → viewed → accepted | rejected | expired | cancelled`.
-> Token público de 64 hex chars para acesso sem login pelo cliente.
-> Conversão direta em pedido de venda. Portal público em `/p/:token`.
->
+> **Propostas:** Status machine `draft → sent → viewed → accepted | rejected | expired | cancelled`. Token público 64 hex chars. Portal `/p/:token`. Conversão direta em pedido.
 > **OAuth2 Itaú:** `tenants.itau_client_id` + `tenants.itau_client_secret` (migration 0025).
-> Campos exibidos na aba Dados Bancários da CompanyPage quando `billing_provider === 'itau'`.
->
-> **Correções v11:**
-> - `ClientsPage`: interface `Client` não incluía campos de endereço — corrigido.
-> - `ProposalsPage`: `modal.error()` era chamado com mensagem de sucesso — corrigido com `modal.success()`.
-> - `proposals.ts (send)`: `trade_name` pode ser NULL → usar `COALESCE(trade_name, company_name)`.
-> - `notificationsClient`: `NOTIFICATIONS_QUEUE_URL` ausente agora loga `console.warn` em vez de silenciar.
-> - `InvoicesPage`: NCM não era populado ao importar pedido — corrigido com `materials.find(...)`.
-> - `lambda-fiscal`: `caminho_danfe` convertido para URL absoluta antes de salvar no DB.
 
 ### v10.0 — Reset de Senha + XLSX Export + Dashboard KPIs + Contas Recorrentes + Notificações
 
-> **Reset de senha:** `POST /v1/auth/forgot-password` + `POST /v1/auth/reset-password`.
-> Migrations: `users.password_reset_token`, `users.password_reset_expires`.
->
-> **XLSX export:** Botão "Exportar" client-side (SheetJS) em Receivables, Payables, Invoices, Clients.
->
-> **Dashboard KPIs:** `GET /v1/dashboard` com 5 queries paralelas. Cards bento grid + mini bar chart.
->
-> **Contas Recorrentes:** `payables.recurrence` (none/weekly/monthly/quarterly/yearly).
-> Worker `recurringPayablesWorker.ts` in-process no ECS, intervalo 23h.
->
-> **Notificações de Vencimento:** `notification_configs.notify_receivable_due_days`.
-> Worker `dueSoonWorker.ts` in-process, envia `receivable_due_soon` via SQS.
+> **Reset de senha:** `users.password_reset_token` + `users.password_reset_expires`.
+> **XLSX export:** SheetJS client-side em Receivables, Payables, Invoices, Clients.
+> **Dashboard KPIs:** 5 queries paralelas. Cards bento grid + mini bar chart.
+> **Contas Recorrentes:** `payables.recurrence` (none/weekly/monthly/quarterly/yearly). Worker 23h.
+> **Notificações de Vencimento:** `notification_configs.notify_receivable_due_days`. `dueSoonWorker.ts`.
 
 ---
 
 ## Adicionando um novo módulo
 
-Checklist obrigatório ao criar um novo módulo:
+### Backend (obrigatório para todos)
 
 1. **Migration SQL** em `services/api-core/db/migrations/00NN_nome.sql`
-2. **Schema Drizzle** em `services/api-core/src/db/schema.ts` + export em `src/db/index.ts`
+2. **Schema Drizzle** em `services/api-core/src/db/schema.ts`
 3. **Adicionar migration** ao array em `services/api-core/src/scripts/migrate.ts`
 4. **Rota Fastify** em `services/api-core/src/routes/nome.ts`
 5. **Registrar rota** em `services/api-core/src/app.ts`
-6. **Página React** em `apps/backoffice/src/pages/nome/NomePage.tsx`
-7. **Rota React Router** em `apps/backoffice/src/App.tsx`
-8. **Nav item + ícone** em `apps/backoffice/src/components/Layout.tsx`
-9. **Chaves i18n** em `apps/backoffice/src/i18n/pt-BR.ts` E `en.ts`
-10. **Atualizar rule 1** deste README com novas tabelas/colunas
-11. **Atualizar rule 2** deste README com novas rotas
+6. **Atualizar regra 1** deste README com novas tabelas/colunas
+7. **Atualizar regra 2** deste README com novas rotas
+
+### Frontend Web (backoffice)
+
+8. **Página React** em `apps/backoffice/src/pages/nome/NomePage.tsx`
+9. **Rota React Router** em `apps/backoffice/src/App.tsx`
+10. **Nav item + ícone SVG** em `apps/backoffice/src/components/Layout.tsx`
+11. **Chaves i18n** em `apps/backoffice/src/i18n/pt-BR.ts` E `en.ts`
+12. **Atualizar tabela "Módulos do sistema"** neste README
+
+### App Mobile Flutter
+
+13. **Feature directory** em `apps/mobile/lib/features/nome/`
+14. **Provider** `nome_provider.dart` com `@riverpod`
+15. **Telas** `nome_list_page.dart`, `nome_detail_page.dart`, etc.
+16. **Rota** em `apps/mobile/lib/router.dart`
+17. **Nav entry** em `apps/mobile/lib/core/widgets/app_scaffold.dart`
+18. **Strings** em `apps/mobile/lib/core/i18n/strings_pt_br.dart`
+19. **Atualizar tabela "Funcionalidades do App Mobile"** neste README
 
 ### Soft-delete por módulo
 
@@ -648,29 +933,95 @@ Checklist obrigatório ao criar um novo módulo:
 | materials | `is_active` | `false` |
 | users | `status` | `'disabled'` |
 | suppliers | `is_active` | `false` |
+| cost_centers | `is_active` | `false` |
 | orders | `status` | `'cancelled'` |
 | invoices | `status` | `'cancelled'` |
 | receivables | `status` | `'cancelled'` |
 | payables | `status` | `'cancelled'` |
 | service_contracts | `status` | `'cancelled'` |
 | proposals | `status` | `'cancelled'` |
-| boleto_events, nfe_events, nfse_events | — | append-only, nunca deletar |
+| boleto_events, nfe_events, nfse_events, cost_center_movements | — | append-only, nunca deletar |
 
 ---
 
-## Variáveis de ambiente (ECS task definition)
+## Desenvolvimento local
+
+### Pré-requisitos
+
+- Node.js ≥ 20
+- Docker + Docker Compose
+- Flutter SDK 3.x (para o app mobile)
+- Dart 3.x
+
+### Iniciando o ambiente web
+
+```bash
+# 1. Subir infraestrutura local (PostgreSQL 16 + LocalStack SQS/S3/SES)
+docker compose up db localstack -d
+
+# 2. Rodar migrations
+npm run migrate
+
+# 3. API (porta 3000)
+npm run dev:api
+
+# 4. Backoffice web (porta 5173)
+npm run dev:backoffice
+```
+
+### Iniciando o app mobile
+
+```bash
+cd apps/mobile
+flutter pub get
+flutter run                    # escolhe emulador/dispositivo interativamente
+flutter run -d emulator-5554  # Android específico
+flutter run -d iPhone          # iOS específico
+
+# Build para produção
+flutter build apk --release          # Android
+flutter build ios --release          # iOS
+```
+
+### Acessos locais
+
+| Serviço | URL |
+|---------|-----|
+| Backoffice Web | http://localhost:5173 |
+| API Core | http://localhost:3000 |
+| PostgreSQL | postgresql://erp_lite:erp_lite@localhost:5432/erp_lite |
+| LocalStack (SQS/S3/SES) | http://localhost:4566 |
+| App Mobile → API (Android emulador) | http://10.0.2.2:3000 |
+| App Mobile → API (iOS simulator) | http://localhost:3000 |
+
+---
+
+## Variáveis de ambiente (api-core — ECS task definition)
 
 ```
-DATABASE_URL          # postgres://user:pass@host:5432/db
-PGSSLMODE             # require (ECS) | ausente (local Docker)
-JWT_SECRET            # segredo JWT
-FOCUS_NFE_TOKEN       # fallback se tenant não tiver token próprio
-NOTIFICATIONS_QUEUE_URL  # SQS queue para e-mails
-NFE_QUEUE_URL         # SQS nfe-requests
-NFE_RESULTS_QUEUE_URL # SQS nfe-results
-BILLING_QUEUE_URL     # SQS billing-requests
+DATABASE_URL              # postgres://user:pass@host:5432/db
+PGSSLMODE                 # require (ECS) | ausente (local Docker)
+JWT_SECRET                # segredo JWT (mínimo 32 chars em produção)
+FOCUS_NFE_TOKEN           # fallback se tenant não tiver token próprio
+NOTIFICATIONS_QUEUE_URL   # SQS queue para e-mails
+NFE_QUEUE_URL             # SQS nfe-requests
+NFE_RESULTS_QUEUE_URL     # SQS nfe-results
+BILLING_QUEUE_URL         # SQS billing-requests
 BILLING_RESULTS_QUEUE_URL # SQS billing-results
-NFE_BUCKET            # S3 para XMLs NF-e
-APP_URL               # https://www.orquestraerp.com.br (padrão)
-NODE_ENV              # prod (ECS) | development (local)
+NFE_BUCKET                # S3 para XMLs NF-e
+APP_URL                   # https://www.orquestraerp.com.br (padrão)
+NODE_ENV                  # prod (ECS) | development (local)
+```
+
+## Variáveis de ambiente (app mobile Flutter)
+
+```dart
+// apps/mobile/lib/core/api/endpoints.dart
+// Configurar via --dart-define na build ou via .env (flutter_dotenv)
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://10.0.2.2:3000',  // Android emulador aponta para localhost
+  // iOS simulator: usar http://localhost:3000
+  // Produção: https://orquestraerp.com.br
+);
 ```

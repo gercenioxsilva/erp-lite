@@ -707,14 +707,26 @@ export function CompanyPage() {
                   </div>
                 </div>
 
-                {/* Ambiente Focus NF-e */}
+                {/* Ambiente Focus NF-e — toggle HML/PRD */}
                 <div className="field" style={{ marginTop: 8 }}>
                   <label>{t('comp.nfe.ambiente')}</label>
-                  <select value={nfeForm.focus_ambiente}
-                    onChange={e => setNfeForm(f => ({ ...f, focus_ambiente: e.target.value }))}>
-                    <option value="2">{t('comp.nfe.homo')}</option>
-                    <option value="1">{t('comp.nfe.prod')}</option>
-                  </select>
+                  <div className="seg-toggle">
+                    <button type="button"
+                      className={`seg-homo ${nfeForm.focus_ambiente === '2' ? 'is-active' : ''}`}
+                      onClick={() => setNfeForm(f => ({ ...f, focus_ambiente: '2' }))}>
+                      {t('comp.nfe.homo')}
+                    </button>
+                    <button type="button"
+                      className={`seg-prod ${nfeForm.focus_ambiente === '1' ? 'is-active' : ''}`}
+                      onClick={() => setNfeForm(f => ({ ...f, focus_ambiente: '1' }))}>
+                      {t('comp.nfe.prod')}
+                    </button>
+                  </div>
+                  {nfeForm.focus_ambiente === '1' && (
+                    <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6, fontWeight: 600 }}>
+                      {t('comp.nfe.prodWarn')}
+                    </div>
+                  )}
                 </div>
 
                 {/* Tokens por tenant */}

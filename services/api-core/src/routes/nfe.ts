@@ -132,6 +132,9 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (!invoice) return reply.notFound('Nota fiscal não encontrada');
     if (!cfg)     return reply.badRequest('Configure os dados fiscais em Configurações → NF-e antes de emitir');
+    // Trava de segurança: produção exige o token do próprio tenant (não cair no fallback do env)
+    if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
+      return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');
     if (invoice.status !== 'draft')
       return reply.badRequest(`Só rascunhos podem ser enviados ao SEFAZ (status atual: ${invoice.status})`);
     if (invoice.nfe_status === 'pending' || invoice.nfe_status === 'processing')

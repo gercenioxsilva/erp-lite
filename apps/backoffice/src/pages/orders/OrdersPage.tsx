@@ -10,6 +10,7 @@ interface Order {
   id: string; number: string; status: string; client_name: string;
   subtotal: number; discount: number; shipping: number; total: number;
   notes: string | null; created_at: string; client_id: string;
+  cost_center_id: string | null;
 }
 interface OrderDetail extends Order {
   items: OrderItemRow[];
@@ -25,6 +26,7 @@ interface FormItem {
   unit: string; quantity: string; unit_price: string;
 }
 interface ListResp { data: Order[]; total: number; page: number; per_page: number; }
+interface CostCenter { id: string; code: string; name: string; }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -52,6 +54,9 @@ export function OrdersPage() {
   const [search,       setSearch]       = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusTab>('all');
   const [loading,      setLoading]      = useState(true);
+  const [costCenterFilter, setCostCenterFilter] = useState('');
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [formCostCenterId, setFormCostCenterId] = useState('');
 
   /* drawer */
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -81,12 +86,13 @@ export function OrdersPage() {
         tenant_id: tenantId, page: String(page), per_page: String(perPage),
         ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
         ...(search ? { search } : {}),
+        ...(costCenterFilter ? { cost_center_id: costCenterFilter } : {}),
       });
       const r = await api.get<ListResp>(`/v1/orders?${p}`);
       setOrders(r.data); setTotal(r.total);
     } catch { /**/ } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [tenantId, page, statusFilter, search]);
+  useEffect(() => { void load(); }, [tenantId, page, statusFilter, search, costCenterFilter]);
 
   /* ── Load dropdown data when drawer opens ──────────────────────────────
      Runs as a proper side-effect so it re-fires if tenantId resolves after
@@ -114,10 +120,18 @@ export function OrdersPage() {
     return () => { cancelled = true; };
   }, [drawerOpen, tenantId]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
+      .then(d => setCostCenters(d.data ?? []))
+      .catch(() => {});
+  }, [tenantId]);
+
   /* ── Drawer open helpers ── */
   function openCreate() {
     setEditing(null);
     setFormClientId(''); setFormNotes(''); setFormDiscount('0'); setFormShipping('0');
+    setFormCostCenterId('');
     setFormItems([newItem()]);
     setFormError('');
     setDrawerOpen(true);
@@ -127,6 +141,7 @@ export function OrdersPage() {
     setEditing(o);
     setFormClientId(o.client_id); setFormNotes(o.notes ?? '');
     setFormDiscount(String(o.discount)); setFormShipping(String(o.shipping));
+    setFormCostCenterId(o.cost_center_id ?? '');
     setFormItems([]);
     setFormError('');
     setDrawerOpen(true);
@@ -174,6 +189,7 @@ export function OrdersPage() {
       const payload = {
         tenant_id: tenantId, client_id: formClientId, notes: formNotes || null,
         discount: Number(formDiscount) || 0, shipping: Number(formShipping) || 0,
+        cost_center_id: formCostCenterId || null,
         items: namedItems.map(it => ({
           material_id: it.material_id || undefined, name: it.name, sku: it.sku || undefined,
           unit: it.unit, quantity: Number(it.quantity), unit_price: Number(it.unit_price),
@@ -236,14 +252,21 @@ export function OrdersPage() {
         ))}
       </div>
 
-      {/* ── Search ── */}
-      <div style={{ marginBottom: 14 }}>
+      {/* ── Search & Filters ── */}
+      <div style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <input
           placeholder={t('o.searchPH')}
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1); }}
           style={{ maxWidth: 320 }}
         />
+        <select className="btn btn-secondary" value={costCenterFilter}
+          onChange={e => { setCostCenterFilter(e.target.value); setPage(1); }}>
+          <option value="">{t('cc.costCenter')}: {t('cc.none')}</option>
+          {costCenters.map(cc => (
+            <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* ── Table ── */}
@@ -358,6 +381,21 @@ export function OrdersPage() {
                       <option key={c.id} value={c.id}>
                         {c.company_name ?? c.full_name}
                       </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Cost Center */}
+                <div className="field">
+                  <label htmlFor="order-cost-center">{t('cc.costCenter')}</label>
+                  <select
+                    id="order-cost-center"
+                    value={formCostCenterId}
+                    onChange={e => setFormCostCenterId(e.target.value)}
+                  >
+                    <option value="">{t('cc.none')}</option>
+                    {costCenters.map(cc => (
+                      <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                     ))}
                   </select>
                 </div>

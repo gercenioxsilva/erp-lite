@@ -1,0 +1,84 @@
+.ds-timeline { display: flex; flex-direction: column; }
+
+.ds-timeline__empty {
+  color: var(--muted);
+  font-size: var(--text-sm, 12.5px);
+  font-style: italic;
+}
+
+.ds-timeline__item {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+.ds-timeline__item:last-child { padding-bottom: 0; }
+
+.ds-timeline__track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 3px;
+}
+
+.ds-timeline__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ds-timeline__dot--success { background: var(--success); }
+.ds-timeline__dot--error   { background: var(--danger);  }
+.ds-timeline__dot--default { background: var(--muted);   }
+
+.ds-timeline__line {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  margin-top: 4px;
+  min-height: 16px;
+}
+
+.ds-timeline__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ds-timeline__type {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ds-timeline__code {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.ds-timeline__time {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ds-timeline__protocol {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.ds-timeline__reject {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-fg);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}

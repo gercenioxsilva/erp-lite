@@ -50,6 +50,26 @@
   --shadow-sm: 0 1px 4px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
   --shadow-md: 0 2px 8px rgba(0,0,0,.08), 0 8px 32px rgba(0,0,0,.06);
   --shadow-lg: 0 8px 24px rgba(0,0,0,.12), 0 24px 48px rgba(0,0,0,.08);
+
+  /* DS Spacing scale */
+  --space-1:  4px;   --space-2:  8px;   --space-3: 12px;
+  --space-4: 16px;   --space-5: 20px;   --space-6: 24px;
+  --space-8: 32px;   --space-10: 40px;  --space-12: 48px;
+
+  /* DS Semantic status tokens */
+  --status-authorized-bg:  #dcfce7;  --status-authorized-fg:  #166534;
+  --status-rejected-bg:    #fee2e2;  --status-rejected-fg:    #991b1b;
+  --status-pending-bg:     #fef3c7;  --status-pending-fg:     #92400e;
+  --status-processing-bg:  #dbeafe;  --status-processing-fg:  #1e40af;
+  --status-draft-bg:       #f1f5f9;  --status-draft-fg:       #64748b;
+  --status-issued-bg:      #dbeafe;  --status-issued-fg:      #1d4ed8;
+  --status-cancelled-bg:   #fee2e2;  --status-cancelled-fg:   var(--danger);
+
+  /* DS Step progress */
+  --step-connector:  #e4e8ee;
+  --step-active:     var(--primary);
+  --step-done:       var(--success);
+  --step-bar-height: 64px;
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────── */
@@ -145,6 +165,25 @@ textarea { resize: vertical; min-height: 72px; }
 
 /* CTA: botões que abrem formulários ganham mais respiro lateral */
 .btn-cta { padding-left: 24px; padding-right: 24px; }
+
+/* ── Toggle segmentado (ex.: ambiente NF-e HML/PRD) ─────────────────────── */
+.seg-toggle { display: inline-flex; border: 1.5px solid var(--border); border-radius: var(--r-sm); overflow: hidden; background: var(--surface); }
+.seg-toggle button {
+  padding: 8px 16px; font-family: var(--font); font-size: var(--text-sm); font-weight: 600;
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  transition: background .14s, color .14s;
+}
+.seg-toggle button + button { border-left: 1.5px solid var(--border); }
+.seg-toggle button:hover:not(.is-active) { background: var(--surface-2); color: var(--text); }
+.seg-toggle button.is-active { color: #fff; }
+.seg-toggle button.is-active.seg-homo { background: var(--primary); }
+.seg-toggle button.is-active.seg-prod { background: var(--danger); }
+
+/* ── Badge de ambiente (HML/PRD) ────────────────────────────────────────── */
+.env-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.env-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.env-badge--homo { background: #dbeafe; color: #1d4ed8; }
+.env-badge--prod { background: #fee2e2; color: var(--danger); }
 
 /* ── Alert ─────────────────────────────────────────────────────────────── */
 .alert { padding: 10px 14px; border-radius: var(--r-sm); font-size: var(--text-sm); margin-bottom: 14px; font-weight: 500; }

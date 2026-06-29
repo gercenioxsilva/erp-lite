@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db, tenants, users } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
+import { getStripe } from '../lib/stripeClient';
 
 const registerBody = {
   type: 'object',
@@ -73,6 +74,25 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         { tenantId: result.tenant.id, userId: result.user.id, role: result.user.role },
         { expiresIn: '24h' },
       );
+
+      // Non-blocking: create Stripe customer + set trial_ends_at (14 days)
+      const stripe = getStripe();
+      if (stripe) {
+        const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        stripe.customers.create({
+          email:    email,
+          name:     company_name,
+          metadata: { tenant_id: result.tenant.id },
+        }).then(async (customer: { id: string }) => {
+          await db.execute(sql`
+            UPDATE tenants
+            SET stripe_customer_id = ${customer.id}, trial_ends_at = ${trialEnds.toISOString()}
+            WHERE id = ${result.tenant.id}
+          `);
+        }).catch((err: unknown) => {
+          fastify.log.warn({ event: 'stripe_customer_create_warn', error: String(err) });
+        });
+      }
 
       return reply.code(201).send({
         token,

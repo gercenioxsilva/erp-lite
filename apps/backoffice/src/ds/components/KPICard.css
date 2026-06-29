@@ -1,0 +1,31 @@
+.ds-kpi-card {
+  transition: box-shadow .14s, border-color .14s, transform .12s;
+}
+
+.ds-kpi-card--clickable { cursor: pointer; }
+.ds-kpi-card--clickable:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.ds-kpi-card--active {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(59,92,228,.15), var(--shadow-sm) !important;
+}
+
+.ds-kpi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  font-size: 18px;
+}
+
+.ds-kpi-icon--blue  { background: rgba(59,92,228,.1);  color: var(--primary); }
+.ds-kpi-icon--green { background: rgba(22,163,74,.1);   color: var(--success); }
+.ds-kpi-icon--red   { background: rgba(220,38,38,.1);   color: var(--danger);  }
+.ds-kpi-icon--amber { background: rgba(217,119,6,.1);   color: var(--warning); }

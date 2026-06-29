@@ -1,0 +1,103 @@
+.ds-step-progress {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .07);
+}
+
+.ds-step-progress__list {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 28px;
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ds-step-progress__list::-webkit-scrollbar { display: none; }
+
+.ds-step-progress__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ds-step-progress__connector {
+  width: 44px;
+  height: 2px;
+  background: var(--border);
+  margin: 0 6px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  transition: background .35s;
+}
+.ds-step-progress__connector--done {
+  background: linear-gradient(to right, var(--success), var(--primary));
+}
+
+.ds-step-progress__circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: background .25s, box-shadow .25s, border-color .25s, color .25s;
+  border: 2px solid transparent;
+}
+.ds-step-progress__circle--done {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
+}
+.ds-step-progress__circle--active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), .18);
+}
+.ds-step-progress__circle--locked {
+  background: var(--surface);
+  color: var(--muted);
+  border: 2px dashed var(--border);
+}
+
+.ds-step-progress__labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: 2px;
+}
+
+.ds-step-progress__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color .25s;
+  line-height: 1.2;
+}
+.ds-step-progress__item--done .ds-step-progress__label { color: var(--text); }
+.ds-step-progress__item--active .ds-step-progress__label {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.ds-step-progress__desc {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.ds-step-progress__item--active .ds-step-progress__desc {
+  color: rgba(var(--primary-rgb), .55);
+}
+
+@media (max-width: 600px) {
+  .ds-step-progress__desc { display: none; }
+  .ds-step-progress__list { padding: 0 16px; height: 52px; }
+}
