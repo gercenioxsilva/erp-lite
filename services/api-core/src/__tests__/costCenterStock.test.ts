@@ -103,12 +103,30 @@ function makeMockDb(opts: {
   const db = {
     transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       const txExecute = makeTxExecute();
-      const tx = {
-        execute: txExecute,
-        insert:  makeInsertChain,
-        select:  makeSelectChain,
+      // tx needs its own .transaction() so that nested calls from applyEntry/
+      // applyExit (invoked via applyAdjustment passing tx as db) stay within
+      // the same logical transaction. The nested call resets the execute counter
+      // so that applyEntry/applyExit see call 1 = stock lock, call 2 = cost_centers.
+      const makeTx = (): Record<string, unknown> => {
+        const tx: Record<string, unknown> = {
+          execute: txExecute,
+          insert:  makeInsertChain,
+          select:  makeSelectChain,
+        };
+        tx.transaction = async (nestedCb: (inner: unknown) => Promise<unknown>) => {
+          // Nested savepoint: fresh execute counter so the inner function's
+          // call 1 = stock FOR UPDATE, call 2 = cost_centers (same contract).
+          const innerTx: Record<string, unknown> = {
+            execute: makeTxExecute(),
+            insert:  makeInsertChain,
+            select:  makeSelectChain,
+          };
+          innerTx.transaction = tx.transaction;
+          return nestedCb(innerTx);
+        };
+        return tx;
       };
-      return cb(tx);
+      return cb(makeTx());
     },
     execute: outerExecute,
     select:  makeSelectChain,

@@ -120,13 +120,13 @@ export async function applyEntry(args: ApplyArgs, db: DrizzleDB): Promise<CcMove
         cost_center_id: args.costCenterId,
         material_id:    args.materialId,
         quantity:       balanceAfter.toFixed(4),
-        avg_unit_cost:  newAvg.toFixed(2),
+        avg_unit_cost:  newAvg.toFixed(4),
       })
       .onConflictDoUpdate({
         target: [costCenterStock.cost_center_id, costCenterStock.material_id],
         set: {
           quantity:      balanceAfter.toFixed(4),
-          avg_unit_cost: newAvg.toFixed(2),
+          avg_unit_cost: newAvg.toFixed(4),
           updated_at:    sql`now()`,
         },
       });
@@ -214,7 +214,7 @@ export async function applyExit(args: ApplyArgs, db: DrizzleDB): Promise<CcMovem
         cost_center_id: args.costCenterId,
         material_id:    args.materialId,
         quantity:       balanceAfter.toFixed(4),
-        avg_unit_cost:  oldAvg.toFixed(2),
+        avg_unit_cost:  oldAvg.toFixed(4),
       })
       .onConflictDoUpdate({
         target: [costCenterStock.cost_center_id, costCenterStock.material_id],
@@ -233,57 +233,61 @@ export async function applyExit(args: ApplyArgs, db: DrizzleDB): Promise<CcMovem
 export async function applyAdjustment(args: AdjustArgs, db: DrizzleDB): Promise<CcMovement> {
   const { targetQuantity, ...baseArgs } = args;
 
-  // Read current quantity (no lock needed here — applyEntry/applyExit will lock)
-  const stockRows = await db.execute(
-    sql`SELECT quantity, avg_unit_cost FROM cost_center_stock
-        WHERE cost_center_id = ${args.costCenterId}
-          AND material_id    = ${args.materialId}`
-  );
+  return db.transaction(async (tx) => {
+    // Lock the stock row before reading — prevents concurrent adjustments from
+    // reading the same balance and applying the same delta twice.
+    const lockResult = await tx.execute(
+      sql`SELECT quantity, avg_unit_cost FROM cost_center_stock
+          WHERE cost_center_id = ${args.costCenterId}
+            AND material_id    = ${args.materialId}
+          FOR UPDATE`
+    );
 
-  const row     = stockRows.rows[0] as { quantity: string; avg_unit_cost: string } | undefined;
-  const current = row ? parseFloat(row.quantity) : 0;
-  const delta   = targetQuantity - current;
+    const row     = lockResult.rows[0] as { quantity: string; avg_unit_cost: string } | undefined;
+    const current = row ? parseFloat(row.quantity) : 0;
+    const delta   = targetQuantity - current;
 
-  if (delta === 0) {
-    // No-op: return a synthetic movement record (not persisted)
-    return {
-      id:              'noop',
-      tenant_id:       args.tenantId,
-      cost_center_id:  args.costCenterId,
-      material_id:     args.materialId,
-      direction:       'in',
-      quantity:        '0.0000',
-      unit_cost:       null,
-      total_cost:      null,
-      balance_after:   current.toFixed(4),
-      source:          'adjustment',
-      source_id:       args.sourceId ?? null,
-      note:            args.note ?? null,
-      idempotency_key: `adjustment:${args.sourceId ?? 'manual'}:${args.materialId}`,
-      created_by:      args.userId ?? null,
-      created_at:      new Date(),
-    } as CcMovement;
-  }
+    if (delta === 0) {
+      // No-op: return a synthetic movement record (not persisted)
+      return {
+        id:              'noop',
+        tenant_id:       args.tenantId,
+        cost_center_id:  args.costCenterId,
+        material_id:     args.materialId,
+        direction:       'in',
+        quantity:        '0.0000',
+        unit_cost:       null,
+        total_cost:      null,
+        balance_after:   current.toFixed(4),
+        source:          'adjustment',
+        source_id:       args.sourceId ?? null,
+        note:            args.note ?? null,
+        idempotency_key: `adjustment:${args.sourceId ?? 'manual'}:${args.materialId}`,
+        created_by:      args.userId ?? null,
+        created_at:      new Date(),
+      } as CcMovement;
+    }
 
-  if (delta > 0) {
-    return applyEntry(
+    if (delta > 0) {
+      return applyEntry(
+        {
+          ...baseArgs,
+          source:   'adjustment',
+          quantity: delta,
+          unitCost: baseArgs.unitCost ?? (row ? parseFloat(row.avg_unit_cost) : 0),
+        },
+        tx as unknown as DrizzleDB
+      );
+    }
+
+    // delta < 0
+    return applyExit(
       {
         ...baseArgs,
         source:   'adjustment',
-        quantity: delta,
-        unitCost: baseArgs.unitCost ?? (row ? parseFloat(row.avg_unit_cost) : 0),
+        quantity: Math.abs(delta),
       },
-      db
+      tx as unknown as DrizzleDB
     );
-  }
-
-  // delta < 0
-  return applyExit(
-    {
-      ...baseArgs,
-      source:   'adjustment',
-      quantity: Math.abs(delta),
-    },
-    db
-  );
+  });
 }
