@@ -372,8 +372,12 @@ jobs:
 
       - name: Build backoffice
         run: npm run build --workspace=apps/backoffice
-        env:
-          VITE_API_URL: ${{ steps.tf.outputs.api_url }}
+        # VITE_API_URL is intentionally omitted — api.ts uses '' (empty string)
+        # so all /v1/* calls become relative URLs. Both the SPA and the API are
+        # served from the same CloudFront distribution (www.orquestraerp.com.br),
+        # so relative URLs are same-origin and require no CORS headers at all.
+        # Injecting the raw CloudFront domain (e.g. d1xxxx.cloudfront.net) would
+        # make the browser treat requests as cross-origin → CORS blocked.
 
       # ── Deploy backoffice to S3 + CloudFront ─────────────────────────────────
       - name: Sync backoffice to S3
