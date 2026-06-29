@@ -477,8 +477,15 @@ export async function finalizeSale(params: {
             WHERE id = ${saleId}`
       );
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       console.error('[Focus NF-e] Post-sale emission failed:', err);
+      await _db.execute(
+        sql`UPDATE pos_sales SET
+              fiscal_status  = 'erro_autorizacao',
+              fiscal_message = ${err instanceof Error ? err.message : 'Erro na emissão NFC-e'},
+              updated_at     = NOW()
+            WHERE id = ${saleId}`
+      );
     });
 
   return { focusRef: saleId };
@@ -619,7 +626,14 @@ export async function reemitirFiscal(params: {
             WHERE id = ${saleId}`
       );
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       console.error('[Focus NF-e] Re-emission failed:', err);
+      await _db.execute(
+        sql`UPDATE pos_sales SET
+              fiscal_status  = 'erro_autorizacao',
+              fiscal_message = ${err instanceof Error ? err.message : 'Erro na emissão NFC-e'},
+              updated_at     = NOW()
+            WHERE id = ${saleId}`
+      );
     });
 }

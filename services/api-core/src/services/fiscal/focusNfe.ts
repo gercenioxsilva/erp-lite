@@ -196,6 +196,15 @@ export async function emitirNFCe(saleId: string, tenantId: string): Promise<Fisc
 }
 
 export async function consultarNFCe(ref: string): Promise<FiscalResult> {
+  if (!process.env.FOCUS_NFE_TOKEN) {
+    console.warn('[Focus NF-e] FOCUS_NFE_TOKEN not set — skipping consult');
+    return {
+      fiscal_status: 'pendente', fiscal_chave: null, fiscal_protocol: null,
+      fiscal_number: null, fiscal_series: null, fiscal_qrcode: null,
+      fiscal_url_danfe: null, fiscal_url_xml: null,
+      fiscal_message: 'Token não configurado',
+    };
+  }
   const url = `${focusBaseUrl()}/v2/nfce/${encodeURIComponent(ref)}`;
   const res = await fetch(url, { headers: { Authorization: focusAuth() } });
   const body = await res.json() as Record<string, unknown>;

@@ -589,6 +589,13 @@ export function PosPage() {
               </div>
             )}
 
+            {!['processando', 'autorizado', 'pendente', 'erro_autorizacao'].includes(sale.fiscal_status) && (
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <p className="pos-modal-pending-title">Venda Finalizada</p>
+                <p className="pos-modal-pending-sub">Sem emissão fiscal</p>
+              </div>
+            )}
+
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '20px 0 16px' }} />
             <button onClick={handleNewSale} className="pos-modal-new-btn">
               Nova venda (F2)
