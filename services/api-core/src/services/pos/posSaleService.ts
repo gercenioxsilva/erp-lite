@@ -5,10 +5,10 @@ import {
   posSaleItems,
   posSalePayments,
   posCashMovements,
-  invoices,
   materials,
 } from '../../db/schema';
 import { applyExit, applyEntry } from '../costCenterStock';
+import { emitirNFCe, cancelarNFCe } from '../fiscal/focusNfe';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -371,15 +371,14 @@ export async function finalizeSale(params: {
   tenantId: string;
   saleId: string;
   idempotencyKey: string;
-}): Promise<{ invoiceId: string | null }> {
+}): Promise<{ focusRef: string | null }> {
   const { tenantId, saleId, idempotencyKey } = params;
 
-  return _db.transaction(async (tx) => {
-    // ── Step 0 — idempotency check (SELECT FOR UPDATE) ────────────────────────
+  await _db.transaction(async (tx) => {
     const saleRows = await tx.execute<{
       id: string;
       status: string;
-      invoice_id: string | null;
+      focus_ref: string | null;
       idempotency_key: string | null;
       session_id: string;
       cost_center_id: string | null;
@@ -387,156 +386,102 @@ export async function finalizeSale(params: {
       total: string;
       customer_doc: string | null;
     }>(
-      sql`SELECT id, status, invoice_id, idempotency_key, session_id,
+      sql`SELECT id, status, focus_ref, idempotency_key, session_id,
                  cost_center_id, operator_id, total, customer_doc
           FROM pos_sales
           WHERE id = ${saleId} AND tenant_id = ${tenantId}
           FOR UPDATE`
     );
 
-    if (!saleRows.rows.length) {
-      throw httpError(404, 'Sale not found');
-    }
-
+    if (!saleRows.rows.length) throw httpError(404, 'Sale not found');
     const sale = saleRows.rows[0];
 
     if (sale.status === 'finalized') {
-      if (sale.idempotency_key === idempotencyKey) {
-        return { invoiceId: sale.invoice_id };
-      }
+      if (sale.idempotency_key === idempotencyKey) return;
       throw httpError(409, 'Sale already finalized with a different key');
     }
+    if (sale.status === 'cancelled') throw httpError(422, 'Sale is cancelled');
 
-    if (sale.status === 'cancelled') {
-      throw httpError(422, 'Sale is cancelled');
-    }
-
-    // ── Step 1 — validate ─────────────────────────────────────────────────────
-
-    // Session must be open
     const sessionRows = await tx.execute(
       sql`SELECT id FROM pos_sessions
-          WHERE id        = ${sale.session_id}
-            AND tenant_id = ${tenantId}
-            AND status    = 'open'
+          WHERE id = ${sale.session_id} AND tenant_id = ${tenantId} AND status = 'open'
           LIMIT 1`
     );
+    if (!sessionRows.rows.length) throw httpError(422, 'Session is not open');
 
-    if (!sessionRows.rows.length) {
-      throw httpError(422, 'Session is not open');
-    }
-
-    // At least 1 item
     const itemsResult = await tx.execute<{
-      id: string;
-      product_id: string;
-      quantity: string;
-    }>(
-      sql`SELECT id, product_id, quantity FROM pos_sale_items WHERE sale_id = ${saleId}`
-    );
+      id: string; product_id: string; quantity: string;
+    }>(sql`SELECT id, product_id, quantity FROM pos_sale_items WHERE sale_id = ${saleId}`);
+    if (!itemsResult.rows.length) throw httpError(422, 'Sale has no items');
 
-    if (!itemsResult.rows.length) {
-      throw httpError(422, 'Sale has no items');
-    }
-
-    // Payments must cover total
     const paidResult = await tx.execute<{ paid: string }>(
-      sql`SELECT COALESCE(SUM(amount), 0)::text AS paid
-          FROM pos_sale_payments WHERE sale_id = ${saleId}`
+      sql`SELECT COALESCE(SUM(amount), 0)::text AS paid FROM pos_sale_payments WHERE sale_id = ${saleId}`
     );
-
     const totalPaid = parseFloat(paidResult.rows[0]?.paid ?? '0');
     const saleTotal = parseFloat(sale.total);
+    if (totalPaid < saleTotal - 0.001) throw httpError(422, 'Payments do not cover total');
 
-    if (totalPaid < saleTotal - 0.001) { // 0.001 tolerance for floating point
-      throw httpError(422, 'Payments do not cover total');
-    }
-
-    // ── Step 2 — stock exit per item ──────────────────────────────────────────
     if (sale.cost_center_id) {
       for (const item of itemsResult.rows) {
         await applyExit(
           {
-            tenantId,
-            costCenterId: sale.cost_center_id,
-            materialId:   item.product_id,
-            quantity:     Number(item.quantity),
-            source:       'pos_sale',
-            sourceId:     saleId,
-            userId:       sale.operator_id,
+            tenantId, costCenterId: sale.cost_center_id, materialId: item.product_id,
+            quantity: Number(item.quantity), source: 'pos_sale', sourceId: saleId,
+            userId: sale.operator_id,
           },
           tx as unknown as typeof _db
         );
       }
     }
 
-    // ── Step 3 — create invoice (model=65, NFC-e) ─────────────────────────────
-    // invoices.client_id is NOT NULL — only create when customer_doc maps to a client
-    let invoiceId: string | null = null;
-
-    if (sale.customer_doc) {
-      const clientRows = await tx.execute<{ id: string }>(
-        sql`SELECT id FROM clients
-            WHERE tenant_id = ${tenantId}
-              AND (cnpj = ${sale.customer_doc} OR cpf = ${sale.customer_doc})
-            LIMIT 1`
-      );
-
-      if (clientRows.rows.length) {
-        const clientId = clientRows.rows[0].id;
-
-        const [inv] = await tx
-          .insert(invoices)
-          .values({
-            tenant_id:  tenantId,
-            client_id:  clientId,
-            total:      sale.total,
-            subtotal:   sale.total,
-            tax_total:  '0',
-            model:      65,
-            nfe_status: 'pending',
-            status:     'draft',
-            serie:      '1',
-          })
-          .returning({ id: invoices.id });
-
-        invoiceId = inv.id;
-      }
-    }
-
-    // ── Step 4 — cash movement ────────────────────────────────────────────────
     const cashPayments = await tx.execute<{ total: string }>(
       sql`SELECT COALESCE(SUM(amount), 0)::text AS total
-          FROM pos_sale_payments
-          WHERE sale_id = ${saleId} AND method = 'cash'`
+          FROM pos_sale_payments WHERE sale_id = ${saleId} AND method = 'cash'`
     );
-
     const cashTotal = parseFloat(cashPayments.rows[0]?.total ?? '0');
-
     if (cashTotal > 0) {
       await tx.insert(posCashMovements).values({
-        tenant_id:  tenantId,
-        session_id: sale.session_id,
-        type:       'sale_cash',
-        amount:     cashTotal.toFixed(2),
-        sale_id:    saleId,
-        created_by: sale.operator_id,
+        tenant_id: tenantId, session_id: sale.session_id,
+        type: 'sale_cash', amount: cashTotal.toFixed(2),
+        sale_id: saleId, created_by: sale.operator_id,
       });
     }
 
-    // ── Step 5 — finalize sale ────────────────────────────────────────────────
     await tx.execute(
       sql`UPDATE pos_sales SET
             status          = 'finalized',
             finalized_at    = NOW(),
             idempotency_key = ${idempotencyKey},
-            invoice_id      = ${invoiceId},
+            focus_ref       = ${saleId},
+            fiscal_status   = 'processando',
             updated_at      = NOW()
           WHERE id = ${saleId}`
     );
-
-    return { invoiceId };
   });
+
+  // NFC-e emission OUTSIDE transaction — failure never rolls back the sale
+  emitirNFCe(saleId, tenantId)
+    .then(async (result) => {
+      await _db.execute(
+        sql`UPDATE pos_sales SET
+              fiscal_status    = ${result.fiscal_status},
+              fiscal_chave     = ${result.fiscal_chave},
+              fiscal_protocol  = ${result.fiscal_protocol},
+              fiscal_number    = ${result.fiscal_number},
+              fiscal_series    = ${result.fiscal_series},
+              fiscal_qrcode    = ${result.fiscal_qrcode},
+              fiscal_url_danfe = ${result.fiscal_url_danfe},
+              fiscal_url_xml   = ${result.fiscal_url_xml},
+              fiscal_message   = ${result.fiscal_message},
+              updated_at       = NOW()
+            WHERE id = ${saleId}`
+      );
+    })
+    .catch((err: unknown) => {
+      console.error('[Focus NF-e] Post-sale emission failed:', err);
+    });
+
+  return { focusRef: saleId };
 }
 
 // ── cancelSale ────────────────────────────────────────────────────────────────
@@ -549,77 +494,58 @@ export async function cancelSale(params: {
 }): Promise<void> {
   const { tenantId, saleId, reason, operatorId } = params;
 
+  // Read before transaction to use for post-transaction Focus cancel
+  const preSaleRows = await _db.execute<{
+    id: string; status: string; focus_ref: string | null; fiscal_status: string;
+    cost_center_id: string | null;
+  }>(
+    sql`SELECT id, status, focus_ref, fiscal_status, cost_center_id
+        FROM pos_sales WHERE id = ${saleId} AND tenant_id = ${tenantId} LIMIT 1`
+  );
+  if (!preSaleRows.rows.length) throw httpError(404, 'Sale not found');
+  const saleSnap = preSaleRows.rows[0];
+
   await _db.transaction(async (tx) => {
-    // Validate sale belongs to tenant (FOR UPDATE)
     const saleRows = await tx.execute<{
-      id: string;
-      status: string;
-      invoice_id: string | null;
-      cost_center_id: string | null;
+      id: string; status: string; cost_center_id: string | null;
     }>(
-      sql`SELECT id, status, invoice_id, cost_center_id
-          FROM pos_sales
-          WHERE id = ${saleId} AND tenant_id = ${tenantId}
+      sql`SELECT id, status, cost_center_id
+          FROM pos_sales WHERE id = ${saleId} AND tenant_id = ${tenantId}
           FOR UPDATE`
     );
-
-    if (!saleRows.rows.length) {
-      throw httpError(404, 'Sale not found');
-    }
-
+    if (!saleRows.rows.length) throw httpError(404, 'Sale not found');
     const sale = saleRows.rows[0];
 
-    // Already cancelled — no-op
-    if (sale.status === 'cancelled') {
-      return;
-    }
+    if (sale.status === 'cancelled') return;
 
     if (sale.status === 'open') {
-      // Simple cancellation — no stock or invoice side-effects
       await tx.execute(
         sql`UPDATE pos_sales SET
-              status       = 'cancelled',
-              cancelled_at = NOW(),
+              status        = 'cancelled',
+              cancelled_at  = NOW(),
               cancel_reason = ${reason},
-              updated_at   = NOW()
+              updated_at    = NOW()
             WHERE id = ${saleId}`
       );
       return;
     }
 
-    // status === 'finalized' — reverse stock and mark invoice
+    // finalized — reverse stock
     if (sale.cost_center_id) {
       const itemsResult = await tx.execute<{
-        product_id: string;
-        quantity: string;
-        unit_price: string;
-      }>(
-        sql`SELECT product_id, quantity, unit_price
-            FROM pos_sale_items WHERE sale_id = ${saleId}`
-      );
+        product_id: string; quantity: string; unit_price: string;
+      }>(sql`SELECT product_id, quantity, unit_price FROM pos_sale_items WHERE sale_id = ${saleId}`);
 
       for (const item of itemsResult.rows) {
         await applyEntry(
           {
-            tenantId,
-            costCenterId: sale.cost_center_id,
-            materialId:   item.product_id,
-            quantity:     Number(item.quantity),
-            unitCost:     parseFloat(item.unit_price),
-            source:       'pos_sale',
-            sourceId:     'cancel:' + saleId,
-            userId:       operatorId,
+            tenantId, costCenterId: sale.cost_center_id, materialId: item.product_id,
+            quantity: Number(item.quantity), unitCost: parseFloat(item.unit_price),
+            source: 'pos_sale', sourceId: 'cancel:' + saleId, userId: operatorId,
           },
           tx as unknown as typeof _db
         );
       }
-    }
-
-    if (sale.invoice_id) {
-      await tx.execute(
-        sql`UPDATE invoices SET nfe_status = 'cancellation_pending'
-            WHERE id = ${sale.invoice_id}`
-      );
     }
 
     await tx.execute(
@@ -631,4 +557,69 @@ export async function cancelSale(params: {
           WHERE id = ${saleId}`
     );
   });
+
+  // Cancel NFC-e via Focus if it was authorized (OUTSIDE transaction)
+  if (saleSnap.status === 'finalized' && saleSnap.fiscal_status === 'autorizado' && saleSnap.focus_ref) {
+    const just = reason.length >= 15 ? reason : reason.padEnd(15, ' ');
+    cancelarNFCe(saleSnap.focus_ref, just)
+      .then(async (result) => {
+        await _db.execute(
+          sql`UPDATE pos_sales SET
+                fiscal_status  = ${result.fiscal_status},
+                fiscal_message = ${result.fiscal_message},
+                updated_at     = NOW()
+              WHERE id = ${saleId}`
+        );
+      })
+      .catch((err: unknown) => {
+        console.error('[Focus NF-e] NFC-e cancellation failed:', err);
+      });
+  }
+}
+
+// ── reemitirFiscal ────────────────────────────────────────────────────────────
+
+export async function reemitirFiscal(params: {
+  tenantId: string;
+  saleId: string;
+}): Promise<void> {
+  const { tenantId, saleId } = params;
+
+  const saleRows = await _db.execute<{
+    id: string; status: string; fiscal_status: string;
+  }>(
+    sql`SELECT id, status, fiscal_status
+        FROM pos_sales WHERE id = ${saleId} AND tenant_id = ${tenantId} LIMIT 1`
+  );
+  if (!saleRows.rows.length) throw httpError(404, 'Sale not found');
+  const sale = saleRows.rows[0];
+
+  if (sale.status !== 'finalized') throw httpError(422, 'Sale is not finalized');
+  if (sale.fiscal_status === 'autorizado') throw httpError(422, 'NFC-e already authorized');
+
+  await _db.execute(
+    sql`UPDATE pos_sales SET fiscal_status = 'processando', focus_ref = ${saleId}, updated_at = NOW()
+        WHERE id = ${saleId}`
+  );
+
+  emitirNFCe(saleId, tenantId)
+    .then(async (result) => {
+      await _db.execute(
+        sql`UPDATE pos_sales SET
+              fiscal_status    = ${result.fiscal_status},
+              fiscal_chave     = ${result.fiscal_chave},
+              fiscal_protocol  = ${result.fiscal_protocol},
+              fiscal_number    = ${result.fiscal_number},
+              fiscal_series    = ${result.fiscal_series},
+              fiscal_qrcode    = ${result.fiscal_qrcode},
+              fiscal_url_danfe = ${result.fiscal_url_danfe},
+              fiscal_url_xml   = ${result.fiscal_url_xml},
+              fiscal_message   = ${result.fiscal_message},
+              updated_at       = NOW()
+            WHERE id = ${saleId}`
+      );
+    })
+    .catch((err: unknown) => {
+      console.error('[Focus NF-e] Re-emission failed:', err);
+    });
 }
