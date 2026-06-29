@@ -189,7 +189,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [p] } = await db.execute<any>(sql`
       SELECT p.*, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email,
-             COALESCE(t.trade_name, t.company_name) AS tenant_name
+             COALESCE(t.trade_name, t.company_name) AS tenant_name, t.logo_url AS issuer_logo
       FROM proposals p
       LEFT JOIN clients c ON c.id = p.client_id
       LEFT JOIN tenants  t ON t.id = p.tenant_id
@@ -220,6 +220,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
         proposal_number: p.number,
         proposal_title:  p.title,
         issuer_name:     p.tenant_name   ?? 'Orquestra ERP',
+        issuer_logo:     p.issuer_logo   ?? '',
         proposal_link:   proposalLink,
         valid_until:     p.valid_until   ?? '',
         total:           Number(p.total).toFixed(2),
