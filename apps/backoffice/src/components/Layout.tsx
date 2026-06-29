@@ -1,5 +1,5 @@
 import { ReactNode, useState, useEffect } from 'react';
-import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
 import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
@@ -129,31 +129,12 @@ function IcoBilling() {
   );
 }
 
-function IcoPosCaixa() {
+function IcoPDV() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M5 5V3h8v2"/><circle cx="9" cy="10" r="2"/>
-    </svg>
-  );
-}
-function IcoPosVenda() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 3h12l-1.5 8H4.5L3 3z"/><circle cx="7" cy="15" r="1"/><circle cx="12" cy="15" r="1"/><path d="M1 1h2"/>
-    </svg>
-  );
-}
-function IcoPosHistory() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="9" r="7"/><path d="M9 5v4l2.5 2.5"/>
-    </svg>
-  );
-}
-function IcoPosTerminals() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="14" height="10" rx="1.5"/><path d="M6 16h6M9 13v3"/>
+      <rect x="2" y="6" width="14" height="10" rx="1.5"/>
+      <path d="M5 6V4a4 4 0 018 0v2"/>
+      <path d="M6 11h6M9 9v4"/>
     </svg>
   );
 }
@@ -185,10 +166,6 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/proposals':   IcoProposals,
   '/reports':     IcoReports,
   '/billing':     IcoBilling,
-  '/pos/caixa':   IcoPosCaixa,
-  '/pos':         IcoPosVenda,
-  '/pos/sales':   IcoPosHistory,
-  '/pos/terminals': IcoPosTerminals,
 };
 
 function TrialBanner({ daysLeft }: { daysLeft: number }) {
@@ -218,8 +195,21 @@ export function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [pdvOpen, setPdvOpen] = useState(() => location.pathname.startsWith('/pos'));
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/pos')) setPdvOpen(true);
+  }, [location.pathname]);
+
+  const PDV_ITEMS = [
+    { to: '/pos/caixa',     label: 'Caixa',     end: false },
+    { to: '/pos',           label: 'Venda',     end: true  },
+    { to: '/pos/sales',     label: 'Histórico', end: false },
+    { to: '/pos/terminals', label: 'Terminais', end: false },
+  ] as const;
 
   useEffect(() => {
     api.get<{ status: string; days_left: number | null; stripe_enabled: boolean }>('/v1/subscription')
@@ -253,10 +243,6 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/billing',     label: t('nav.billing')     },
     { to: '/users',       label: t('nav.users')       },
     { to: '/company',     label: t('nav.company')     },
-    { to: '/pos/caixa',     label: 'Caixa PDV'    },
-    { to: '/pos',           label: 'Venda PDV'    },
-    { to: '/pos/sales',     label: 'Histórico PDV' },
-    { to: '/pos/terminals', label: 'Terminais'    },
   ];
 
   function handleLogout() {
@@ -292,6 +278,40 @@ export function Layout({ children }: { children: ReactNode }) {
               </NavLink>
             );
           })}
+
+          {/* Grupo PDV colapsável */}
+          <button
+            onClick={() => setPdvOpen(o => !o)}
+            className={location.pathname.startsWith('/pos') ? 'active' : ''}
+            style={{ width: '100%', display: 'flex', alignItems: 'center',
+                     justifyContent: 'space-between', background: 'none',
+                     border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="nav-icon"><IcoPDV /></span>
+              <span>PDV</span>
+            </span>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+                 style={{ transform: pdvOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 180ms ease', opacity: 0.6 }}>
+              <path d="M2 4l4 4 4-4"/>
+            </svg>
+          </button>
+
+          {pdvOpen && (
+            <div style={{ marginLeft: 16, borderLeft: '1.5px solid rgba(255,255,255,.1)',
+                          paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {PDV_ITEMS.map(item => (
+                <NavLink key={item.to} to={item.to} end={item.end}
+                         onClick={closeMenu}
+                         className={({ isActive }) => isActive ? 'active' : ''}
+                         style={{ fontSize: 13 }}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
 
         <div className="sidebar-footer">
