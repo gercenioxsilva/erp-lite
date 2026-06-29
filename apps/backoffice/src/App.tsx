@@ -25,6 +25,8 @@ import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
 import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 import { ReportsPage }        from './pages/reports/ReportsPage';
+import { BillingPage }       from './pages/billing/BillingPage';
+import { BillingSuccessPage } from './pages/billing/BillingSuccessPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -48,9 +50,11 @@ function GuardedRoutes() {
         <Route path="/company"     element={<CompanyPage />} />
         <Route path="/contracts"   element={<ContractsPage />} />
         <Route path="/nfse"        element={<NfsePage />} />
-        <Route path="/proposals"   element={<ProposalsPage />} />
-        <Route path="/reports"     element={<ReportsPage />} />
-        <Route path="*"            element={<Navigate to="/dashboard" replace />} />
+        <Route path="/proposals"       element={<ProposalsPage />} />
+        <Route path="/reports"         element={<ReportsPage />} />
+        <Route path="/billing"         element={<BillingPage />} />
+        <Route path="/billing/success" element={<BillingSuccessPage />} />
+        <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
   );

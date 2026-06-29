@@ -1,6 +1,6 @@
 import {
   pgTable, uuid, varchar, text, boolean, timestamp,
-  date, decimal, char, smallint, integer, jsonb,
+  date, decimal, char, smallint, integer, jsonb, numeric,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
@@ -49,6 +49,12 @@ export const tenants = pgTable('tenants', {
   status:       varchar('status', { length: 20 }).notNull().default('trial'),
   plan:         varchar('plan',   { length: 30 }).notNull().default('starter'),
   trial_ends_at: timestamp('trial_ends_at', { withTimezone: true }),
+  // Stripe billing
+  stripe_customer_id:      varchar('stripe_customer_id',      { length: 100 }),
+  stripe_subscription_id:  varchar('stripe_subscription_id',  { length: 100 }),
+  stripe_price_id:         varchar('stripe_price_id',         { length: 100 }),
+  subscription_period_end: timestamp('subscription_period_end', { withTimezone: true }),
+  cancel_at_period_end:    boolean('cancel_at_period_end').notNull().default(false),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -615,4 +621,28 @@ export const proposalItems = pgTable('proposal_items', {
   notes:        text('notes'),
   sort_order:   smallint('sort_order').notNull().default(0),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── plans ─────────────────────────────────────────────────────────────────────
+export const plans = pgTable('plans', {
+  id:                varchar('id',              { length: 50  }).primaryKey(),
+  name:              varchar('name',            { length: 100 }).notNull(),
+  stripe_price_id:   varchar('stripe_price_id', { length: 100 }).notNull().default('price_placeholder'),
+  price_monthly:     numeric('price_monthly',   { precision: 10, scale: 2 }).notNull(),
+  max_users:         smallint('max_users'),
+  max_nfe_per_month: integer('max_nfe_per_month'),
+  max_clients:       integer('max_clients'),
+  features:          jsonb('features').notNull().default('{}'),
+  display_order:     smallint('display_order').notNull().default(0),
+  is_active:         boolean('is_active').notNull().default(true),
+});
+
+// ── billing_events ────────────────────────────────────────────────────────────
+export const billingEvents = pgTable('billing_events', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  stripe_event_id: varchar('stripe_event_id', { length: 100 }).notNull().unique(),
+  event_type:      varchar('event_type',      { length: 100 }).notNull(),
+  payload:         jsonb('payload').notNull(),
+  processed_at:    timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
 });

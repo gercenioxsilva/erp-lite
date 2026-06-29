@@ -10,7 +10,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `plans`, `billing_events`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `tenants.stripe_customer_id`, `tenants.stripe_subscription_id`, `tenants.stripe_price_id`, `tenants.subscription_period_end`, `tenants.cancel_at_period_end`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -42,6 +42,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET /v1/dashboard` · `GET /v1/dashboard/cashflow` — KPIs + fluxo de caixa projetado (próximas 12 semanas)
    - `GET /v1/reports/overdue` — contas a receber vencidas com nome do cliente
    - `GET /v1/reports/top-products?days=30` — ranking de produtos por faturamento
+   - `GET /v1/subscription` — status atual + planos disponíveis (stripe_enabled, status, days_left, plans[])
+   - `POST /v1/subscription/checkout-session` — cria Stripe Checkout Session; retorna `{ url }`
+   - `POST /v1/subscription/portal-session` — cria Stripe Customer Portal Session; retorna `{ url }`
+   - `POST /v1/subscription/webhook` — recebe eventos Stripe (sem JWT; raw body string para verificação de assinatura)
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -108,6 +112,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 28. **lambda-notifications: sempre reimplantar ao adicionar tipos de notificação.** O código do `lambda-notifications` é um container ECR implantado como AWS Lambda. Ao adicionar um novo tipo de notificação, o repositório de container ECR precisa ser reconstruído e o Lambda atualizado com a nova imagem. Sem isso, a mensagem SQS falha e vai ao DLQ.
 
+30. **Stripe webhook: raw body obrigatório para verificação de assinatura.** O endpoint `POST /v1/subscription/webhook` é registrado em plugin Fastify separado (`subscriptionWebhookRoute`) que faz `fastify.addContentTypeParser('application/json', { parseAs: 'string' }, ...)`. O encapsulamento de plugin garante que isso **não afeta** o parser JSON global. Nunca mover esse endpoint para o plugin principal — `stripe.webhooks.constructEvent(rawBody, sig, secret)` falha se o body já foi parseado como objeto.
+
+31. **subscriptionGuard — opt-in via `STRIPE_SECRET_KEY`, não quebra produção.** O middleware `src/middleware/subscriptionGuard.ts` é registrado como `preHandler` global mas **é no-op** quando `STRIPE_SECRET_KEY` não está definida. Tenants existentes com `trial_ends_at IS NULL` sempre passam (backward compatibility). Paths excluídos: `/health`, `/v1/auth/*`, `/v1/subscription/*`, `/v1/public/*`. Nunca remover o check `!isStripeEnabled()` — ele é a garantia de zero impacto em ambientes sem Stripe configurado.
+
 29. **Focus NF-e: `caminho_danfe` retorna path relativo, não URL absoluta.** A função `toAbsoluteUrl` em `services/lambda-fiscal/src/services/nfeService.ts` e `toDanfeAbsoluteUrl` em `InvoicesPage.tsx` convertem o path relativo para URL absoluta usando `https://api.focusnfe.com.br` (prod) ou `https://homologacao.focusnfe.com.br` (homolog). Nunca exibir ou salvar o path relativo sem conversão.
 
 ---
@@ -171,7 +179,13 @@ Infraestrutura (Terraform):
 | Infra | Terraform, GitHub Actions CI/CD, ECS Fargate Spot |
 | Fiscal | Focus NF-e API (`api.focusnfe.com.br` / `homologacao.focusnfe.com.br`) |
 | E-mail | Amazon SES v2, SQS → lambda-notifications |
-| Cobrança | Itaú API v2 OAuth2 `client_credentials` → boleto + PIX |
+| Cobrança Boleto | Itaú API v2 OAuth2 `client_credentials` → boleto + PIX |
+| Cobrança SaaS | Stripe SDK v16 — Checkout hosted, Customer Portal, webhooks HMAC |
+
+**Variáveis de ambiente Stripe (ECS Task Definition — opcionais, opt-in):**
+- `STRIPE_SECRET_KEY` — chave secreta `sk_live_*` (habilita todo o módulo de billing)
+- `STRIPE_WEBHOOK_SECRET` — segredo `whsec_*` do webhook endpoint no Stripe Dashboard
+- `STRIPE_PUBLISHABLE_KEY` — chave pública `pk_live_*` (usada somente no frontend se necessário)
 
 ---
 
@@ -549,12 +563,36 @@ flowchart TD
 | Contratos | `/contracts` | service_contracts, contract_billings |
 | Fornecedores | `/suppliers` | suppliers |
 | Relatórios | `/reports` | receivables (inadimplência), order_items (ranking) |
+| Assinatura | `/billing`, `/billing/success` | plans, billing_events, tenants (stripe cols) |
 | Usuários | `/users` | users |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs |
 
 ---
 
 ## Histórico de versões relevantes
+
+### v13.0 — Stripe Subscription Billing
+
+> **Módulo de Assinatura SaaS com Stripe:**
+> Planos Starter (R$97/mês), Profissional (R$197/mês), Enterprise (R$397/mês).
+> Trial gratuito de 14 dias sem cartão para novos tenants.
+>
+> **Backend:**
+> - Migration `0026_stripe_billing.sql`: 5 colunas em `tenants` (`stripe_customer_id`, `stripe_subscription_id`, `stripe_price_id`, `subscription_period_end`, `cancel_at_period_end`); tabelas `plans` (seed com 3 planos) e `billing_events` (idempotência por `stripe_event_id UNIQUE`).
+> - `src/lib/stripeClient.ts`: singleton lazy, retorna `null` se `STRIPE_SECRET_KEY` ausente (opt-in).
+> - `src/routes/subscription.ts`: `GET /v1/subscription`, `POST /v1/subscription/checkout-session`, `POST /v1/subscription/portal-session`, `POST /v1/subscription/webhook`.
+>   Webhook em plugin separado com `addContentTypeParser('application/json', { parseAs: 'string' })` para raw body (verificação HMAC Stripe).
+> - `src/middleware/subscriptionGuard.ts`: `preHandler` global, no-op se `STRIPE_SECRET_KEY` ausente. Tenants com `trial_ends_at IS NULL` sempre passam (backward compat). 402 em `trial_expired` e `canceled`.
+> - `src/routes/auth.ts`: após criação do tenant, cria Stripe Customer + define `trial_ends_at = NOW()+14d` de forma não-bloqueante (fire-and-forget com `console.warn` em falha).
+>
+> **Frontend:**
+> - `apps/backoffice/src/pages/billing/BillingPage.tsx`: exibe status, planos com preços, botões "Assinar" (→ Checkout) e "Gerenciar Assinatura" (→ Portal).
+> - `apps/backoffice/src/pages/billing/BillingSuccessPage.tsx`: página de confirmação após checkout.
+> - `Layout.tsx`: item de nav "Assinatura" + ícone `IcoBilling`; `TrialBanner` visível quando `stripe_enabled && status === 'trial'`.
+>
+> **Backward compatibility garantida:** sem `STRIPE_SECRET_KEY`, 100% do sistema funciona como antes. Tenants existentes em produção não são afetados.
+>
+> **i18n:** chaves `nav.billing`, `billing.*` adicionadas em `pt-BR.ts` e `en.ts`.
 
 ### v12.0 — Fluxo de Caixa + Histórico 360° + Relatórios + Impressão de Proposta
 
