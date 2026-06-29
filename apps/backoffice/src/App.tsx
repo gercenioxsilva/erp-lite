@@ -33,6 +33,7 @@ import { PosCaixaPage }         from './pages/pos/PosCaixaPage';
 import { PosPage }              from './pages/pos/PosPage';
 import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
+import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -66,6 +67,7 @@ function GuardedRoutes() {
         <Route path="/pos"             element={<PosPage />} />
         <Route path="/pos/sales"       element={<PosHistoryPage />} />
         <Route path="/pos/terminals"   element={<PosTerminalsPage />} />
+        <Route path="/pos/sessions"    element={<PosSessionsPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

@@ -209,6 +209,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/pos',           label: 'Venda',     end: true  },
     { to: '/pos/sales',     label: 'Histórico', end: false },
     { to: '/pos/terminals', label: 'Terminais', end: false },
+    { to: '/pos/sessions',  label: 'Sessões',   end: false },
   ] as const;
 
   useEffect(() => {

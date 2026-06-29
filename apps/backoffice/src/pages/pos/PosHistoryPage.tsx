@@ -23,6 +23,33 @@ interface ListResp {
   per_page: number;
 }
 
+interface SaleItem {
+  id: string;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  discount_amount: string;
+  total: string;
+  unit: string | null;
+}
+
+interface SalePayment {
+  id: string;
+  method: string;
+  amount: string;
+  change_amount: string;
+}
+
+interface SaleDetail extends PosSale {
+  subtotal: string;
+  discount_amount: string;
+  cancel_reason: string | null;
+  finalized_at: string | null;
+  cancelled_at: string | null;
+  items: SaleItem[];
+  payments: SalePayment[];
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const FISCAL_BADGE: Record<string, string> = {
@@ -87,6 +114,8 @@ export function PosHistoryPage() {
   const [cancelTarget, setCancelTarget] = useState<PosSale | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [detailSale, setDetailSale] = useState<SaleDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
   const perPage = 20;
 
@@ -121,6 +150,18 @@ export function PosHistoryPage() {
       setError(err instanceof Error ? err.message : 'Erro ao reemitir fiscal.');
     } finally {
       setReissuing(null);
+    }
+  }
+
+  async function openDetail(id: string) {
+    setLoadingDetail(true);
+    try {
+      const data = await api.get<SaleDetail>(`/v1/pos/sales/${id}`);
+      setDetailSale(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar venda.');
+    } finally {
+      setLoadingDetail(false);
     }
   }
 
@@ -214,7 +255,11 @@ export function PosHistoryPage() {
             </thead>
             <tbody>
               {sales.map(sale => (
-                <tr key={sale.id}>
+                <tr
+                  key={sale.id}
+                  onClick={() => void openDetail(sale.id)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {new Date(sale.created_at).toLocaleString('pt-BR')}
                   </td>
@@ -247,7 +292,7 @@ export function PosHistoryPage() {
                   <td style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted)' }}>
                     {fiscalKey(sale.fiscal_chave)}
                   </td>
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
                       {sale.fiscal_status === 'autorizado' && sale.fiscal_url_danfe && (
                         <a
@@ -287,6 +332,109 @@ export function PosHistoryPage() {
           </table>
         )}
       </div>
+
+      {/* ── Sale Detail Drawer ── */}
+      {(detailSale || loadingDetail) && (
+        <div className="modal-backdrop" onClick={() => setDetailSale(null)}>
+          <div
+            className="modal-dialog"
+            style={{ maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', textAlign: 'left' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {loadingDetail ? (
+              <div className="spinner">Carregando…</div>
+            ) : detailSale && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <h3 style={{ margin: 0 }}>Detalhe da Venda</h3>
+                  <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={() => setDetailSale(null)}>
+                    Fechar
+                  </button>
+                </div>
+
+                {/* Meta */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 13, marginBottom: 20 }}>
+                  <div><span style={{ color: 'var(--muted)' }}>Status </span><span className={saleBadgeClass(detailSale.status)}>{saleBadgeLabel(detailSale.status)}</span></div>
+                  <div><span style={{ color: 'var(--muted)' }}>Fiscal </span><span className={`badge ${FISCAL_BADGE[detailSale.fiscal_status] ?? FISCAL_BADGE['none']}`}>{FISCAL_LABEL[detailSale.fiscal_status] ?? detailSale.fiscal_status}</span></div>
+                  <div><span style={{ color: 'var(--muted)' }}>Cliente: </span>{detailSale.customer_name ?? '—'}</div>
+                  <div><span style={{ color: 'var(--muted)' }}>Data: </span>{new Date(detailSale.created_at).toLocaleString('pt-BR')}</div>
+                  {detailSale.cancel_reason && (
+                    <div style={{ gridColumn: '1/-1', color: 'var(--danger)', fontSize: 12 }}>
+                      Motivo: {detailSale.cancel_reason}
+                    </div>
+                  )}
+                  {detailSale.fiscal_chave && (
+                    <div style={{ gridColumn: '1/-1', fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                      Chave: {detailSale.fiscal_chave}
+                    </div>
+                  )}
+                </div>
+
+                {/* Items */}
+                <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Itens</p>
+                <table style={{ marginBottom: 20 }}>
+                  <thead>
+                    <tr>
+                      <th>Descrição</th>
+                      <th className="text-right" style={{ width: 60 }}>Qtd</th>
+                      <th className="text-right" style={{ width: 90 }}>Unit.</th>
+                      <th className="text-right" style={{ width: 90 }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailSale.items.map(it => (
+                      <tr key={it.id}>
+                        <td style={{ fontSize: 13 }}>{it.description}</td>
+                        <td className="text-right" style={{ fontSize: 13 }}>{Number(it.quantity).toLocaleString('pt-BR')}</td>
+                        <td className="text-right" style={{ fontSize: 13 }}>{BRL.format(Number(it.unit_price))}</td>
+                        <td className="text-right" style={{ fontSize: 13 }}>{BRL.format(Number(it.total))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Payments */}
+                <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Pagamentos</p>
+                <table style={{ marginBottom: 20 }}>
+                  <thead>
+                    <tr>
+                      <th>Método</th>
+                      <th className="text-right" style={{ width: 100 }}>Valor</th>
+                      <th className="text-right" style={{ width: 80 }}>Troco</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailSale.payments.map(p => (
+                      <tr key={p.id}>
+                        <td style={{ fontSize: 13 }}>{PAYMENT_LABELS[p.method] ?? p.method}</td>
+                        <td className="text-right" style={{ fontSize: 13 }}>{BRL.format(Number(p.amount))}</td>
+                        <td className="text-right" style={{ fontSize: 13 }}>{Number(p.change_amount) > 0 ? BRL.format(Number(p.change_amount)) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Totals */}
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', fontSize: 13 }}>
+                  <div style={{ color: 'var(--muted)' }}>Subtotal: {BRL.format(Number(detailSale.subtotal))}</div>
+                  {Number(detailSale.discount_amount) > 0 && (
+                    <div style={{ color: 'var(--danger)' }}>Desconto: −{BRL.format(Number(detailSale.discount_amount))}</div>
+                  )}
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>Total: {BRL.format(Number(detailSale.total))}</div>
+                </div>
+
+                {detailSale.fiscal_url_danfe && (
+                  <div style={{ marginTop: 16 }}>
+                    <a href={detailSale.fiscal_url_danfe} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}>
+                      Abrir DANFE
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Cancel Modal ── */}
       {cancelTarget && (

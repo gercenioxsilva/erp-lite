@@ -75,6 +75,50 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── SESSIONS ──────────────────────────────────────────────────────────────
 
+  // GET /v1/pos/sessions — list sessions (paginated)
+  fastify.get('/pos/sessions', async (request) => {
+    await request.jwtVerify();
+    const tenantId = (request.user as { tenantId: string }).tenantId;
+    const q = request.query as Record<string, string>;
+    const page    = Math.max(1, Number(q.page    ?? 1));
+    const perPage = Math.min(100, Math.max(1, Number(q.per_page ?? 20)));
+    const offset  = (page - 1) * perPage;
+    const status  = q.status ?? null;
+
+    const rows = await db.execute(
+      sql`SELECT
+            s.id, s.status, s.terminal_id, s.operator_id,
+            s.opening_amount, s.opened_at, s.closed_at,
+            s.closing_counted, s.closing_expected, s.difference,
+            t.code AS terminal_code, t.name AS terminal_name,
+            COUNT(*)::int OVER () AS _total,
+            COALESCE(agg.total_sales,   0)::int  AS total_sales,
+            COALESCE(agg.total_revenue, '0.00')  AS total_revenue
+          FROM pos_sessions s
+          LEFT JOIN pos_terminals t ON t.id = s.terminal_id
+          LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int AS total_sales, COALESCE(SUM(total), 0)::text AS total_revenue
+            FROM pos_sales
+            WHERE session_id = s.id AND tenant_id = ${tenantId} AND status = 'finalized'
+          ) agg ON true
+          WHERE s.tenant_id = ${tenantId}
+            ${status ? sql`AND s.status = ${status}` : sql``}
+          ORDER BY s.opened_at DESC
+          LIMIT ${perPage} OFFSET ${offset}`
+    );
+
+    const total = rows.rows.length > 0
+      ? (rows.rows[0] as Record<string, unknown>)._total as number
+      : 0;
+
+    return {
+      data:     rows.rows.map(r => { const { _total: _, ...rest } = r as Record<string, unknown>; return rest; }),
+      total,
+      page,
+      per_page: perPage,
+    };
+  });
+
   // POST /v1/pos/sessions — open session
   fastify.post('/pos/sessions', async (request, reply) => {
     await request.jwtVerify();

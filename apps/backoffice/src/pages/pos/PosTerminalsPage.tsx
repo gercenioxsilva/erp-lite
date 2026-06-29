@@ -7,7 +7,7 @@ interface PosTerminal {
   id: string;
   code: string;
   name: string;
-  location: string | null;
+  nfce_series: number;
   is_active: boolean;
   created_at: string;
 }
@@ -15,10 +15,10 @@ interface PosTerminal {
 interface TerminalForm {
   code: string;
   name: string;
-  location: string;
+  nfce_series: number;
 }
 
-const EMPTY_FORM: TerminalForm = { code: '', name: '', location: '' };
+const EMPTY_FORM: TerminalForm = { code: '', name: '', nfce_series: 1 };
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ export function PosTerminalsPage() {
 
   function openEdit(t: PosTerminal) {
     setEditingId(t.id);
-    setForm({ code: t.code, name: t.name, location: t.location ?? '' });
+    setForm({ code: t.code, name: t.name, nfce_series: t.nfce_series ?? 1 });
     setFormError('');
     setModalOpen(true);
   }
@@ -80,13 +80,13 @@ export function PosTerminalsPage() {
       if (editingId) {
         await api.patch(`/v1/pos/terminals/${editingId}`, {
           name: form.name.trim(),
-          location: form.location.trim() || null,
+          nfce_series: form.nfce_series,
         });
       } else {
         await api.post('/v1/pos/terminals', {
           code: form.code.trim(),
           name: form.name.trim(),
-          location: form.location.trim() || null,
+          nfce_series: form.nfce_series,
         });
       }
       closeModal();
@@ -143,7 +143,7 @@ export function PosTerminalsPage() {
               <tr>
                 <th style={{ width: 120 }}>Código</th>
                 <th>Nome</th>
-                <th>Localização</th>
+                <th style={{ width: 100 }}>Série NFC-e</th>
                 <th style={{ width: 90 }}>Ativo</th>
                 <th style={{ width: 160 }}>Ações</th>
               </tr>
@@ -154,7 +154,7 @@ export function PosTerminalsPage() {
                   <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{t.code}</td>
                   <td style={{ fontWeight: 500 }}>{t.name}</td>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>
-                    {t.location ?? '—'}
+                    {t.nfce_series ?? 1}
                   </td>
                   <td>
                     <span className={`badge ${t.is_active ? 'badge-active' : 'badge-inactive'}`}>
@@ -234,12 +234,13 @@ export function PosTerminalsPage() {
 
               <label>
                 <span style={{ display: 'block', marginBottom: 4, fontSize: 13, fontWeight: 500 }}>
-                  Localização
+                  Série NFC-e
                 </span>
                 <input
-                  value={form.location}
-                  onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  placeholder="ex: Loja Centro"
+                  type="number"
+                  min={1}
+                  value={form.nfce_series}
+                  onChange={e => setForm(f => ({ ...f, nfce_series: Math.max(1, Number(e.target.value)) }))}
                   style={{ width: '100%' }}
                 />
               </label>
