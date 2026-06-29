@@ -129,6 +129,35 @@ function IcoBilling() {
   );
 }
 
+function IcoPosCaixa() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M5 5V3h8v2"/><circle cx="9" cy="10" r="2"/>
+    </svg>
+  );
+}
+function IcoPosVenda() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3h12l-1.5 8H4.5L3 3z"/><circle cx="7" cy="15" r="1"/><circle cx="12" cy="15" r="1"/><path d="M1 1h2"/>
+    </svg>
+  );
+}
+function IcoPosHistory() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="9" r="7"/><path d="M9 5v4l2.5 2.5"/>
+    </svg>
+  );
+}
+function IcoPosTerminals() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="14" height="10" rx="1.5"/><path d="M6 16h6M9 13v3"/>
+    </svg>
+  );
+}
+
 function IcoMenu() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -156,6 +185,10 @@ const NAV_ICONS: Record<string, IconFC> = {
   '/proposals':   IcoProposals,
   '/reports':     IcoReports,
   '/billing':     IcoBilling,
+  '/pos/caixa':   IcoPosCaixa,
+  '/pos':         IcoPosVenda,
+  '/pos/sales':   IcoPosHistory,
+  '/pos/terminals': IcoPosTerminals,
 };
 
 function TrialBanner({ daysLeft }: { daysLeft: number }) {
@@ -220,6 +253,10 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: '/billing',     label: t('nav.billing')     },
     { to: '/users',       label: t('nav.users')       },
     { to: '/company',     label: t('nav.company')     },
+    { to: '/pos/caixa',     label: 'Caixa PDV'    },
+    { to: '/pos',           label: 'Venda PDV'    },
+    { to: '/pos/sales',     label: 'Histórico PDV' },
+    { to: '/pos/terminals', label: 'Terminais'    },
   ];
 
   function handleLogout() {

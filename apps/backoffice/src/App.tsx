@@ -29,6 +29,10 @@ import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
 import { CostCenterDetailPage } from './pages/cost-centers/CostCenterDetailPage';
 import { BillingPage }          from './pages/billing/BillingPage';
 import { BillingSuccessPage }   from './pages/billing/BillingSuccessPage';
+import { PosCaixaPage }         from './pages/pos/PosCaixaPage';
+import { PosPage }              from './pages/pos/PosPage';
+import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
+import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -58,6 +62,10 @@ function GuardedRoutes() {
         <Route path="/cost-centers/:id" element={<CostCenterDetailPage />} />
         <Route path="/billing"         element={<BillingPage />} />
         <Route path="/billing/success" element={<BillingSuccessPage />} />
+        <Route path="/pos/caixa"       element={<PosCaixaPage />} />
+        <Route path="/pos"             element={<PosPage />} />
+        <Route path="/pos/sales"       element={<PosHistoryPage />} />
+        <Route path="/pos/terminals"   element={<PosTerminalsPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
