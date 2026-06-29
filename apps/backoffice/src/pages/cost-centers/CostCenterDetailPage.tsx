@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { EditDrawer, EntryDrawer, AdjustDrawer } from './CostCenterDrawers';
+import type { MaterialOption } from './CostCenterDrawers';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -35,12 +37,6 @@ interface Movement {
   balance_after: number;
 }
 
-interface MaterialOption {
-  id:   string;
-  name: string;
-  sku:  string;
-}
-
 interface StockResp     { data: StockItem[]; total: number; }
 interface MovementResp  { data: Movement[];  total: number; page: number; per_page: number; }
 interface MaterialsResp { data: MaterialOption[]; total: number; }
@@ -53,8 +49,8 @@ interface InsufficientStockError {
 
 // ── Empty forms ────────────────────────────────────────────────────────────────
 
-const EMPTY_EDIT = { name: '', description: '', allow_negative: false, is_active: true };
-const EMPTY_ENTRY = { material_id: '', quantity: '', unit_cost: '', note: '' };
+const EMPTY_EDIT   = { name: '', description: '', allow_negative: false, is_active: true };
+const EMPTY_ENTRY  = { material_id: '', quantity: '', unit_cost: '', note: '' };
 const EMPTY_ADJUST = { material_id: '', target_quantity: '', note: '' };
 
 const EMPTY_MOV_FILTERS = { material_id: '', direction: '', from: '', to: '' };
@@ -83,21 +79,21 @@ export function CostCenterDetailPage() {
   const { t } = useI18n();
 
   // ── Cost center header state ───────────────────────────────────────────────
-  const [cc,           setCc]           = useState<CostCenter | null>(null);
+  const [cc,            setCc]           = useState<CostCenter | null>(null);
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError,   setHeaderError]   = useState('');
 
   // ── Edit drawer state ──────────────────────────────────────────────────────
-  const [editOpen,  setEditOpen]  = useState(false);
-  const [editForm,  setEditForm]  = useState({ ...EMPTY_EDIT });
+  const [editOpen,   setEditOpen]   = useState(false);
+  const [editForm,   setEditForm]   = useState({ ...EMPTY_EDIT });
   const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState('');
+  const [editError,  setEditError]  = useState('');
 
   // ── Tab state ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'stock' | 'movements'>('stock');
 
   // ── Materials (for selects) ────────────────────────────────────────────────
-  const [materials,  setMaterials]  = useState<MaterialOption[]>([]);
+  const [materials, setMaterials] = useState<MaterialOption[]>([]);
 
   // ── Stock tab state ────────────────────────────────────────────────────────
   const [stock,        setStock]        = useState<StockItem[]>([]);
@@ -105,24 +101,24 @@ export function CostCenterDetailPage() {
   const [stockError,   setStockError]   = useState('');
 
   // Entry drawer
-  const [entryOpen,  setEntryOpen]  = useState(false);
-  const [entryForm,  setEntryForm]  = useState({ ...EMPTY_ENTRY });
+  const [entryOpen,   setEntryOpen]   = useState(false);
+  const [entryForm,   setEntryForm]   = useState({ ...EMPTY_ENTRY });
   const [entrySaving, setEntrySaving] = useState(false);
-  const [entryError, setEntryError] = useState('');
+  const [entryError,  setEntryError]  = useState('');
 
   // Adjustment drawer
-  const [adjustOpen,  setAdjustOpen]  = useState(false);
-  const [adjustForm,  setAdjustForm]  = useState({ ...EMPTY_ADJUST });
+  const [adjustOpen,   setAdjustOpen]   = useState(false);
+  const [adjustForm,   setAdjustForm]   = useState({ ...EMPTY_ADJUST });
   const [adjustSaving, setAdjustSaving] = useState(false);
   const [adjustError,  setAdjustError]  = useState('');
 
   // ── Movements tab state ────────────────────────────────────────────────────
-  const [movements,    setMovements]    = useState<Movement[]>([]);
-  const [movTotal,     setMovTotal]     = useState(0);
-  const [movPage,      setMovPage]      = useState(1);
-  const [movLoading,   setMovLoading]   = useState(false);
-  const [movError,     setMovError]     = useState('');
-  const [movFilters,   setMovFilters]   = useState({ ...EMPTY_MOV_FILTERS });
+  const [movements,  setMovements] = useState<Movement[]>([]);
+  const [movTotal,   setMovTotal]  = useState(0);
+  const [movPage,    setMovPage]   = useState(1);
+  const [movLoading, setMovLoading] = useState(false);
+  const [movError,   setMovError]  = useState('');
+  const [movFilters, setMovFilters] = useState({ ...EMPTY_MOV_FILTERS });
 
   const MOV_PER_PAGE = 20;
 
@@ -276,7 +272,6 @@ export function CostCenterDetailPage() {
       void loadStock();
     } catch (err: unknown) {
       const raw = err as { status?: number; message?: string };
-      // Try to parse insufficient_stock error
       if (raw.status === 422) {
         try {
           const parsed: InsufficientStockError = JSON.parse(raw.message ?? '{}');
@@ -341,37 +336,6 @@ export function CostCenterDetailPage() {
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const movTotalPages = Math.ceil(movTotal / MOV_PER_PAGE);
-
-  // ── Material select helper ─────────────────────────────────────────────────
-
-  function MaterialSelect({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-  }) {
-    if (materials.length > 0) {
-      return (
-        <select value={value} onChange={e => onChange(e.target.value)}>
-          <option value="">Selecione um material…</option>
-          {materials.map(m => (
-            <option key={m.id} value={m.id}>
-              {m.sku ? `${m.sku} — ` : ''}{m.name}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    return (
-      <input
-        type="text"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder="ID do material (UUID)…"
-      />
-    );
-  }
 
   // ── Render loading / error header states ───────────────────────────────────
 
@@ -587,9 +551,7 @@ export function CostCenterDetailPage() {
                         <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{fmtDate(mv.occurred_at)}</td>
                         <td style={{ fontWeight: 500 }}>{mv.material_name}</td>
                         <td>
-                          <span
-                            className={`badge badge-${mv.direction === 'in' ? 'service' : 'raw_material'}`}
-                          >
+                          <span className={`badge badge-${mv.direction === 'in' ? 'service' : 'raw_material'}`}>
                             {mv.direction === 'in' ? t('cc.direction.in') : t('cc.direction.out')}
                           </span>
                         </td>
@@ -638,205 +600,36 @@ export function CostCenterDetailPage() {
         </div>
       )}
 
-      {/* ── Drawer: Editar Centro de Custo ────────────────────────────── */}
-      {editOpen && (
-        <div className="overlay" onClick={() => setEditOpen(false)}>
-          <div className="drawer" onClick={e => e.stopPropagation()}>
-            <div className="drawer-header">
-              <h2>Editar Centro de Custo</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setEditOpen(false)}>✕</button>
-            </div>
-
-            <form onSubmit={handleEditSave} noValidate style={{ display: 'contents' }}>
-              <div className="drawer-body">
-                {editError && <div className="alert alert-error" role="alert">{editError}</div>}
-
-                <div className="field">
-                  <label>{t('cc.name')} *</label>
-                  <input
-                    value={editForm.name}
-                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="Ex.: Administração"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label>{t('cc.description')}</label>
-                  <textarea
-                    value={editForm.description}
-                    onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                    rows={3}
-                    placeholder="Descrição opcional…"
-                  />
-                </div>
-
-                <div className="field">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-                    <input
-                      type="checkbox"
-                      checked={editForm.allow_negative}
-                      onChange={e => setEditForm(f => ({ ...f, allow_negative: e.target.checked }))}
-                      style={{ width: 'auto', margin: 0 }}
-                    />
-                    {t('cc.allowNegative')}
-                  </label>
-                </div>
-
-                <div className="field">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-                    <input
-                      type="checkbox"
-                      checked={editForm.is_active}
-                      onChange={e => setEditForm(f => ({ ...f, is_active: e.target.checked }))}
-                      style={{ width: 'auto', margin: 0 }}
-                    />
-                    {t('c.active')}
-                  </label>
-                </div>
-              </div>
-
-              <div className="drawer-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)}>
-                  {t('c.cancel')}
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={editSaving}>
-                  {editSaving ? t('c.saving') : t('c.save')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── Drawer: Entrada de material ───────────────────────────────── */}
-      {entryOpen && (
-        <div className="overlay" onClick={() => setEntryOpen(false)}>
-          <div className="drawer" onClick={e => e.stopPropagation()}>
-            <div className="drawer-header">
-              <h2>{t('cc.entry')}</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setEntryOpen(false)}>✕</button>
-            </div>
-
-            <form onSubmit={handleEntrySubmit} noValidate style={{ display: 'contents' }}>
-              <div className="drawer-body">
-                {entryError && <div className="alert alert-error" role="alert">{entryError}</div>}
-
-                <div className="field">
-                  <label>Material *</label>
-                  <MaterialSelect
-                    value={entryForm.material_id}
-                    onChange={v => setEntryForm(f => ({ ...f, material_id: v }))}
-                  />
-                </div>
-
-                <div className="field">
-                  <label>{t('cc.quantity')} *</label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={entryForm.quantity}
-                    onChange={e => setEntryForm(f => ({ ...f, quantity: e.target.value }))}
-                    placeholder="Ex.: 10"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label>{t('cc.unitCost')} *</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={entryForm.unit_cost}
-                    onChange={e => setEntryForm(f => ({ ...f, unit_cost: e.target.value }))}
-                    placeholder="Ex.: 25.90"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Nota (opcional)</label>
-                  <textarea
-                    value={entryForm.note}
-                    onChange={e => setEntryForm(f => ({ ...f, note: e.target.value }))}
-                    rows={2}
-                    placeholder="Observação sobre a entrada…"
-                  />
-                </div>
-              </div>
-
-              <div className="drawer-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setEntryOpen(false)}>
-                  {t('c.cancel')}
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={entrySaving}>
-                  {entrySaving ? t('c.saving') : 'Registrar Entrada'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── Drawer: Ajuste de inventário ──────────────────────────────── */}
-      {adjustOpen && (
-        <div className="overlay" onClick={() => setAdjustOpen(false)}>
-          <div className="drawer" onClick={e => e.stopPropagation()}>
-            <div className="drawer-header">
-              <h2>{t('cc.adjustment')}</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setAdjustOpen(false)}>✕</button>
-            </div>
-
-            <form onSubmit={handleAdjustSubmit} noValidate style={{ display: 'contents' }}>
-              <div className="drawer-body">
-                {adjustError && <div className="alert alert-error" role="alert">{adjustError}</div>}
-
-                <div className="field">
-                  <label>Material *</label>
-                  <MaterialSelect
-                    value={adjustForm.material_id}
-                    onChange={v => setAdjustForm(f => ({ ...f, material_id: v }))}
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Quantidade alvo *</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={adjustForm.target_quantity}
-                    onChange={e => setAdjustForm(f => ({ ...f, target_quantity: e.target.value }))}
-                    placeholder="Ex.: 50"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Nota (opcional)</label>
-                  <textarea
-                    value={adjustForm.note}
-                    onChange={e => setAdjustForm(f => ({ ...f, note: e.target.value }))}
-                    rows={2}
-                    placeholder="Motivo do ajuste…"
-                  />
-                </div>
-              </div>
-
-              <div className="drawer-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setAdjustOpen(false)}>
-                  {t('c.cancel')}
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={adjustSaving}>
-                  {adjustSaving ? t('c.saving') : 'Registrar Ajuste'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* ── Drawers ───────────────────────────────────────────────────── */}
+      <EditDrawer
+        open={editOpen}
+        form={editForm}
+        saving={editSaving}
+        error={editError}
+        onClose={() => setEditOpen(false)}
+        onChange={setEditForm}
+        onSubmit={handleEditSave}
+      />
+      <EntryDrawer
+        open={entryOpen}
+        form={entryForm}
+        saving={entrySaving}
+        error={entryError}
+        materials={materials}
+        onClose={() => setEntryOpen(false)}
+        onChange={setEntryForm}
+        onSubmit={handleEntrySubmit}
+      />
+      <AdjustDrawer
+        open={adjustOpen}
+        form={adjustForm}
+        saving={adjustSaving}
+        error={adjustError}
+        materials={materials}
+        onClose={() => setAdjustOpen(false)}
+        onChange={setAdjustForm}
+        onSubmit={handleAdjustSubmit}
+      />
     </div>
   );
 }
