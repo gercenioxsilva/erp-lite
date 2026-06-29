@@ -714,6 +714,28 @@ const en: Record<TKey, string> = {
   'l.errNetwork': 'Cannot reach the server. Is Docker running?',
   'l.errServer':  'Internal server error. Please try again shortly.',
 
+  // ── Cost Centers ──────────────────────────────────────────────────────
+  'nav.costCenters':      'Cost Centers',
+  'cc.title':             'Cost Centers',
+  'cc.new':               'New Cost Center',
+  'cc.code':              'Code',
+  'cc.name':              'Name',
+  'cc.description':       'Description',
+  'cc.allowNegative':     'Allow negative balance',
+  'cc.search':            'Search by code or name...',
+  'cc.costCenter':        'Cost Center',
+  'cc.none':              'No cost center',
+  'cc.stock':             'Stock',
+  'cc.movements':         'Movements',
+  'cc.entry':             'Material entry',
+  'cc.adjustment':        'Inventory adjustment',
+  'cc.quantity':          'Quantity',
+  'cc.unitCost':          'Unit cost',
+  'cc.balance':           'Balance',
+  'cc.direction.in':      'In',
+  'cc.direction.out':     'Out',
+  'cc.insufficientStock': 'Insufficient balance in this cost center',
+
   // ── Suppliers ─────────────────────────────────────────────────────────
   'nav.suppliers': 'Suppliers',
 
