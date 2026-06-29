@@ -44,7 +44,7 @@ export function RegisterPage() {
         email:        form.email,
         password:     form.password,
       });
-      navigate('/dashboard');
+      navigate('/billing');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('r.errFailed'));
     } finally {
