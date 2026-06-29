@@ -21,6 +21,8 @@ interface SupplierOption {
   id: string; company_name: string | null; full_name: string | null;
 }
 
+interface CostCenter { id: string; code: string; name: string; }
+
 interface Payment {
   id: string; payment_date: string; amount: string;
   payment_method: string; reference: string | null; notes: string | null;
@@ -62,6 +64,8 @@ export function PayablesPage() {
   const [statusFilter, setStatus] = useState('');
   const [catFilter, setCat]       = useState('');
   const [search, setSearch]       = useState('');
+  const [costCenterFilter, setCostCenterFilter] = useState('');
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [dateFrom, setDateFrom]   = useState('');
   const [dateTo, setDateTo]       = useState('');
   const [loading, setLoading]     = useState(false);
@@ -73,6 +77,7 @@ export function PayablesPage() {
   const [form, setForm]             = useState({
     supplier_id: null as string | null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '',
     recurrence: 'none', recurrence_day: null as number | null, recurrence_end_date: null as string | null,
+    cost_center_id: null as string | null,
   });
   const [suppliersList, setSuppliersList] = useState<SupplierOption[]>([]);
   const [saving, setSaving]         = useState(false);
@@ -88,7 +93,14 @@ export function PayablesPage() {
     if (!tenantId) return;
     loadItems();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo]);
+  }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo, costCenterFilter]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    api.get<any>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
+      .then(d => setCostCenters(d.data ?? []))
+      .catch(() => setCostCenters([]));
+  }, [tenantId]);
 
   useEffect(() => {
     if (!createOpen || !tenantId) return;
@@ -106,6 +118,7 @@ export function PayablesPage() {
       if (search)       qs.set('search', search);
       if (dateFrom)     qs.set('due_date_from', dateFrom);
       if (dateTo)       qs.set('due_date_to', dateTo);
+      if (costCenterFilter) qs.set('cost_center_id', costCenterFilter);
       const data = await api.get<any>(`/v1/payables?${qs}`);
       setItems(data.data); setTotal(data.total);
     } finally { setLoading(false); }
@@ -136,9 +149,10 @@ export function PayablesPage() {
         recurrence:      form.recurrence,
         recurrence_day:  form.recurrence_day || null,
         recurrence_end_date: form.recurrence_end_date || null,
+        cost_center_id: form.cost_center_id || null,
       });
       setCreateOpen(false);
-      setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null });
+      setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null, cost_center_id: null });
       loadItems();
     } catch (err: any) {
       setFormError(err.message || t('pay.errSave'));
@@ -199,7 +213,7 @@ export function PayablesPage() {
           )}>↓ Exportar</button>
           <button className="btn btn-primary btn-cta" onClick={() => {
             setCreateOpen(true); setFormError('');
-            setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null });
+            setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null, cost_center_id: null });
           }}>{t('pay.new')}</button>
         </div>
       </div>
@@ -225,9 +239,16 @@ export function PayablesPage() {
           onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
         <input type="date" title={t('flt.to')} value={dateTo}
           onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ width: 'auto' }} />
-        {(search || statusFilter || catFilter || dateFrom || dateTo) && (
+        <select className="btn btn-secondary" value={costCenterFilter}
+          onChange={e => { setCostCenterFilter(e.target.value); setPage(1); }}>
+          <option value="">{t('cc.costCenter')}: {t('cc.none')}</option>
+          {costCenters.map(cc => (
+            <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+          ))}
+        </select>
+        {(search || statusFilter || catFilter || dateFrom || dateTo || costCenterFilter) && (
           <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-            onClick={() => { setSearch(''); setStatus(''); setCat(''); setDateFrom(''); setDateTo(''); setPage(1); }}>
+            onClick={() => { setSearch(''); setStatus(''); setCat(''); setDateFrom(''); setDateTo(''); setCostCenterFilter(''); setPage(1); }}>
             {t('flt.clear')}
           </button>
         )}
@@ -388,6 +409,15 @@ export function PayablesPage() {
                   <label>{t('pay.notes')}</label>
                   <input type="text" value={form.notes}
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label>{t('cc.costCenter')}</label>
+                  <select value={form.cost_center_id ?? ''} onChange={e => setForm(f => ({ ...f, cost_center_id: e.target.value || null }))}>
+                    <option value="">{t('cc.none')}</option>
+                    {costCenters.map(cc => (
+                      <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="drawer-footer">
