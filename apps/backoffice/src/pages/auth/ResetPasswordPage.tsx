@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { GaxLogo } from '../../components/GaxLogo';
+import { AuthHero } from '../../components/AuthHero';
 import { useI18n } from '../../i18n';
 import { api, ApiError } from '../../lib/api';
 
@@ -34,47 +35,89 @@ export function ResetPasswordPage() {
   }
 
   if (!token) return (
-    <div className="ls-shell" style={{ justifyContent: 'center' }}>
-      <div className="ls-form-panel" style={{ textAlign: 'center' }}>
-        <p>{t('rp.invalidLink')}</p>
-        <Link to="/login">{t('fp.backLogin')}</Link>
-      </div>
+    <div className="ls-shell">
+      <AuthHero />
+      <section className="ls-form-panel">
+        <div className="ls-form-body" style={{ textAlign: 'center' }}>
+          <div className="ls-form-logo">
+            <GaxLogo size="xl" variant="full" theme="light" />
+          </div>
+          <p style={{ color: 'var(--muted)', marginBottom: 16 }}>{t('rp.invalidLink')}</p>
+          <Link to="/login" className="btn btn-primary ls-submit">{t('fp.backLogin')}</Link>
+        </div>
+      </section>
     </div>
   );
 
   return (
-    <div className="ls-shell" style={{ justifyContent: 'center' }}>
-      <div className="ls-form-panel" style={{ maxWidth: 420, width: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <GaxLogo size="xl" variant="full" theme="light" />
-        </div>
-        {done ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-            <h2>{t('rp.doneTitle')}</h2>
-            <p style={{ color: 'var(--muted)' }}>{t('rp.doneMsg')}</p>
+    <div className="ls-shell">
+      <AuthHero />
+
+      <section className="ls-form-panel">
+        <div className="ls-form-body">
+          <div className="ls-form-logo">
+            <GaxLogo size="xl" variant="full" theme="light" />
           </div>
-        ) : (
-          <>
-            <h2 style={{ margin: '0 0 8px' }}>{t('rp.title')}</h2>
-            {error && <div role="alert" className="form-error">{error}</div>}
-            <form onSubmit={handleSubmit} noValidate>
-              <div className="form-group">
-                <label>{t('rp.newPassword')}</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="mínimo 6 caracteres" required minLength={6} autoFocus />
+
+          {done ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }} aria-hidden="true">✅</div>
+              <div className="ls-form-heading">
+                <h2>{t('rp.doneTitle')}</h2>
+                <p>{t('rp.doneMsg')}</p>
               </div>
-              <div className="form-group">
-                <label>{t('rp.confirmPassword')}</label>
-                <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
-                  placeholder="repita a nova senha" required />
+            </div>
+          ) : (
+            <>
+              <div className="ls-form-heading">
+                <h2>{t('rp.title')}</h2>
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }}
-                disabled={loading}>{loading ? t('c.loading') : t('rp.save')}</button>
-            </form>
-          </>
-        )}
-      </div>
+
+              {error && <div className="alert alert-error" role="alert">{error}</div>}
+
+              <form onSubmit={handleSubmit} noValidate>
+                <div className="field">
+                  <label htmlFor="rp-new">{t('rp.newPassword')}</label>
+                  <input
+                    id="rp-new"
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="mínimo 6 caracteres"
+                    required
+                    minLength={6}
+                    autoFocus
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="rp-confirm">{t('rp.confirmPassword')}</label>
+                  <input
+                    id="rp-confirm"
+                    type="password"
+                    value={confirm}
+                    onChange={e => setConfirm(e.target.value)}
+                    placeholder="repita a nova senha"
+                    required
+                    autoComplete="new-password"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn-primary ls-submit"
+                  disabled={loading}
+                >
+                  {loading ? t('c.loading') : t('rp.save')}
+                </button>
+              </form>
+
+              <p className="ls-register-link">
+                <Link to="/login">{t('fp.backLogin')}</Link>
+              </p>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
