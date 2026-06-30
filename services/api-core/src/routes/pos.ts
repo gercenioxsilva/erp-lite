@@ -91,7 +91,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
             s.opening_amount, s.opened_at, s.closed_at,
             s.closing_counted, s.closing_expected, s.difference,
             t.code AS terminal_code, t.name AS terminal_name,
-            COUNT(*)::int OVER () AS _total,
+            (COUNT(*) OVER ())::int AS _total,
             COALESCE(agg.total_sales,   0)::int  AS total_sales,
             COALESCE(agg.total_revenue, '0.00')  AS total_revenue
           FROM pos_sessions s
