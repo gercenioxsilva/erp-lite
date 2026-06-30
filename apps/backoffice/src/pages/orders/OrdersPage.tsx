@@ -66,6 +66,7 @@ export function OrdersPage() {
   /* drawer */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing,    setEditing]    = useState<Order | null>(null);
+  const [viewOnly,   setViewOnly]   = useState(false);
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
 
@@ -142,6 +143,7 @@ export function OrdersPage() {
   /* ── Drawer open helpers ── */
   function openCreate() {
     setEditing(null);
+    setViewOnly(false);
     setFormClientId(''); setFormNotes(''); setFormDiscount('0'); setFormShipping('0');
     setFormCostCenterId('');
     setFormSellerId('');
@@ -152,6 +154,7 @@ export function OrdersPage() {
 
   async function openEdit(o: Order) {
     setEditing(o);
+    setViewOnly(o.status !== 'draft');
     setFormClientId(o.client_id); setFormNotes(o.notes ?? '');
     setFormDiscount(String(o.discount)); setFormShipping(String(o.shipping));
     setFormCostCenterId(o.cost_center_id ?? '');
@@ -345,7 +348,7 @@ export function OrdersPage() {
             </thead>
             <tbody>
               {orders.map(o => (
-                <tr key={o.id}>
+                <tr key={o.id} onClick={() => openEdit(o)} style={{ cursor: 'pointer' }}>
                   <td><code style={{ fontSize: 12 }}>#{o.number}</code></td>
                   <td style={{ fontWeight: 500 }}>{o.client_name}</td>
                   <td>
@@ -357,7 +360,7 @@ export function OrdersPage() {
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {new Date(o.created_at).toLocaleDateString('pt-BR')}
                   </td>
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
                       {o.status === 'draft' && (
                         <>
@@ -412,12 +415,13 @@ export function OrdersPage() {
           <div className="drawer" onClick={e => e.stopPropagation()}
                style={{ width: 'min(820px, 96vw)' }}>
             <div className="drawer-header">
-              <h2>{editing ? t('o.edit') : t('o.new')}</h2>
+              <h2>{viewOnly ? `${t('c.view')} #${editing?.number ?? ''}` : editing ? t('o.edit') : t('o.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
             <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
+                <fieldset disabled={viewOnly} style={{ display: 'contents' }}>
                 {formError && <div className="alert alert-error" role="alert">{formError}</div>}
 
                 {/* Client */}
@@ -596,15 +600,18 @@ export function OrdersPage() {
                     </span>
                   </div>
                 </div>
+                </fieldset>
               </div>
 
               <div className="drawer-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
-                  {t('c.cancel')}
+                  {viewOnly ? t('c.close') : t('c.cancel')}
                 </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                  {saving ? t('c.saving') : editing ? t('o.save') : t('o.create')}
-                </button>
+                {!viewOnly && (
+                  <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
+                    {saving ? t('c.saving') : editing ? t('o.save') : t('o.create')}
+                  </button>
+                )}
               </div>
             </form>
           </div>

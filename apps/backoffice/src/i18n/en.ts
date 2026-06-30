@@ -30,6 +30,7 @@ const en: Record<TKey, string> = {
   'c.del':      'Delete',
   'c.new':      'New',
   'c.close':    'Close',
+  'c.view':     'View',
   'c.saving':   'Saving…',
   'c.loading':  'Loading…',
   'c.empty':    'No results.',
