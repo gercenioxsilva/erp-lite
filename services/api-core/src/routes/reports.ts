@@ -77,4 +77,40 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       days,
     };
   });
+
+  // GET /v1/reports/commissions?from=&to= — Ranking de comissão por vendedor
+  fastify.get('/reports/commissions', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+    const tenantId = (request as any).user.tenantId;
+    const { from, to } = request.query as Record<string, string>;
+
+    const fromFilter = from ? sql`AND ce.created_at >= ${from}::timestamptz` : sql``;
+    const toFilter   = to   ? sql`AND ce.created_at <= ${to}::timestamptz`   : sql``;
+
+    const result = await db.execute<any>(sql`
+      SELECT
+        s.id                                                              AS seller_id,
+        s.name                                                            AS seller_name,
+        COUNT(*) FILTER (WHERE ce.status = 'accrued')                     AS sale_count,
+        COALESCE(SUM(ce.commission_amount) FILTER (WHERE ce.status = 'accrued'),   0) AS total_accrued,
+        COALESCE(SUM(ce.commission_amount) FILTER (WHERE ce.status = 'cancelled'), 0) AS total_cancelled
+      FROM sellers s
+      JOIN commission_entries ce ON ce.seller_id = s.id
+      WHERE s.tenant_id = ${tenantId} ${fromFilter} ${toFilter}
+      GROUP BY s.id, s.name
+      ORDER BY total_accrued DESC
+    `);
+
+    const rows = result.rows.map(r => ({
+      seller_id:       String(r.seller_id),
+      seller_name:     String(r.seller_name),
+      sale_count:      Number(r.sale_count),
+      total_accrued:   Number(r.total_accrued),
+      total_cancelled: Number(r.total_cancelled),
+    }));
+
+    return {
+      rows,
+      total_accrued: rows.reduce((a, r) => a + r.total_accrued, 0),
+    };
+  });
 };

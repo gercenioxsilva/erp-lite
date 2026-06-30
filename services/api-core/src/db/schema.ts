@@ -214,6 +214,8 @@ export const orders = pgTable('orders', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   // Centro de Custo (migration 0026)
   cost_center_id: uuid('cost_center_id'),
+  // Vendedor (migration 0036)
+  seller_id: uuid('seller_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -264,6 +266,8 @@ export const invoices = pgTable('invoices', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   // Centro de Custo (migration 0026)
   cost_center_id: uuid('cost_center_id'),
+  // Vendedor (migration 0036)
+  seller_id: uuid('seller_id'),
 });
 
 // ── invoice_items ─────────────────────────────────────────────────────────────
@@ -837,4 +841,42 @@ export const posSalePayments = pgTable('pos_sale_payments', {
   authorization_code: varchar('authorization_code', { length: 60 }),
   change_amount:      numeric('change_amount', { precision: 14, scale: 2 }).notNull().default('0'),
   created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// sellers + commission_entries  (migration 0036)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── sellers ───────────────────────────────────────────────────────────────────
+export const sellers = pgTable('sellers', {
+  id:                     uuid('id').primaryKey().defaultRandom(),
+  tenant_id:              uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  user_id:                uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  name:                   varchar('name',  { length: 255 }).notNull(),
+  email:                  varchar('email', { length: 255 }),
+  phone:                  varchar('phone', { length: 20  }),
+  document:               varchar('document', { length: 20 }),
+  // 'subtotal' (padrão — pós-desconto, pré-imposto) | 'total'
+  default_commission_pct: decimal('default_commission_pct', { precision: 5,  scale: 2 }).notNull().default('0'),
+  commission_base:        varchar('commission_base', { length: 20 }).notNull().default('subtotal'),
+  is_active:              boolean('is_active').notNull().default(true),
+  created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── commission_entries (ledger — uma linha por NF-e autorizada com vendedor) ───
+export const commissionEntries = pgTable('commission_entries', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  seller_id:         uuid('seller_id').notNull().references(() => sellers.id,  { onDelete: 'cascade' }),
+  invoice_id:        uuid('invoice_id').notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  order_id:          uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+  base_amount:       decimal('base_amount',       { precision: 15, scale: 2 }).notNull(),
+  rate:              decimal('rate',              { precision: 5,  scale: 2 }).notNull(),
+  commission_amount: decimal('commission_amount', { precision: 15, scale: 2 }).notNull(),
+  // 'accrued' | 'cancelled'
+  status:            varchar('status', { length: 20 }).notNull().default('accrued'),
+  idempotency_key:   varchar('idempotency_key', { length: 160 }).notNull(),
+  cancelled_at:      timestamp('cancelled_at', { withTimezone: true }),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

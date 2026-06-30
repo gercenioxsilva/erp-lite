@@ -27,6 +27,8 @@ import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 import { ReportsPage }        from './pages/reports/ReportsPage';
 import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
 import { CostCenterDetailPage } from './pages/cost-centers/CostCenterDetailPage';
+import { SellersPage }       from './pages/sellers/SellersPage';
+import { SellerDetailPage }  from './pages/sellers/SellerDetailPage';
 import { BillingPage }          from './pages/billing/BillingPage';
 import { BillingSuccessPage }   from './pages/billing/BillingSuccessPage';
 import { PosCaixaPage }         from './pages/pos/PosCaixaPage';
@@ -61,6 +63,8 @@ function GuardedRoutes() {
         <Route path="/reports"         element={<ReportsPage />} />
         <Route path="/cost-centers"     element={<CostCentersPage />} />
         <Route path="/cost-centers/:id" element={<CostCenterDetailPage />} />
+        <Route path="/sellers"     element={<SellersPage />} />
+        <Route path="/sellers/:id" element={<SellerDetailPage />} />
         <Route path="/billing"         element={<BillingPage />} />
         <Route path="/billing/success" element={<BillingSuccessPage />} />
         <Route path="/pos/caixa"       element={<PosCaixaPage />} />

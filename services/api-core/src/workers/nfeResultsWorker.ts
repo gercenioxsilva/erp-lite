@@ -4,6 +4,7 @@ import { getSqsClient } from '../lib/sqsClient';
 import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
+import { accrueCommission } from '../services/commissionService';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -162,6 +163,44 @@ async function processResult(result: NfeResultMessage): Promise<void> {
       }
     } catch (stockErr) {
       console.error(JSON.stringify({ event: 'stock_exit_error', invoice_id, error: String(stockErr) }));
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Commission accrual trigger (fire-and-forget, idempotent) ─────────────
+    // Comissão é sempre lançada na autorização da NF-e (regra de negócio do tenant).
+    try {
+      const { rows: commRows } = await db.execute<{
+        seller_id: string | null;
+        order_id:  string | null;
+        subtotal:  string;
+        total:     string;
+      }>(sql`SELECT seller_id, order_id, subtotal, total FROM invoices WHERE id = ${invoice_id}`);
+      const commInvoice = commRows[0];
+
+      if (commInvoice?.seller_id) {
+        const { rows: sellerRows } = await db.execute<{
+          default_commission_pct: string;
+          commission_base:        string;
+        }>(sql`SELECT default_commission_pct, commission_base FROM sellers WHERE id = ${commInvoice.seller_id}`);
+        const seller = sellerRows[0];
+
+        if (seller) {
+          const baseAmount = seller.commission_base === 'total'
+            ? Number(commInvoice.total)
+            : Number(commInvoice.subtotal);
+
+          await accrueCommission({
+            tenantId:  result.tenant_id,
+            sellerId:  commInvoice.seller_id,
+            invoiceId: invoice_id,
+            orderId:   commInvoice.order_id,
+            baseAmount,
+            rate: Number(seller.default_commission_pct),
+          }, db);
+        }
+      }
+    } catch (commErr) {
+      console.error(JSON.stringify({ event: 'commission_accrual_error', invoice_id, error: String(commErr) }));
     }
     // ─────────────────────────────────────────────────────────────────────────
 

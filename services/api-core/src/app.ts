@@ -26,6 +26,7 @@ import { proposalsRoutes }    from './routes/proposals';
 import { publicRoutes }       from './routes/public';
 import { reportsRoutes }      from './routes/reports';
 import { costCentersRoutes }  from './routes/costCenters';
+import { sellersRoutes }      from './routes/sellers';
 import { subscriptionRoutes, subscriptionWebhookRoute } from './routes/subscription';
 import { posRoutes }           from './routes/pos';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
@@ -82,6 +83,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(publicRoutes,             { prefix: '/v1' });
   await app.register(reportsRoutes,            { prefix: '/v1' });
   await app.register(costCentersRoutes,        { prefix: '/v1' });
+  await app.register(sellersRoutes,            { prefix: '/v1' });
   await app.register(subscriptionRoutes,       { prefix: '/v1' });
   await app.register(subscriptionWebhookRoute, { prefix: '/v1' });
   await app.register(posRoutes,                { prefix: '/v1' });
