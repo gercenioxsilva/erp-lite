@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { nfeConfigs } from '../../db/schema';
+import { getIcmsRate } from '../../lib/taxRulesResolver';
 
 const PAYMENT_METHOD_MAP: Record<string, string> = {
   cash:         '01',
@@ -108,6 +109,18 @@ async function buildNfcePayload(saleId: string, tenantId: string): Promise<Recor
 
   const isSimples = cfg.regime_tributario === 1;
 
+  // NFC-e é sempre venda presencial — origem e destino são a mesma UF do emitente.
+  // Resolução de alíquota é fire-and-forget: nunca bloqueia a emissão (mesmo
+  // padrão de tolerância a falha usado no resto deste arquivo).
+  let icmsAliquota = 0;
+  if (!isSimples) {
+    try {
+      icmsAliquota = await getIcmsRate(cfg.uf, cfg.uf, db);
+    } catch (err) {
+      console.warn(`[Focus NF-e] Falha ao resolver alíquota ICMS para UF ${cfg.uf}: ${String(err)}`);
+    }
+  }
+
   const payload: Record<string, unknown> = {
     natureza_operacao: 'Venda a consumidor',
     data_emissao:      new Date().toISOString(),
@@ -143,7 +156,7 @@ async function buildNfcePayload(saleId: string, tenantId: string): Promise<Recor
       icms_modalidade:          isSimples ? undefined : 0,
       icms_csosn:               isSimples ? (it.cst_csosn ?? '102') : undefined,
       icms_cst:                 isSimples ? undefined : (it.cst_csosn ?? '00'),
-      icms_aliquota:            0,
+      icms_aliquota:            isSimples ? undefined : icmsAliquota,
     })),
     pagamentos: payRows.rows.map((p) => ({
       forma_pagamento: PAYMENT_METHOD_MAP[p.method] ?? '99',

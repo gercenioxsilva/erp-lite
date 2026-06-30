@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`, `materials.cfop`, `materials.cst_csosn`, `materials.gtin`; `receivables.pos_sale_id` (FK → `pos_sales`, vincula a venda PDV à conta a receber); `pos_cash_movements.sale_id` (FK → `pos_sales`). Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -50,13 +50,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET|POST|PATCH|DELETE /v1/sellers(/:id)?` · `GET /v1/sellers/active`
    - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
    - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
-   - **PDV/POS:** `GET|POST /v1/pos/terminals(/:id)?` · `PATCH /v1/pos/terminals/:id`
-   - `GET|POST /v1/pos/sessions(/:id)?` · `POST /v1/pos/sessions/:id/close`
-   - `GET|POST /v1/pos/sessions/:id/cash-movements`
-   - `GET|POST /v1/pos/sales(/:id)?` · `POST|PATCH|DELETE /v1/pos/sales/:id/items(/:itemId)?`
-   - `POST /v1/pos/sales/:id/customer` · `POST|DELETE /v1/pos/sales/:id/payments(/:paymentId)?`
-   - `POST /v1/pos/sales/:id/finalize` · `POST /v1/pos/sales/:id/cancel` · `POST /v1/pos/sales/:id/reissue-fiscal`
-   - `GET /v1/pos/products` · `POST /v1/pos/webhook/focus-nfe`
+   - `GET /v1/tax/simples-effective-rate` — alíquota efetiva estimada do Simples Nacional (Anexo I) pelo RBT12 do tenant (informativo)
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -81,7 +75,11 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor.
 
-14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. O frontend chama `POST /v1/tax/calculate` e armazena os valores calculados antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro". IPI é "por fora". Total NF-e = subtotal + ipi_total.
+14. **Cálculo de impostos: usar a pilha fiscal multi-estado (v15.0).** Três camadas separadas, **nunca misturar responsabilidades**:
+    - `taxRulesResolver.ts` — lookup das tabelas centrais de alíquotas (ICMS interno/interestadual, FCP, ST, Simples). Cache em memória de 5 min. Nunca chamar diretamente de rotas — usar via `taxCalculationService.ts`.
+    - `taxEngine.ts` — aritmética pura/stateless: recebe alíquotas JÁ resolvidas, nunca faz I/O. Importar `calculateTaxes()` apenas a partir de `taxCalculationService.ts` ou testes unitários.
+    - `taxCalculationService.ts` — orquestração: resolve alíquotas, determina DIFAL (EC 87/2015) quando `icms_taxpayer='9'` + `consumer_type='1'` + interestadual, e FCP da UF destino.
+    - `POST /v1/tax/calculate` (autenticado via JWT) usa `nfe_configs.uf` como `origin_state` por padrão — nunca mais hardcode `'SP'`. O frontend envia `icms_taxpayer` e `consumer_type` do cliente para DIFAL correto. ICMS/PIS/COFINS/FCP são "por dentro". IPI é "por fora". Total NF-e = subtotal + ipi_total.
 
 15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um manifest list que o AWS Lambda rejeita. Lambda exige Docker Image Manifest V2 Schema 2 single-platform.
 
@@ -117,11 +115,9 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
 
+33. **Motor fiscal multi-estado: tabelas centrais NUNCA editáveis por tenant.** As tabelas `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules` e `tax_simples_nacional_brackets` (migration 0037) são mantidas pela Orquestra (legislação tributária é igual para todos os tenants no mesmo estado). O que É configurável por tenant: `nfe_configs.uf` (UF de origem, obrigatório configurar antes de emitir), `nfe_configs.regime_tributario` (CRT 1/2/3), `tenants.simples_rbt12` (faturamento acumulado 12 meses para cálculo de alíquota efetiva do Simples). **Limitações documentadas desta versão (v15.0):** (a) ICMS-ST: tabela `tax_st_rules` criada, mas sem dados — recomendado integrar provedor de dados fiscais (IOB/TaxWeaver) para populá-la; (b) FCP: tabela criada sem dados — popular por demanda por UF; (c) DIFAL: cálculo simplificado por diferença direta (não usa gross-up do Anexo VI do Convênio 236/2021); (d) Versionamento temporal de alíquotas: não implementado (alíquota corrente no momento da consulta é sempre aplicada — sem lookups por data); (e) Conteúdo de importação (alíquota de 4% — Resolução Senado 13/2012): não implementado. Nunca afirmar que estas limitações não existem; documentar no código e nos changelogs.
+
 32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
-
-33. **PDV: toda venda finalizada reflete em estoque e financeiro — nunca é uma ilha.** `finalizeSale` (`services/api-core/src/services/pos/posSaleService.ts`) baixa o **estoque geral** (`inventory` + `inventory_movements`, `reference_type='pos_sale'`) **sempre**, e o **estoque por centro de custo** (`cost_center_movements`, `source='pos_sale'`) quando o terminal tem `cost_center_id`. Cada forma de pagamento gera uma **conta a receber** vinculada por `receivables.pos_sale_id`: `cash`/`voucher` entram como `paid` (liquidado na hora, com `receivable_payments`); `debit`/`pix`/`credit`/`store_credit` entram como `pending` (a receber do adquirente/cliente, `due_date` por método). O valor do recebível desconta o troco (`change_amount`), então a soma dos recebíveis == `pos_sales.total`. O cancelamento estorna o estoque (`inventory_movements` `return` + `applyEntry` no CC) e marca os recebíveis não-pagos como `cancelled`. Nunca usar `applyExit`/`applyInventoryExit` direto nas rotas — apenas via `posSaleService` dentro da transação.
-
-34. **NFC-e do PDV: emissão síncrona, fora do pipeline SQS/lambda.** Diferente da NF-e/NFS-e (regra 24), a NFC-e do PDV é emitida por chamada HTTP **síncrona** direta ao Focus (`POST /v2/nfce`) em `services/api-core/src/services/fiscal/focusNfe.ts`, **fora** da transação e fire-and-forget, gravando o resultado nas colunas `pos_sales.fiscal_*`. Não cria registro em `invoices`/`nfe_events` nem usa a fila `nfe-requests`. Falha fiscal **nunca** desfaz a venda — estoque e financeiro já foram persistidos na transação.
 
 ---
 
@@ -575,7 +571,6 @@ flowchart TD
 | Materiais | `/materials` | materials, material_images |
 | Estoque | `/stock` | inventory, inventory_movements |
 | Pedidos | `/orders` | orders, order_items |
-| PDV (Ponto de Venda) | `/pos` | pos_sales, pos_sale_items, pos_sale_payments, pos_sessions, pos_terminals, pos_cash_movements (+ reflete em inventory_movements, cost_center_movements, receivables) |
 | Propostas | `/proposals`, `/p/:token` | proposals, proposal_items |
 | Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events |
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
@@ -868,6 +863,30 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 ## Histórico de versões relevantes
 
+### v15.0 — Motor Fiscal Multi-estado (ICMS/FCP/DIFAL/Simples Nacional)
+
+> **Migration 0037_tax_rules.sql:**
+> Cinco tabelas fiscais centrais mantidas pela Orquestra (não editáveis por tenant).
+> `tax_icms_interstate_rates`: 702 registros gerados via regra legal da Resolução do Senado 22/89 (Sul/Sudeste-sem-ES → demais = 7%; outros pares = 12%).
+> `tax_icms_internal_rates`: alíquota "modal" de referência por UF — **revisar com contabilidade antes de produção** (coluna `notes` documenta isso explicitamente).
+> `tax_fcp_rates` e `tax_st_rules`: estrutura criada sem dados — popular por demanda (FCP) e via provedor de dados fiscais (ICMS-ST, ver regra 33).
+> `tax_simples_nacional_brackets`: Anexo I (Comércio), 6 faixas da LC 123/2006 pós-reforma 2018.
+> Colunas novas: `tenants.simples_rbt12`; `invoices.fcp_total`/`icms_difal_total`; `invoice_items.fcp_rate`/`fcp_value`/`icms_difal_value`.
+>
+> **Arquitetura do motor (3 camadas):**
+> `taxRulesResolver.ts` (lookup de alíquotas, cache 5 min) → `taxCalculationService.ts` (orquestração: DIFAL/FCP) → `taxEngine.ts` (aritmética pura/stateless).
+> `POST /v1/tax/calculate` agora é autenticado (regra 4) e usa `nfe_configs.uf` como origem por padrão — nunca mais hardcode `'SP'`.
+>
+> **DIFAL (EC 87/2015):** lançado automaticamente quando venda é interestadual + `client.icms_taxpayer='9'` + `client.consumer_type='1'`. Fórmula simplificada (sem gross-up do Anexo VI). Ver regra 33 para limitações documentadas.
+>
+> **Simples Nacional:** `taxRulesResolver.getSimplesEffectiveRate()` usa fórmula oficial LC 123 e o `tenants.simples_rbt12` configurado em Empresa → Fiscal. Para NF-e: ICMS/PIS/COFINS continuam zerados (correto — impostos no DAS); alíquota efetiva é informativa via `GET /v1/tax/simples-effective-rate`.
+>
+> **Correções incluídas:** `focusNfe.ts` (NFC-e/PDV) parou de mandar `icms_aliquota: 0` fixo — agora resolve via `taxRulesResolver.getIcmsRate(cfg.uf, cfg.uf, db)` (intra-estado, com fallback 0 nunca bloqueante).
+>
+> **Frontend:** `InvoiceNewPage` usa `nfe_configs.uf` como origem real, auto-preenche UF destino pelo estado do cliente, passa `icms_taxpayer`/`consumer_type` para DIFAL correto, e exibe linhas de FCP e DIFAL no Step 5 quando > 0. `CompanyPage → Fiscal`: novo campo RBT12 (Simples Nacional), condicional ao regime CRT=1.
+>
+> **Testes:** 49 novos testes unitários (`taxRulesResolver`, `taxEngine`, `taxCalculationService`, `tax` route).
+
 ### v14.0 — Cadastro de Vendedores + Motor de Comissionamento
 
 > **Vendedores (migration 0036):**
@@ -979,9 +998,7 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | payables | `status` | `'cancelled'` |
 | service_contracts | `status` | `'cancelled'` |
 | proposals | `status` | `'cancelled'` |
-| pos_terminals | `is_active` | `false` |
-| pos_sales | `status` | `'cancelled'` |
-| boleto_events, nfe_events, nfse_events, cost_center_movements, inventory_movements, pos_cash_movements | — | append-only, nunca deletar |
+| boleto_events, nfe_events, nfse_events, cost_center_movements | — | append-only, nunca deletar |
 
 ---
 

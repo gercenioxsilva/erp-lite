@@ -1,18 +1,16 @@
-// São Paulo tax calculation engine — stateless, pure functions.
-// Follows the same separation-of-concerns pattern used by Avalara:
-// compute taxes independently of persistence; callers decide what to store.
+// Motor de cálculo de impostos — stateless, pure functions.
+// Segue o mesmo padrão de separação de responsabilidades do Avalara:
+// calcular impostos independente de persistência ou de I/O; quem chama decide
+// o que fazer com o resultado.
+//
+// Este módulo NÃO resolve alíquotas (isso é responsabilidade de
+// taxRulesResolver.ts + taxCalculationService.ts) — ele só recebe as alíquotas
+// já resolvidas para a operação e faz a aritmética. Mantém o motor puro e
+// testável sem mock de banco.
 
 export type TaxRegime = 'lucro_real' | 'lucro_presumido' | 'simples_nacional' | 'mei';
 
-// ── Rate tables ────────────────────────────────────────────────────────────────
-
-// States that receive 12% ICMS from SP (developed states per CONFAZ convention).
-// All other states (North, Northeast, ES) receive 7%.
-const STATES_12PCT_FROM_SP = new Set([
-  'MG', 'RJ',             // Southeast (ES is treated as 7%)
-  'PR', 'SC', 'RS',       // South
-  'GO', 'MS', 'MT', 'DF', // Center-West
-]);
+// ── Rate tables (somente classificação fiscal, não alíquota) ──────────────────
 
 const PIS_COFINS_BY_REGIME: Record<TaxRegime, { pis: number; cofins: number }> = {
   lucro_presumido:  { pis: 0.65, cofins: 3.00 }, // regime cumulativo (Lei 9.718/98)
@@ -34,7 +32,10 @@ export interface TaxTransaction {
   origin_state:      string; // 2-char UF (e.g. 'SP')
   destination_state: string;
   tax_regime:        TaxRegime;
-  lines:             TaxLine[];
+  icms_rate:          number; // já resolvido (interno ou interestadual) pelo taxCalculationService
+  fcp_rate?:          number; // já resolvido — 0 se a UF de destino não tem FCP configurado
+  icms_difal_rate?:   number; // já resolvido — 0 se a operação não é DIFAL (EC 87/2015)
+  lines:              TaxLine[];
 }
 
 export interface TaxLineResult {
@@ -44,6 +45,11 @@ export interface TaxLineResult {
   icms_base:     number;
   icms_rate:     number;
   icms_value:    number;
+  // FCP — Fundo de Combate à Pobreza, "por dentro" como o ICMS
+  fcp_rate:      number;
+  fcp_value:     number;
+  // ICMS-DIFAL — diferencial de alíquota (EC 87/2015), venda interestadual a não contribuinte
+  icms_difal_value: number;
   // PIS — "por dentro"
   pis_cst:       string;  // CST '01' or '07' for Simples/MEI
   pis_base:      number;
@@ -59,7 +65,7 @@ export interface TaxLineResult {
   ipi_rate:      number;
   ipi_value:     number;
   // Summary
-  embedded_tax_total: number; // ICMS + PIS + COFINS (informational; already inside subtotal)
+  embedded_tax_total: number; // ICMS + FCP + DIFAL + PIS + COFINS (informational; já está dentro do subtotal)
   line_total:         number; // subtotal + ipi_value
 }
 
@@ -68,16 +74,20 @@ export interface TaxResult {
   totals: {
     subtotal:           number;
     icms_total:         number;
+    fcp_total:          number;
+    icms_difal_total:   number;
     pis_total:          number;
     cofins_total:       number;
     ipi_total:          number;
-    embedded_tax_total: number; // icms + pis + cofins combined
+    embedded_tax_total: number;
     grand_total:        number; // subtotal + ipi_total
   };
   applied_rates: {
-    icms:   number;
-    pis:    number;
-    cofins: number;
+    icms:        number;
+    fcp:         number;
+    icms_difal:  number;
+    pis:         number;
+    cofins:      number;
   };
   tax_regime:        TaxRegime;
   origin_state:      string;
@@ -88,13 +98,6 @@ export interface TaxResult {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function icmsRate(origin: string, dest: string): number {
-  if (origin === dest) return 12; // internal operation — SP standard internal rate
-  if (origin === 'SP') return STATES_12PCT_FROM_SP.has(dest) ? 12 : 7;
-  // Non-SP origin: apply same table as reasonable default for MVP
-  return STATES_12PCT_FROM_SP.has(dest) ? 12 : 7;
 }
 
 function icmsCst(regime: TaxRegime, rate: number): string {
@@ -115,22 +118,29 @@ function cofinsCst(regime: TaxRegime): string {
 
 export function calculateTaxes(tx: TaxTransaction): TaxResult {
   const isSimples = tx.tax_regime === 'simples_nacional' || tx.tax_regime === 'mei';
-  const icms      = icmsRate(tx.origin_state, tx.destination_state);
+  const icms      = tx.icms_rate;
+  // FCP e DIFAL não se aplicam a optantes do Simples Nacional nesta versão do
+  // motor — RE 970.821 (Tema 1284/STF, 2024) reconheceu a imunidade do Simples
+  // ao DIFAL interestadual; tratamento de FCP segue a mesma lógica de cautela.
+  const fcpRate   = isSimples ? 0 : (tx.fcp_rate ?? 0);
+  const difalRate = isSimples ? 0 : (tx.icms_difal_rate ?? 0);
   const { pis, cofins } = PIS_COFINS_BY_REGIME[tx.tax_regime] ?? PIS_COFINS_BY_REGIME.lucro_presumido;
 
   const lines: TaxLineResult[] = tx.lines.map(line => {
     const subtotal  = round2(line.quantity * line.unit_price);
     const ipiRate   = line.ipi_rate ?? 0;
 
-    // ICMS/PIS/COFINS are "por dentro" — computed on the gross sale value
-    const icmsValue   = isSimples ? 0 : round2(subtotal * icms   / 100);
+    // ICMS/FCP/DIFAL/PIS/COFINS are "por dentro" — computed on the gross sale value
+    const icmsValue   = isSimples ? 0 : round2(subtotal * icms     / 100);
+    const fcpValue     = isSimples ? 0 : round2(subtotal * fcpRate   / 100);
+    const difalValue   = isSimples ? 0 : round2(subtotal * difalRate / 100);
     const pisValue    = round2(subtotal * pis    / 100);
     const cofinsValue = round2(subtotal * cofins / 100);
 
     // IPI is "por fora" — computed on subtotal then added to the total
     const ipiValue = round2(subtotal * ipiRate / 100);
 
-    const embedded = round2(icmsValue + pisValue + cofinsValue);
+    const embedded = round2(icmsValue + fcpValue + difalValue + pisValue + cofinsValue);
 
     return {
       subtotal,
@@ -138,6 +148,9 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
       icms_base:     subtotal,
       icms_rate:     isSimples ? 0 : icms,
       icms_value:    icmsValue,
+      fcp_rate:      isSimples ? 0 : fcpRate,
+      fcp_value:     fcpValue,
+      icms_difal_value: difalValue,
       pis_cst:       pisCst(tx.tax_regime),
       pis_base:      subtotal,
       pis_rate:      pis,
@@ -154,12 +167,14 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
     };
   });
 
-  const ZERO = { subtotal: 0, icms_total: 0, pis_total: 0, cofins_total: 0,
-                 ipi_total: 0, embedded_tax_total: 0, grand_total: 0 };
+  const ZERO = { subtotal: 0, icms_total: 0, fcp_total: 0, icms_difal_total: 0,
+                 pis_total: 0, cofins_total: 0, ipi_total: 0, embedded_tax_total: 0, grand_total: 0 };
 
   const totals = lines.reduce((acc, l) => ({
     subtotal:           round2(acc.subtotal           + l.subtotal),
     icms_total:         round2(acc.icms_total         + l.icms_value),
+    fcp_total:          round2(acc.fcp_total          + l.fcp_value),
+    icms_difal_total:   round2(acc.icms_difal_total   + l.icms_difal_value),
     pis_total:          round2(acc.pis_total          + l.pis_value),
     cofins_total:       round2(acc.cofins_total       + l.cofins_value),
     ipi_total:          round2(acc.ipi_total          + l.ipi_value),
@@ -170,7 +185,12 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
   return {
     lines,
     totals,
-    applied_rates: { icms: isSimples ? 0 : icms, pis, cofins },
+    applied_rates: {
+      icms:       isSimples ? 0 : icms,
+      fcp:        isSimples ? 0 : fcpRate,
+      icms_difal: isSimples ? 0 : difalRate,
+      pis, cofins,
+    },
     tax_regime:        tx.tax_regime,
     origin_state:      tx.origin_state,
     destination_state: tx.destination_state,

@@ -11,6 +11,7 @@ interface InvoiceItemPayload {
   pis_cst?:  string; pis_base?:  number; pis_rate?:  number; pis_value?:  number;
   cofins_cst?: string; cofins_base?: number; cofins_rate?: number; cofins_value?: number;
   ipi_rate?: number; ipi_value?: number;
+  fcp_rate?: number; fcp_value?: number; icms_difal_value?: number;
 }
 
 export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -84,10 +85,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     const n = (v: unknown) => Number(v) || 0;
     const subtotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.quantity) * n(it.unit_price), 0);
     const icmsTotal   = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.icms_value), 0);
+    const fcpTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.fcp_value), 0);
+    const difalTotal  = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.icms_difal_value), 0);
     const pisTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.pis_value),  0);
     const cofinsTotal = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.cofins_value), 0);
     const ipiTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.ipi_value),  0);
-    const taxTotal    = Math.round((icmsTotal + pisTotal + cofinsTotal) * 100) / 100;
+    const taxTotal    = Math.round((icmsTotal + fcpTotal + difalTotal + pisTotal + cofinsTotal) * 100) / 100;
     const total       = Math.round((subtotal + ipiTotal) * 100) / 100;
 
     const invoice = await db.transaction(async (tx) => {
@@ -98,6 +101,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         status: 'draft',
         tax_regime, origin_state,
         icms_total: String(icmsTotal), pis_total: String(pisTotal), cofins_total: String(cofinsTotal),
+        fcp_total: String(fcpTotal), icms_difal_total: String(difalTotal),
         cost_center_id: cost_center_id || null,
         seller_id: resolvedSellerId,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
@@ -115,6 +119,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
           cofins_cst: it.cofins_cst || null, cofins_base: String(it.cofins_base ?? 0),
           cofins_rate: String(it.cofins_rate ?? 0), cofins_value: String(it.cofins_value ?? 0),
           ipi_rate: String(it.ipi_rate ?? 0), ipi_value: String(it.ipi_value ?? 0),
+          fcp_rate: String(it.fcp_rate ?? 0), fcp_value: String(it.fcp_value ?? 0),
+          icms_difal_value: String(it.icms_difal_value ?? 0),
         } as any);
       }
 

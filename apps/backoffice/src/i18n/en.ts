@@ -245,6 +245,8 @@ const en: Record<TKey, string> = {
   'tax.calculating': 'Calculating…',
   'tax.breakdown':   'Tax Summary',
   'tax.icms':        'ICMS',
+  'tax.fcp':         'FCP',
+  'tax.difal':       'ICMS-DIFAL',
   'tax.pis':         'PIS',
   'tax.cofins':      'COFINS',
   'tax.embedded':    'embedded in price',
@@ -578,6 +580,8 @@ const en: Record<TKey, string> = {
   'comp.nfe.saved':       'NF-e configuration saved successfully.',
   'comp.nfe.errSave':     'Error saving NF-e configuration.',
   'comp.nfe.errRequired': 'CNPJ and Legal Name are required.',
+  'comp.nfe.rbt12':       '12-month accumulated revenue — RBT12 (R$)',
+  'comp.nfe.rbt12Hint':   'Used to estimate the effective Simples Nacional rate (Annex I). Update whenever accumulated revenue changes.',
 
   // ── NFS-e (config) ────────────────────────────────────────────────────
   'comp.nfse.title':              'NFS-e (Service Invoice)',
