@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { GaxLogo } from '../../components/GaxLogo';
+import { AuthHero } from '../../components/AuthHero';
 import { useI18n } from '../../i18n';
 import { api } from '../../lib/api';
 
@@ -25,38 +26,65 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <div className="ls-shell" style={{ justifyContent: 'center' }}>
-      <div className="ls-form-panel" style={{ maxWidth: 420, width: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <GaxLogo size="xl" variant="full" theme="light" />
-        </div>
-        {sent ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✉️</div>
-            <h2 style={{ margin: '0 0 8px' }}>{t('fp.sentTitle')}</h2>
-            <p style={{ color: 'var(--muted)', marginBottom: 24 }}>{t('fp.sentMsg')}</p>
-            <Link to="/login" className="btn btn-primary" style={{ display: 'inline-block' }}>{t('fp.backLogin')}</Link>
+    <div className="ls-shell">
+      <AuthHero />
+
+      <section className="ls-form-panel">
+        <div className="ls-form-body">
+          <div className="ls-form-logo">
+            <GaxLogo size="xl" variant="full" theme="light" />
           </div>
-        ) : (
-          <>
-            <h2 style={{ margin: '0 0 8px' }}>{t('fp.title')}</h2>
-            <p style={{ color: 'var(--muted)', marginBottom: 24 }}>{t('fp.subtitle')}</p>
-            {error && <div role="alert" className="form-error">{error}</div>}
-            <form onSubmit={handleSubmit} noValidate>
-              <div className="form-group">
-                <label>{t('fp.email')}</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="seu@email.com" required autoFocus />
+
+          {sent ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }} aria-hidden="true">✉️</div>
+              <div className="ls-form-heading">
+                <h2>{t('fp.sentTitle')}</h2>
+                <p>{t('fp.sentMsg')}</p>
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }}
-                disabled={loading}>{loading ? t('c.loading') : t('fp.send')}</button>
-            </form>
-            <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <Link to="/login" style={{ color: 'var(--muted)', fontSize: 14 }}>{t('fp.backLogin')}</Link>
+              <Link to="/login" className="btn btn-primary ls-submit" style={{ marginTop: 8 }}>
+                {t('fp.backLogin')}
+              </Link>
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <div className="ls-form-heading">
+                <h2>{t('fp.title')}</h2>
+                <p>{t('fp.subtitle')}</p>
+              </div>
+
+              {error && <div className="alert alert-error" role="alert">{error}</div>}
+
+              <form onSubmit={handleSubmit} noValidate>
+                <div className="field">
+                  <label htmlFor="fp-email">{t('fp.email')}</label>
+                  <input
+                    id="fp-email"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="seu@email.com"
+                    required
+                    autoFocus
+                    autoComplete="username"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn-primary ls-submit"
+                  disabled={loading}
+                >
+                  {loading ? t('c.loading') : t('fp.send')}
+                </button>
+              </form>
+
+              <p className="ls-register-link">
+                <Link to="/login">{t('fp.backLogin')}</Link>
+              </p>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
