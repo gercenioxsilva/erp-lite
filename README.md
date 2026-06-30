@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`, `materials.cfop`, `materials.cst_csosn`, `materials.gtin`; `receivables.pos_sale_id` (FK → `pos_sales`, vincula a venda PDV à conta a receber); `pos_cash_movements.sale_id` (FK → `pos_sales`). Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -50,6 +50,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET|POST|PATCH|DELETE /v1/sellers(/:id)?` · `GET /v1/sellers/active`
    - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
    - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
+   - **PDV/POS:** `GET|POST /v1/pos/terminals(/:id)?` · `PATCH /v1/pos/terminals/:id`
+   - `GET|POST /v1/pos/sessions(/:id)?` · `POST /v1/pos/sessions/:id/close`
+   - `GET|POST /v1/pos/sessions/:id/cash-movements`
+   - `GET|POST /v1/pos/sales(/:id)?` · `POST|PATCH|DELETE /v1/pos/sales/:id/items(/:itemId)?`
+   - `POST /v1/pos/sales/:id/customer` · `POST|DELETE /v1/pos/sales/:id/payments(/:paymentId)?`
+   - `POST /v1/pos/sales/:id/finalize` · `POST /v1/pos/sales/:id/cancel` · `POST /v1/pos/sales/:id/reissue-fiscal`
+   - `GET /v1/pos/products` · `POST /v1/pos/webhook/focus-nfe`
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -111,6 +118,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
 
 32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
+
+33. **PDV: toda venda finalizada reflete em estoque e financeiro — nunca é uma ilha.** `finalizeSale` (`services/api-core/src/services/pos/posSaleService.ts`) baixa o **estoque geral** (`inventory` + `inventory_movements`, `reference_type='pos_sale'`) **sempre**, e o **estoque por centro de custo** (`cost_center_movements`, `source='pos_sale'`) quando o terminal tem `cost_center_id`. Cada forma de pagamento gera uma **conta a receber** vinculada por `receivables.pos_sale_id`: `cash`/`voucher` entram como `paid` (liquidado na hora, com `receivable_payments`); `debit`/`pix`/`credit`/`store_credit` entram como `pending` (a receber do adquirente/cliente, `due_date` por método). O valor do recebível desconta o troco (`change_amount`), então a soma dos recebíveis == `pos_sales.total`. O cancelamento estorna o estoque (`inventory_movements` `return` + `applyEntry` no CC) e marca os recebíveis não-pagos como `cancelled`. Nunca usar `applyExit`/`applyInventoryExit` direto nas rotas — apenas via `posSaleService` dentro da transação.
+
+34. **NFC-e do PDV: emissão síncrona, fora do pipeline SQS/lambda.** Diferente da NF-e/NFS-e (regra 24), a NFC-e do PDV é emitida por chamada HTTP **síncrona** direta ao Focus (`POST /v2/nfce`) em `services/api-core/src/services/fiscal/focusNfe.ts`, **fora** da transação e fire-and-forget, gravando o resultado nas colunas `pos_sales.fiscal_*`. Não cria registro em `invoices`/`nfe_events` nem usa a fila `nfe-requests`. Falha fiscal **nunca** desfaz a venda — estoque e financeiro já foram persistidos na transação.
 
 ---
 
@@ -564,6 +575,7 @@ flowchart TD
 | Materiais | `/materials` | materials, material_images |
 | Estoque | `/stock` | inventory, inventory_movements |
 | Pedidos | `/orders` | orders, order_items |
+| PDV (Ponto de Venda) | `/pos` | pos_sales, pos_sale_items, pos_sale_payments, pos_sessions, pos_terminals, pos_cash_movements (+ reflete em inventory_movements, cost_center_movements, receivables) |
 | Propostas | `/proposals`, `/p/:token` | proposals, proposal_items |
 | Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events |
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
@@ -967,7 +979,9 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | payables | `status` | `'cancelled'` |
 | service_contracts | `status` | `'cancelled'` |
 | proposals | `status` | `'cancelled'` |
-| boleto_events, nfe_events, nfse_events, cost_center_movements | — | append-only, nunca deletar |
+| pos_terminals | `is_active` | `false` |
+| pos_sales | `status` | `'cancelled'` |
+| boleto_events, nfe_events, nfse_events, cost_center_movements, inventory_movements, pos_cash_movements | — | append-only, nunca deletar |
 
 ---
 

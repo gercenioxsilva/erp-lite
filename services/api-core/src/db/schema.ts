@@ -369,6 +369,8 @@ export const receivables = pgTable('receivables', {
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   // Centro de Custo (migration 0026)
   cost_center_id: uuid('cost_center_id'),
+  // Origem PDV (migration 0031) — FK → pos_sales.id (constraint na migration; thunk evita ciclo de definição)
+  pos_sale_id: uuid('pos_sale_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────
@@ -781,7 +783,7 @@ export const posCashMovements = pgTable('pos_cash_movements', {
   type:       posCashMoveTypeEnum('type').notNull(),
   amount:     numeric('amount', { precision: 14, scale: 2 }).notNull(),
   reason:     text('reason'),
-  sale_id:    uuid('sale_id'),
+  sale_id:    uuid('sale_id').references(() => posSales.id, { onDelete: 'set null' }),
   created_by: uuid('created_by').references(() => users.id),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
