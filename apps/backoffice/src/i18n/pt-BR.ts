@@ -1,6 +1,11 @@
 const ptBR = {
   // ── Navegação ──────────────────────────────────────────────────────────
   'nav.dashboard':   'Dashboard',
+  'nav.group.commercial':    'Comercial',
+  'nav.group.inventory':     'Estoque',
+  'nav.group.finance':       'Financeiro',
+  'nav.group.registrations': 'Cadastros',
+  'nav.group.admin':         'Administração',
   'nav.clients':     'Clientes',
   'nav.materials':   'Materiais',
   'nav.stock':       'Estoque',

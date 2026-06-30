@@ -3,6 +3,11 @@ import type { TKey } from './pt-BR';
 const en: Record<TKey, string> = {
   // ── Navigation ────────────────────────────────────────────────────────
   'nav.dashboard':   'Dashboard',
+  'nav.group.commercial':    'Sales',
+  'nav.group.inventory':     'Inventory',
+  'nav.group.finance':       'Finance',
+  'nav.group.registrations': 'Registrations',
+  'nav.group.admin':         'Administration',
   'nav.clients':     'Clients',
   'nav.materials':   'Materials',
   'nav.stock':       'Inventory',

@@ -20,31 +20,10 @@ function IcoClients() {
     </svg>
   );
 }
-function IcoMaterials() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 2L16 5.5v7L9 16 2 12.5v-7L9 2z"/><path d="M9 2v14M2 5.5l7 3.5 7-3.5"/>
-    </svg>
-  );
-}
 function IcoStock() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 12l4-4 3 3 5-7"/><circle cx="15" cy="5" r="1.5"/>
-    </svg>
-  );
-}
-function IcoOrders() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 2h8l2 4H3L5 2z"/><rect x="2" y="6" width="14" height="10" rx="1.5"/><path d="M6 10h6M6 13h4"/>
-    </svg>
-  );
-}
-function IcoInvoices() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="2" width="12" height="14" rx="1.5"/><path d="M6 6h6M6 9h6M6 12h4"/>
     </svg>
   );
 }
@@ -55,39 +34,10 @@ function IcoReceivables() {
     </svg>
   );
 }
-function IcoPayables() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M5 5V3h8v2M6 10h6"/>
-    </svg>
-  );
-}
-function IcoUsers() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7" cy="6" r="3"/><path d="M1 16c0-3.3 2.7-6 6-6"/><circle cx="14" cy="10" r="2.5"/><path d="M11 16c0-1.7 1.3-3 3-3s3 1.3 3 3"/>
-    </svg>
-  );
-}
 function IcoCompany() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 16V6l7-4 7 4v10H2z"/><path d="M7 16v-5h4v5"/>
-    </svg>
-  );
-}
-function IcoContracts() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="2" width="12" height="14" rx="1.5"/><path d="M6 6h6M6 9h4"/><path d="M10 12l2 2 3-3"/>
-    </svg>
-  );
-}
-
-function IcoNfse() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="2" width="12" height="14" rx="1.5"/><path d="M6 6h6M6 9h6"/><path d="M6 12h2"/><circle cx="13" cy="13" r="2.2"/>
     </svg>
   );
 }
@@ -98,37 +48,6 @@ function IcoProposals() {
     </svg>
   );
 }
-function IcoSuppliers() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 14V6l5-4 5 4v8H2z"/><path d="M12 6h4v8h-4"/><path d="M6 14v-3h2v3"/>
-    </svg>
-  );
-}
-function IcoCostCenters() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="14" height="12" rx="2"/><path d="M6 7h2M6 10h2M10 7h2M10 10h2"/><path d="M2 6h14"/>
-    </svg>
-  );
-}
-function IcoReports() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="14" height="14" rx="2"/>
-      <path d="M5 12V9M8 12V7M11 12V5M14 12V8"/>
-    </svg>
-  );
-}
-function IcoBilling() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="4" width="14" height="11" rx="2"/>
-      <path d="M2 8h14M6 12h2M10 12h2"/>
-    </svg>
-  );
-}
-
 function IcoPDV() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -148,25 +67,45 @@ function IcoMenu() {
 }
 
 type IconFC = () => JSX.Element;
-const NAV_ICONS: Record<string, IconFC> = {
-  '/dashboard':   IcoDashboard,
-  '/clients':     IcoClients,
-  '/materials':   IcoMaterials,
-  '/stock':       IcoStock,
-  '/orders':      IcoOrders,
-  '/invoices':    IcoInvoices,
-  '/receivables': IcoReceivables,
-  '/suppliers':    IcoSuppliers,
-  '/cost-centers': IcoCostCenters,
-  '/payables':    IcoPayables,
-  '/users':       IcoUsers,
-  '/company':     IcoCompany,
-  '/contracts':   IcoContracts,
-  '/nfse':        IcoNfse,
-  '/proposals':   IcoProposals,
-  '/reports':     IcoReports,
-  '/billing':     IcoBilling,
-};
+
+/* ── Modelo de navegação: folha (link) OU grupo colapsável ──────────────── */
+interface NavChild { to: string; label: string; end?: boolean }
+interface NavLeaf  { to: string; label: string; icon: IconFC; end?: boolean }
+interface NavGroupDef { id: string; label: string; icon: IconFC; children: NavChild[] }
+type NavEntry = NavLeaf | NavGroupDef;
+const isGroup = (e: NavEntry): e is NavGroupDef => 'children' in e;
+
+/* Grupo colapsável reutilizável — generaliza o antigo bloco PDV (usado por
+   todos os grupos, inclusive o próprio PDV). */
+function NavGroup({ group, open, active, onToggle, closeMenu }: {
+  group: NavGroupDef; open: boolean; active: boolean; onToggle: () => void; closeMenu: () => void;
+}) {
+  const Icon = group.icon;
+  return (
+    <>
+      <button onClick={onToggle} className={`nav-group${active ? ' active' : ''}`}>
+        <span className="nav-icon"><Icon /></span>
+        <span style={{ flex: 1, textAlign: 'left' }}>{group.label}</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+             stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+             style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 180ms ease', opacity: 0.5, flexShrink: 0 }}>
+          <path d="M2 4l4 4 4-4"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="nav-sub">
+          {group.children.map(item => (
+            <NavLink key={item.to} to={item.to} end={item.end} onClick={closeMenu}
+                     className={({ isActive }) => isActive ? 'active' : ''}>
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 function TrialBanner({ daysLeft }: { daysLeft: number }) {
   const { t } = useI18n();
@@ -198,19 +137,62 @@ export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
-  const [pdvOpen, setPdvOpen] = useState(() => location.pathname.startsWith('/pos'));
+  const NAV: NavEntry[] = [
+    { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard },
+    { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
+      { to: '/proposals', label: t('nav.proposals') },
+      { to: '/orders',    label: t('nav.orders')    },
+      { to: '/invoices',  label: t('nav.invoices')  },
+      { to: '/nfse',      label: t('nav.nfse')      },
+    ] },
+    { id: 'pos', label: t('nav.pos'), icon: IcoPDV, children: [
+      { to: '/pos/caixa',     label: 'Caixa'           },
+      { to: '/pos',           label: 'Venda', end: true },
+      { to: '/pos/sales',     label: 'Histórico'       },
+      { to: '/pos/terminals', label: 'Terminais'       },
+      { to: '/pos/sessions',  label: 'Sessões'         },
+    ] },
+    { id: 'inventory', label: t('nav.group.inventory'), icon: IcoStock, children: [
+      { to: '/materials', label: t('nav.materials') },
+      { to: '/stock',     label: t('nav.stock')     },
+      { to: '/suppliers', label: t('nav.suppliers') },
+    ] },
+    { id: 'finance', label: t('nav.group.finance'), icon: IcoReceivables, children: [
+      { to: '/receivables',  label: t('nav.receivables') },
+      { to: '/payables',     label: t('nav.payables')    },
+      { to: '/cost-centers', label: t('nav.costCenters') },
+    ] },
+    { id: 'registrations', label: t('nav.group.registrations'), icon: IcoClients, children: [
+      { to: '/clients',   label: t('nav.clients')   },
+      { to: '/contracts', label: t('nav.contracts') },
+    ] },
+    { id: 'admin', label: t('nav.group.admin'), icon: IcoCompany, children: [
+      { to: '/users',   label: t('nav.users')   },
+      { to: '/company', label: t('nav.company') },
+      { to: '/reports', label: t('nav.reports') },
+      { to: '/billing', label: t('nav.billing') },
+    ] },
+  ];
 
+  const isChildActive = (c: NavChild) =>
+    c.end ? location.pathname === c.to : location.pathname.startsWith(c.to);
+  const isGroupActive = (g: NavGroupDef) => g.children.some(isChildActive);
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const o: Record<string, boolean> = {};
+    NAV.forEach(e => { if (isGroup(e) && isGroupActive(e)) o[e.id] = true; });
+    return o;
+  });
+
+  // Abre automaticamente o grupo da rota atual (sem fechar os demais).
   useEffect(() => {
-    if (location.pathname.startsWith('/pos')) setPdvOpen(true);
+    NAV.forEach(e => {
+      if (isGroup(e) && isGroupActive(e)) {
+        setOpenGroups(prev => (prev[e.id] ? prev : { ...prev, [e.id]: true }));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
-
-  const PDV_ITEMS = [
-    { to: '/pos/caixa',     label: 'Caixa',     end: false },
-    { to: '/pos',           label: 'Venda',     end: true  },
-    { to: '/pos/sales',     label: 'Histórico', end: false },
-    { to: '/pos/terminals', label: 'Terminais', end: false },
-    { to: '/pos/sessions',  label: 'Sessões',   end: false },
-  ] as const;
 
   useEffect(() => {
     api.get<{ status: string; days_left: number | null; stripe_enabled: boolean }>('/v1/subscription')
@@ -225,26 +207,6 @@ export function Layout({ children }: { children: ReactNode }) {
   function closeMenu() {
     setIsMenuOpen(false);
   }
-
-  const NAV = [
-    { to: '/dashboard',   label: t('nav.dashboard')   },
-    { to: '/clients',     label: t('nav.clients')     },
-    { to: '/materials',   label: t('nav.materials')   },
-    { to: '/stock',       label: t('nav.stock')       },
-    { to: '/orders',      label: t('nav.orders')      },
-    { to: '/proposals',   label: t('nav.proposals')   },
-    { to: '/invoices',    label: t('nav.invoices')    },
-    { to: '/receivables', label: t('nav.receivables') },
-    { to: '/suppliers',    label: t('nav.suppliers')    },
-    { to: '/cost-centers', label: t('nav.costCenters') },
-    { to: '/payables',    label: t('nav.payables')    },
-    { to: '/contracts',   label: t('nav.contracts')   },
-    { to: '/nfse',        label: t('nav.nfse')        },
-    { to: '/reports',     label: t('nav.reports')     },
-    { to: '/billing',     label: t('nav.billing')     },
-    { to: '/users',       label: t('nav.users')       },
-    { to: '/company',     label: t('nav.company')     },
-  ];
 
   function handleLogout() {
     logout();
@@ -265,47 +227,33 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV.map(n => {
-            const Icon = NAV_ICONS[n.to];
+          {NAV.map(entry => {
+            if (isGroup(entry)) {
+              return (
+                <NavGroup
+                  key={entry.id}
+                  group={entry}
+                  open={!!openGroups[entry.id]}
+                  active={isGroupActive(entry)}
+                  onToggle={() => setOpenGroups(p => ({ ...p, [entry.id]: !p[entry.id] }))}
+                  closeMenu={closeMenu}
+                />
+              );
+            }
+            const Icon = entry.icon;
             return (
               <NavLink
-                key={n.to}
-                to={n.to}
+                key={entry.to}
+                to={entry.to}
+                end={entry.end}
                 onClick={closeMenu}
                 className={({ isActive }) => isActive ? 'active' : ''}
               >
-                <span className="nav-icon">{Icon && <Icon />}</span>
-                {n.label}
+                <span className="nav-icon"><Icon /></span>
+                {entry.label}
               </NavLink>
             );
           })}
-
-          {/* Grupo PDV colapsável */}
-          <button
-            onClick={() => setPdvOpen(o => !o)}
-            className={`nav-group${location.pathname.startsWith('/pos') ? ' active' : ''}`}
-          >
-            <span className="nav-icon"><IcoPDV /></span>
-            <span style={{ flex: 1, textAlign: 'left' }}>PDV</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                 stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-                 style={{ transform: pdvOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 180ms ease', opacity: 0.5, flexShrink: 0 }}>
-              <path d="M2 4l4 4 4-4"/>
-            </svg>
-          </button>
-
-          {pdvOpen && (
-            <div className="nav-sub">
-              {PDV_ITEMS.map(item => (
-                <NavLink key={item.to} to={item.to} end={item.end}
-                         onClick={closeMenu}
-                         className={({ isActive }) => isActive ? 'active' : ''}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          )}
         </nav>
 
         <div className="sidebar-footer">
