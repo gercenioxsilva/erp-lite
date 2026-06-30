@@ -28,6 +28,7 @@ const ptBR = {
   'c.del':      'Excluir',
   'c.new':      'Novo',
   'c.close':    'Fechar',
+  'c.view':     'Visualizar',
   'c.saving':   'Salvando…',
   'c.loading':  'Carregando…',
   'c.empty':    'Nenhum resultado.',
