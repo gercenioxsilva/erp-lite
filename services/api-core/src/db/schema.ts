@@ -133,6 +133,12 @@ export const materials = pgTable('materials', {
   ncm_code:  varchar('ncm_code',  { length: 10 }),
   tax_group: varchar('tax_group', { length: 50 }),
   weight_kg: decimal('weight_kg', { precision: 10, scale: 3 }),
+  length_cm: decimal('length_cm', { precision: 10, scale: 2 }),
+  width_cm:  decimal('width_cm',  { precision: 10, scale: 2 }),
+  height_cm: decimal('height_cm', { precision: 10, scale: 2 }),
+  cfop:      varchar('cfop',      { length: 4  }),
+  cst_csosn: varchar('cst_csosn', { length: 4  }),
+  gtin:      varchar('gtin',      { length: 14 }),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -150,6 +156,18 @@ export const materialImages = pgTable('material_images', {
   is_cover:    boolean('is_cover').notNull().default(false),
   alt:         text('alt'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── material_components ───────────────────────────────────────────────────────
+// Composição de um kit: liga um material 'kit' às suas peças (componentes).
+export const materialComponents = pgTable('material_components', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  kit_id:       uuid('kit_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  component_id: uuid('component_id').notNull().references(() => materials.id, { onDelete: 'restrict' }),
+  quantity:     decimal('quantity', { precision: 15, scale: 3 }).notNull().default('1'),
+  sort_order:   integer('sort_order').notNull().default(0),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── inventory ─────────────────────────────────────────────────────────────────
@@ -601,6 +619,8 @@ export const proposals = pgTable('proposals', {
   valid_until:          date('valid_until'),
   notes:                text('notes'),
   terms_text:           text('terms_text'),
+  delivery_time:        varchar('delivery_time',  { length: 120 }),
+  payment_method:       varchar('payment_method', { length: 40  }),
   public_token:         varchar('public_token',       { length: 64 }),
   public_viewed_at:     timestamp('public_viewed_at', { withTimezone: true }),
   accepted_at:          timestamp('accepted_at',      { withTimezone: true }),
@@ -650,7 +670,7 @@ export const costCenters = pgTable('cost_centers', {
 
 // ENUMs for cost_center_movements
 export const ccMovementDirectionEnum = pgEnum('cc_movement_direction', ['in', 'out']);
-export const ccMovementSourceEnum    = pgEnum('cc_movement_source',    ['manual_entry', 'adjustment', 'payable', 'order', 'invoice']);
+export const ccMovementSourceEnum    = pgEnum('cc_movement_source',    ['manual_entry', 'adjustment', 'payable', 'order', 'invoice', 'pos_sale']);
 
 export const costCenterStock = pgTable('cost_center_stock', {
   tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id,      { onDelete: 'cascade' }),
@@ -705,4 +725,116 @@ export const billingEvents = pgTable('billing_events', {
   event_type:      varchar('event_type',      { length: 100 }).notNull(),
   payload:         jsonb('payload').notNull(),
   processed_at:    timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PDV / POS  (migration 0029)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const posSessionStatusEnum  = pgEnum('pos_session_status',  ['open', 'closed']);
+export const posSaleStatusEnum     = pgEnum('pos_sale_status',     ['open', 'finalized', 'cancelled']);
+export const posPaymentMethodEnum  = pgEnum('pos_payment_method',  ['cash', 'debit', 'credit', 'pix', 'voucher', 'store_credit']);
+export const posCashMoveTypeEnum   = pgEnum('pos_cash_move_type',  ['opening', 'suprimento', 'sangria', 'sale_cash', 'closing']);
+
+// ── pos_terminals ─────────────────────────────────────────────────────────────
+export const posTerminals = pgTable('pos_terminals', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
+  code:           varchar('code', { length: 20  }).notNull(),
+  name:           varchar('name', { length: 255 }).notNull(),
+  cost_center_id: uuid('cost_center_id').references(() => costCenters.id,        { onDelete: 'set null' }),
+  nfce_series:    integer('nfce_series').notNull().default(1),
+  is_active:      boolean('is_active').notNull().default(true),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── pos_sessions ──────────────────────────────────────────────────────────────
+export const posSessions = pgTable('pos_sessions', {
+  id:               uuid('id').primaryKey().defaultRandom(),
+  tenant_id:        uuid('tenant_id').notNull().references(() => tenants.id,    { onDelete: 'cascade' }),
+  terminal_id:      uuid('terminal_id').notNull().references(() => posTerminals.id),
+  operator_id:      uuid('operator_id').notNull().references(() => users.id),
+  status:           posSessionStatusEnum('status').notNull().default('open'),
+  opened_at:        timestamp('opened_at',  { withTimezone: true }).notNull().defaultNow(),
+  opening_amount:   numeric('opening_amount',   { precision: 14, scale: 2 }).notNull().default('0'),
+  closed_at:        timestamp('closed_at',  { withTimezone: true }),
+  closing_counted:  numeric('closing_counted',  { precision: 14, scale: 2 }),
+  closing_expected: numeric('closing_expected', { precision: 14, scale: 2 }),
+  difference:       numeric('difference',       { precision: 14, scale: 2 }),
+  created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── pos_cash_movements ────────────────────────────────────────────────────────
+export const posCashMovements = pgTable('pos_cash_movements', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
+  session_id: uuid('session_id').notNull().references(() => posSessions.id,  { onDelete: 'cascade' }),
+  type:       posCashMoveTypeEnum('type').notNull(),
+  amount:     numeric('amount', { precision: 14, scale: 2 }).notNull(),
+  reason:     text('reason'),
+  sale_id:    uuid('sale_id'),
+  created_by: uuid('created_by').references(() => users.id),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── pos_sales ─────────────────────────────────────────────────────────────────
+export const posSales = pgTable('pos_sales', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
+  session_id:      uuid('session_id').notNull().references(() => posSessions.id),
+  terminal_id:     uuid('terminal_id').notNull().references(() => posTerminals.id),
+  operator_id:     uuid('operator_id').notNull().references(() => users.id),
+  cost_center_id:  uuid('cost_center_id').references(() => costCenters.id,        { onDelete: 'set null' }),
+  customer_doc:    varchar('customer_doc',  { length: 14  }),
+  customer_name:   varchar('customer_name', { length: 255 }),
+  status:          posSaleStatusEnum('status').notNull().default('open'),
+  subtotal:        numeric('subtotal',        { precision: 14, scale: 2 }).notNull().default('0'),
+  discount_amount: numeric('discount_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+  total:           numeric('total',           { precision: 14, scale: 2 }).notNull().default('0'),
+  focus_ref:        varchar('focus_ref',       { length: 60  }),
+  fiscal_status:    varchar('fiscal_status',    { length: 30  }).notNull().default('none'),
+  fiscal_chave:     varchar('fiscal_chave',     { length: 44  }),
+  fiscal_protocol:  varchar('fiscal_protocol',  { length: 40  }),
+  fiscal_number:    integer('fiscal_number'),
+  fiscal_series:    integer('fiscal_series'),
+  fiscal_qrcode:    text('fiscal_qrcode'),
+  fiscal_url_danfe: text('fiscal_url_danfe'),
+  fiscal_url_xml:   text('fiscal_url_xml'),
+  fiscal_message:   text('fiscal_message'),
+  idempotency_key: varchar('idempotency_key', { length: 160 }),
+  finalized_at:    timestamp('finalized_at',  { withTimezone: true }),
+  cancelled_at:    timestamp('cancelled_at',  { withTimezone: true }),
+  cancel_reason:   text('cancel_reason'),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── pos_sale_items ────────────────────────────────────────────────────────────
+export const posSaleItems = pgTable('pos_sale_items', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  sale_id:         uuid('sale_id').notNull().references(() => posSales.id,     { onDelete: 'cascade' }),
+  product_id:      uuid('product_id').notNull().references(() => materials.id),
+  description:     varchar('description', { length: 255 }).notNull(),
+  quantity:        numeric('quantity',        { precision: 14, scale: 4 }).notNull(),
+  unit_price:      numeric('unit_price',      { precision: 14, scale: 2 }).notNull(),
+  discount_amount: numeric('discount_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+  total:           numeric('total',           { precision: 14, scale: 2 }).notNull(),
+  ncm:             varchar('ncm',       { length: 8 }),
+  cfop:            varchar('cfop',      { length: 4 }),
+  cst_csosn:       varchar('cst_csosn', { length: 4 }),
+  unit:            varchar('unit',      { length: 6 }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── pos_sale_payments ─────────────────────────────────────────────────────────
+export const posSalePayments = pgTable('pos_sale_payments', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  sale_id:            uuid('sale_id').notNull().references(() => posSales.id, { onDelete: 'cascade' }),
+  method:             posPaymentMethodEnum('method').notNull(),
+  amount:             numeric('amount',       { precision: 14, scale: 2 }).notNull(),
+  installments:       integer('installments').notNull().default(1),
+  authorization_code: varchar('authorization_code', { length: 60 }),
+  change_amount:      numeric('change_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

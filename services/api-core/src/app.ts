@@ -27,6 +27,7 @@ import { publicRoutes }       from './routes/public';
 import { reportsRoutes }      from './routes/reports';
 import { costCentersRoutes }  from './routes/costCenters';
 import { subscriptionRoutes, subscriptionWebhookRoute } from './routes/subscription';
+import { posRoutes }           from './routes/pos';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
@@ -83,6 +84,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(costCentersRoutes,        { prefix: '/v1' });
   await app.register(subscriptionRoutes,       { prefix: '/v1' });
   await app.register(subscriptionWebhookRoute, { prefix: '/v1' });
+  await app.register(posRoutes,                { prefix: '/v1' });
 
   app.addHook('preHandler', subscriptionGuard);
 

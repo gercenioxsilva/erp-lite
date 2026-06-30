@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, sql, and } from 'drizzle-orm';
-import { db, orders, orderItems, clients, inventory, inventoryMovements } from '../db';
+import { db, orders, orderItems, clients, inventory, inventoryMovements, materialComponents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 
 interface ItemPayload {
@@ -164,23 +164,36 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     await db.transaction(async (tx) => {
       for (const it of items) {
         if (!it.material_id) continue;
-        const { rows: [inv] } = await tx.execute<{ id: string; quantity: string }>(sql`
-          SELECT id, quantity FROM inventory
-          WHERE tenant_id = ${order.tenant_id} AND material_id = ${it.material_id}
-          FOR UPDATE
-        `);
-        if (!inv) continue;
 
-        const before = Number(inv.quantity);
-        const after  = before - Number(it.quantity);
+        // Se a linha for um kit, expande nos componentes; senão, baixa o próprio material.
+        const comps = await tx.select({
+          component_id: materialComponents.component_id,
+          quantity:     materialComponents.quantity,
+        }).from(materialComponents).where(eq(materialComponents.kit_id, it.material_id));
 
-        await tx.update(inventory).set({ quantity: String(after) }).where(eq(inventory.id, inv.id));
-        await tx.insert(inventoryMovements).values({
-          tenant_id: order.tenant_id, material_id: it.material_id,
-          movement_type: 'out', quantity: it.quantity,
-          quantity_before: String(before), quantity_after: String(after),
-          reason: 'Pedido confirmado', reference_id: id, reference_type: 'order',
-        });
+        const targets = comps.length
+          ? comps.map(c => ({ material_id: c.component_id, qty: Number(it.quantity) * Number(c.quantity) }))
+          : [{ material_id: it.material_id, qty: Number(it.quantity) }];
+
+        for (const tgt of targets) {
+          const { rows: [inv] } = await tx.execute<{ id: string; quantity: string }>(sql`
+            SELECT id, quantity FROM inventory
+            WHERE tenant_id = ${order.tenant_id} AND material_id = ${tgt.material_id}
+            FOR UPDATE
+          `);
+          if (!inv) continue;
+
+          const before = Number(inv.quantity);
+          const after  = before - tgt.qty;
+
+          await tx.update(inventory).set({ quantity: String(after) }).where(eq(inventory.id, inv.id));
+          await tx.insert(inventoryMovements).values({
+            tenant_id: order.tenant_id, material_id: tgt.material_id,
+            movement_type: 'out', quantity: String(tgt.qty),
+            quantity_before: String(before), quantity_after: String(after),
+            reason: 'Pedido confirmado', reference_id: id, reference_type: 'order',
+          });
+        }
       }
       await tx.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, id));
     });

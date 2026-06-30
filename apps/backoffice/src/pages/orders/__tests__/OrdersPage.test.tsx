@@ -28,6 +28,14 @@ vi.mock('../../../i18n', () => ({
   useI18n: () => ({ t, lang: 'pt-BR' }),
 }));
 
+vi.mock('../../../contexts/ModalContext', () => ({
+  useModal: () => ({
+    confirm: vi.fn().mockResolvedValue(false),
+    error:   vi.fn(),
+    success: vi.fn(),
+  }),
+}));
+
 /* ── Fixture data ───────────────────────────────────────────────────────── */
 const EMPTY_ORDERS    = { data: [], total: 0, page: 1, per_page: 20  };
 const EMPTY_CLIENTS   = { data: [], total: 0, page: 1, per_page: 100 };
@@ -203,16 +211,37 @@ describe('OrdersPage — drawer / create form', () => {
     });
   });
 
-  it('populates material select with registered materials', async () => {
+  it('populates material picker with registered materials', async () => {
     setupWithData();
     render(<OrdersPage />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /novo pedido/i }));
-    await waitFor(() => {
-      const materialSelects = screen.getAllByRole('combobox', { name: t('o.material') });
-      expect(materialSelects.length).toBeGreaterThan(0);
-      expect(within(materialSelects[0] as HTMLElement).getByRole('option', { name: /SKU001.*Produto A/ })).toBeInTheDocument();
+    const materialPickers = await screen.findAllByRole('combobox', { name: t('o.material') });
+    expect(materialPickers.length).toBeGreaterThan(0);
+    await user.click(materialPickers[0]);
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).getByRole('option', { name: /SKU001.*Produto A/ })).toBeInTheDocument();
+  });
+
+  it('finds a product by a term that only exists in its description', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('/v1/orders'))    return Promise.resolve(EMPTY_ORDERS);
+      if (url.includes('/v1/clients'))   return Promise.resolve({ data: MOCK_CLIENTS, total: 2, page: 1, per_page: 100 });
+      if (url.includes('/v1/materials'))
+        return Promise.resolve({
+          data: [{ id: 'mat-9', sku: 'XYZ', name: 'Caneca', unit: 'UN', sale_price: 25, description: 'porcelana sublimável 325ml' }],
+          total: 1, page: 1, per_page: 500,
+        });
+      return Promise.resolve({});
     });
+    render(<OrdersPage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /novo pedido/i }));
+    const picker = (await screen.findAllByRole('combobox', { name: t('o.material') }))[0];
+    await user.click(picker);
+    await user.type(picker, 'sublimavel');
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).getByRole('option', { name: /Caneca/ })).toBeInTheDocument();
   });
 
   it('shows error alert when client/material API fails', async () => {
@@ -298,18 +327,17 @@ describe('OrdersPage — item management', () => {
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/v1/orders'))    return Promise.resolve(EMPTY_ORDERS);
       if (url.includes('/v1/clients'))   return Promise.resolve(EMPTY_CLIENTS);
-      if (url.includes('/v1/materials')) return Promise.resolve({ data: MOCK_MATERIALS, total: 2, page: 1, per_page: 100 });
+      if (url.includes('/v1/materials')) return Promise.resolve({ data: MOCK_MATERIALS, total: 2, page: 1, per_page: 500 });
       return Promise.resolve({});
     });
     render(<OrdersPage />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /novo pedido/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: /SKU001.*Produto A/ })).toBeInTheDocument();
-    });
 
-    const matSelect = screen.getAllByRole('combobox', { name: t('o.material') })[0];
-    await user.selectOptions(matSelect as HTMLElement, 'mat-1');
+    const matPicker = (await screen.findAllByRole('combobox', { name: t('o.material') }))[0];
+    await user.click(matPicker);
+    const option = within(screen.getByRole('listbox')).getByRole('option', { name: /SKU001.*Produto A/ });
+    await user.click(option);
 
     // After selecting material, the free-text name input should disappear
     expect(screen.queryByPlaceholderText(t('o.namePH'))).not.toBeInTheDocument();
