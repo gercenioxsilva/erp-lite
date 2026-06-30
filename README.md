@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -47,6 +47,9 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET /v1/cost-centers/:id` · `PATCH /v1/cost-centers/:id` · `DELETE /v1/cost-centers/:id`
    - `GET /v1/cost-centers/:id/stock` · `GET /v1/cost-centers/:id/movements`
    - `POST /v1/cost-centers/:id/entries` · `POST /v1/cost-centers/:id/adjustments`
+   - `GET|POST|PATCH|DELETE /v1/sellers(/:id)?` · `GET /v1/sellers/active`
+   - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
+   - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -106,6 +109,8 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 30. **Centro de Custo: motor de estoque é server-authoritative.** O serviço `costCenterStock.ts` é a única fonte de verdade para saldo de materiais. Toda escrita usa `SELECT FOR UPDATE` dentro de `db.transaction()`. A chave de idempotência tem formato `${source}:${sourceId}:${materialId}` e é UNIQUE por `(tenant_id, idempotency_key)`. Custo médio ponderado usa `toFixed(4)`. Saldo negativo é bloqueado por padrão (HTTP 422) — override por `allow_negative = true` no centro de custo. O gatilho de saída (OUT) é ativado quando `nfe_status = 'authorized'` pelo `nfeResultsWorker`. O estorno é ativado no cancelamento de NF-e autorizada. Nunca chamar `applyEntry`/`applyExit`/`applyAdjustment` diretamente nas rotas — usar apenas via transação existente no serviço.
 
 31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
+
+32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
 
 ---
 
@@ -564,6 +569,7 @@ flowchart TD
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
 | Contas a Receber | `/receivables` | receivables, receivable_payments, boletos |
 | Centro de Custo | `/cost-centers`, `/cost-centers/:id` | cost_centers, cost_center_stock, cost_center_movements |
+| Vendedores / Comissões | `/sellers`, `/sellers/:id` | sellers, commission_entries |
 | Contas a Pagar | `/payables` | payables, payable_payments |
 | Contratos | `/contracts` | service_contracts, contract_billings |
 | Fornecedores | `/suppliers` | suppliers |
@@ -850,6 +856,26 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 ## Histórico de versões relevantes
 
+### v14.0 — Cadastro de Vendedores + Motor de Comissionamento
+
+> **Vendedores (migration 0036):**
+> Novo módulo `sellers`, desacoplado de `users` — login via `user_id` é opcional (representante externo não precisa de acesso ao sistema).
+> `sellers`: `id`, `tenant_id`, `user_id` (nullable), `name`, `email`, `phone`, `document`, `default_commission_pct NUMERIC(5,2)`, `commission_base VARCHAR(20)` (`'subtotal'` ou `'total'` — padrão `'subtotal'`, pós-desconto e pré-imposto), `is_active BOOL DEFAULT true`.
+>
+> **Atribuição de venda:** `orders.seller_id` e `invoices.seller_id` — nullable, `ON DELETE SET NULL`, mesmo padrão de fan-out de `cost_center_id` (v13.0). Não preencher não quebra nenhum pedido/nota existente. `POST /v1/invoices` herda `seller_id` do pedido de origem (`order_id`) quando não informado explicitamente.
+>
+> **Gatilho de comissão — sempre na autorização da NF-e:**
+> - Lançamento: `nfeResultsWorker.ts` chama `accrueCommission()` no mesmo bloco que já faz a baixa de estoque do centro de custo, quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`.
+> - Cancelamento: `POST /v1/invoices/:id/cancel` chama `cancelCommission()` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `status = 'cancelled'` (regra 8).
+>
+> **Motor (`commissionService.ts`):** `accrueCommission`, `cancelCommission`. Idempotência via UNIQUE `(tenant_id, idempotency_key)` com chave `invoice:${invoiceId}` — uma NF-e gera no máximo uma comissão. `commission_amount = round2(base_amount * rate / 100)`.
+>
+> **`commission_entries`** (ledger, nunca deletado): `id`, `tenant_id`, `seller_id`, `invoice_id`, `order_id`, `base_amount`, `rate`, `commission_amount`, `status` (`'accrued'` | `'cancelled'`), `idempotency_key`, `cancelled_at`.
+>
+> **API:** 7 rotas em `sellers.ts` (CRUD + soft-delete + `/active` + `/:id/commissions` extrato) e `GET /v1/reports/commissions` (ranking gerencial por vendedor).
+>
+> **Frontend web:** `SellersPage.tsx` (CRUD list), `SellerDetailPage.tsx` (extrato de comissões com cards de resumo — total a receber / total cancelado). Dropdown de vendedor (opcional) em `OrdersPage.tsx` e `InvoiceNewPage.tsx`.
+
 ### v13.0 — Centro de Custo + Design System UI + NF-e/NFS-e UI Redesign
 
 > **Centro de Custo (migrations 0026 + 0027):**
@@ -934,6 +960,7 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | users | `status` | `'disabled'` |
 | suppliers | `is_active` | `false` |
 | cost_centers | `is_active` | `false` |
+| sellers | `is_active` | `false` |
 | orders | `status` | `'cancelled'` |
 | invoices | `status` | `'cancelled'` |
 | receivables | `status` | `'cancelled'` |

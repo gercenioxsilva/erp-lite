@@ -19,6 +19,7 @@ interface KitComponentRow { component_id: string; quantity: string; sku: string 
 interface OrderOption    { id: string; number: string; client_id: string; client_name: string; status: string; }
 interface CostCenter { id: string; code: string; name: string; }
 interface StockItem  { material_id: string; quantity: number; }
+interface SellerOption { id: string; name: string; }
 
 interface FormItem {
   _key: string; material_id: string; name: string;
@@ -85,6 +86,8 @@ export function InvoiceNewPage() {
   const [costCenters,      setCostCenters]      = useState<CostCenter[]>([]);
   const [formCostCenterId, setFormCostCenterId] = useState('');
   const [ccStock,          setCcStock]          = useState<StockItem[]>([]);
+  const [sellers,          setSellers]          = useState<SellerOption[]>([]);
+  const [formSellerId,     setFormSellerId]     = useState('');
 
   const hasClient = !!formClientId;
   const hasItems  = formItems.some(it => it.name);
@@ -103,13 +106,15 @@ export function InvoiceNewPage() {
       api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
       api.get<{ focus_ambiente: number | null }>(`/v1/nfe-config?tenant_id=${tenantId}`).catch(() => ({ focus_ambiente: null })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
-    ]).then(([cl, mt, or, cfg, cc]) => {
+      api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
+    ]).then(([cl, mt, or, cfg, cc, sl]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
       setMaterials(mt.data ?? []);
       setOrders((or.data ?? []).filter(o => !['cancelled', 'delivered'].includes(o.status)));
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
+      setSellers(Array.isArray(sl) ? sl : []);
     }).catch(() => {/* non-fatal */});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -260,6 +265,7 @@ export function InvoiceNewPage() {
         order_id: formOrderId || undefined, serie: formSerie,
         notes: formNotes || null,
         cost_center_id: formCostCenterId || null,
+        seller_id: formSellerId || undefined,
         tax_regime: formTaxRegime, origin_state: 'SP',
         items: formItems.filter(it => it.name).map(it => {
           const base = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
@@ -342,6 +348,16 @@ export function InvoiceNewPage() {
                 <option value="">{t('cc.none')}</option>
                 {costCenters.map(cc => (
                   <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="inv-seller">{t('sel.seller')}</label>
+              <select id="inv-seller" value={formSellerId}
+                onChange={e => setFormSellerId(e.target.value)}>
+                <option value="">{t('sel.none')}</option>
+                {sellers.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </div>

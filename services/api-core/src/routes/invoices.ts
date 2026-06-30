@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
-import { db, invoices, invoiceItems, receivables } from '../db';
+import { db, invoices, invoiceItems, receivables, orders } from '../db';
 import { applyEntry } from '../services/costCenterStock';
+import { cancelCommission } from '../services/commissionService';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -45,7 +46,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT i.id, i.number, i.serie, i.status, i.issue_date,
                i.subtotal, i.total, i.notes, i.order_id, i.created_at,
-               i.nfe_status, i.nfe_chave, i.nfe_reject_reason, i.cost_center_id,
+               i.nfe_status, i.nfe_chave, i.nfe_reject_reason, i.cost_center_id, i.seller_id,
                COALESCE(c.company_name, c.full_name) AS client_name,
                o.number AS order_number
         FROM invoices i
@@ -69,9 +70,16 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/invoices', async (request, reply) => {
     const body = request.body as any;
     const { tenant_id, client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id } = body;
     if (!tenant_id || !client_id) return reply.badRequest('tenant_id and client_id are required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
+
+    // Herda o vendedor do pedido de origem quando não informado explicitamente
+    let resolvedSellerId: string | null = seller_id || null;
+    if (!resolvedSellerId && order_id) {
+      const [ord] = await db.select({ seller_id: orders.seller_id }).from(orders).where(eq(orders.id, order_id));
+      resolvedSellerId = ord?.seller_id ?? null;
+    }
 
     const n = (v: unknown) => Number(v) || 0;
     const subtotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.quantity) * n(it.unit_price), 0);
@@ -91,6 +99,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         tax_regime, origin_state,
         icms_total: String(icmsTotal), pis_total: String(pisTotal), cofins_total: String(cofinsTotal),
         cost_center_id: cost_center_id || null,
+        seller_id: resolvedSellerId,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
       for (const it of items as InvoiceItemPayload[]) {
@@ -232,6 +241,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         }
       } catch (stockErr) {
         console.error(JSON.stringify({ event: 'stock_estorno_error', invoice_id: id, error: String(stockErr) }));
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Commission cancellation (fire-and-forget, idempotent) ────────────────
+    // Sem efeito se a nota não tinha vendedor atribuído ou comissão já cancelada.
+    if (wasAuthorized && invoice.tenant_id) {
+      try {
+        await cancelCommission({ tenantId: invoice.tenant_id, invoiceId: id }, db);
+      } catch (commErr) {
+        console.error(JSON.stringify({ event: 'commission_cancel_error', invoice_id: id, error: String(commErr) }));
       }
     }
     // ─────────────────────────────────────────────────────────────────────────

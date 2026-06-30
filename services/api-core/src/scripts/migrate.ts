@@ -65,6 +65,7 @@ const migrations = [
   '0033_proposal_terms.sql',
   '0034_pos.sql',
   '0035_pos_fiscal_fix.sql',
+  '0036_sellers.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

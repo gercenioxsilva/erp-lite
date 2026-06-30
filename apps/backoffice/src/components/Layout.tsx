@@ -161,6 +161,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/receivables',  label: t('nav.receivables') },
       { to: '/payables',     label: t('nav.payables')    },
       { to: '/cost-centers', label: t('nav.costCenters') },
+      { to: '/sellers',      label: t('nav.sellers')     },
     ] },
     { id: 'registrations', label: t('nav.group.registrations'), icon: IcoClients, children: [
       { to: '/clients',   label: t('nav.clients')   },
