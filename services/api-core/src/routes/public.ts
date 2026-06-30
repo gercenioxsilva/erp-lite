@@ -27,7 +27,8 @@ export const publicRoutes: FastifyPluginAsync = async (fastify) => {
              t.neighborhood AS issuer_neighborhood, t.city AS issuer_city, t.state AS issuer_state,
              t.postal_code AS issuer_zip, t.phone AS issuer_phone, t.website AS issuer_website,
              COALESCE(t.fiscal_contact_email, t.purchasing_contact_email) AS issuer_email,
-             t.logo_url AS issuer_logo
+             t.logo_url AS issuer_logo, t.state_reg AS issuer_state_reg,
+             t.proposal_banner_url AS issuer_banner
       FROM proposals p
       LEFT JOIN clients c ON c.id = p.client_id
       LEFT JOIN tenants  t ON t.id = p.tenant_id
@@ -52,8 +53,16 @@ export const publicRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { rows: items } = await db.execute<any>(sql`
-      SELECT name, sku, unit, quantity, unit_price, discount_pct, total, notes
-      FROM proposal_items WHERE proposal_id = ${p.id} ORDER BY sort_order, created_at
+      SELECT pi.name, pi.sku, pi.unit, pi.quantity, pi.unit_price, pi.discount_pct, pi.total, pi.notes,
+             mi.image_data AS image_url
+      FROM proposal_items pi
+      LEFT JOIN LATERAL (
+        SELECT image_data FROM material_images
+        WHERE material_id = pi.material_id
+        ORDER BY is_cover DESC, position ASC
+        LIMIT 1
+      ) mi ON true
+      WHERE pi.proposal_id = ${p.id} ORDER BY pi.sort_order, pi.created_at
     `);
 
     return {
@@ -84,13 +93,16 @@ export const publicRoutes: FastifyPluginAsync = async (fastify) => {
         discount_pct: Number(it.discount_pct),
         total:        Number(it.total),
         notes:        it.notes,
+        image_url:    it.image_url || null,
       })),
       issuer: {
         name:        p.issuer_name || 'Empresa',
         company:     p.issuer_company || null,
         logo_url:    p.issuer_logo || null,
+        banner_url:  p.issuer_banner || null,
         document:    p.issuer_tax_id || null,
         document_type: p.issuer_tax_id_type || 'CNPJ',
+        state_reg:   p.issuer_state_reg || null,
         email:       p.issuer_email || null,
         phone:       p.issuer_phone || null,
         website:     p.issuer_website || null,

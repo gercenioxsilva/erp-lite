@@ -70,6 +70,7 @@ export function ProposalsPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing,    setEditing]    = useState<ProposalDetail | null>(null);
+  const [viewOnly,   setViewOnly]   = useState(false);
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
 
@@ -126,6 +127,7 @@ export function ProposalsPage() {
 
   function openCreate() {
     setEditing(null);
+    setViewOnly(false);
     setFormTitle(''); setFormClientId(''); setFormValidUntil('');
     setFormNotes(''); setFormTerms(''); setFormDelivery(''); setFormPayment('');
     setFormDiscount('0'); setFormShipping('0');
@@ -136,6 +138,7 @@ export function ProposalsPage() {
 
   async function openEdit(p: Proposal) {
     setFormError('');
+    setViewOnly(p.status !== 'draft');
     setDrawerOpen(true);
     try {
       const detail = await api.get<ProposalDetail>(`/v1/proposals/${p.id}`);
@@ -378,7 +381,7 @@ export function ProposalsPage() {
             </thead>
             <tbody>
               {proposals.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={() => openEdit(p)} style={{ cursor: 'pointer' }}>
                   <td><code style={{ fontSize: 12 }}>#{p.number}</code></td>
                   <td style={{ fontWeight: 500 }}>{p.title}</td>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{p.client_name ?? '—'}</td>
@@ -389,7 +392,7 @@ export function ProposalsPage() {
                       {t(`prop.${p.status}` as TKey)}
                     </span>
                   </td>
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
                       {p.status === 'draft' && (
                         <>
@@ -478,12 +481,13 @@ export function ProposalsPage() {
           <div className="drawer" onClick={e => e.stopPropagation()}
                style={{ width: 'min(860px, 96vw)' }}>
             <div className="drawer-header">
-              <h2>{editing ? t('c.edit') + ' ' + t('prop.title') : t('prop.new')}</h2>
+              <h2>{viewOnly ? `${t('c.view')} #${editing?.number ?? ''}` : editing ? t('c.edit') + ' ' + t('prop.title') : t('prop.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
             <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
+                <fieldset disabled={viewOnly} style={{ display: 'contents' }}>
                 {formError && <div className="alert alert-error" role="alert">{formError}</div>}
 
                 <div className="field">
@@ -508,71 +512,77 @@ export function ProposalsPage() {
                 </div>
 
                 {/* Items */}
-                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 4 }}>
-                  <div style={{ padding: '10px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ fontSize: 13 }}>{t('o.items')}</strong>
+                <div className="card" style={{ padding: 0, marginBottom: 16 }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong>{t('o.items')}</strong>
                     <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={addItem}>
                       {t('prop.addItem')}
                     </button>
                   </div>
                   {formItems.length === 0 ? (
-                    <p style={{ padding: '14px 16px', color: 'var(--muted)', fontSize: 13, margin: 0 }}>{t('o.noItems')}</p>
+                    <div className="empty-state" style={{ padding: '28px 16px' }}>{t('o.noItems')}</div>
                   ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                    <div className="table-scroll">
+                      <table>
+                        <colgroup>
+                          <col />
+                          <col style={{ width: 96 }} />
+                          <col style={{ width: 132 }} />
+                          <col style={{ width: 96 }} />
+                          <col style={{ width: 132 }} />
+                          <col style={{ width: 52 }} />
+                        </colgroup>
                         <thead>
-                          <tr style={{ background: 'var(--surface)' }}>
-                            <th style={{ padding: '6px 10px', textAlign: 'left', width: '30%' }}>{t('prop.itemName')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '10%' }}>{t('prop.itemQty')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '16%' }}>{t('prop.itemPrice')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'left', width: '10%' }}>{t('prop.itemDisc')}</th>
-                            <th style={{ padding: '6px 8px', textAlign: 'right', width: '16%' }}>{t('prop.itemTotal')}</th>
-                            <th style={{ width: '8%' }}></th>
+                          <tr>
+                            <th>{t('prop.itemName')}</th>
+                            <th>{t('prop.itemQty')}</th>
+                            <th>{t('prop.itemPrice')}</th>
+                            <th>{t('prop.itemDisc')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('prop.itemTotal')}</th>
+                            <th aria-hidden></th>
                           </tr>
                         </thead>
                         <tbody>
                           {formItems.map((item, idx) => {
                             const lineTotal = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0) * (1 - (Number(item.discount_pct) || 0) / 100);
                             return (
-                              <tr key={item._key} style={{ borderTop: '1px solid var(--border)' }}>
-                                <td style={{ padding: '6px 10px' }}>
-                                  <ProductPicker
-                                    options={materials}
-                                    value={item.material_id}
-                                    onChange={id => handlePickMaterial(idx, id)}
-                                    placeholder={t('o.selectMat')}
-                                    emptyLabel={t('o.noMatch')}
-                                    ariaLabel={t('o.material')}
-                                    kitLabel={t('o.kit.badge')}
-                                  />
-                                  <input
-                                    placeholder={t('prop.itemName')}
-                                    value={item.name}
-                                    onChange={e => updateItem(idx, 'name', e.target.value)}
-                                    style={{ fontSize: 11 }}
-                                  />
+                              <tr key={item._key}>
+                                <td>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <ProductPicker
+                                      options={materials}
+                                      value={item.material_id}
+                                      onChange={id => handlePickMaterial(idx, id)}
+                                      placeholder={t('o.selectMat')}
+                                      emptyLabel={t('o.noMatch')}
+                                      ariaLabel={t('o.material')}
+                                      kitLabel={t('o.kit.badge')}
+                                    />
+                                    <input
+                                      placeholder={t('prop.itemName')}
+                                      value={item.name}
+                                      onChange={e => updateItem(idx, 'name', e.target.value)}
+                                    />
+                                  </div>
                                 </td>
-                                <td style={{ padding: '6px 8px' }}>
+                                <td>
                                   <input type="number" min="0.001" step="0.001" value={item.quantity}
-                                    onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                                    style={{ fontSize: 11 }} aria-label={t('prop.itemQty')} />
+                                    onChange={e => updateItem(idx, 'quantity', e.target.value)} aria-label={t('prop.itemQty')} />
                                 </td>
-                                <td style={{ padding: '6px 8px' }}>
+                                <td>
                                   <input type="number" min="0" step="0.01" value={item.unit_price}
-                                    onChange={e => updateItem(idx, 'unit_price', e.target.value)}
-                                    style={{ fontSize: 11 }} aria-label={t('prop.itemPrice')} />
+                                    onChange={e => updateItem(idx, 'unit_price', e.target.value)} aria-label={t('prop.itemPrice')} />
                                 </td>
-                                <td style={{ padding: '6px 8px' }}>
+                                <td>
                                   <input type="number" min="0" max="100" step="0.1" value={item.discount_pct}
-                                    onChange={e => updateItem(idx, 'discount_pct', e.target.value)}
-                                    style={{ fontSize: 11 }} aria-label={t('prop.itemDisc')} />
+                                    onChange={e => updateItem(idx, 'discount_pct', e.target.value)} aria-label={t('prop.itemDisc')} />
                                 </td>
-                                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11 }}>
+                                <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                   {BRL.format(lineTotal)}
                                 </td>
                                 <td style={{ textAlign: 'center' }}>
                                   <button type="button" onClick={() => removeItem(idx)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 8px' }}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: 18, lineHeight: 1, padding: '0 6px' }}
                                     aria-label={`${t('c.del')} item ${idx + 1}`}>×</button>
                                 </td>
                               </tr>
@@ -624,7 +634,7 @@ export function ProposalsPage() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px' }}>
+                <div className="card" style={{ padding: '14px 16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, color: 'var(--muted)' }}>
                     <span>{t('o.subtotal')}</span><span>{BRL.format(subtotal)}</span>
                   </div>
@@ -643,15 +653,18 @@ export function ProposalsPage() {
                     <span style={{ color: 'var(--primary)' }}>{BRL.format(totalCalc)}</span>
                   </div>
                 </div>
+                </fieldset>
               </div>
 
               <div className="drawer-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
-                  {t('c.cancel')}
+                  {viewOnly ? t('c.close') : t('c.cancel')}
                 </button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                  {saving ? t('c.saving') : editing ? t('c.save') : t('prop.new')}
-                </button>
+                {!viewOnly && (
+                  <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
+                    {saving ? t('c.saving') : editing ? t('c.save') : t('prop.new')}
+                  </button>
+                )}
               </div>
             </form>
           </div>

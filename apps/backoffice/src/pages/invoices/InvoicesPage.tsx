@@ -350,7 +350,7 @@ export function InvoicesPage() {
             </thead>
             <tbody>
               {invoices.map(inv => (
-                <tr key={inv.id}>
+                <tr key={inv.id} onClick={() => openNfePanel(inv)} style={{ cursor: 'pointer' }}>
                   <td>
                     <code style={{ fontSize: 12 }}>
                       {inv.status === 'issued' ? `${inv.serie}/${inv.number}` : '—'}
@@ -378,7 +378,7 @@ export function InvoicesPage() {
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {inv.issue_date ? new Date(inv.issue_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
                   </td>
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
                       {inv.status === 'draft' && !inv.nfe_status && (
                         <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
