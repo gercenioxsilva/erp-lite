@@ -2,7 +2,8 @@
     <application
         android:label="orquestra_mobile"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"><!-- DEV-ONLY: permite HTTP p/ API local em device físico. Remover/restringir em produção (API é HTTPS). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

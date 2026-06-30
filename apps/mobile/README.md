@@ -49,6 +49,55 @@ flutter analyze
 flutter test
 ```
 
+### Rodando em device físico (Android/iOS)
+
+No celular, `localhost`/`10.0.2.2` apontam para o próprio aparelho — é preciso
+usar o **IP da máquina que roda a API** na rede Wi-Fi (ex.: `10.0.0.157`).
+Descubra o IP com `ipconfig getifaddr en0` (macOS).
+
+**Pré-requisitos**
+
+1. **API acessível na LAN:** a `api-core` já binda em `0.0.0.0:3000` (host na
+   `.env`). Suba o backend e confirme com `curl http://<IP>:3000/...`.
+2. **Mesma rede Wi-Fi:** celular e máquina no mesmo Wi-Fi.
+3. **HTTP cleartext liberado (DEV-only):** o app usa HTTP em dev, bloqueado por
+   padrão nas duas plataformas. Já está habilitado neste repo:
+   - Android: `android:usesCleartextTraffic="true"` em
+     `android/app/src/main/AndroidManifest.xml`.
+   - iOS: `NSAppTransportSecurity → NSAllowsArbitraryLoads` em
+     `ios/Runner/Info.plist`.
+
+   > ⚠️ Ambos são **somente para desenvolvimento**. Em produção a API é HTTPS
+   > (`https://orquestraerp.com.br`) — remova/restrinja essas flags antes de
+   > publicar.
+
+**Conectar o device**
+
+- **Android:** ativar *Opções do desenvolvedor* → *Depuração USB*, conectar via
+  cabo e autorizar o popup.
+- **iOS:** abrir `ios/Runner.xcworkspace` no Xcode uma vez para configurar
+  *Signing & Team*, e *Confiar* no perfil no iPhone
+  (Ajustes → Geral → VPN e Gerenciamento de dispositivos).
+
+Confirme o device em `flutter devices`, depois rode apontando para o IP da máquina:
+
+```bash
+# Substitua 10.0.0.157 pelo IP da SUA máquina na rede
+flutter run --dart-define=API_BASE_URL=http://10.0.0.157:3000
+
+# APK de teste (debug)
+flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.0.157:3000
+```
+
+**Troubleshooting**
+
+| Sintoma | Causa provável | Solução |
+|---------|----------------|---------|
+| timeout / connection refused | URL default (`10.0.2.2`) | passar `--dart-define=API_BASE_URL=http://<IP>:3000` |
+| conexão falha sem erro claro | cleartext bloqueado | conferir flags do passo 3 |
+| timeout | redes Wi-Fi diferentes | celular e máquina no mesmo Wi-Fi |
+| timeout só no device | firewall do macOS | liberar conexões de entrada para o `node` |
+
 ### Smoke test de login real (backend local)
 
 ```bash
