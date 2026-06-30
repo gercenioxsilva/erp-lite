@@ -242,6 +242,8 @@ const ptBR = {
   'tax.calculating': 'Calculando…',
   'tax.breakdown':   'Resumo Fiscal',
   'tax.icms':        'ICMS',
+  'tax.fcp':         'FCP',
+  'tax.difal':       'ICMS-DIFAL',
   'tax.pis':         'PIS',
   'tax.cofins':      'COFINS',
   'tax.embedded':    'embutido no preço',
@@ -616,6 +618,8 @@ const ptBR = {
   'comp.nfe.saved':       'Configuração NF-e salva com sucesso.',
   'comp.nfe.errSave':     'Erro ao salvar configuração NF-e.',
   'comp.nfe.errRequired': 'CNPJ e Razão Social são obrigatórios.',
+  'comp.nfe.rbt12':       'Faturamento acumulado 12 meses — RBT12 (R$)',
+  'comp.nfe.rbt12Hint':   'Usado para calcular a alíquota efetiva estimada do Simples Nacional (Anexo I). Atualize sempre que o faturamento acumulado mudar.',
 
   // ── NFS-e (config) ────────────────────────────────────────────────────
   'comp.nfse.title':              'NFS-e (Nota Fiscal de Serviços)',

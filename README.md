@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -50,6 +50,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET|POST|PATCH|DELETE /v1/sellers(/:id)?` · `GET /v1/sellers/active`
    - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
    - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
+   - `GET /v1/tax/simples-effective-rate` — alíquota efetiva estimada do Simples Nacional (Anexo I) pelo RBT12 do tenant (informativo)
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -74,7 +75,11 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor.
 
-14. **Cálculo de impostos: sempre usar taxEngine.ts (stateless).** O módulo `services/api-core/src/lib/taxEngine.ts` é a fonte da verdade para ICMS, PIS, COFINS de São Paulo. O frontend chama `POST /v1/tax/calculate` e armazena os valores calculados antes de salvar a NF-e. ICMS/PIS/COFINS são impostos "por dentro". IPI é "por fora". Total NF-e = subtotal + ipi_total.
+14. **Cálculo de impostos: usar a pilha fiscal multi-estado (v15.0).** Três camadas separadas, **nunca misturar responsabilidades**:
+    - `taxRulesResolver.ts` — lookup das tabelas centrais de alíquotas (ICMS interno/interestadual, FCP, ST, Simples). Cache em memória de 5 min. Nunca chamar diretamente de rotas — usar via `taxCalculationService.ts`.
+    - `taxEngine.ts` — aritmética pura/stateless: recebe alíquotas JÁ resolvidas, nunca faz I/O. Importar `calculateTaxes()` apenas a partir de `taxCalculationService.ts` ou testes unitários.
+    - `taxCalculationService.ts` — orquestração: resolve alíquotas, determina DIFAL (EC 87/2015) quando `icms_taxpayer='9'` + `consumer_type='1'` + interestadual, e FCP da UF destino.
+    - `POST /v1/tax/calculate` (autenticado via JWT) usa `nfe_configs.uf` como `origin_state` por padrão — nunca mais hardcode `'SP'`. O frontend envia `icms_taxpayer` e `consumer_type` do cliente para DIFAL correto. ICMS/PIS/COFINS/FCP são "por dentro". IPI é "por fora". Total NF-e = subtotal + ipi_total.
 
 15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um manifest list que o AWS Lambda rejeita. Lambda exige Docker Image Manifest V2 Schema 2 single-platform.
 
@@ -109,6 +114,8 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 30. **Centro de Custo: motor de estoque é server-authoritative.** O serviço `costCenterStock.ts` é a única fonte de verdade para saldo de materiais. Toda escrita usa `SELECT FOR UPDATE` dentro de `db.transaction()`. A chave de idempotência tem formato `${source}:${sourceId}:${materialId}` e é UNIQUE por `(tenant_id, idempotency_key)`. Custo médio ponderado usa `toFixed(4)`. Saldo negativo é bloqueado por padrão (HTTP 422) — override por `allow_negative = true` no centro de custo. O gatilho de saída (OUT) é ativado quando `nfe_status = 'authorized'` pelo `nfeResultsWorker`. O estorno é ativado no cancelamento de NF-e autorizada. Nunca chamar `applyEntry`/`applyExit`/`applyAdjustment` diretamente nas rotas — usar apenas via transação existente no serviço.
 
 31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
+
+33. **Motor fiscal multi-estado: tabelas centrais NUNCA editáveis por tenant.** As tabelas `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules` e `tax_simples_nacional_brackets` (migration 0037) são mantidas pela Orquestra (legislação tributária é igual para todos os tenants no mesmo estado). O que É configurável por tenant: `nfe_configs.uf` (UF de origem, obrigatório configurar antes de emitir), `nfe_configs.regime_tributario` (CRT 1/2/3), `tenants.simples_rbt12` (faturamento acumulado 12 meses para cálculo de alíquota efetiva do Simples). **Limitações documentadas desta versão (v15.0):** (a) ICMS-ST: tabela `tax_st_rules` criada, mas sem dados — recomendado integrar provedor de dados fiscais (IOB/TaxWeaver) para populá-la; (b) FCP: tabela criada sem dados — popular por demanda por UF; (c) DIFAL: cálculo simplificado por diferença direta (não usa gross-up do Anexo VI do Convênio 236/2021); (d) Versionamento temporal de alíquotas: não implementado (alíquota corrente no momento da consulta é sempre aplicada — sem lookups por data); (e) Conteúdo de importação (alíquota de 4% — Resolução Senado 13/2012): não implementado. Nunca afirmar que estas limitações não existem; documentar no código e nos changelogs.
 
 32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
 
@@ -855,6 +862,30 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 ---
 
 ## Histórico de versões relevantes
+
+### v15.0 — Motor Fiscal Multi-estado (ICMS/FCP/DIFAL/Simples Nacional)
+
+> **Migration 0037_tax_rules.sql:**
+> Cinco tabelas fiscais centrais mantidas pela Orquestra (não editáveis por tenant).
+> `tax_icms_interstate_rates`: 702 registros gerados via regra legal da Resolução do Senado 22/89 (Sul/Sudeste-sem-ES → demais = 7%; outros pares = 12%).
+> `tax_icms_internal_rates`: alíquota "modal" de referência por UF — **revisar com contabilidade antes de produção** (coluna `notes` documenta isso explicitamente).
+> `tax_fcp_rates` e `tax_st_rules`: estrutura criada sem dados — popular por demanda (FCP) e via provedor de dados fiscais (ICMS-ST, ver regra 33).
+> `tax_simples_nacional_brackets`: Anexo I (Comércio), 6 faixas da LC 123/2006 pós-reforma 2018.
+> Colunas novas: `tenants.simples_rbt12`; `invoices.fcp_total`/`icms_difal_total`; `invoice_items.fcp_rate`/`fcp_value`/`icms_difal_value`.
+>
+> **Arquitetura do motor (3 camadas):**
+> `taxRulesResolver.ts` (lookup de alíquotas, cache 5 min) → `taxCalculationService.ts` (orquestração: DIFAL/FCP) → `taxEngine.ts` (aritmética pura/stateless).
+> `POST /v1/tax/calculate` agora é autenticado (regra 4) e usa `nfe_configs.uf` como origem por padrão — nunca mais hardcode `'SP'`.
+>
+> **DIFAL (EC 87/2015):** lançado automaticamente quando venda é interestadual + `client.icms_taxpayer='9'` + `client.consumer_type='1'`. Fórmula simplificada (sem gross-up do Anexo VI). Ver regra 33 para limitações documentadas.
+>
+> **Simples Nacional:** `taxRulesResolver.getSimplesEffectiveRate()` usa fórmula oficial LC 123 e o `tenants.simples_rbt12` configurado em Empresa → Fiscal. Para NF-e: ICMS/PIS/COFINS continuam zerados (correto — impostos no DAS); alíquota efetiva é informativa via `GET /v1/tax/simples-effective-rate`.
+>
+> **Correções incluídas:** `focusNfe.ts` (NFC-e/PDV) parou de mandar `icms_aliquota: 0` fixo — agora resolve via `taxRulesResolver.getIcmsRate(cfg.uf, cfg.uf, db)` (intra-estado, com fallback 0 nunca bloqueante).
+>
+> **Frontend:** `InvoiceNewPage` usa `nfe_configs.uf` como origem real, auto-preenche UF destino pelo estado do cliente, passa `icms_taxpayer`/`consumer_type` para DIFAL correto, e exibe linhas de FCP e DIFAL no Step 5 quando > 0. `CompanyPage → Fiscal`: novo campo RBT12 (Simples Nacional), condicional ao regime CRT=1.
+>
+> **Testes:** 49 novos testes unitários (`taxRulesResolver`, `taxEngine`, `taxCalculationService`, `tax` route).
 
 ### v14.0 — Cadastro de Vendedores + Motor de Comissionamento
 

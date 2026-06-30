@@ -13,7 +13,10 @@ import './InvoiceNewPage.css';
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const PCT = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 
-interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
+interface ClientOption   {
+  id: string; company_name: string | null; full_name: string | null;
+  state?: string | null; icms_taxpayer?: string | null; consumer_type?: string | null;
+}
 interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; description?: string | null; type?: string | null; }
 interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; ncm_code: string | null; }
 interface OrderOption    { id: string; number: string; client_id: string; client_name: string; status: string; }
@@ -25,6 +28,7 @@ interface FormItem {
   _key: string; material_id: string; name: string;
   ncm_code: string; cfop: string; quantity: string; unit_price: string;
   icms_cst?: string; icms_rate?: number; icms_value?: number;
+  fcp_rate?: number; fcp_value?: number; icms_difal_value?: number;
   pis_cst?: string;  pis_rate?: number;  pis_value?: number;
   cofins_cst?: string; cofins_rate?: number; cofins_value?: number;
   ipi_rate?: string; ipi_value?: number;
@@ -33,15 +37,17 @@ interface FormItem {
 interface TaxResult {
   lines: Array<{
     icms_cst: string; icms_base: number; icms_rate: number; icms_value: number;
+    fcp_rate: number; fcp_value: number; icms_difal_value: number;
     pis_cst: string;  pis_base: number;  pis_rate: number;  pis_value: number;
     cofins_cst: string; cofins_base: number; cofins_rate: number; cofins_value: number;
     ipi_base: number; ipi_rate: number; ipi_value: number;
   }>;
   totals: {
-    subtotal: number; icms_total: number; pis_total: number;
-    cofins_total: number; ipi_total: number; embedded_tax_total: number; grand_total: number;
+    subtotal: number; icms_total: number; fcp_total: number; icms_difal_total: number;
+    pis_total: number; cofins_total: number; ipi_total: number;
+    embedded_tax_total: number; grand_total: number;
   };
-  applied_rates: { icms: number; pis: number; cofins: number; };
+  applied_rates: { icms: number; fcp: number; icms_difal: number; pis: number; cofins: number; };
 }
 
 function newItem(): FormItem {
@@ -78,6 +84,8 @@ export function InvoiceNewPage() {
   const [saving,         setSaving]         = useState(false);
   const [formError,      setFormError]      = useState('');
   const [nfeAmbiente,    setNfeAmbiente]    = useState<number | null>(null);
+  // UF de origem do tenant (Empresa → Fiscal) — nunca mais hardcoded 'SP'.
+  const [originState,    setOriginState]    = useState('SP');
 
   const [clients,   setClients]   = useState<ClientOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
@@ -104,7 +112,8 @@ export function InvoiceNewPage() {
       api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
       api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
       api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ focus_ambiente: number | null }>(`/v1/nfe-config?tenant_id=${tenantId}`).catch(() => ({ focus_ambiente: null })),
+      api.get<{ focus_ambiente: number | null; uf?: string; regime_tributario?: number }>(`/v1/nfe-config?tenant_id=${tenantId}`)
+        .catch(() => ({ focus_ambiente: null, uf: undefined, regime_tributario: undefined })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
     ]).then(([cl, mt, or, cfg, cc, sl]) => {
@@ -115,6 +124,12 @@ export function InvoiceNewPage() {
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
       setSellers(Array.isArray(sl) ? sl : []);
+      // Origem e regime tributário herdam o cadastro fiscal do tenant — só
+      // sobrescreve o default inicial, nunca uma escolha que o usuário já fez.
+      if (cfg.uf) { setOriginState(cfg.uf); setFormDestState(prev => prev || cfg.uf!); }
+      if (cfg.regime_tributario === 1 || cfg.regime_tributario === 2) {
+        setFormTaxRegime(prev => prev === 'lucro_presumido' ? 'simples_nacional' : prev);
+      }
     }).catch(() => {/* non-fatal */});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -220,9 +235,11 @@ export function InvoiceNewPage() {
     setCalcTaxLoad(true); setCalcTaxError('');
     try {
       const result = await api.post<TaxResult>('/v1/tax/calculate', {
-        origin_state:      'SP',
-        destination_state: formDestState.toUpperCase() || 'SP',
+        origin_state:      originState,
+        destination_state: formDestState.toUpperCase() || originState,
         tax_regime:        formTaxRegime,
+        icms_taxpayer:      selectedClient?.icms_taxpayer ?? undefined,
+        consumer_type:      selectedClient?.consumer_type ?? undefined,
         lines: valid.map(it => ({
           ncm_code:   it.ncm_code || undefined,
           quantity:   Number(it.quantity),
@@ -238,6 +255,7 @@ export function InvoiceNewPage() {
         return {
           ...item,
           icms_cst: line.icms_cst, icms_rate: line.icms_rate, icms_value: line.icms_value,
+          fcp_rate: line.fcp_rate, fcp_value: line.fcp_value, icms_difal_value: line.icms_difal_value,
           pis_cst:  line.pis_cst,  pis_rate:  line.pis_rate,  pis_value:  line.pis_value,
           cofins_cst: line.cofins_cst, cofins_rate: line.cofins_rate, cofins_value: line.cofins_value,
           ipi_value: line.ipi_value,
@@ -266,7 +284,7 @@ export function InvoiceNewPage() {
         notes: formNotes || null,
         cost_center_id: formCostCenterId || null,
         seller_id: formSellerId || undefined,
-        tax_regime: formTaxRegime, origin_state: 'SP',
+        tax_regime: formTaxRegime, origin_state: originState,
         items: formItems.filter(it => it.name).map(it => {
           const base = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
           return {
@@ -275,6 +293,8 @@ export function InvoiceNewPage() {
             quantity: Number(it.quantity), unit_price: Number(it.unit_price),
             icms_cst: it.icms_cst,   icms_base: base,
             icms_rate: it.icms_rate  ?? 0, icms_value: it.icms_value  ?? 0,
+            fcp_rate: it.fcp_rate ?? 0, fcp_value: it.fcp_value ?? 0,
+            icms_difal_value: it.icms_difal_value ?? 0,
             pis_cst:  it.pis_cst,    pis_base:  base,
             pis_rate: it.pis_rate    ?? 0, pis_value:  it.pis_value   ?? 0,
             cofins_cst: it.cofins_cst, cofins_base: base,
@@ -370,7 +390,15 @@ export function InvoiceNewPage() {
             <div className="field">
               <label htmlFor="inv-client">{t('inv.client')} *</label>
               <select id="inv-client" value={formClientId}
-                onChange={e => setFormClientId(e.target.value)}>
+                onChange={e => {
+                  const id = e.target.value;
+                  setFormClientId(id);
+                  setTaxResult(null);
+                  // Pré-preenche a UF de destino com o estado do cliente — o
+                  // usuário ainda pode ajustar manualmente (ex.: entrega em outro UF).
+                  const picked = clients.find(c => c.id === id);
+                  if (picked?.state) setFormDestState(picked.state.toUpperCase());
+                }}>
                 <option value="">{t('o.selectClient')}</option>
                 {clients.map(c => (
                   <option key={c.id} value={c.id}>{c.company_name ?? c.full_name}</option>
@@ -527,6 +555,18 @@ export function InvoiceNewPage() {
                       <span>{t('tax.icms')} {PCT(taxResult.applied_rates.icms)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
                       <span>{BRL.format(taxResult.totals.icms_total)}</span>
                     </div>
+                    {taxResult.totals.fcp_total > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 4 }}>
+                        <span>{t('tax.fcp')} {PCT(taxResult.applied_rates.fcp)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
+                        <span>{BRL.format(taxResult.totals.fcp_total)}</span>
+                      </div>
+                    )}
+                    {taxResult.totals.icms_difal_total > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 4 }}>
+                        <span>{t('tax.difal')} {PCT(taxResult.applied_rates.icms_difal)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
+                        <span>{BRL.format(taxResult.totals.icms_difal_total)}</span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)', marginBottom: 4 }}>
                       <span>{t('tax.pis')} {PCT(taxResult.applied_rates.pis)} <em style={{ fontSize: 11 }}>({t('tax.embedded')})</em></span>
                       <span>{BRL.format(taxResult.totals.pis_total)}</span>

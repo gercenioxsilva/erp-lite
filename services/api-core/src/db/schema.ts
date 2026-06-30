@@ -56,6 +56,9 @@ export const tenants = pgTable('tenants', {
   stripe_price_id:         varchar('stripe_price_id',         { length: 100 }),
   subscription_period_end: timestamp('subscription_period_end', { withTimezone: true }),
   cancel_at_period_end:    boolean('cancel_at_period_end').notNull().default(false),
+  // Simples Nacional — faturamento acumulado 12 meses (migration 0037), usado para
+  // calcular a alíquota efetiva por faixa quando nfe_configs.regime_tributario = 1
+  simples_rbt12: decimal('simples_rbt12', { precision: 15, scale: 2 }),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -253,6 +256,9 @@ export const invoices = pgTable('invoices', {
   icms_total:   decimal('icms_total',   { precision: 15, scale: 2 }),
   pis_total:    decimal('pis_total',    { precision: 15, scale: 2 }),
   cofins_total: decimal('cofins_total', { precision: 15, scale: 2 }),
+  // Motor fiscal multi-estado (migration 0037)
+  fcp_total:        decimal('fcp_total',        { precision: 15, scale: 2 }).notNull().default('0'),
+  icms_difal_total: decimal('icms_difal_total', { precision: 15, scale: 2 }).notNull().default('0'),
   // NF-e fields (migration 0009)
   nfe_status:        varchar('nfe_status',        { length: 20  }),
   nfe_chave:         varchar('nfe_chave',          { length: 50  }),
@@ -296,6 +302,10 @@ export const invoiceItems = pgTable('invoice_items', {
   cofins_value: decimal('cofins_value', { precision: 15, scale: 2 }),
   ipi_rate:  decimal('ipi_rate',  { precision: 5,  scale: 2 }),
   ipi_value: decimal('ipi_value', { precision: 15, scale: 2 }),
+  // Motor fiscal multi-estado (migration 0037)
+  fcp_rate:         decimal('fcp_rate',         { precision: 5,  scale: 2 }).notNull().default('0'),
+  fcp_value:        decimal('fcp_value',        { precision: 15, scale: 2 }).notNull().default('0'),
+  icms_difal_value: decimal('icms_difal_value', { precision: 15, scale: 2 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -880,3 +890,59 @@ export const commissionEntries = pgTable('commission_entries', {
   cancelled_at:      timestamp('cancelled_at', { withTimezone: true }),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Motor fiscal multi-estado (migration 0037)
+// Tabelas centrais, mantidas pela Orquestra — nunca editáveis por tenant.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── tax_icms_interstate_rates ───────────────────────────────────────────────────
+// Regra legal fixa (Resolução do Senado 22/89) — não é dado "estimado".
+export const taxIcmsInterstateRates = pgTable('tax_icms_interstate_rates', {
+  origin_uf: char('origin_uf', { length: 2 }).notNull(),
+  dest_uf:   char('dest_uf',   { length: 2 }).notNull(),
+  rate:      decimal('rate', { precision: 5, scale: 2 }).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.origin_uf, t.dest_uf] }),
+}));
+
+// ── tax_icms_internal_rates ─────────────────────────────────────────────────────
+// Alíquota de referência por UF — revisar com a contabilidade do tenant antes de
+// uso em produção (ver coluna notes e regra 33 do README).
+export const taxIcmsInternalRates = pgTable('tax_icms_internal_rates', {
+  uf:    char('uf', { length: 2 }).primaryKey(),
+  rate:  decimal('rate', { precision: 5, scale: 2 }).notNull(),
+  notes: text('notes').notNull(),
+});
+
+// ── tax_fcp_rates ────────────────────────────────────────────────────────────────
+// Fundo de Combate à Pobreza — estrutura pronta, sem dados pré-populados.
+export const taxFcpRates = pgTable('tax_fcp_rates', {
+  uf:   char('uf', { length: 2 }).primaryKey(),
+  rate: decimal('rate', { precision: 5, scale: 2 }).notNull(),
+});
+
+// ── tax_st_rules ─────────────────────────────────────────────────────────────────
+// ICMS-ST (Substituição Tributária) — estrutura pronta, sem dados pré-populados.
+export const taxStRules = pgTable('tax_st_rules', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  ncm:         varchar('ncm', { length: 10 }).notNull(),
+  origin_uf:   char('origin_uf', { length: 2 }).notNull(),
+  dest_uf:     char('dest_uf',   { length: 2 }).notNull(),
+  mva_percent: decimal('mva_percent', { precision: 6, scale: 2 }).notNull(),
+}, (t) => ({
+  uniq: unique().on(t.ncm, t.origin_uf, t.dest_uf),
+}));
+
+// ── tax_simples_nacional_brackets ─────────────────────────────────────────────────
+// Anexo I (Comércio), LC 123/2006 pós-reforma 2018 — tabela legal estável.
+export const taxSimplesNacionalBrackets = pgTable('tax_simples_nacional_brackets', {
+  anexo:            char('anexo', { length: 1 }).notNull().default('I'),
+  faixa:            smallint('faixa').notNull(),
+  rbt12_min:        decimal('rbt12_min', { precision: 15, scale: 2 }).notNull(),
+  rbt12_max:        decimal('rbt12_max', { precision: 15, scale: 2 }).notNull(),
+  aliquota_nominal: decimal('aliquota_nominal', { precision: 5, scale: 2 }).notNull(),
+  parcela_deduzir:  decimal('parcela_deduzir',  { precision: 15, scale: 2 }).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.anexo, t.faixa] }),
+}));

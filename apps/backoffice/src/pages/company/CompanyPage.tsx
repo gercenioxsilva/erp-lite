@@ -13,6 +13,7 @@ interface Tenant {
   bank_code: string | null; agency: string | null; account: string | null; account_digit: string | null;
   billing_provider: string | null; billing_days_to_expire: number | null;
   itau_client_id: string | null; itau_client_secret: string | null;
+  simples_rbt12: string | null;
 }
 
 interface NfeCfg {
@@ -96,6 +97,10 @@ export function CompanyPage() {
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSuccess, setNotifSuccess] = useState('');
   const [notifError, setNotifError]   = useState('');
+  // Simples Nacional — faturamento bruto acumulado 12 meses (tenants.simples_rbt12)
+  const [simplesRbt12,       setSimplesRbt12]       = useState('');
+  const [simplesRbt12Saving, setSimplesRbt12Saving] = useState(false);
+  const [simplesRbt12Msg,    setSimplesRbt12Msg]    = useState('');
 
   useEffect(() => {
     if (!tenantId) return;
@@ -123,6 +128,7 @@ export function CompanyPage() {
         state:         data.state         || '',
         postal_code:   data.postal_code   || '',
       });
+      setSimplesRbt12(data.simples_rbt12 != null ? String(data.simples_rbt12) : '');
       setBankForm({
         bank_code:              data.bank_code              || '',
         agency:                 data.agency                 || '',
@@ -206,6 +212,18 @@ export function CompanyPage() {
     } catch (err: any) {
       setNotifError(err.message || t('comp.errSave'));
     } finally { setNotifSaving(false); }
+  }
+
+  async function handleSimplesRbt12Save() {
+    setSimplesRbt12Saving(true); setSimplesRbt12Msg('');
+    try {
+      await api.patch('/v1/tenant', {
+        simples_rbt12: simplesRbt12 ? Number(simplesRbt12) : null,
+      });
+      setSimplesRbt12Msg(t('comp.saved'));
+    } catch (err: any) {
+      setSimplesRbt12Msg(err.message || t('comp.errSave'));
+    } finally { setSimplesRbt12Saving(false); }
   }
 
   async function handleNfeCEP(cep: string) {
@@ -625,6 +643,37 @@ export function CompanyPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* Simples Nacional — RBT12: mostrado apenas quando regime = 1 */}
+                {nfeForm.regime_tributario === '1' && (
+                  <div style={{ marginTop: 12, padding: '14px 16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <div className="field" style={{ marginBottom: 10 }}>
+                      <label>{t('comp.nfe.rbt12')}</label>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 8px' }}>{t('comp.nfe.rbt12Hint')}</p>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={simplesRbt12}
+                        placeholder="Ex.: 250000.00"
+                        onChange={e => setSimplesRbt12(e.target.value)}
+                        style={{ maxWidth: 220 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                        onClick={() => void handleSimplesRbt12Save()}
+                        disabled={simplesRbt12Saving}>
+                        {simplesRbt12Saving ? t('c.saving') : t('c.save')}
+                      </button>
+                      {simplesRbt12Msg && (
+                        <span style={{ fontSize: 12, color: simplesRbt12Msg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)' }}>
+                          {simplesRbt12Msg}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Endereço */}
                 <div className="field-row" style={{ marginTop: 8 }}>

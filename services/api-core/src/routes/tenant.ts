@@ -38,6 +38,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       'bank_code', 'agency', 'account', 'account_digit',
       'billing_provider', 'billing_days_to_expire',
       'itau_client_id', 'itau_client_secret',
+      'simples_rbt12',
     ];
 
     const patch: Record<string, unknown> = {};
