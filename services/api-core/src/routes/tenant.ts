@@ -4,6 +4,7 @@ import { db, tenants } from '../db';
 import { validateBankingData, isValidBillingProvider } from '../lib/banking';
 
 const MAX_LOGO_BYTES = 300 * 1024; // 300 KB base64 string limit
+const MAX_BANNER_BYTES = 2 * 1024 * 1024; // 2 MB — banner da proposta (imagem maior)
 const ALLOWED_LOGO_PREFIXES = [
   'data:image/jpeg;base64,',
   'data:image/jpg;base64,',
@@ -30,7 +31,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
     const body     = request.body as any;
 
     const allowed = [
-      'company_name', 'trade_name', 'phone', 'website',
+      'company_name', 'trade_name', 'phone', 'website', 'state_reg',
       'street', 'street_number', 'complement', 'neighborhood', 'city', 'state', 'postal_code',
       'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email',
       'maintenance_contact_name', 'maintenance_contact_phone', 'maintenance_contact_email',
@@ -105,6 +106,33 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
     const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ logo_url: null }).where(eq(tenants.id, tenantId));
+    return { ok: true };
+  });
+
+  /* ── PUT /v1/tenant/proposal-banner ─────────────────────────────────────── */
+  fastify.put('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { banner_url } = request.body as any;
+
+    if (!banner_url || typeof banner_url !== 'string')
+      return reply.badRequest('banner_url é obrigatório');
+
+    const isAllowed = ALLOWED_LOGO_PREFIXES.some(p => banner_url.startsWith(p));
+    if (!isAllowed)
+      return reply.badRequest('Formato inválido. Envie uma data URI base64 (jpeg, png, webp ou gif)');
+
+    if (Buffer.byteLength(banner_url, 'utf8') > MAX_BANNER_BYTES)
+      return reply.badRequest('Banner muito grande. Máximo permitido: 2 MB');
+
+    await db.update(tenants).set({ proposal_banner_url: banner_url }).where(eq(tenants.id, tenantId));
+    return { ok: true };
+  });
+
+  /* ── DELETE /v1/tenant/proposal-banner ──────────────────────────────────── */
+  fastify.delete('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+
+    await db.update(tenants).set({ proposal_banner_url: null }).where(eq(tenants.id, tenantId));
     return { ok: true };
   });
 };

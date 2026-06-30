@@ -8,6 +8,7 @@ import {
   materials,
 } from '../../db/schema';
 import { applyExit, applyEntry } from '../costCenterStock';
+import { applyInventoryExit, applyInventoryReturn } from '../inventory/inventoryLedger';
 import { emitirNFCe, cancelarNFCe } from '../fiscal/focusNfe';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -17,6 +18,20 @@ function httpError(statusCode: number, message: string): Error & { statusCode: n
   err.statusCode = statusCode;
   return err;
 }
+
+// Regras de liquidação por forma de pagamento → contas a receber.
+// Dinheiro/voucher liquidam na hora (status 'paid'); cartão/pix/crediário viram
+// "a receber" (status 'pending') com prazo conforme a origem do recebimento.
+type PosPaymentMethod = 'cash' | 'debit' | 'credit' | 'pix' | 'voucher' | 'store_credit';
+
+const POS_PAYMENT_SETTLEMENT: Record<PosPaymentMethod, { settled: boolean; dueDays: number; label: string }> = {
+  cash:         { settled: true,  dueDays: 0,  label: 'Venda PDV (dinheiro)' },
+  voucher:      { settled: true,  dueDays: 0,  label: 'Venda PDV (voucher)' },
+  debit:        { settled: false, dueDays: 1,  label: 'Venda PDV (cartão débito) — adquirente' },
+  pix:          { settled: false, dueDays: 1,  label: 'Venda PDV (PIX) — adquirente' },
+  credit:       { settled: false, dueDays: 30, label: 'Venda PDV (cartão crédito) — adquirente' },
+  store_credit: { settled: false, dueDays: 30, label: 'Venda PDV (crediário) — cliente' },
+};
 
 /**
  * Recomputes pos_sales.subtotal, discount_amount and total from its items.
@@ -385,9 +400,10 @@ export async function finalizeSale(params: {
       operator_id: string;
       total: string;
       customer_doc: string | null;
+      customer_name: string | null;
     }>(
       sql`SELECT id, status, focus_ref, idempotency_key, session_id,
-                 cost_center_id, operator_id, total, customer_doc
+                 cost_center_id, operator_id, total, customer_doc, customer_name
           FROM pos_sales
           WHERE id = ${saleId} AND tenant_id = ${tenantId}
           FOR UPDATE`
@@ -421,6 +437,20 @@ export async function finalizeSale(params: {
     const saleTotal = parseFloat(sale.total);
     if (totalPaid < saleTotal - 0.001) throw httpError(422, 'Payments do not cover total');
 
+    // Estoque geral (inventory + inventory_movements) — SEMPRE, independente de CC.
+    for (const item of itemsResult.rows) {
+      await applyInventoryExit(tx as unknown as typeof _db, {
+        tenantId,
+        materialId:  item.product_id,
+        quantity:    Number(item.quantity),
+        referenceId: saleId,
+        referenceType: 'pos_sale',
+        reason:      'Venda PDV',
+        createdBy:   sale.operator_id,
+      });
+    }
+
+    // Estoque por centro de custo (camada de custeio) — apenas se o terminal tiver CC.
     if (sale.cost_center_id) {
       for (const item of itemsResult.rows) {
         await applyExit(
@@ -445,6 +475,46 @@ export async function finalizeSale(params: {
         type: 'sale_cash', amount: cashTotal.toFixed(2),
         sale_id: saleId, created_by: sale.operator_id,
       });
+    }
+
+    // Contas a receber — uma por forma de pagamento, vinculada à venda (pos_sale_id).
+    // Receita PDV passa a refletir no Dashboard / Fluxo de Caixa / Relatórios.
+    const paymentsResult = await tx.execute<{
+      method: string; amount: string; installments: number; change_amount: string;
+    }>(
+      sql`SELECT method, amount, installments, change_amount
+          FROM pos_sale_payments WHERE sale_id = ${saleId}`
+    );
+
+    const customerSuffix = sale.customer_name ? ` — ${sale.customer_name}` : '';
+    for (const pay of paymentsResult.rows) {
+      const rule = POS_PAYMENT_SETTLEMENT[pay.method as PosPaymentMethod]
+        ?? { settled: false, dueDays: 0, label: 'Venda PDV' };
+      // Valor líquido recebido (desconta troco — relevante apenas para dinheiro).
+      const net = Number(pay.amount) - Number(pay.change_amount);
+      if (net <= 0) continue;
+      const amount = net.toFixed(2);
+      const installmentsSuffix = pay.method === 'credit' && pay.installments > 1 ? ` ${pay.installments}x` : '';
+      const description = `${rule.label}${installmentsSuffix}${customerSuffix}`.slice(0, 255);
+
+      const recvRows = await tx.execute<{ id: string }>(
+        sql`INSERT INTO receivables
+              (tenant_id, pos_sale_id, cost_center_id, description, amount, paid_amount, due_date, status)
+            VALUES (
+              ${tenantId}, ${saleId}, ${sale.cost_center_id},
+              ${description}, ${amount}, ${rule.settled ? amount : '0'},
+              CURRENT_DATE + (${rule.dueDays})::int, ${rule.settled ? 'paid' : 'pending'}
+            )
+            RETURNING id`
+      );
+
+      if (rule.settled) {
+        await tx.execute(
+          sql`INSERT INTO receivable_payments
+                (tenant_id, receivable_id, payment_date, amount, payment_method)
+              VALUES (${tenantId}, ${recvRows.rows[0].id}, CURRENT_DATE, ${amount}, ${pay.method})`
+        );
+      }
     }
 
     await tx.execute(
@@ -537,12 +607,26 @@ export async function cancelSale(params: {
       return;
     }
 
-    // finalized — reverse stock
-    if (sale.cost_center_id) {
-      const itemsResult = await tx.execute<{
-        product_id: string; quantity: string; unit_price: string;
-      }>(sql`SELECT product_id, quantity, unit_price FROM pos_sale_items WHERE sale_id = ${saleId}`);
+    // finalized — estorna estoque e cancela contas a receber vinculadas
+    const itemsResult = await tx.execute<{
+      product_id: string; quantity: string; unit_price: string;
+    }>(sql`SELECT product_id, quantity, unit_price FROM pos_sale_items WHERE sale_id = ${saleId}`);
 
+    // Estoque geral (inventory) — SEMPRE
+    for (const item of itemsResult.rows) {
+      await applyInventoryReturn(tx as unknown as typeof _db, {
+        tenantId,
+        materialId:  item.product_id,
+        quantity:    Number(item.quantity),
+        referenceId: saleId,
+        referenceType: 'pos_sale',
+        reason:      'Venda PDV cancelada',
+        createdBy:   operatorId,
+      });
+    }
+
+    // Estoque por centro de custo — apenas se houver CC
+    if (sale.cost_center_id) {
       for (const item of itemsResult.rows) {
         await applyEntry(
           {
@@ -554,6 +638,13 @@ export async function cancelSale(params: {
         );
       }
     }
+
+    // Cancela contas a receber ainda não liquidadas. Recebíveis já pagos (dinheiro/
+    // voucher) permanecem — exigem nota de crédito / estorno financeiro manual.
+    await tx.execute(
+      sql`UPDATE receivables SET status = 'cancelled', updated_at = NOW()
+          WHERE pos_sale_id = ${saleId} AND tenant_id = ${tenantId} AND status <> 'paid'`
+    );
 
     await tx.execute(
       sql`UPDATE pos_sales SET
