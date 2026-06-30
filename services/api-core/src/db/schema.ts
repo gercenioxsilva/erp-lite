@@ -35,6 +35,10 @@ export const tenants = pgTable('tenants', {
   fiscal_contact_email: varchar('fiscal_contact_email', { length: 255 }),
   // Logo (base64 data URI, max ~300 KB — returned via GET /v1/tenant only)
   logo_url: text('logo_url'),
+  // Inscrição Estadual (IE) — exibida no rodapé da proposta (migration 0037)
+  state_reg: varchar('state_reg', { length: 30 }),
+  // Banner de topo da proposta pública (base64 data URI — migration 0037)
+  proposal_banner_url: text('proposal_banner_url'),
   // Banking data (for boleto generation)
   bank_code:              varchar('bank_code',              { length: 3   }),
   agency:                 varchar('agency',                 { length: 10  }),

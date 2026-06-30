@@ -9,7 +9,8 @@ interface Tenant {
   tax_id: string; tax_id_type: string; phone: string | null; website: string | null;
   street: string | null; street_number: string | null; complement: string | null;
   neighborhood: string | null; city: string | null; state: string | null; postal_code: string | null;
-  logo_url: string | null; status: string; plan: string;
+  logo_url: string | null; state_reg: string | null; proposal_banner_url: string | null;
+  status: string; plan: string;
   bank_code: string | null; agency: string | null; account: string | null; account_digit: string | null;
   billing_provider: string | null; billing_days_to_expire: number | null;
   itau_client_id: string | null; itau_client_secret: string | null;
@@ -46,6 +47,7 @@ const EMPTY_NFE_FORM = {
 };
 
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
+const MAX_BANNER_SIZE = 2 * 1024 * 1024; // 2 MB — banner da proposta
 
 const BANKS = [
   { value: '341', label: 'Itaú (341)' },
@@ -68,9 +70,12 @@ export function CompanyPage() {
   const [logoError, setLogoError] = useState('');
   const [logoSaving, setLogoSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [bannerError, setBannerError] = useState('');
+  const [bannerSaving, setBannerSaving] = useState(false);
+  const bannerRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
-    company_name: '', trade_name: '', phone: '', website: '',
+    company_name: '', trade_name: '', state_reg: '', phone: '', website: '',
     street: '', street_number: '', complement: '', neighborhood: '',
     city: '', state: '', postal_code: '',
   });
@@ -113,6 +118,7 @@ export function CompanyPage() {
       setForm({
         company_name:  data.company_name  || '',
         trade_name:    data.trade_name    || '',
+        state_reg:     data.state_reg     || '',
         phone:         data.phone         || '',
         website:       data.website       || '',
         street:        data.street        || '',
@@ -324,6 +330,48 @@ export function CompanyPage() {
     } finally { setLogoSaving(false); }
   }
 
+  function handleBannerClick() { bannerRef.current?.click(); }
+
+  async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBannerError('');
+
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      setBannerError(t('comp.logoTypeErr')); return;
+    }
+    if (file.size > MAX_BANNER_SIZE) {
+      setBannerError(t('comp.bannerSizeErr')); return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUri = ev.target?.result as string;
+      setBannerSaving(true);
+      try {
+        await api.put('/v1/tenant/proposal-banner', { banner_url: dataUri });
+        await loadTenant();
+      } catch (err: any) {
+        setBannerError(err.message || t('comp.errSave'));
+      } finally {
+        setBannerSaving(false);
+        if (bannerRef.current) bannerRef.current.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleBannerDelete() {
+    setBannerError('');
+    setBannerSaving(true);
+    try {
+      await api.delete('/v1/tenant/proposal-banner');
+      await loadTenant();
+    } catch (err: any) {
+      setBannerError(err.message || t('comp.errSave'));
+    } finally { setBannerSaving(false); }
+  }
+
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
   return (
@@ -382,6 +430,16 @@ export function CompanyPage() {
                     onChange={e => setForm(f => ({ ...f, website: e.target.value }))}
                     placeholder="https://..." />
                 </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.stateReg')}</label>
+                  <input type="text" value={form.state_reg}
+                    onChange={e => setForm(f => ({ ...f, state_reg: e.target.value }))}
+                    placeholder={t('comp.stateRegPH')} />
+                </div>
+                <div className="field" />
               </div>
 
               <h3 style={{ marginTop: 20, marginBottom: 16 }}>{t('comp.address')}</h3>
@@ -477,6 +535,46 @@ export function CompanyPage() {
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
                 {t('comp.logoHint')}
+              </div>
+            </div>
+
+            {/* Banner da proposta */}
+            <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+              <h4 style={{ marginBottom: 12 }}>{t('comp.banner')}</h4>
+
+              {tenant?.proposal_banner_url ? (
+                <img src={tenant.proposal_banner_url} alt="Banner" style={{
+                  width: '100%', height: 90, objectFit: 'cover',
+                  borderRadius: 8, marginBottom: 12, border: '1px solid var(--border)',
+                }} />
+              ) : (
+                <div style={{
+                  width: '100%', height: 90, background: 'var(--surface)',
+                  borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--muted)', fontSize: 13, marginBottom: 12,
+                  border: '2px dashed var(--border)',
+                }}>
+                  {t('comp.noBanner')}
+                </div>
+              )}
+
+              {bannerError && <div role="alert" className="alert alert-error" style={{ fontSize: 12, marginBottom: 8 }}>{bannerError}</div>}
+
+              <input ref={bannerRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+                style={{ display: 'none' }} onChange={handleBannerChange} />
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="btn btn-secondary btn-sm" onClick={handleBannerClick} disabled={bannerSaving}>
+                  {bannerSaving ? t('c.saving') : (tenant?.proposal_banner_url ? t('comp.changeBanner') : t('comp.uploadBanner'))}
+                </button>
+                {tenant?.proposal_banner_url && (
+                  <button className="btn btn-danger btn-sm" onClick={handleBannerDelete} disabled={bannerSaving}>
+                    {t('comp.removeBanner')}
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                {t('comp.bannerHint')}
               </div>
             </div>
 
