@@ -176,8 +176,8 @@ const STYLES = `
 .pp-table tbody td{padding:14px;border-bottom:1px solid var(--line);vertical-align:middle;}
 .pp-table tbody tr:last-child td{border-bottom:0;}
 .pp-itemcell{display:flex;align-items:center;gap:14px;}
-.pp-thumb{width:54px;height:54px;flex:none;border-radius:10px;object-fit:cover;border:1px solid var(--line);background:#fff;}
-.pp-thumb--ph{display:flex;align-items:center;justify-content:center;color:#C2C9D6;background:var(--paper-2);}
+.pp-thumb{width:80px;height:80px;flex:none;border-radius:8px;object-fit:contain;}
+.pp-thumb--ph{display:flex;align-items:center;justify-content:center;color:#C2C9D6;}
 .pp-item-name{font-family:'Archivo';font-weight:700;color:var(--navy);font-size:15px;overflow-wrap:break-word;}
 .pp-item-sub{font-size:12px;color:#94A0B5;font-family:'JetBrains Mono',monospace;margin-top:3px;}
 .pp-num-cell{font-variant-numeric:tabular-nums;}
