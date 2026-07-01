@@ -146,15 +146,13 @@ const STYLES = `
 .pp-header__inner{position:relative;z-index:2;}
 .pp-hero{position:relative;aspect-ratio:16/9;background-size:cover;background-position:center;
   display:flex;align-items:flex-end;overflow:hidden;color:#fff;}
-/* Starts darkening at 20% (not just near the bottom) since the text block's
-   own height is a bigger share of a short mobile hero — arbitrary tenant
-   art has no guaranteed "quiet" zone, so the scrim has to carry legibility
-   on its own rather than relying on where the image happens to be busy. */
-.pp-hero::before{content:"";position:absolute;inset:0;
-  background:linear-gradient(180deg,rgba(11,20,45,0) 0%,rgba(11,20,45,.55) 20%,rgba(11,20,45,.94) 100%);}
-.pp-hero__inner{position:relative;z-index:2;width:100%;padding:30px 34px 26px;
-  text-shadow:0 1px 3px rgba(0,0,0,.45);}
-.pp-hero .pp-propblock{margin-top:0;}
+.pp-hero__inner{position:relative;z-index:2;width:100%;padding:24px 34px 26px;}
+/* A small solid card behind the number/title, sized to the text itself —
+   not a gradient sweeping across the banner. Guarantees legibility against
+   arbitrary tenant art without darkening more of the image than needed. */
+.pp-hero .pp-propblock{display:inline-block;margin-top:0;background:rgba(11,20,45,.78);
+  padding:14px 20px;border-radius:12px;max-width:100%;}
+.pp-hero .pp-title{max-width:340px;}
 .pp-logo{height:58px;max-width:280px;object-fit:contain;display:block;}
 .pp-issuer-name{font-family:'Archivo';font-weight:800;font-size:22px;letter-spacing:.2px;}
 .pp-propblock{margin-top:30px;}
@@ -252,16 +250,16 @@ const STYLES = `
 .pp-textarea{height:96px;resize:vertical;}
 
 /* Footer */
-.pp-footer{background:var(--paper);color:var(--text);border-radius:16px;width:100%;max-width:780px;
+.pp-footer{background:var(--navy);color:#C9D3E6;border-radius:16px;width:100%;max-width:780px;
   padding:24px 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:22px 30px;margin-bottom:14px;
-  border:1px solid var(--line);border-top:4px solid var(--red);}
-.pp-foot__k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--navy);font-weight:700;margin-bottom:7px;
+  border-top:4px solid var(--red);}
+.pp-foot__k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#8E9DBC;margin-bottom:7px;
   display:flex;align-items:center;gap:8px;}
 .pp-foot__ico{width:26px;height:26px;flex:none;border-radius:7px;background:var(--red);color:#fff;
   display:inline-flex;align-items:center;justify-content:center;}
-.pp-foot__v{font-size:13px;color:var(--muted);line-height:1.55;}
+.pp-foot__v{font-size:13px;color:#EAF0FA;line-height:1.55;}
 .pp-foot__v--mono{font-family:'JetBrains Mono',monospace;}
-.pp-foot__brand{font-family:'Archivo';font-weight:800;font-size:15px;color:var(--navy);}
+.pp-foot__brand{font-family:'Archivo';font-weight:800;font-size:15px;color:#fff;}
 
 .pp-tools{display:flex;gap:10px;margin-bottom:8px;}
 .pp-powered{font-size:12px;color:#9AA3B2;text-align:center;}
