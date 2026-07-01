@@ -14,6 +14,7 @@
     "seed:nfe": "ts-node --transpile-only src/scripts/seed-nfe.ts",
     "seed:nfse": "ts-node --transpile-only src/scripts/seed-nfse.ts",
     "seed:materials": "ts-node --transpile-only src/scripts/seed-materials.ts",
+    "seed:client": "ts-node --transpile-only src/scripts/seed-client.ts",
     "seed:proposals": "ts-node --transpile-only src/scripts/seed-proposals.ts",
     "test": "vitest run",
     "test:watch": "vitest",
