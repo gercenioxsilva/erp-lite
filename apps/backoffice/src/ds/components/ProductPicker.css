@@ -8,16 +8,13 @@
   font-size: 12px;
 }
 
+/* Positioning (position/left/top/width/max-height/z-index) is set inline by
+   the component: the list is rendered in a portal on <body> so it escapes the
+   `overflow` clipping of ancestor tables/cards. Here we keep only the visuals. */
 .product-picker__list {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
   margin: 0;
   padding: 4px;
   list-style: none;
-  max-height: 260px;
   overflow-y: auto;
   background: var(--bg, #fff);
   border: 1px solid var(--border);
