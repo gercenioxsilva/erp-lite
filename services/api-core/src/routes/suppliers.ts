@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, suppliers, payables } from '../db';
+import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
 
 const VALID_CATEGORIES = ['services', 'supplies', 'utilities', 'rent', 'payroll', 'taxes', 'other'] as const;
 
@@ -77,7 +78,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
       person_type,
       company_name:  b.company_name  || null,
       trade_name:    b.trade_name    || null,
-      cnpj:          b.cnpj          || null,
+      cnpj:          b.cnpj ? normalizeCNPJ(b.cnpj as string) : null,
       full_name:     b.full_name     || null,
       cpf:           b.cpf           || null,
       email:         b.email         || null,

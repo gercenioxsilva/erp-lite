@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, ilike, or, and, sql } from 'drizzle-orm';
 import { db, clients } from '../db';
+import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
 
 const clientBody = {
   type: 'object',
@@ -45,7 +46,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       tenant_id: b.tenant_id as string, person_type: b.person_type as string,
       company_name: (b.company_name ?? null) as string | null,
       trade_name:   (b.trade_name   ?? null) as string | null,
-      cnpj:         (b.cnpj         ?? null) as string | null,
+      cnpj:         b.cnpj ? normalizeCNPJ(b.cnpj as string) : null,
       state_reg:    (b.state_reg    ?? null) as string | null,
       municipal_reg: (b.municipal_reg ?? null) as string | null,
       suframa:      (b.suframa      ?? null) as string | null,
@@ -92,6 +93,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const toStr    = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s || null; };
     const toDigits = (v: unknown): string | null => { const s = String(v ?? '').replace(/\D/g, ''); return s || null; };
+    const toCNPJ   = (v: unknown): string | null => { const s = normalizeCNPJ(String(v ?? '')); return s || null; };
     const toDate   = (v: unknown): string | null => {
       if (v instanceof Date) return v.toISOString().slice(0, 10);
       const s = String(v ?? '').trim();
@@ -122,7 +124,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
         const inserted = await db.insert(clients).values({
           tenant_id, person_type: personType,
           company_name: toStr(b.company_name), trade_name: toStr(b.trade_name),
-          cnpj: toDigits(b.cnpj), state_reg: toStr(b.state_reg),
+          cnpj: toCNPJ(b.cnpj), state_reg: toStr(b.state_reg),
           municipal_reg: toStr(b.municipal_reg), suframa: toStr(b.suframa),
           full_name: toStr(b.full_name), cpf: toDigits(b.cpf),
           birth_date: toDate(b.birth_date), rg: toStr(b.rg), rg_issuer: toStr(b.rg_issuer),

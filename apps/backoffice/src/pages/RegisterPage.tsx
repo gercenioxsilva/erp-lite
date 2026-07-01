@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GaxLogo } from '../components/GaxLogo';
 import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n';
-import { maskCNPJ, digits } from '../lib/brazil';
+import { maskCNPJ, digits, normalizeCNPJ } from '../lib/brazil';
 
 const INIT = {
   company_name: '', trade_name: '', tax_id: '', tax_id_type: 'CNPJ',
@@ -38,7 +38,7 @@ export function RegisterPage() {
       await register({
         company_name: form.company_name,
         trade_name:   form.trade_name || undefined,
-        tax_id:       digits(form.tax_id),
+        tax_id:       form.tax_id_type === 'CNPJ' ? normalizeCNPJ(form.tax_id) : digits(form.tax_id),
         tax_id_type:  form.tax_id_type,
         name:         form.name,
         email:        form.email,
