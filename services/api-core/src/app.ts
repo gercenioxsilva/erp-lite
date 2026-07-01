@@ -43,6 +43,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
+    // Fastify's default (1 MiB) is far below what proposal-banner uploads need.
+    // routes/tenant.ts checks the base64 string against MAX_BANNER_BYTES (7 MB,
+    // itself sized for a 5 MB raw file once base64-inflated) — this needs
+    // headroom above THAT 7 MB figure, not the user-facing "5 MB" one.
+    bodyLimit: 8 * 1024 * 1024,
   });
 
   await app.register(cors, { origin: true });

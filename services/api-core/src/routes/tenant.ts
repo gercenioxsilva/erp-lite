@@ -4,7 +4,11 @@ import { db, tenants } from '../db';
 import { validateBankingData, isValidBillingProvider } from '../lib/banking';
 
 const MAX_LOGO_BYTES = 300 * 1024; // 300 KB base64 string limit
-const MAX_BANNER_BYTES = 2 * 1024 * 1024; // 2 MB — banner da proposta (imagem maior)
+// 7 MB, not 5 — this checks the base64 STRING (banner_url), and base64 inflates
+// raw bytes by ~4/3. A genuine 5 MB file (the limit shown to users, checked
+// against File.size in CompanyPage.tsx) becomes ~6.67 MB once encoded, so the
+// byte threshold here has to be higher than the user-facing "5 MB" figure.
+const MAX_BANNER_BYTES = 7 * 1024 * 1024;
 const ALLOWED_LOGO_PREFIXES = [
   'data:image/jpeg;base64,',
   'data:image/jpg;base64,',
@@ -122,7 +126,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.badRequest('Formato inválido. Envie uma data URI base64 (jpeg, png, webp ou gif)');
 
     if (Buffer.byteLength(banner_url, 'utf8') > MAX_BANNER_BYTES)
-      return reply.badRequest('Banner muito grande. Máximo permitido: 2 MB');
+      return reply.badRequest('Banner muito grande. Máximo permitido: 5 MB');
 
     await db.update(tenants).set({ proposal_banner_url: banner_url }).where(eq(tenants.id, tenantId));
     return { ok: true };
