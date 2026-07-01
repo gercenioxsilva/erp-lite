@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './ProductPicker.css';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -62,7 +63,9 @@ export function ProductPicker({
   const [open, setOpen]     = useState(false);
   const [query, setQuery]   = useState('');
   const [active, setActive] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef  = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef  = useRef<HTMLUListElement>(null);
 
   const selected = useMemo(
     () => options.find(o => o.id === value) ?? null,
@@ -70,14 +73,57 @@ export function ProductPicker({
   );
   const results = useMemo(() => filterProducts(options, query), [options, query]);
 
+  /* ── Portal positioning ──────────────────────────────────────────────────
+     The list renders in a <body> portal so it escapes the `overflow` clipping
+     of ancestor tables/cards. We anchor it to the input's viewport rect on
+     every open, scroll and resize, flipping above when there's no room below. */
+  const [coords, setCoords] = useState<{
+    left: number; width: number; maxHeight: number;
+    top?: number; bottom?: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) { setCoords(null); return; }
+
+    function place() {
+      const input = inputRef.current;
+      if (!input) return;
+      const rect = input.getBoundingClientRect();
+      const GAP = 2;
+      const MIN_HEIGHT = 140;
+      const DESIRED_HEIGHT = 440;
+      const spaceBelow = window.innerHeight - rect.bottom - GAP;
+      const spaceAbove = rect.top - GAP;
+      const flipUp = spaceBelow < MIN_HEIGHT && spaceAbove > spaceBelow;
+      const available = flipUp ? spaceAbove : spaceBelow;
+      const maxHeight = Math.max(MIN_HEIGHT, Math.min(DESIRED_HEIGHT, available));
+      setCoords(
+        flipUp
+          ? { left: rect.left, width: rect.width, maxHeight, bottom: window.innerHeight - rect.top + GAP }
+          : { left: rect.left, width: rect.width, maxHeight, top: rect.bottom + GAP },
+      );
+    }
+
+    place();
+    // Capture phase so scrolls inside the drawer body (and any ancestor) fire.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, results.length]);
+
   // Close on outside click.
   useEffect(() => {
     if (!open) return;
     function handlePointer(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-      }
+      const target = e.target as Node;
+      // The list lives in a portal, so it's outside rootRef — check it too.
+      if (rootRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      setOpen(false);
+      setQuery('');
     }
     document.addEventListener('mousedown', handlePointer);
     return () => document.removeEventListener('mousedown', handlePointer);
@@ -116,6 +162,7 @@ export function ProductPicker({
     <div className="product-picker" ref={rootRef}>
       <input
         id={id}
+        ref={inputRef}
         className="product-picker__input"
         role="combobox"
         aria-expanded={open}
@@ -131,8 +178,21 @@ export function ProductPicker({
         onKeyDown={handleKeyDown}
       />
 
-      {open && (
-        <ul className="product-picker__list" role="listbox" id={listId}>
+      {open && coords && createPortal(
+        <ul
+          className="product-picker__list"
+          role="listbox"
+          id={listId}
+          ref={listRef}
+          style={{
+            position: 'fixed',
+            zIndex: 1000,
+            left: coords.left,
+            width: coords.width,
+            maxHeight: coords.maxHeight,
+            ...(coords.top != null ? { top: coords.top } : { bottom: coords.bottom }),
+          }}
+        >
           {value && (
             <li
               className="product-picker__option product-picker__option--clear"
@@ -172,7 +232,8 @@ export function ProductPicker({
               </li>
             ))
           )}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );
