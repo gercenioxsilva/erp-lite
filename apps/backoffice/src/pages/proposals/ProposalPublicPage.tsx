@@ -129,15 +129,32 @@ const STYLES = `
 .pp-card{width:100%;max-width:780px;background:var(--paper);border-radius:16px;
   box-shadow:0 12px 44px rgba(21,36,75,.14),0 1px 0 rgba(21,36,75,.04);overflow:hidden;margin-bottom:18px;}
 
-/* Header band w/ logo + product banner */
+/* Header band — two variants:
+   .pp-header   navy gradient, small logo — fallback when there's no banner
+   .pp-hero     the tenant's banner artwork as the header's own background,
+                proposal number/title overlaid directly on it (not a separate
+                section below) behind a bottom-anchored gradient scrim, so
+                text stays legible regardless of what's under it. A fixed
+                aspect-ratio + background-size:cover fills the box edge to
+                edge on every browser, same reasoning as the old
+                .pp-banner-strip <img> this replaces — cropping art that
+                isn't ~16:9 is an accepted trade-off for never showing gaps. */
 .pp-header{position:relative;background:linear-gradient(115deg,var(--navy) 0%,var(--navy-2) 100%);
   color:#fff;padding:30px 34px 30px;overflow:hidden;}
-.pp-header__media{position:absolute;top:0;right:0;bottom:0;left:38%;background-size:cover;background-position:center right;}
-.pp-header__media::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(90deg,var(--navy) 2%,rgba(21,36,75,.78) 26%,rgba(21,36,75,.05) 100%);}
 .pp-header::after{content:"";position:absolute;right:-40px;top:-30px;width:160px;height:200px;
   background:var(--red);transform:rotate(18deg);opacity:.9;border-radius:0 0 0 60px;z-index:0;}
 .pp-header__inner{position:relative;z-index:2;}
+.pp-hero{position:relative;aspect-ratio:16/9;background-size:cover;background-position:center;
+  display:flex;align-items:flex-end;overflow:hidden;color:#fff;}
+/* Starts darkening at 20% (not just near the bottom) since the text block's
+   own height is a bigger share of a short mobile hero — arbitrary tenant
+   art has no guaranteed "quiet" zone, so the scrim has to carry legibility
+   on its own rather than relying on where the image happens to be busy. */
+.pp-hero::before{content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(11,20,45,0) 0%,rgba(11,20,45,.55) 20%,rgba(11,20,45,.94) 100%);}
+.pp-hero__inner{position:relative;z-index:2;width:100%;padding:30px 34px 26px;
+  text-shadow:0 1px 3px rgba(0,0,0,.45);}
+.pp-hero .pp-propblock{margin-top:0;}
 .pp-logo{height:58px;max-width:280px;object-fit:contain;display:block;}
 .pp-issuer-name{font-family:'Archivo';font-weight:800;font-size:22px;letter-spacing:.2px;}
 .pp-propblock{margin-top:30px;}
@@ -147,6 +164,8 @@ const STYLES = `
 .pp-rule{height:4px;width:84px;background:var(--red);margin:14px 0 12px;border-radius:3px;}
 .pp-title{font-family:'Archivo';font-weight:600;font-size:15px;letter-spacing:.04em;text-transform:uppercase;
   color:#CBD6EF;max-width:60%;overflow-wrap:anywhere;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 
 /* "Para" / validity card */
 .pp-meta{margin:18px 24px;display:flex;flex-wrap:wrap;gap:16px 24px;align-items:center;justify-content:space-between;
@@ -249,7 +268,7 @@ const STYLES = `
 
 @media (max-width:640px){
   .pp-header{padding:24px 20px;}
-  .pp-header__media{left:50%;}
+  .pp-hero__inner{padding:20px 20px 22px;}
   .pp-num{font-size:38px;}
   .pp-title{max-width:100%;}
   .pp-meta{margin:14px;padding:16px;flex-direction:column;align-items:flex-start;}
@@ -260,7 +279,10 @@ const STYLES = `
   .print-hide{display:none !important;}
   .pp-root{background:#fff;padding:0;}
   .pp-card,.pp-footer{box-shadow:none;border:1px solid var(--line);}
-  .pp-header__media{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+  /* Without this, printing without "background graphics" enabled drops the
+     .pp-hero background-image and its gradient scrim, leaving white text
+     floating over nothing — the whole header content becomes unreadable. */
+  .pp-hero{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
 }
 @media (prefers-reduced-motion:reduce){ .pp-btn{transition:none;} }
 `;
@@ -375,21 +397,36 @@ export function ProposalPublicPage() {
     <div className="pp-root">
       {Style}
       <div className="pp-card">
-        {/* Header — logo + product banner */}
-        <header className="pp-header">
-          {issuer.banner_url && <div className="pp-header__media" style={{ backgroundImage: `url(${issuer.banner_url})` }} />}
-          <div className="pp-header__inner">
-            {issuer.logo_url
-              ? <img className="pp-logo" src={issuer.logo_url} alt={issuer.name ?? 'Logo'} />
-              : <div className="pp-issuer-name">{issuer.name}</div>}
-            <div className="pp-propblock">
-              <div className="pp-eyebrow">Proposta</div>
-              <div className="pp-num">Nº {proposal.number}</div>
-              <div className="pp-rule" />
-              <div className="pp-title">{proposal.title}</div>
+        {/* Header — proposal number overlaid directly on the tenant's banner
+            artwork (which already carries their branding) when one exists;
+            navy gradient w/ small logo as a fallback otherwise. */}
+        {issuer.banner_url ? (
+          <header className="pp-hero" style={{ backgroundImage: `url(${issuer.banner_url})` }}>
+            <span className="sr-only">{issuer.company || issuer.name}</span>
+            <div className="pp-hero__inner">
+              <div className="pp-propblock">
+                <div className="pp-eyebrow">Proposta</div>
+                <div className="pp-num">Nº {proposal.number}</div>
+                <div className="pp-rule" />
+                <div className="pp-title">{proposal.title}</div>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
+        ) : (
+          <header className="pp-header">
+            <div className="pp-header__inner">
+              {issuer.logo_url
+                ? <img className="pp-logo" src={issuer.logo_url} alt={issuer.name ?? 'Logo'} />
+                : <div className="pp-issuer-name">{issuer.name}</div>}
+              <div className="pp-propblock">
+                <div className="pp-eyebrow">Proposta</div>
+                <div className="pp-num">Nº {proposal.number}</div>
+                <div className="pp-rule" />
+                <div className="pp-title">{proposal.title}</div>
+              </div>
+            </div>
+          </header>
+        )}
 
         {/* Para / válida até */}
         <div className="pp-meta">
