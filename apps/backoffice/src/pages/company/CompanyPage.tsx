@@ -48,7 +48,7 @@ const EMPTY_NFE_FORM = {
 };
 
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
-const MAX_BANNER_SIZE = 2 * 1024 * 1024; // 2 MB — banner da proposta
+const MAX_BANNER_SIZE = 5 * 1024 * 1024; // 5 MB — banner da proposta
 
 const BANKS = [
   { value: '341', label: 'Itaú (341)' },
