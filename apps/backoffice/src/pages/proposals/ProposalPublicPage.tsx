@@ -51,12 +51,18 @@ const PAYMENT_LABELS: Record<string, string> = {
 const paymentLabel = (k: string | null): string => (k ? (PAYMENT_LABELS[k] ?? k) : '');
 
 const digits = (s: string | null) => (s ?? '').replace(/\D/g, '');
+// normalizeCNPJ: remove pontuação mas preserva letras A-Z (alfanumérico IN RFB 2.229/2024)
+const normalizeCNPJ = (s: string | null) => (s ?? '').replace(/[.\-\/\s]/g, '').toUpperCase();
 
 function fmtDoc(doc: string | null, type: string | null): string {
   if (!doc) return '—';
+  // CNPJ alfanumérico: usa normalizeCNPJ (mantém letras); CPF: usa digits (só números)
+  if (type === 'CNPJ' || !type) {
+    const c = normalizeCNPJ(doc);
+    if (c.length === 14 && /^[A-Z0-9]{12}[0-9]{2}$/.test(c))
+      return `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12,14)}`;
+  }
   const d = digits(doc);
-  if ((type === 'CNPJ' || !type) && d.length === 14)
-    return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
   if ((type === 'CPF' || !type) && d.length === 11)
     return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
   return doc;

@@ -5,7 +5,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import {
-  maskCNPJ, maskCPF, maskPhone, maskCEP, digits,
+  maskCNPJ, maskCPF, maskPhone, maskCEP, digits, normalizeCNPJ,
   isValidCNPJ, isValidCPF, fetchAddressByCEP, UF_LIST,
 } from '../../lib/brazil';
 
@@ -344,7 +344,7 @@ export function ClientsPage() {
         person_type:   form.person_type,
         company_name:  form.company_name  || undefined,
         trade_name:    form.trade_name    || undefined,
-        cnpj:          form.cnpj   ? digits(form.cnpj)   : undefined,
+        cnpj:          form.cnpj   ? normalizeCNPJ(form.cnpj)   : undefined,
         state_reg:     form.state_reg     || undefined,
         municipal_reg: form.municipal_reg || undefined,
         suframa:       form.suframa       || undefined,

@@ -3,6 +3,7 @@ import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, sql } from 'drizzle-orm';
 import { db, invoices, nfeConfigs, nfeEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
+import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
 
 export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -45,7 +46,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [cfg] = await db.insert(nfeConfigs).values({
       tenant_id,
-      cnpj: cnpj.replace(/\D/g, ''),
+      cnpj: normalizeCNPJ(cnpj),
       razao_social,
       nome_fantasia:           nome_fantasia      || null,
       regime_tributario:       regime_tributario  ?? 1,

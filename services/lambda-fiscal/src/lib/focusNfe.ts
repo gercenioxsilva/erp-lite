@@ -24,6 +24,10 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const onlyDigits = (s: string): string => s.replace(/\D/g, '');
 
+// normalizeCNPJ: remove somente pontuação (. - /), mantém letras A-Z para CNPJs
+// alfanuméricos (IN RFB nº 2.229/2024). Ao contrário de onlyDigits(), não strip letras.
+const normalizeCNPJ = (s: string): string => s.replace(/[.\-\/\s]/g, '').toUpperCase();
+
 /** Chave de acesso de 44 dígitos determinística a partir do ref (apenas para simulação). */
 function mockChaveAcesso(ref: string): string {
   const base = (onlyDigits(ref) || '0').repeat(44);
@@ -185,7 +189,7 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
     modalidade_frete:   9,
 
     // Emitente (campos flat). O Focus complementa IE/dados pelo cadastro.
-    cnpj_emitente:              onlyDigits(e.cnpj),
+    cnpj_emitente:              normalizeCNPJ(e.cnpj),
     nome_emitente:              e.razao_social,
     nome_fantasia_emitente:     e.nome_fantasia,
     logradouro_emitente:        e.logradouro,
@@ -214,7 +218,7 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
   if (d.cpf) {
     payload.cpf_destinatario = onlyDigits(d.cpf);
   } else if (d.cnpj) {
-    payload.cnpj_destinatario = onlyDigits(d.cnpj);
+    payload.cnpj_destinatario = normalizeCNPJ(d.cnpj);
     payload.indicador_inscricao_estadual_destinatario = String(d.indicador_ie ?? 9);
   }
 
@@ -329,7 +333,7 @@ export function buildFocusNfsePayload(msg: NfseEmitMessage): object {
   const payload: Record<string, unknown> = {
     data_emissao:   msg.data_emissao,
     prestador: {
-      cnpj:                onlyDigits(p.cnpj),
+      cnpj:                normalizeCNPJ(p.cnpj),
       inscricao_municipal: p.inscricao_municipal,
       codigo_municipio:    p.codigo_municipio,
     },
@@ -364,7 +368,7 @@ export function buildFocusNfsePayload(msg: NfseEmitMessage): object {
   if (t.cpf) {
     tomador.cpf = onlyDigits(t.cpf);
   } else if (t.cnpj) {
-    tomador.cnpj = onlyDigits(t.cnpj);
+    tomador.cnpj = normalizeCNPJ(t.cnpj);
   }
 
   return payload;

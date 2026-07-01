@@ -4,7 +4,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import {
-  maskCNPJ, maskCPF, maskPhone, maskCEP, digits,
+  maskCNPJ, maskCPF, maskPhone, maskCEP, digits, normalizeCNPJ,
   fetchAddressByCEP, UF_LIST,
 } from '../../lib/brazil';
 
@@ -220,7 +220,7 @@ export function SuppliersPage() {
         person_type:   form.person_type,
         company_name:  form.person_type === 'PJ' ? form.company_name.trim() || null : null,
         trade_name:    form.person_type === 'PJ' ? form.trade_name.trim()   || null : null,
-        cnpj:          form.person_type === 'PJ' ? digits(form.cnpj)        || null : null,
+        cnpj:          form.person_type === 'PJ' ? normalizeCNPJ(form.cnpj) || null : null,
         full_name:     form.person_type === 'PF' ? form.full_name.trim()    || null : null,
         cpf:           form.person_type === 'PF' ? digits(form.cpf)         || null : null,
         email:         form.email.trim()         || null,
