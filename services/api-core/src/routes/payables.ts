@@ -55,7 +55,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     const { supplier_name, supplier_id, category = 'other', description, document_number,
             amount, due_date, notes,
             recurrence = 'none', recurrence_day, recurrence_end_date,
-            cost_center_id } = request.body as any;
+            cost_center_id, dre_category_id } = request.body as any;
 
     if (!description || typeof description !== 'string' || !description.trim())
       return reply.badRequest('description é obrigatório');
@@ -94,9 +94,10 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       recurrence:      recurrence || 'none',
       recurrence_day:  recurrence_day ? Number(recurrence_day) : null,
       recurrence_end_date: recurrence_end_date || null,
-      cost_center_id:  cost_center_id || null,
-      created_by:      userId,
-    }).returning();
+      cost_center_id:   cost_center_id  || null,
+      dre_category_id:  dre_category_id || null,
+      created_by:       userId,
+    } as any).returning();
 
     return reply.code(201).send(row);
   });
@@ -151,7 +152,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.recurrence           !== undefined) patch.recurrence           = body.recurrence || 'none';
     if (body.recurrence_day       !== undefined) patch.recurrence_day       = body.recurrence_day ? Number(body.recurrence_day) : null;
     if (body.recurrence_end_date  !== undefined) patch.recurrence_end_date  = body.recurrence_end_date || null;
-    if (body.cost_center_id       !== undefined) patch.cost_center_id       = body.cost_center_id || null;
+    if (body.cost_center_id       !== undefined) patch.cost_center_id       = body.cost_center_id  || null;
+    if (body.dre_category_id      !== undefined) patch.dre_category_id      = body.dre_category_id || null;
 
     if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
 

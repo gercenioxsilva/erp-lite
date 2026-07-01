@@ -24,7 +24,10 @@ import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
 import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
-import { ReportsPage }        from './pages/reports/ReportsPage';
+import { ReportsPage }            from './pages/reports/ReportsPage';
+import { DREPage }                from './pages/reports/DREPage';
+import { PurchaseOrdersPage }     from './pages/purchasing/PurchaseOrdersPage';
+import { SupplierInvoicesPage }   from './pages/purchasing/SupplierInvoicesPage';
 import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
 import { CostCenterDetailPage } from './pages/cost-centers/CostCenterDetailPage';
 import { SellersPage }       from './pages/sellers/SellersPage';
@@ -65,6 +68,9 @@ function GuardedRoutes() {
         <Route path="/cost-centers/:id" element={<CostCenterDetailPage />} />
         <Route path="/sellers"     element={<SellersPage />} />
         <Route path="/sellers/:id" element={<SellerDetailPage />} />
+        <Route path="/purchase-orders"   element={<PurchaseOrdersPage />} />
+        <Route path="/supplier-invoices" element={<SupplierInvoicesPage />} />
+        <Route path="/dre"               element={<DREPage />} />
         <Route path="/billing"         element={<BillingPage />} />
         <Route path="/billing/success" element={<BillingSuccessPage />} />
         <Route path="/pos/caixa"       element={<PosCaixaPage />} />

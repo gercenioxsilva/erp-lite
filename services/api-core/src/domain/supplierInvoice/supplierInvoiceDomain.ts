@@ -1,0 +1,75 @@
+// Domínio de NF-e de Entrada — regras de negócio puras, sem I/O.
+
+export type SIStatus = 'draft' | 'confirmed' | 'cancelled' | 'divergence';
+
+export class SupplierInvoiceDomainError extends Error {
+  constructor(public code: string, public payload?: Record<string, unknown>) {
+    super(code);
+    this.name = 'SupplierInvoiceDomainError';
+  }
+}
+
+// ── State machine ─────────────────────────────────────────────────────────────
+// draft → confirmed | cancelled | divergence
+// confirmed → cancelled          (cancelamento pós recebimento — excepcional)
+// divergence → confirmed | cancelled
+
+const VALID_TRANSITIONS: Record<SIStatus, SIStatus[]> = {
+  draft:      ['confirmed', 'cancelled', 'divergence'],
+  confirmed:  ['cancelled'],
+  cancelled:  [],
+  divergence: ['confirmed', 'cancelled'],
+};
+
+export function assertSITransition(from: SIStatus, to: SIStatus): void {
+  if (!VALID_TRANSITIONS[from].includes(to)) {
+    throw new SupplierInvoiceDomainError('invalid_si_transition', {
+      from, to, allowed: VALID_TRANSITIONS[from],
+    });
+  }
+}
+
+// ── Matching com Pedido de Compra (3-way match) ───────────────────────────────
+// Retorna 'ok' | 'quantity_divergence' | 'price_divergence'
+
+export interface MatchItem {
+  material_id?: string | null;
+  quantity:     number;
+  unit_price:   number;
+}
+
+export type MatchResult = 'ok' | 'quantity_divergence' | 'price_divergence' | 'no_po';
+
+export function matchAgainstPO(
+  siItems: MatchItem[],
+  poItems: MatchItem[],
+): MatchResult {
+  if (!poItems.length) return 'no_po';
+
+  for (const si of siItems) {
+    const po = poItems.find(p => p.material_id && p.material_id === si.material_id);
+    if (!po) continue;
+    const qtDiff  = Math.abs(si.quantity - po.quantity);
+    const pricDiff = Math.abs(si.unit_price - po.unit_price);
+    if (qtDiff   > 0.001) return 'quantity_divergence';
+    if (pricDiff > 0.01)  return 'price_divergence';
+  }
+  return 'ok';
+}
+
+// ── Validação de entrada ──────────────────────────────────────────────────────
+
+export interface SICreateInput {
+  items: Array<{ quantity: number; unit_price: number }>;
+  total: number;
+}
+
+export function validateSICreate(input: SICreateInput): void {
+  if (!input.items.length) {
+    throw new SupplierInvoiceDomainError('si_no_items');
+  }
+  for (const it of input.items) {
+    if (it.quantity <= 0) throw new SupplierInvoiceDomainError('si_item_quantity_zero');
+    if (it.unit_price < 0) throw new SupplierInvoiceDomainError('si_item_price_negative');
+  }
+}
