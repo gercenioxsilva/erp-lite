@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
+import { computeDRE } from '../services/dreService';
 
 export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -112,5 +113,30 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       rows,
       total_accrued: rows.reduce((a, r) => a + r.total_accrued, 0),
     };
+  });
+
+  // GET /v1/reports/dre?from=YYYY-MM-DD&to=YYYY-MM-DD — DRE Gerencial
+  fastify.get('/reports/dre', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { from, to } = request.query as Record<string, string>;
+
+    if (!from || !to) return reply.badRequest('Parâmetros from e to são obrigatórios (formato YYYY-MM-DD)');
+
+    const dre = await computeDRE({ tenantId, from, to }, db);
+    return dre;
+  });
+
+  // GET /v1/dre/categories — lista categorias DRE disponíveis para o tenant
+  fastify.get('/dre/categories', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+    const tenantId = (request as any).user.tenantId;
+
+    const { rows } = await db.execute<any>(sql`
+      SELECT id, code, name, type, sign, sort_order
+      FROM dre_categories
+      WHERE (tenant_id = ${tenantId} OR tenant_id IS NULL) AND is_active = true
+      ORDER BY sort_order ASC
+    `);
+
+    return rows;
   });
 };

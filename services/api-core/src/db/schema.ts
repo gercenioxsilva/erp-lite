@@ -492,6 +492,8 @@ export const payables = pgTable('payables', {
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   // Centro de Custo (migration 0026)
   cost_center_id: uuid('cost_center_id'),
+  // DRE Gerencial (migration 0042)
+  dre_category_id: uuid('dre_category_id'),
 });
 
 // ── payable_payments (append-only) ────────────────────────────────────────────
@@ -952,3 +954,104 @@ export const taxSimplesNacionalBrackets = pgTable('tax_simples_nacional_brackets
 }, (t) => ({
   pk: primaryKey({ columns: [t.anexo, t.faixa] }),
 }));
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P2 — Pedidos de Compra  (migration 0040)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const purchaseOrders = pgTable('purchase_orders', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  supplier_id:   uuid('supplier_id').references(() => suppliers.id, { onDelete: 'restrict' }),
+  supplier_name: varchar('supplier_name', { length: 255 }),
+  number:        varchar('number', { length: 20 }).notNull(),
+  status:        varchar('status', { length: 20 }).notNull().default('draft'),
+  expected_date: date('expected_date'),
+  subtotal:      decimal('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
+  discount:      decimal('discount', { precision: 15, scale: 2 }).notNull().default('0'),
+  shipping:      decimal('shipping', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:         decimal('total',    { precision: 15, scale: 2 }).notNull().default('0'),
+  notes:         text('notes'),
+  cost_center_id: uuid('cost_center_id'),
+  created_by:    uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  approved_by:   uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),
+  approved_at:   timestamp('approved_at', { withTimezone: true }),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const purchaseOrderItems = pgTable('purchase_order_items', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  purchase_order_id: uuid('purchase_order_id').notNull().references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+  material_id:       uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  name:              varchar('name', { length: 255 }).notNull(),
+  sku:               varchar('sku',  { length: 100 }),
+  unit:              varchar('unit', { length: 20 }).notNull().default('UN'),
+  quantity:          decimal('quantity',   { precision: 15, scale: 3 }).notNull(),
+  unit_price:        decimal('unit_price', { precision: 15, scale: 2 }).notNull(),
+  total:             decimal('total',      { precision: 15, scale: 2 }).notNull(),
+  notes:             text('notes'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P1 — NF-e de Entrada  (migration 0041)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const supplierInvoices = pgTable('supplier_invoices', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  supplier_id:        uuid('supplier_id').references(() => suppliers.id, { onDelete: 'set null' }),
+  supplier_name:      varchar('supplier_name', { length: 255 }),
+  purchase_order_id:  uuid('purchase_order_id').references(() => purchaseOrders.id, { onDelete: 'set null' }),
+  nfe_key:            varchar('nfe_key',    { length: 44 }),
+  nfe_number:         varchar('nfe_number', { length: 20 }),
+  nfe_series:         varchar('nfe_series', { length: 5 }).default('1'),
+  issue_date:         date('issue_date'),
+  subtotal:           decimal('subtotal',  { precision: 15, scale: 2 }).notNull().default('0'),
+  tax_total:          decimal('tax_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:              decimal('total',     { precision: 15, scale: 2 }).notNull().default('0'),
+  due_date:           date('due_date'),
+  payable_id:         uuid('payable_id'),
+  status:             varchar('status', { length: 20 }).notNull().default('draft'),
+  notes:              text('notes'),
+  cost_center_id:     uuid('cost_center_id'),
+  created_by:         uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  confirmed_by:       uuid('confirmed_by').references(() => users.id, { onDelete: 'set null' }),
+  confirmed_at:       timestamp('confirmed_at', { withTimezone: true }),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const supplierInvoiceItems = pgTable('supplier_invoice_items', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  supplier_invoice_id: uuid('supplier_invoice_id').notNull().references(() => supplierInvoices.id, { onDelete: 'cascade' }),
+  material_id:         uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  name:                varchar('name',     { length: 255 }).notNull(),
+  ncm_code:            varchar('ncm_code', { length: 10 }),
+  cfop:                varchar('cfop',     { length: 5  }),
+  unit:                varchar('unit',     { length: 20 }).notNull().default('UN'),
+  quantity:            decimal('quantity',   { precision: 15, scale: 3 }).notNull(),
+  unit_price:          decimal('unit_price', { precision: 15, scale: 2 }).notNull(),
+  total:               decimal('total',      { precision: 15, scale: 2 }).notNull(),
+  icms_rate:           decimal('icms_rate',  { precision: 5,  scale: 2 }),
+  icms_value:          decimal('icms_value', { precision: 15, scale: 2 }),
+  ipi_rate:            decimal('ipi_rate',   { precision: 5,  scale: 2 }),
+  ipi_value:           decimal('ipi_value',  { precision: 15, scale: 2 }),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// P3 — DRE Gerencial  (migration 0042)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const dreCategories = pgTable('dre_categories', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+  code:       varchar('code', { length: 30 }).notNull(),
+  name:       varchar('name', { length: 120 }).notNull(),
+  type:       varchar('type', { length: 30 }).notNull(),
+  sign:       smallint('sign').notNull().default(-1),
+  sort_order: smallint('sort_order').notNull().default(0),
+  is_active:  boolean('is_active').notNull().default(true),
+});

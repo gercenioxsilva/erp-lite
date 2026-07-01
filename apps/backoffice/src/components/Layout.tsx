@@ -153,15 +153,18 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/pos/sessions',  label: 'Sessões'         },
     ] },
     { id: 'inventory', label: t('nav.group.inventory'), icon: IcoStock, children: [
-      { to: '/materials', label: t('nav.materials') },
-      { to: '/stock',     label: t('nav.stock')     },
-      { to: '/suppliers', label: t('nav.suppliers') },
+      { to: '/materials',         label: t('nav.materials')        },
+      { to: '/stock',             label: t('nav.stock')            },
+      { to: '/suppliers',         label: t('nav.suppliers')        },
+      { to: '/purchase-orders',   label: t('nav.purchaseOrders')   },
+      { to: '/supplier-invoices', label: t('nav.supplierInvoices') },
     ] },
     { id: 'finance', label: t('nav.group.finance'), icon: IcoReceivables, children: [
       { to: '/receivables',  label: t('nav.receivables') },
       { to: '/payables',     label: t('nav.payables')    },
       { to: '/cost-centers', label: t('nav.costCenters') },
       { to: '/sellers',      label: t('nav.sellers')     },
+      { to: '/dre',          label: t('nav.dre')         },
     ] },
     { id: 'registrations', label: t('nav.group.registrations'), icon: IcoClients, children: [
       { to: '/clients',   label: t('nav.clients')   },

@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Colunas adicionadas em v16.0: `payables.dre_category_id`. Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -51,6 +51,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
    - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
    - `GET /v1/tax/simples-effective-rate` — alíquota efetiva estimada do Simples Nacional (Anexo I) pelo RBT12 do tenant (informativo)
+   - `GET|POST|PATCH /v1/purchase-orders(/:id)?` · `POST /v1/purchase-orders/:id/approve` · `POST /v1/purchase-orders/:id/cancel`
+   - `GET|POST /v1/supplier-invoices(/:id)?` · `POST /v1/supplier-invoices/:id/confirm` · `POST /v1/supplier-invoices/:id/cancel`
+   - `GET /v1/reports/dre?from=YYYY-MM-DD&to=YYYY-MM-DD` — DRE Gerencial (Caminho A — sem dupla entrada contábil)
+   - `GET /v1/dre/categories` — categorias DRE disponíveis para o tenant (globais + personalizadas)
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
@@ -116,6 +120,10 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
 
 33. **Motor fiscal multi-estado: tabelas centrais NUNCA editáveis por tenant.** As tabelas `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules` e `tax_simples_nacional_brackets` (migration 0037) são mantidas pela Orquestra (legislação tributária é igual para todos os tenants no mesmo estado). O que É configurável por tenant: `nfe_configs.uf` (UF de origem, obrigatório configurar antes de emitir), `nfe_configs.regime_tributario` (CRT 1/2/3), `tenants.simples_rbt12` (faturamento acumulado 12 meses para cálculo de alíquota efetiva do Simples). **Limitações documentadas desta versão (v15.0):** (a) ICMS-ST: tabela `tax_st_rules` criada, mas sem dados — recomendado integrar provedor de dados fiscais (IOB/TaxWeaver) para populá-la; (b) FCP: tabela criada sem dados — popular por demanda por UF; (c) DIFAL: cálculo simplificado por diferença direta (não usa gross-up do Anexo VI do Convênio 236/2021); (d) Versionamento temporal de alíquotas: não implementado (alíquota corrente no momento da consulta é sempre aplicada — sem lookups por data); (e) Conteúdo de importação (alíquota de 4% — Resolução Senado 13/2012): não implementado. Nunca afirmar que estas limitações não existem; documentar no código e nos changelogs.
+
+34. **Pedido de Compra e NF-e de Entrada: Clean Architecture com 3 camadas.** Domínio puro em `src/domain/purchaseOrder/purchaseOrderDomain.ts` (state machine, validação, cálculo) e `src/domain/supplierInvoice/supplierInvoiceDomain.ts` (state machine, 3-way matching). Serviços de aplicação em `src/services/purchaseOrderService.ts` e `src/services/supplierInvoiceService.ts` (orquestração, I/O). Nunca chamar lógica de domínio diretamente de rotas; nunca chamar I/O de banco dentro do domínio puro. `confirmSupplierInvoice()` cria o `payable` automaticamente E registra movimentação de entrada no inventário (`inventory_movements type='in'`) — nunca duplicar esse efeito. O 3-way matching (`matchAgainstPO`) retorna `'divergence'` quando quantidade ou preço do item difere do PO — o status da NF-e fica `'divergence'` em vez de `'confirmed'` mas o payable ainda é criado e o PO **não** avança para `'received'` nesse caso.
+
+35. **DRE Gerencial: Caminho A (sem dupla entrada contábil).** `src/domain/dre/dreDomain.ts` contém a fórmula pura do DRE (SOLID: puro, testável, sem I/O). `src/services/dreService.ts` lê invoices (receita) e payables (despesas por `dre_category_id`) e chama `buildDRE()`. `dre_categories` tem categorias globais (tenant_id NULL — mantidas pela Orquestra) e pode ter categorias customizadas por tenant. `payables.dre_category_id` é nullable — payables sem categoria aparecem em "Outras Despesas" na DRE. NUNCA afirmar que este DRE é um DRE contábil formal: ele é gerencial e não substitui SPED Contábil/ECD. A fórmula respeita: Receita Líquida = Receita Bruta − Deduções; Lucro Bruto = Rec. Líquida + CMV; EBITDA = Lucro Bruto + Despesas Opex; EBT = EBITDA + Result. Financeiro; Resultado Líquido = EBT + Impostos sobre Resultado. Despesas têm `sign = -1` (montante negativo) e receitas têm `sign = +1` — nunca inverter esse sinal.
 
 32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
 
@@ -577,6 +585,9 @@ flowchart TD
 | Contas a Receber | `/receivables` | receivables, receivable_payments, boletos |
 | Centro de Custo | `/cost-centers`, `/cost-centers/:id` | cost_centers, cost_center_stock, cost_center_movements |
 | Vendedores / Comissões | `/sellers`, `/sellers/:id` | sellers, commission_entries |
+| Pedidos de Compra | `/purchase-orders` | purchase_orders, purchase_order_items |
+| NF-e de Entrada | `/supplier-invoices` | supplier_invoices, supplier_invoice_items |
+| DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables |
 | Contas a Pagar | `/payables` | payables, payable_payments |
 | Contratos | `/contracts` | service_contracts, contract_billings |
 | Fornecedores | `/suppliers` | suppliers |
@@ -863,6 +874,28 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 ## Histórico de versões relevantes
 
+### v16.0 — P1 NF-e de Entrada + P2 Pedido de Compra + P3 DRE Gerencial
+
+> **Arquitetura:** Clean Architecture com DDD em 3 camadas para cada módulo:
+> - Domínio puro (`src/domain/*/`) — state machine, validação, fórmulas. Zero I/O, 100% testável.
+> - Serviços de aplicação (`src/services/`) — orquestração de I/O + domínio. Injeção de db para testabilidade.
+> - Rotas HTTP (`src/routes/`) — adapter Fastify, extrai tenantId do JWT (regra 4), delega a serviços.
+>
+> **P2 — Pedido de Compra (migrations 0040):**
+> `purchase_orders` + `purchase_order_items`. State machine: `draft → approved → received | cancelled`. Aprovação marca `approved_by`/`approved_at`. Recebimento é acionado automaticamente pela confirmação da NF-e de entrada vinculada. `purchaseOrderDomain.ts` valida transições e calcula totais (com desconto/frete). `purchaseOrderService.ts` orquestra criação e transições.
+>
+> **P1 — NF-e de Entrada (migration 0041):**
+> `supplier_invoices` + `supplier_invoice_items`. State machine: `draft → confirmed | divergence | cancelled`. Confirmação (`confirmSupplierInvoice`): (1) cria `payable` automaticamente, (2) registra `inventory_movements type='in'` por item com `material_id`, (3) executa 3-way matching contra PO vinculado via `matchAgainstPO()` — status fica `divergence` se quantidade/preço diferirem. `purchase_order_id` é FK opcional para 3-way match. NF-e de entrada tem foco em dados manuais (número, chave, data, itens) por enquanto — integração com Focus manifesto do destinatário reservada para v1 do módulo de compliance fiscal.
+>
+> **P3 — DRE Gerencial (migration 0042):**
+> `dre_categories` (14 categorias globais pré-seedadas seguindo padrão CFC) + `payables.dre_category_id` (FK opcional). DRE Gerencial (Caminho A — sem dupla entrada): receita = NF-e autorizadas no período; despesas = payables por `dre_category_id`. Fórmula em `dreDomain.buildDRE()` — puro, testável. `dreService.computeDRE()` faz as queries e chama o domínio. Totalizadores: Receita Líquida, Lucro Bruto + Margem, EBITDA + Margem, EBT, Resultado Líquido + Margem. **Não substitui SPED Contábil/ECD.** Ver regra 35.
+>
+> **Frontend:** `PurchaseOrdersPage.tsx`, `SupplierInvoicesPage.tsx`, `DREPage.tsx` (cards de KPI + tabela contábil com totalizadores intermediários + disclaimer gerencial). Nav em grupos Inventário (compras) e Financeiro (DRE).
+>
+> **Testes:** 38 testes unitários novos — `purchaseOrderDomain.test.ts` (16), `supplierInvoiceDomain.test.ts` (16), `dreDomain.test.ts` (6).
+>
+> **Soft-delete:** `purchase_orders.status = 'cancelled'` · `supplier_invoices.status = 'cancelled'`.
+
 ### v15.0 — Motor Fiscal Multi-estado (ICMS/FCP/DIFAL/Simples Nacional)
 
 > **Migration 0037_tax_rules.sql:**
@@ -998,6 +1031,8 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | payables | `status` | `'cancelled'` |
 | service_contracts | `status` | `'cancelled'` |
 | proposals | `status` | `'cancelled'` |
+| purchase_orders | `status` | `'cancelled'` |
+| supplier_invoices | `status` | `'cancelled'` |
 | boleto_events, nfe_events, nfse_events, cost_center_movements | — | append-only, nunca deletar |
 
 ---
