@@ -108,8 +108,9 @@ export const PROPOSAL_DOCUMENT_STYLES = `
    .pp-header   navy gradient, small logo — fallback when there's no banner
    .pp-hero     the tenant's banner artwork as the header's own background,
                 proposal number/title overlaid directly on it (not a separate
-                section below) behind a bottom-anchored gradient scrim, so
-                text stays legible regardless of what's under it. A fixed
+                section below). Legibility comes from .pp-propblock's own
+                solid card background, not a whole-image scrim — the art
+                shows through at full brightness everywhere else. A fixed
                 aspect-ratio + background-size:cover fills the box edge to
                 edge on every browser, same reasoning as the old
                 .pp-banner-strip <img> this replaces — cropping art that
@@ -121,14 +122,7 @@ export const PROPOSAL_DOCUMENT_STYLES = `
 .pp-header__inner{position:relative;z-index:2;}
 .pp-hero{position:relative;aspect-ratio:16/9;background-size:cover;background-position:center;
   display:flex;align-items:flex-end;overflow:hidden;color:#fff;}
-/* Starts darkening at 20% (not just near the bottom) since the text block's
-   own height is a bigger share of a short mobile hero — arbitrary tenant
-   art has no guaranteed "quiet" zone, so the scrim has to carry legibility
-   on its own rather than relying on where the image happens to be busy. */
-.pp-hero::before{content:"";position:absolute;inset:0;
-  background:linear-gradient(180deg,rgba(11,20,45,0) 0%,rgba(11,20,45,.55) 20%,rgba(11,20,45,.94) 100%);}
-.pp-hero__inner{position:relative;z-index:2;width:100%;padding:30px 34px 26px;
-  text-shadow:0 1px 3px rgba(0,0,0,.45);}
+.pp-hero__inner{position:relative;z-index:2;width:100%;padding:30px 34px 26px;}
 .pp-hero .pp-propblock{margin-top:0;}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0,0,0,0);white-space:nowrap;border:0;}
@@ -255,8 +249,8 @@ export const PROPOSAL_DOCUMENT_STYLES = `
   .pp-root{background:#fff;padding:0;}
   .pp-card,.pp-footer{box-shadow:none;border:1px solid var(--line);}
   /* Without this, printing without "background graphics" enabled drops the
-     .pp-hero background-image and its gradient scrim, leaving white text
-     floating over nothing — the whole header content becomes unreadable. */
+     .pp-hero background-image, leaving the propblock floating over a blank
+     header — the art (and the tenant's branding on it) disappears. */
   .pp-hero{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
 }
 @media (prefers-reduced-motion:reduce){ .pp-btn{transition:none;} }
