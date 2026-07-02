@@ -1061,6 +1061,8 @@ const en: Record<TKey, string> = {
   'prop.converted':        'View Order',
   'prop.duplicate':        'Duplicate',
   'prop.cancel':           'Cancel',
+  'prop.print':            'Print',
+  'prop.printNotFound':    'Proposal not found.',
   'prop.sendConfirm':      'Send this proposal to the client by email?',
   'prop.cancelConfirm':    'Cancel this proposal?',
   'prop.convertSuccess':   'Order created successfully!',

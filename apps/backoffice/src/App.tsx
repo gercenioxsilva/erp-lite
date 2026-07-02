@@ -24,6 +24,7 @@ import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
 import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
+import { ProposalPrintPage }  from './pages/proposals/ProposalPrintPage';
 import { ReportsPage }            from './pages/reports/ReportsPage';
 import { DREPage }                from './pages/reports/DREPage';
 import { PurchaseOrdersPage }     from './pages/purchasing/PurchaseOrdersPage';
@@ -97,6 +98,7 @@ export function App() {
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
+              <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>
