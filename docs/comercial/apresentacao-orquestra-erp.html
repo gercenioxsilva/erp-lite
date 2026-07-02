@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orquestra ERP — Proposta Comercial · Perspectiva Ar Comprimido</title>
+<meta name="description" content="Apresentação comercial e proposta de contratação — Orquestra ERP para Perspectiva Ar Comprimido" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   ORQUESTRA ERP — Apresentação Comercial
+   Identidade visual: mesma paleta/tipografia do produto (index.css, GaxLogo,
+   ProposalDocument) — azul #3B5CE4 → ciano #00B4D8, Archivo + Inter.
+   ══════════════════════════════════════════════════════════════════════ */
+:root{
+  --primary:#3B5CE4; --primary-h:#2945C8; --accent:#00B4D8;
+  --navy:#0B1330; --navy-2:#131F4D; --navy-3:#1E3266;
+  --paper:#FFFFFF; --paper-2:#F6F8FC; --line:#E4E8F0;
+  --text:#141B33; --muted:#5B6478; --muted-2:#8891A8;
+  --green:#16A34A; --amber:#D97706;
+  --grad: linear-gradient(115deg, var(--primary) 0%, var(--accent) 100%);
+  --grad-navy: linear-gradient(150deg, var(--navy) 0%, var(--navy-2) 55%, var(--navy-3) 100%);
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; background:var(--paper-2); color:var(--text);
+  font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+h1,h2,h3,.disp{font-family:'Archivo',system-ui,sans-serif;}
+.mono{font-family:'JetBrains Mono',monospace;}
+p{line-height:1.6;}
+::selection{background:var(--accent);color:#fff;}
+
+/* ── Scroll snap deck ──────────────────────────────────────────────── */
+.deck{scroll-snap-type:y proximity;}
+.slide{
+  position:relative; min-height:100vh; width:100%;
+  display:flex; flex-direction:column; justify-content:center;
+  padding:64px clamp(24px,6vw,96px); scroll-snap-align:start;
+  overflow:hidden;
+}
+.slide-inner{position:relative; z-index:2; max-width:1180px; margin:0 auto; width:100%;}
+.slide-eyebrow{
+  display:inline-flex; align-items:center; gap:8px; font-family:'Archivo';
+  font-weight:700; font-size:12.5px; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:14px;
+}
+.slide-eyebrow::before{content:"";width:22px;height:3px;background:var(--grad);border-radius:2px;display:inline-block;}
+.slide h2{font-size:clamp(28px,3.6vw,44px); font-weight:800; color:var(--navy); margin:0 0 10px; letter-spacing:-.01em;}
+.slide .lead{font-size:clamp(15px,1.4vw,18px); color:var(--muted); max-width:680px; margin:0 0 36px;}
+.pageno{position:absolute; right:28px; bottom:22px; font-size:11px; color:var(--muted-2); font-family:'JetBrains Mono',monospace; z-index:3;}
+.slide--dark .pageno{color:#8FA0D6;}
+
+/* ── Reveal-on-scroll ─────────────────────────────────────────────── */
+[data-reveal]{opacity:0; transform:translateY(22px); transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1);}
+[data-reveal].in-view{opacity:1; transform:translateY(0);}
+[data-reveal="scale"]{transform:translateY(0) scale(.94);}
+[data-reveal="scale"].in-view{transform:scale(1);}
+[data-stagger] > *{opacity:0; transform:translateY(18px); transition:opacity .6s ease, transform .6s ease;}
+[data-stagger].in-view > *{opacity:1; transform:translateY(0);}
+[data-stagger].in-view > *:nth-child(1){transition-delay:.05s;}
+[data-stagger].in-view > *:nth-child(2){transition-delay:.12s;}
+[data-stagger].in-view > *:nth-child(3){transition-delay:.19s;}
+[data-stagger].in-view > *:nth-child(4){transition-delay:.26s;}
+[data-stagger].in-view > *:nth-child(5){transition-delay:.33s;}
+[data-stagger].in-view > *:nth-child(6){transition-delay:.40s;}
+[data-stagger].in-view > *:nth-child(7){transition-delay:.47s;}
+[data-stagger].in-view > *:nth-child(8){transition-delay:.54s;}
+
+/* ── Top progress bar ─────────────────────────────────────────────── */
+.progress{position:fixed; top:0; left:0; height:4px; width:0%; background:var(--grad); z-index:50; transition:width .1s linear;}
+
+/* ── Side dot nav ─────────────────────────────────────────────────── */
+.dotnav{position:fixed; right:22px; top:50%; transform:translateY(-50%); z-index:50; display:flex; flex-direction:column; gap:10px;}
+.dotnav button{width:9px; height:9px; border-radius:50%; border:1.5px solid #B9C4E0; background:#fff; cursor:pointer; padding:0; transition:all .25s ease;}
+.dotnav button.active{background:var(--grad); border-color:transparent; transform:scale(1.35);}
+.dotnav button:hover{border-color:var(--primary);}
+@media (max-width:900px){.dotnav{display:none;}}
+
+/* ── Brand mark (SVG identical ao GaxLogo.tsx) ───────────────────── */
+.brand{display:inline-flex; align-items:center; gap:12px;}
+.brand svg{display:block;}
+
+/* ══════════════ COVER ══════════════ */
+.slide--cover{background:var(--grad-navy); color:#fff; min-height:100vh;}
+.slide--cover::before,.slide--cover::after{
+  content:""; position:absolute; border-radius:50%; filter:blur(60px); z-index:1;
+  animation:float 14s ease-in-out infinite;
+}
+.slide--cover::before{width:520px;height:520px; background:radial-gradient(circle,rgba(59,92,228,.55),transparent 70%); top:-160px; right:-120px;}
+.slide--cover::after{width:420px;height:420px; background:radial-gradient(circle,rgba(0,180,216,.45),transparent 70%); bottom:-140px; left:-100px; animation-delay:-7s;}
+@keyframes float{0%,100%{transform:translate(0,0) scale(1);} 50%{transform:translate(24px,-18px) scale(1.06);}}
+.cover-badge{
+  display:inline-flex; align-items:center; gap:8px; padding:7px 16px; border-radius:999px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); backdrop-filter:blur(6px);
+  font-size:12.5px; font-weight:600; letter-spacing:.04em; color:#CFE0FF; margin-bottom:28px;
+}
+.cover-badge .dot{width:7px;height:7px;border-radius:50%;background:#34D399; box-shadow:0 0 0 3px rgba(52,211,153,.25); animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.4;}}
+.slide--cover h1{
+  font-size:clamp(40px,6.4vw,80px); font-weight:900; line-height:1.02; letter-spacing:-.02em;
+  margin:0 0 20px; background:linear-gradient(100deg,#fff 30%,#BFD3FF 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.slide--cover .sub{font-size:clamp(16px,1.6vw,21px); color:#C6D2F2; max-width:640px; margin:0 0 40px; font-weight:400;}
+.cover-meta{display:flex; flex-wrap:wrap; gap:28px; margin-top:8px;}
+.cover-meta div{border-left:2px solid rgba(255,255,255,.25); padding-left:14px;}
+.cover-meta .k{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#93A3D6; margin-bottom:4px;}
+.cover-meta .v{font-size:15px; font-weight:700; color:#fff;}
+.cover-edit{border:1px dashed #6E80B8; border-radius:6px; padding:1px 8px;}
+.scrollhint{position:absolute; left:50%; bottom:34px; transform:translateX(-50%); z-index:2; text-align:center; color:#9FB0DE; font-size:11.5px; letter-spacing:.12em; text-transform:uppercase;}
+.scrollhint svg{display:block; margin:8px auto 0; animation:bob 1.8s ease-in-out infinite;}
+@keyframes bob{0%,100%{transform:translateY(0);} 50%{transform:translateY(8px);}}
+
+/* ══════════════ PROBLEM ══════════════ */
+.pain-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:18px;}
+.pain-card{
+  background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px 24px;
+  display:flex; gap:16px; align-items:flex-start; box-shadow:0 6px 20px rgba(20,27,51,.04);
+}
+.pain-ico{flex:none; width:42px; height:42px; border-radius:12px; background:#FEECEC; color:#DC2626; display:flex; align-items:center; justify-content:center;}
+.pain-card h3{margin:0 0 4px; font-size:16px; color:var(--navy); font-weight:700;}
+.pain-card p{margin:0; font-size:13.5px; color:var(--muted);}
+
+/* ══════════════ SOLUTION ══════════════ */
+.solution-wrap{display:grid; grid-template-columns:1.05fr .95fr; gap:48px; align-items:center;}
+.stack-visual{position:relative; background:var(--grad-navy); border-radius:22px; padding:30px; color:#fff; box-shadow:0 24px 60px rgba(11,19,48,.35);}
+.stack-row{display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:12px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); margin-bottom:10px;}
+.stack-row:last-child{margin-bottom:0;}
+.stack-row .ico{width:30px;height:30px;border-radius:9px;background:var(--grad);display:flex;align-items:center;justify-content:center;flex:none;}
+.stack-row .t{font-size:13.5px; font-weight:600;}
+.stack-row .s{font-size:11.5px; color:#9FB0DE;}
+.solution-points{display:flex; flex-direction:column; gap:20px;}
+.point{display:flex; gap:14px; align-items:flex-start;}
+.point .ico{flex:none; width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg,#EAF0FF,#E1FBFF); color:var(--primary); display:flex; align-items:center; justify-content:center;}
+.point h3{margin:0 0 3px; font-size:15.5px; color:var(--navy);}
+.point p{margin:0; font-size:13.5px; color:var(--muted);}
+
+/* ══════════════ FEATURE SLIDES (grid de cards) ══════════════ */
+.feat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
+.feat-grid.cols-2{grid-template-columns:repeat(2,1fr);}
+.feat-card{
+  background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px;
+  box-shadow:0 6px 18px rgba(20,27,51,.045); position:relative; overflow:hidden;
+}
+.feat-card::before{content:""; position:absolute; top:0; left:0; width:100%; height:3px; background:var(--grad);}
+.feat-card .ico{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#EAF0FF,#E1FBFF);color:var(--primary);display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+.feat-card h3{margin:0 0 6px; font-size:15px; color:var(--navy); font-weight:700;}
+.feat-card p{margin:0; font-size:12.8px; color:var(--muted); line-height:1.55;}
+.feat-card .tag{display:inline-block; margin-top:10px; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:#E4FAFF; padding:3px 9px; border-radius:999px;}
+
+/* highlight callout banner within a slide */
+.callout{
+  margin-top:26px; border-radius:14px; padding:16px 20px; display:flex; gap:14px; align-items:center;
+  background:linear-gradient(100deg,#EFF3FF,#E7FBFF); border:1px solid #CFE0FF;
+}
+.callout .ico{flex:none; width:34px;height:34px;border-radius:9px;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;}
+.callout strong{color:var(--navy);}
+.callout p{margin:0; font-size:13px; color:#2B3A66;}
+
+/* ══════════════ STATS / DIFFERENTIATORS ══════════════ */
+.slide--stats{background:var(--grad-navy); color:#fff;}
+.stats-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-bottom:14px;}
+.stat-card{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); border-radius:16px; padding:22px 18px; text-align:center;}
+.stat-card .num{font-family:'Archivo'; font-weight:900; font-size:clamp(26px,3vw,38px); background:linear-gradient(100deg,#fff,#BFEFFF); -webkit-background-clip:text; background-clip:text; color:transparent;}
+.stat-card .lbl{font-size:12px; color:#AEC0EF; margin-top:6px; line-height:1.4;}
+.diff-list{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:22px;}
+.diff-item{display:flex; gap:10px; align-items:center; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:12px 16px;}
+.diff-item .check{flex:none; width:22px;height:22px;border-radius:50%;background:#34D399;color:#053322;display:flex;align-items:center;justify-content:center;}
+.diff-item span{font-size:13.5px; font-weight:600; color:#EAF0FF;}
+
+/* ══════════════ PRICING ══════════════ */
+.slide--pricing{background:var(--paper);}
+.price-wrap{display:grid; grid-template-columns:1fr 1.15fr; gap:36px; align-items:stretch;}
+.price-card{
+  background:var(--grad-navy); border-radius:22px; padding:34px 30px; color:#fff;
+  box-shadow:0 26px 60px rgba(11,19,48,.28); position:relative; overflow:hidden;
+}
+.price-card::after{content:""; position:absolute; width:260px;height:260px;border-radius:50%; background:radial-gradient(circle,rgba(0,180,216,.35),transparent 70%); top:-90px; right:-90px;}
+.price-card .plan{font-size:12.5px; letter-spacing:.18em; text-transform:uppercase; color:#8FE0FF; font-weight:700; margin-bottom:10px;}
+.price-card .amount{display:flex; align-items:baseline; gap:6px; margin-bottom:4px;}
+.price-card .amount .cur{font-size:22px; font-weight:700; color:#CFE0FF;}
+.price-card .amount .val{font-family:'Archivo'; font-weight:900; font-size:56px; letter-spacing:-.02em;}
+.price-card .amount .per{font-size:14px; color:#9FB0DE;}
+.price-card .desc{font-size:13px; color:#B9C7EF; margin:6px 0 22px;}
+.price-line{display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid rgba(255,255,255,.14);}
+.price-line:first-of-type{border-top:none;}
+.price-line .lico{flex:none; width:26px;height:26px;border-radius:7px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;}
+.price-line .lt{font-size:13.5px; font-weight:600;}
+.price-line .lv{margin-left:auto; font-family:'JetBrains Mono'; font-weight:600; font-size:13px; color:#CFE0FF; white-space:nowrap;}
+.price-extra{margin-top:20px; padding-top:16px; border-top:1px dashed rgba(255,255,255,.25); display:flex; flex-direction:column; gap:8px;}
+.price-extra .row{display:flex; align-items:center; gap:9px; font-size:12.8px; color:#DCE6FF;}
+.price-extra .row svg{flex:none;color:#34D399;}
+.price-side h3{color:var(--navy); font-size:17px; margin:0 0 4px;}
+.price-side > p.small{color:var(--muted); font-size:13px; margin:0 0 18px;}
+.incl-list{display:flex; flex-direction:column; gap:12px; margin-bottom:18px;}
+.incl-item{display:flex; gap:12px; align-items:flex-start; background:var(--paper-2); border:1px solid var(--line); border-radius:12px; padding:12px 14px;}
+.incl-item .ico{flex:none; width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#EAF0FF,#E1FBFF);color:var(--primary);display:flex;align-items:center;justify-content:center;}
+.incl-item b{display:block; font-size:13px; color:var(--navy);}
+.incl-item span{font-size:12px; color:var(--muted);}
+.fine-print{font-size:11.5px; color:var(--muted-2); border-top:1px solid var(--line); padding-top:14px; line-height:1.6;}
+
+/* ══════════════ CTA / CONTACT ══════════════ */
+.slide--cta{background:var(--grad-navy); color:#fff;}
+.steps{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:30px;}
+.step{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); border-radius:16px; padding:20px;}
+.step .n{font-family:'Archivo'; font-weight:900; font-size:26px; background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent;}
+.step h3{font-size:14.5px; margin:8px 0 4px; color:#fff;}
+.step p{font-size:12.5px; color:#AEC0EF; margin:0;}
+.contact-card{
+  display:flex; flex-wrap:wrap; gap:26px; justify-content:space-between; align-items:center;
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.16); border-radius:18px; padding:26px 30px;
+}
+.contact-item .k{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#8FA0D6; margin-bottom:4px;}
+.contact-item .v{font-size:15px; font-weight:700; color:#fff;}
+.cta-btn{
+  display:inline-flex; align-items:center; gap:10px; background:var(--grad); color:#fff; font-weight:800;
+  font-family:'Archivo'; padding:14px 26px; border-radius:12px; font-size:14.5px; text-decoration:none;
+  box-shadow:0 14px 30px rgba(0,180,216,.35);
+}
+
+/* ── Print (PDF export) ───────────────────────────────────────────── */
+@page{ size:A4 landscape; margin:0; }
+@media print{
+  html,body{background:#fff !important;}
+  .progress,.dotnav,.scrollhint{display:none !important;}
+  html{scroll-behavior:auto;}
+  [data-reveal],[data-stagger] > *{opacity:1 !important; transform:none !important; transition:none !important;}
+  .slide{
+    min-height:0; height:210mm; width:297mm; page-break-after:always; break-after:page;
+    padding:26mm 24mm; box-shadow:none !important;
+  }
+  .slide:last-child{page-break-after:auto;}
+  .slide--cover::before,.slide--cover::after,.stat-card,.price-card::after{animation:none !important;}
+  *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  /* background-clip:text deixa uma linha fina residual ao exportar para PDF
+     no Chrome — usar cor sólida apenas na impressão, gradiente fica só na tela. */
+  .slide--cover h1{background:none !important; -webkit-text-fill-color:#fff !important; color:#fff !important;}
+  .step .n{background:none !important; -webkit-text-fill-color:var(--accent) !important; color:var(--accent) !important;}
+  .stat-card .num{background:none !important; -webkit-text-fill-color:#fff !important; color:#fff !important;}
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<nav class="dotnav" id="dotnav" aria-label="Navegação entre slides"></nav>
+
+<main class="deck" id="deck">
+
+<!-- ════════════════════════ 1. COVER ════════════════════════ -->
+<section class="slide slide--cover" data-slide="Capa">
+  <div class="slide-inner">
+    <div class="brand" data-reveal>
+      <svg width="240" height="48" viewBox="0 0 220 44" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Orquestra ERP">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#3B5CE4"/><stop offset="100%" stop-color="#00B4D8"/>
+          </linearGradient>
+          <radialGradient id="glow1" cx="30%" cy="25%" r="60%">
+            <stop stop-color="#ffffff" stop-opacity="0.30"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <path d="M 34,34 A 17,17 0 1 1 34,10" fill="none" stroke="url(#g1)" stroke-width="8" stroke-linecap="round"/>
+        <path d="M 34,34 A 17,17 0 1 1 34,10" fill="none" stroke="url(#glow1)" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="22" cy="22" r="3.2" fill="url(#g1)"/>
+        <line x1="22" y1="22" x2="31" y2="31" stroke="url(#g1)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="34" cy="34" r="3" fill="#00B4D8"/>
+        <line x1="22" y1="22" x2="31" y2="13" stroke="url(#g1)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="34" cy="10" r="3" fill="#3B5CE4"/>
+        <text x="54" y="29" fill="#f1f5f9" font-size="22" font-weight="800" font-family="Archivo, sans-serif" letter-spacing="-0.8">Orquestra</text>
+        <text x="54" y="41" fill="#00B4D8" font-size="8" font-weight="700" font-family="Archivo, sans-serif" letter-spacing="4">ERP</text>
+      </svg>
+    </div>
+
+    <div class="cover-badge" data-reveal style="transition-delay:.1s"><span class="dot"></span> Proposta comercial · Julho de 2026</div>
+
+    <h1 data-reveal style="transition-delay:.16s">O ERP que rege<br>toda a sua operação.</h1>
+    <p class="sub" data-reveal style="transition-delay:.24s">
+      Vendas, notas fiscais, financeiro e estoque em uma única plataforma na nuvem —
+      simples para o time usar, robusta o suficiente para crescer com o seu negócio.
+    </p>
+
+    <div class="cover-meta" data-reveal style="transition-delay:.32s">
+      <div><div class="k">Preparado para</div><div class="v">PERSPECTIVA AR COMPRIMIDO</div></div>
+      <div><div class="k">A/C</div><div class="v">Hércules</div></div>
+      <div><div class="k">E-mail</div><div class="v">hercules@perspectivar.com.br</div></div>
+      <div><div class="k">Preparado por</div><div class="v">Orquestra ERP</div></div>
+    </div>
+  </div>
+  <div class="scrollhint">
+    Role para conhecer a plataforma
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+  </div>
+</section>
+
+<!-- ════════════════════════ 2. O DESAFIO ════════════════════════ -->
+<section class="slide" data-slide="O desafio">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>O desafio de hoje</div>
+    <h2 data-reveal>Sua operação merece mais<br>do que planilhas soltas.</h2>
+    <p class="lead" data-reveal>Reconhece alguns destes problemas no dia a dia da empresa?</p>
+
+    <div class="pain-grid" data-stagger>
+      <div class="pain-card">
+        <span class="pain-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        </span>
+        <div><h3>Informação espalhada</h3><p>Vendas numa planilha, estoque em outra, financeiro na cabeça de alguém — nada conversa entre si.</p></div>
+      </div>
+      <div class="pain-card">
+        <span class="pain-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>
+        </span>
+        <div><h3>Retrabalho na emissão fiscal</h3><p>Redigitar pedidos para emitir nota, calcular imposto na mão, torcer para não errar o CFOP.</p></div>
+      </div>
+      <div class="pain-card">
+        <span class="pain-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </span>
+        <div><h3>Decisão sem visão em tempo real</h3><p>Fluxo de caixa, inadimplência e resultado do mês só aparecem quando já é tarde.</p></div>
+      </div>
+      <div class="pain-card">
+        <span class="pain-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l4-4 3 3 5-7"/><circle cx="15" cy="5" r="1.5"/><path d="M4 20h16"/></svg>
+        </span>
+        <div><h3>Estoque sem controle real</h3><p>Ruptura de produto, compra duplicada, ninguém sabe o custo médio de verdade.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">02 / 14</div>
+</section>
+
+<!-- ════════════════════════ 3. A SOLUÇÃO ════════════════════════ -->
+<section class="slide" data-slide="A solução">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>A solução</div>
+    <h2 data-reveal>Conheça o Orquestra ERP.</h2>
+    <p class="lead" data-reveal>Uma plataforma só, na nuvem, para toda a operação comercial, fiscal e financeira — acessível do computador ou do celular, em tempo real.</p>
+
+    <div class="solution-wrap">
+      <div class="stack-visual" data-reveal="scale">
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+          <div><div class="t">Backoffice Web</div><div class="s">Painel completo no navegador, sem instalar nada</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
+          <div><div class="t">App Mobile — Android e iOS</div><div class="s">Vendedores em campo, sempre sincronizado</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+          <div><div class="t">Infraestrutura em nuvem (AWS)</div><div class="s">A mesma nuvem usada por grandes bancos e varejistas</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+          <div><div class="t">Dados isolados e protegidos</div><div class="s">Ambiente exclusivo da sua empresa, com backup automático</div></div>
+        </div>
+      </div>
+
+      <div class="solution-points" data-stagger>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span>
+          <div><h3>Tudo conectado, de ponta a ponta</h3><p>Proposta vira pedido, pedido vira nota, nota vira financeiro — sem redigitar nada.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg></span>
+          <div><h3>Fiscal automatizado</h3><p>Motor de impostos por estado calcula tudo — o time só confere e emite.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></span>
+          <div><h3>Decisão com dados de agora</h3><p>Dashboard, fluxo de caixa e DRE atualizados a cada movimento do negócio.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">03 / 14</div>
+</section>
+
+<!-- ════════════════════════ 4. COMERCIAL ════════════════════════ -->
+<section class="slide" data-slide="Comercial">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Módulo comercial</div>
+    <h2 data-reveal>Da proposta à venda, sem fricção.</h2>
+    <p class="lead" data-reveal>Todo o ciclo comercial em um fluxo único e visual.</p>
+
+    <div class="feat-grid" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="14" rx="2"/><path d="M5 6h8M5 9h8M5 12h4"/><path d="M12 11l2 2 3-3"/></svg></span>
+        <h3>Propostas comerciais</h3>
+        <p>Monte propostas com fotos dos produtos, envie por e-mail e acompanhe em tempo real quando o cliente visualiza, aceita ou pede ajustes — direto de um portal exclusivo.</p>
+        <span class="tag">Aceite digital</span>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg></span>
+        <h3>Pedidos de venda</h3>
+        <p>Fluxo completo — rascunho, confirmação com reserva de estoque, entrega e faturamento — com histórico de cada etapa.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M6 6V4a4 4 0 0 1 8 0v2"/><path d="M8 12h8M11 15h5"/></svg></span>
+        <h3>PDV — frente de caixa</h3>
+        <p>Venda balcão rápida, com o mesmo estoque e o mesmo financeiro do restante da operação.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="14" height="12" rx="2"/><path d="M5 7h8M5 10h4"/></svg></span>
+        <h3>Clientes 360°</h3>
+        <p>Todo o histórico do cliente — pedidos, notas e recebíveis — em uma única tela.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <h3>Vendedores e comissões</h3>
+        <p>Equipe comercial com comissão calculada automaticamente a cada nota emitida — sem planilha de fechamento.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/></svg></span>
+        <h3>Relatórios comerciais</h3>
+        <p>Ranking de produtos mais vendidos e inadimplência sempre à mão, com exportação para Excel.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">04 / 14</div>
+</section>
+
+<!-- ════════════════════════ 5. FISCAL ════════════════════════ -->
+<section class="slide" data-slide="Fiscal">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Módulo fiscal</div>
+    <h2 data-reveal>Nota fiscal sem dor de cabeça.</h2>
+    <p class="lead" data-reveal>Emissão de NF-e e NFS-e direto do sistema, com o imposto certo calculado automaticamente para cada estado.</p>
+
+    <div class="feat-grid cols-2" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg></span>
+        <h3>NF-e e NFS-e num clique</h3>
+        <p>Venda de produto ou prestação de serviço: a nota sai do próprio pedido, sem redigitar nada, com o DANFE disponível na hora.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+        <h3>Motor de impostos multiestado</h3>
+        <p>ICMS, ICMS-ST, FCP, DIFAL e Simples Nacional calculados automaticamente conforme a UF de origem e destino.</p>
+      </div>
+    </div>
+
+    <div class="callout" data-reveal>
+      <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6M12 22v-6M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M16 12h6M4.9 19.1l4.2-4.2M14.9 9.1l4.2-4.2"/></svg></span>
+      <p><strong>Já pronto para o CNPJ Alfanumérico.</strong> A partir de julho de 2026, a Receita Federal passa a emitir CNPJs com letras (IN RFB nº 2.229/2024). O Orquestra ERP já suporta o novo formato em toda a plataforma — sem qualquer ajuste necessário na sua operação.</p>
+    </div>
+  </div>
+  <div class="pageno">05 / 14</div>
+</section>
+
+<!-- ════════════════════════ 6. FINANCEIRO ════════════════════════ -->
+<section class="slide" data-slide="Financeiro">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Módulo financeiro</div>
+    <h2 data-reveal>Visão clara do dinheiro que entra e sai.</h2>
+    <p class="lead" data-reveal>Contas, cobrança e resultado gerencial em um só lugar — sem depender de planilha paralela.</p>
+
+    <div class="feat-grid" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><path d="M9 6v6M6.5 8.5l2.5-2.5 2.5 2.5"/></svg></span>
+        <h3>Contas a pagar e a receber</h3>
+        <p>Controle completo de vencimentos, com alertas automáticos antes do prazo estourar.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span>
+        <h3>Boleto e PIX automáticos</h3>
+        <p>Emissão de cobrança integrada ao banco — o cliente recebe a linha digitável sem intervenção manual.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="14" width="3" height="4"/></svg></span>
+        <h3>Fluxo de caixa projetado</h3>
+        <p>Veja o que entra e sai nas próximas 12 semanas antes que aconteça.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span>
+        <h3>DRE gerencial automática</h3>
+        <p>Resultado do período calculado sozinho a partir das notas e contas já lançadas — sem retrabalho contábil.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16V6l7-4 7 4v10H2z"/><path d="M7 16v-5h4v5"/></svg></span>
+        <h3>Centro de custo</h3>
+        <p>Acompanhe consumo de materiais e resultado por obra, projeto ou departamento.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+        <h3>Contratos recorrentes</h3>
+        <p>Faturamento de contratos de serviço gerado automaticamente, no ciclo certo.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">06 / 14</div>
+</section>
+
+<!-- ════════════════════════ 7. ESTOQUE & COMPRAS ════════════════════════ -->
+<section class="slide" data-slide="Estoque e compras">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Estoque e compras</div>
+    <h2 data-reveal>Do fornecedor à prateleira, sob controle.</h2>
+    <p class="lead" data-reveal>Compra, recebimento e estoque conectados — sem divergência entre o que chegou e o que foi pago.</p>
+
+    <div class="feat-grid cols-2" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l4-4 3 3 5-7"/><circle cx="15" cy="5" r="1.5"/><path d="M4 20h16"/></svg></span>
+        <h3>Estoque em tempo real</h3>
+        <p>Saldo, custo médio e alertas de estoque mínimo atualizados a cada movimento — venda, compra ou ajuste.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg></span>
+        <h3>Pedidos de compra com aprovação</h3>
+        <p>Fluxo de aprovação antes da compra sair — e recebimento automático ao confirmar a nota do fornecedor.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+        <h3>Conferência automática (3 vias)</h3>
+        <p>O sistema compara pedido, nota de entrada e recebimento — e avisa se algo não bate em quantidade ou preço.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg></span>
+        <h3>Materiais, kits e combos</h3>
+        <p>Cadastre kits que se decompõem automaticamente em componentes na hora da venda.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">07 / 14</div>
+</section>
+
+<!-- ════════════════════════ 8. MOBILE ════════════════════════ -->
+<section class="slide" data-slide="App Mobile">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>App mobile</div>
+    <h2 data-reveal>O escritório no bolso do seu time.</h2>
+    <p class="lead" data-reveal>Aplicativo nativo para Android e iOS, com os mesmos dados do backoffice em tempo real.</p>
+
+    <div class="solution-wrap">
+      <div class="solution-points" data-stagger>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
+          <div><h3>Android e iOS nativos</h3><p>Experiência rápida e fluida, sem depender de navegador.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          <div><h3>Equipe externa sempre atualizada</h3><p>Pedidos, propostas, cobrança e estoque na palma da mão — em campo ou na loja.</p></div>
+        </div>
+        <div class="point">
+          <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/><path d="m9 12 2 2 4-4"/></svg></span>
+          <div><h3>Leitor de código de barras</h3><p>Consulta rápida de material direto pela câmera do celular.</p></div>
+        </div>
+      </div>
+
+      <div class="stack-visual" data-reveal="scale">
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="14" height="14" rx="2"/><path d="M5 7h8M5 10h4"/></svg></span>
+          <div><div class="t">Clientes e histórico</div><div class="s">Consulta completa de qualquer lugar</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><path d="M9 6v6M6.5 8.5l2.5-2.5 2.5 2.5"/></svg></span>
+          <div><div class="t">Contas a pagar e a receber</div><div class="s">Registrar pagamento sem abrir o computador</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span>
+          <div><div class="t">Notas fiscais</div><div class="s">Status e DANFE a um toque de distância</div></div>
+        </div>
+        <div class="stack-row">
+          <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="14" rx="2"/><path d="M5 6h8M5 9h8M5 12h4"/></svg></span>
+          <div><div class="t">Propostas</div><div class="s">Crie e envie uma proposta em minutos, de onde estiver</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">08 / 14</div>
+</section>
+
+<!-- ════════════════════════ 9. SEGURANÇA ════════════════════════ -->
+<section class="slide" data-slide="Segurança">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Segurança e infraestrutura</div>
+    <h2 data-reveal>Seus dados, protegidos como merecem.</h2>
+    <p class="lead" data-reveal>Infraestrutura profissional na nuvem AWS — a mesma usada por grandes bancos e varejistas do país.</p>
+
+    <div class="feat-grid" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+        <h3>Ambiente exclusivo</h3>
+        <p>Seus dados ficam isolados dos demais clientes — nunca compartilhados, sempre segregados por empresa.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+        <h3>Conexão sempre criptografada</h3>
+        <p>Todo tráfego protegido por certificado SSL, do login à emissão da nota fiscal.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.56"/><path d="M12 3v9l6 3"/></svg></span>
+        <h3>Backup automático</h3>
+        <p>Cópias de segurança diárias — sua operação nunca depende de um único computador.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span>
+        <h3>Alta disponibilidade</h3>
+        <p>Arquitetura em nuvem pensada para o sistema estar de pé quando você mais precisa.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">09 / 14</div>
+</section>
+
+<!-- ════════════════════════ 10. DASHBOARD/RELATÓRIOS ════════════════════════ -->
+<section class="slide" data-slide="Dashboard">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Painel executivo</div>
+    <h2 data-reveal>A empresa inteira, em uma tela.</h2>
+    <p class="lead" data-reveal>Indicadores que realmente importam, sempre atualizados — sem esperar o fechamento do mês.</p>
+
+    <div class="feat-grid" data-stagger>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="10" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="10" width="6" height="6" rx="1.5"/><rect x="10" y="10" width="6" height="6" rx="1.5"/></svg></span>
+        <h3>KPIs em tempo real</h3>
+        <p>Faturamento, a receber, a pagar e saldo projetado, sempre visíveis ao abrir o sistema.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><path d="M9 6v6M6.5 8.5l2.5-2.5 2.5 2.5"/></svg></span>
+        <h3>Relatório de inadimplência</h3>
+        <p>Veja de imediato quem está em atraso e quanto isso representa no caixa.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/><path d="M3 3v18h18"/></svg></span>
+        <h3>Ranking de produtos</h3>
+        <p>Descubra o que mais vende e onde está a margem do negócio.</p>
+      </div>
+      <div class="feat-card">
+        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15h6M9 12h6"/></svg></span>
+        <h3>Exportação para Excel</h3>
+        <p>Qualquer relatório sai em uma planilha com um clique, quando você precisar ir além da tela.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">10 / 14</div>
+</section>
+
+<!-- ════════════════════════ 11. DIFERENCIAIS ════════════════════════ -->
+<section class="slide slide--stats" data-slide="Diferenciais">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Por que o Orquestra ERP</div>
+    <h2 data-reveal style="color:#fff;">Feito para crescer com você,<br>sem freios escondidos.</h2>
+
+    <div class="stats-grid" data-stagger>
+      <div class="stat-card"><div class="num">0</div><div class="lbl">limite de clientes<br>cadastrados</div></div>
+      <div class="stat-card"><div class="num">∞</div><div class="lbl">tamanho de banco<br>de dados</div></div>
+      <div class="stat-card"><div class="num">2026</div><div class="lbl">pronto para o CNPJ<br>alfanumérico</div></div>
+      <div class="stat-card"><div class="num">100%</div><div class="lbl">na nuvem,<br>acesso de qualquer lugar</div></div>
+    </div>
+
+    <div class="diff-list" data-stagger>
+      <div class="diff-item"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span>Comercial, fiscal, financeiro e estoque integrados</span></div>
+      <div class="diff-item"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span>Web e aplicativo mobile inclusos</span></div>
+      <div class="diff-item"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span>Atualizações contínuas, sem custo adicional</span></div>
+      <div class="diff-item"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span>Suporte direto com quem desenvolve o sistema</span></div>
+    </div>
+  </div>
+  <div class="pageno">11 / 14</div>
+</section>
+
+<!-- ════════════════════════ 12. PROPOSTA COMERCIAL ════════════════════════ -->
+<section class="slide slide--pricing" data-slide="Proposta comercial">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Anexo · Proposta de contratação</div>
+    <h2 data-reveal>Simples, transparente,<br>sem letras miúdas.</h2>
+    <p class="lead" data-reveal>Componentes de cobrança fixos e transparentes — sem taxa por usuário, sem limite de clientes, sem limite de banco de dados.</p>
+
+    <div class="price-wrap">
+      <div class="price-card" data-reveal="scale">
+        <div class="plan">Plano Orquestra ERP · Perspectiva Ar Comprimido</div>
+        <div class="amount"><span class="cur">R$</span><span class="val">1.200</span><span class="per">,00 / mês</span></div>
+        <p class="desc">Mensalidade fixa da plataforma, com uso ilimitado de pedidos, propostas, clientes e materiais.</p>
+
+        <div class="price-line">
+          <span class="lico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span>
+          <span class="lt">Nota fiscal emitida (NF-e ou NFS-e)</span>
+          <span class="lv">R$ 0,20 / nota</span>
+        </div>
+
+        <div class="price-line" style="border-top-style:dashed;">
+          <span class="lico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M8.5 15a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="18" r="1.4" fill="#fff" stroke="none"/></svg></span>
+          <span class="lt">Integração com telemetria <span style="opacity:.65; font-weight:500;">(serviço adicional)</span></span>
+          <span class="lv">Sob orçamento</span>
+        </div>
+
+        <div class="price-extra">
+          <div class="row"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Sem limite de clientes cadastrados</div>
+          <div class="row"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Sem limite de tamanho de banco de dados</div>
+          <div class="row"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Cobrança apenas pelo que for realmente emitido</div>
+        </div>
+      </div>
+
+      <div class="price-side" data-reveal>
+        <h3>O que está incluso</h3>
+        <p class="small">Toda a plataforma apresentada nesta proposta, sem módulos separados ou complementos pagos.</p>
+        <div class="incl-list">
+          <div class="incl-item">
+            <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="14" rx="2"/><path d="M5 6h8M5 9h8"/></svg></span>
+            <div><b>Todos os módulos</b><span>Comercial, fiscal, financeiro, estoque, compras e relatórios</span></div>
+          </div>
+          <div class="incl-item">
+            <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/></svg></span>
+            <div><b>App mobile Android e iOS</b><span>Para toda a equipe, sem custo extra por dispositivo</span></div>
+          </div>
+          <div class="incl-item">
+            <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.56"/><path d="M12 3v9l6 3"/></svg></span>
+            <div><b>Atualizações e melhorias contínuas</b><span>Sem custo de upgrade de versão</span></div>
+          </div>
+          <div class="incl-item">
+            <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <div><b>Infraestrutura, backup e segurança</b><span>Hospedagem em nuvem AWS já inclusa na mensalidade</span></div>
+          </div>
+        </div>
+        <p class="fine-print">Valores em Reais (R$). A cobrança por nota fiscal é apurada mensalmente conforme o volume efetivamente emitido no período (NF-e de venda ou NFS-e de serviço). A integração com telemetria é um serviço adicional, não incluso na mensalidade — escopo e valor serão orçados separadamente conforme os equipamentos e protocolos da Perspectiva Ar Comprimido. Proposta válida por 30 dias a partir da data de envio. Demais condições comerciais e contratuais a serem formalizadas em contrato de prestação de serviço.</p>
+      </div>
+    </div>
+  </div>
+  <div class="pageno">12 / 14</div>
+</section>
+
+<!-- ════════════════════════ 13. PRÓXIMOS PASSOS ════════════════════════ -->
+<section class="slide slide--cta" data-slide="Próximos passos">
+  <div class="slide-inner">
+    <div class="slide-eyebrow" data-reveal>Próximos passos</div>
+    <h2 data-reveal style="color:#fff;">Vamos começar, Hércules?<br>Do aceite ao go-live, em poucos dias.</h2>
+
+    <div class="steps" data-stagger>
+      <div class="step"><div class="n">01</div><h3>Aprovação da proposta</h3><p>Confirmação por e-mail e assinatura do contrato de prestação de serviço.</p></div>
+      <div class="step"><div class="n">02</div><h3>Configuração e migração</h3><p>Cadastro da empresa, importação de clientes e materiais já existentes.</p></div>
+      <div class="step"><div class="n">03</div><h3>Treinamento e go-live</h3><p>Time pronto para operar no Orquestra ERP, com suporte próximo no início.</p></div>
+    </div>
+
+    <div class="contact-card" data-reveal>
+      <div class="contact-item"><div class="k">Enviado para</div><div class="v">Hércules · hercules@perspectivar.com.br</div></div>
+      <div class="contact-item"><div class="k">Fale com a gente</div><div class="v">gercenio@gmail.com</div></div>
+      <a class="cta-btn" href="mailto:gercenio@gmail.com?cc=hercules@perspectivar.com.br&subject=Proposta%20Orquestra%20ERP%20-%20Perspectiva%20Ar%20Comprimido">
+        Vamos conversar
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+  <div class="pageno">13 / 14</div>
+</section>
+
+<!-- ════════════════════════ 14. CLOSING ════════════════════════ -->
+<section class="slide slide--cover" data-slide="Encerramento" style="min-height:100vh;">
+  <div class="slide-inner" style="text-align:center; margin:0 auto;">
+    <div class="brand" data-reveal style="justify-content:center; margin:0 auto 26px;">
+      <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Orquestra ERP">
+        <defs>
+          <linearGradient id="g2" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#3B5CE4"/><stop offset="100%" stop-color="#00B4D8"/>
+          </linearGradient>
+        </defs>
+        <path d="M 34,34 A 17,17 0 1 1 34,10" fill="none" stroke="url(#g2)" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="22" cy="22" r="3.2" fill="url(#g2)"/>
+        <line x1="22" y1="22" x2="31" y2="31" stroke="url(#g2)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="34" cy="34" r="3" fill="#00B4D8"/>
+        <line x1="22" y1="22" x2="31" y2="13" stroke="url(#g2)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="34" cy="10" r="3" fill="#3B5CE4"/>
+      </svg>
+    </div>
+    <h1 data-reveal style="font-size:clamp(30px,4.4vw,52px); margin-bottom:14px;" style="transition-delay:.1s">Obrigado pela atenção,<br>Perspectiva Ar Comprimido.</h1>
+    <p class="sub" data-reveal style="margin:0 auto; transition-delay:.18s">Orquestra ERP — o sistema que rege toda a sua operação.</p>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var dotnav = document.getElementById('dotnav');
+  var progress = document.getElementById('progress');
+
+  slides.forEach(function(s, i){
+    var b = document.createElement('button');
+    b.setAttribute('aria-label', s.dataset.slide || ('Slide ' + (i+1)));
+    b.title = s.dataset.slide || '';
+    b.addEventListener('click', function(){ s.scrollIntoView({behavior:'smooth'}); });
+    dotnav.appendChild(b);
+  });
+  var dots = Array.prototype.slice.call(dotnav.children);
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) e.target.classList.add('in-view');
+    });
+  }, { threshold: 0.22 });
+  document.querySelectorAll('[data-reveal],[data-stagger]').forEach(function(el){ io.observe(el); });
+
+  var activeIO = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      var idx = slides.indexOf(e.target);
+      if (e.isIntersecting && idx > -1) {
+        dots.forEach(function(d){ d.classList.remove('active'); });
+        dots[idx].classList.add('active');
+      }
+    });
+  }, { threshold: 0.5 });
+  slides.forEach(function(s){ activeIO.observe(s); });
+
+  window.addEventListener('scroll', function(){
+    var h = document.documentElement;
+    var pct = (h.scrollTop) / (h.scrollHeight - h.clientHeight) * 100;
+    progress.style.width = (isFinite(pct) ? pct : 0) + '%';
+  }, { passive:true });
+})();
+</script>
+</body>
+</html>
