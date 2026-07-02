@@ -16,6 +16,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   # ── LocalStack (SQS + S3 + SES emulation) ─────────────────────────────────
   # Free tier covers SQS, S3, SES — all services needed for local dev.
@@ -40,6 +41,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
 
   # ── Migrations (run once then exit) ────────────────────────────────────────
   # Usage: docker compose run --rm migrate
@@ -90,6 +92,10 @@ services:
       localstack:
         condition: service_healthy
     restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.erp-lite-api.rule=Host(`api.erp-lite.localhost`)
+      - traefik.http.services.erp-lite-api.loadbalancer.server.port=3000
 
   # ── Lambda Fiscal (local runner polls nfe-requests queue) ─────────────────
   # Mirrors the Lambda function that AWS triggers from SQS in production.
@@ -174,6 +180,10 @@ services:
     depends_on:
       - api-core
     restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.erp-lite.rule=Host(`erp-lite.localhost`)
+      - traefik.http.services.erp-lite.loadbalancer.server.port=5173
 
 volumes:
   pgdata:
