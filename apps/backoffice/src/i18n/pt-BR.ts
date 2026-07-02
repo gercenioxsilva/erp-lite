@@ -1059,6 +1059,8 @@ const ptBR = {
   'prop.converted':        'Ver Pedido',
   'prop.duplicate':        'Duplicar',
   'prop.cancel':           'Cancelar',
+  'prop.print':            'Imprimir',
+  'prop.printNotFound':    'Proposta não encontrada.',
   'prop.sendConfirm':      'Enviar proposta para o cliente por e-mail?',
   'prop.cancelConfirm':    'Cancelar esta proposta?',
   'prop.convertSuccess':   'Pedido criado com sucesso!',

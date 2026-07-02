@@ -394,6 +394,10 @@ export function ProposalsPage() {
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
+                      <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                        onClick={() => window.open(`/proposals/${p.id}/print`, '_blank', 'noopener')}>
+                        {t('prop.print')}
+                      </button>
                       {p.status === 'draft' && (
                         <>
                           <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>
