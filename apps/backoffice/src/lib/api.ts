@@ -14,7 +14,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
-        'Content-Type': 'application/json',
+        // Fastify's default JSON parser rejects a request that declares
+        // application/json but sends no body (FST_ERR_CTP_EMPTY_JSON_BODY) —
+        // only set this header when there's actually a body to parse.
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
