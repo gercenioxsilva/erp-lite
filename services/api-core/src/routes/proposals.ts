@@ -286,6 +286,9 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
       UPDATE proposals SET
         title          = COALESCE(${title?.trim() || null}, title),
         client_id      = COALESCE(${client_id || null}, client_id),
+        valid_until    = COALESCE(${valid_until || null}, valid_until),
+        notes          = COALESCE(${notes || null}, notes),
+        terms_text     = COALESCE(${terms_text || null}, terms_text),
         delivery_time  = COALESCE(${delivery_time || null}, delivery_time),
         payment_method = COALESCE(${payment_method || null}, payment_method),
         discount    = ${finalDiscount},
