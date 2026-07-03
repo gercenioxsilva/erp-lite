@@ -594,6 +594,8 @@ const ptBR = {
   'comp.bank.provider':     'Provedor de Cobrança',
   'comp.bank.daysToExpire': 'Dias para vencer o boleto',
   'comp.bank.saved':        'Dados bancários salvos com sucesso.',
+  'comp.bank.defaultAccount': 'Conta padrão',
+  'comp.bank.newAccount':     'Nova conta',
   'comp.bank.errSave':           'Erro ao salvar dados bancários.',
   'comp.bank.itauOauth':         'Credenciais OAuth2 Itaú (API v2)',
   'comp.bank.itauClientId':      'Client ID',
@@ -642,6 +644,7 @@ const ptBR = {
 
   // ── Cobrança (Boleto) ─────────────────────────────────────────────────
   'bill.emitBoleto':     'Emitir Boleto',
+  'bill.bankAccount':    'Conta bancária',
   'bill.emitting':       'Emitindo…',
   'bill.boleto':         'Boleto',
   'bill.statusLabel':    'Status do Boleto',

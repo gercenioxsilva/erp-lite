@@ -1,7 +1,13 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db';
-import { validateBankingData, isValidBillingProvider } from '../lib/banking';
+import { getDefaultBankAccount, upsertDefaultBankAccount, BankAccountDomainError } from '../services/bankAccountService';
+
+const BANKING_FIELDS = [
+  'bank_code', 'agency', 'account', 'account_digit',
+  'billing_provider', 'billing_days_to_expire',
+  'itau_client_id', 'itau_client_secret',
+] as const;
 
 const MAX_LOGO_BYTES = 300 * 1024; // 300 KB base64 string limit
 // 7 MB, not 5 — this checks the base64 STRING (banner_url), and base64 inflates
@@ -20,13 +26,30 @@ const ALLOWED_LOGO_PREFIXES = [
 export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/tenant ─────────────────────────────────────────────────────── */
+  // Campos bancários (regra 41): lidos da conta padrão da empresa padrão via
+  // bankAccountService, não mais das colunas de tenants — retrocompatível no
+  // shape da resposta, mas agora o segredo do Itaú vem mascarado (correção de
+  // uma inconsistência: nfe_configs já mascarava tokens, tenants nunca mascarou).
   fastify.get('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) return reply.notFound('Empresa não encontrada');
 
-    return tenant;
+    const account = await getDefaultBankAccount(tenantId);
+    const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
+
+    return {
+      ...tenant,
+      bank_code:              account?.bank_code              ?? null,
+      agency:                 account?.agency                 ?? null,
+      account:                account?.account                ?? null,
+      account_digit:          account?.account_digit           ?? null,
+      billing_provider:       account?.billing_provider        ?? 'brcode',
+      billing_days_to_expire: account?.billing_days_to_expire  ?? 30,
+      itau_client_id:         account?.itau_client_id          ?? null,
+      itau_client_secret:     mask(account?.itau_client_secret),
+    };
   });
 
   /* ── PATCH /v1/tenant ───────────────────────────────────────────────────── */
@@ -40,9 +63,6 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email',
       'maintenance_contact_name', 'maintenance_contact_phone', 'maintenance_contact_email',
       'fiscal_contact_name', 'fiscal_contact_phone', 'fiscal_contact_email',
-      'bank_code', 'agency', 'account', 'account_digit',
-      'billing_provider', 'billing_days_to_expire',
-      'itau_client_id', 'itau_client_secret',
       'simples_rbt12',
     ];
 
@@ -51,38 +71,37 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       if (body[key] !== undefined) patch[key] = body[key] || null;
     }
 
-    if (Object.keys(patch).length === 0) return reply.badRequest('Nenhum campo para atualizar');
+    // Campos bancários (regra 41): não vão mais para tenants — delegados para a
+    // conta padrão da empresa padrão via bankAccountService, mesmo contrato de
+    // request/response de sempre (retrocompatibilidade).
+    const bankingPatch: Record<string, unknown> = {};
+    for (const key of BANKING_FIELDS) {
+      if (body[key] !== undefined) bankingPatch[key] = body[key] || null;
+    }
+    const hasBankingUpdate = Object.keys(bankingPatch).length > 0;
 
-    // Validate banking data if any banking field is provided
-    if (patch.bank_code || patch.agency || patch.account || patch.account_digit) {
+    if (Object.keys(patch).length === 0 && !hasBankingUpdate) {
+      return reply.badRequest('Nenhum campo para atualizar');
+    }
+
+    if (hasBankingUpdate) {
       try {
-        validateBankingData({
-          bank_code: (patch.bank_code as string | undefined) ?? body.bank_code,
-          agency: (patch.agency as string | undefined) ?? body.agency,
-          account: (patch.account as string | undefined) ?? body.account,
-          account_digit: (patch.account_digit as string | undefined) ?? body.account_digit,
-        });
-        // If any banking field is set, mark banking_updated_at
-        patch.banking_updated_at = new Date();
-      } catch (err: any) {
-        return reply.badRequest(err.message);
+        await upsertDefaultBankAccount(tenantId, bankingPatch as any);
+      } catch (err) {
+        if (err instanceof BankAccountDomainError) {
+          if (err.code === 'invalid_banking_data') return reply.badRequest((err.payload as any)?.message ?? err.code);
+          if (err.code === 'invalid_billing_provider') return reply.badRequest('billing_provider inválido. Valores válidos: brcode, itau, santander, bradesco');
+          if (err.code === 'invalid_billing_days_to_expire') return reply.badRequest('billing_days_to_expire deve ser um número inteiro entre 1 e 365');
+          return reply.badRequest(err.code);
+        }
+        throw err;
       }
+      patch.banking_updated_at = new Date();
     }
 
-    // Validate billing_provider if provided
-    if (patch.billing_provider && !isValidBillingProvider(patch.billing_provider as string)) {
-      return reply.badRequest('billing_provider inválido. Valores válidos: brcode, itau, santander, bradesco');
+    if (Object.keys(patch).length > 0) {
+      await db.update(tenants).set(patch as any).where(eq(tenants.id, tenantId));
     }
-
-    // Validate billing_days_to_expire if provided
-    if (patch.billing_days_to_expire) {
-      const days = Number(patch.billing_days_to_expire);
-      if (!Number.isInteger(days) || days < 1 || days > 365) {
-        return reply.badRequest('billing_days_to_expire deve ser um número inteiro entre 1 e 365');
-      }
-    }
-
-    await db.update(tenants).set(patch as any).where(eq(tenants.id, tenantId));
     return { ok: true };
   });
 

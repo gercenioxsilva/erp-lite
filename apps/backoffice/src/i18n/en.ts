@@ -546,6 +546,8 @@ const en: Record<TKey, string> = {
   'comp.bank.provider':     'Billing provider',
   'comp.bank.daysToExpire': 'Boleto expiration (days)',
   'comp.bank.saved':        'Banking data saved successfully.',
+  'comp.bank.defaultAccount': 'Default account',
+  'comp.bank.newAccount':     'New account',
   'comp.bank.errSave':           'Error saving banking data.',
   'comp.bank.itauOauth':         'Itaú OAuth2 Credentials (API v2)',
   'comp.bank.itauClientId':      'Client ID',
@@ -594,6 +596,7 @@ const en: Record<TKey, string> = {
 
   // ── Billing (Boleto) ──────────────────────────────────────────────────
   'bill.emitBoleto':     'Emit Boleto',
+  'bill.bankAccount':    'Bank account',
   'bill.emitting':       'Emitting…',
   'bill.boleto':         'Boleto',
   'bill.statusLabel':    'Boleto Status',
