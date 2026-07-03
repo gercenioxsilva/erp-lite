@@ -49,6 +49,25 @@ interface SupplierPayable {
   status:      string;
 }
 
+interface SupplierContact {
+  id:           string;
+  contact_type: string;
+  name:         string | null;
+  email:        string | null;
+  phone:        string | null;
+  notes:        string | null;
+  is_active:    boolean;
+}
+
+// Papéis do lado do fornecedor — não reaproveita os rótulos de client_contacts
+// ('comprador'/'compras' descreve quem compra DE nós, não do fornecedor).
+const SUPPLIER_CONTACT_TYPES = ['comercial', 'financeiro', 'suporte', 'logistica', 'outro'] as const;
+
+const EMPTY_SUPPLIER_CONTACT = {
+  contact_type: 'comercial' as string,
+  name: '', email: '', phone: '', notes: '',
+};
+
 const EMPTY_FORM = {
   person_type:   'PJ' as 'PJ' | 'PF',
   company_name:  '',
@@ -107,11 +126,20 @@ export function SuppliersPage() {
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<SupplierDetail | null>(null);
-  const [drawerTab, setDrawerTab]   = useState<'general' | 'banking'>('general');
+  const [drawerTab, setDrawerTab]   = useState<'general' | 'banking' | 'contacts'>('general');
   const [form, setForm]             = useState({ ...EMPTY_FORM });
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
   const [cepLoading, setCepLoading] = useState(false);
+
+  // Contacts sub-panel (edit mode only)
+  const [contacts,        setContacts]        = useState<SupplierContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [editingContact,  setEditingContact]  = useState<SupplierContact | null>(null);
+  const [contactForm,     setContactForm]     = useState({ ...EMPTY_SUPPLIER_CONTACT });
+  const [savingContact,   setSavingContact]   = useState(false);
+  const [contactError,    setContactError]    = useState('');
 
   // Payables sub-panel
   const [supPayables, setSupPayables]     = useState<SupplierPayable[]>([]);
@@ -143,6 +171,11 @@ export function SuppliersPage() {
     setFormError('');
     setDrawerTab('general');
     setSupPayables([]);
+    setContacts([]);
+    setShowContactForm(false);
+    setEditingContact(null);
+    setContactForm({ ...EMPTY_SUPPLIER_CONTACT });
+    setContactError('');
     setDrawerOpen(true);
   }
 
@@ -177,8 +210,13 @@ export function SuppliersPage() {
     setFormError('');
     setDrawerTab('general');
     setDrawerOpen(true);
-    // Load payables for this supplier
+    setShowContactForm(false);
+    setEditingContact(null);
+    setContactForm({ ...EMPTY_SUPPLIER_CONTACT });
+    setContactError('');
+    // Load payables + contacts for this supplier
     loadSupPayables(full.id);
+    loadSupContacts(full.id);
   }
 
   async function loadSupPayables(supplierId: string) {
@@ -189,6 +227,72 @@ export function SuppliersPage() {
     } catch { setSupPayables([]); }
     finally { setPayablesLoading(false); }
   }
+
+  async function loadSupContacts(supplierId: string) {
+    setContactsLoading(true);
+    try {
+      const data = await api.get<{ data: SupplierContact[] }>(`/v1/suppliers/${supplierId}/contacts`);
+      setContacts(data.data);
+    } catch { setContacts([]); }
+    finally { setContactsLoading(false); }
+  }
+
+  function openAddContact() {
+    setEditingContact(null);
+    setContactForm({ ...EMPTY_SUPPLIER_CONTACT });
+    setContactError('');
+    setShowContactForm(true);
+  }
+
+  function openEditContact(c: SupplierContact) {
+    setEditingContact(c);
+    setContactForm({
+      contact_type: c.contact_type,
+      name:         c.name  ?? '',
+      email:        c.email ?? '',
+      phone:        c.phone ? maskPhone(c.phone) : '',
+      notes:        c.notes ?? '',
+    });
+    setContactError('');
+    setShowContactForm(true);
+  }
+
+  async function handleSaveContact() {
+    if (!editTarget) return;
+    setContactError('');
+    setSavingContact(true);
+    try {
+      const payload = {
+        contact_type: contactForm.contact_type,
+        name:         contactForm.name  || undefined,
+        email:        contactForm.email || undefined,
+        phone:        contactForm.phone ? digits(contactForm.phone) : undefined,
+        notes:        contactForm.notes || undefined,
+      };
+      if (editingContact) {
+        await api.patch(`/v1/suppliers/${editTarget.id}/contacts/${editingContact.id}`, payload);
+      } else {
+        await api.post(`/v1/suppliers/${editTarget.id}/contacts`, payload);
+      }
+      setShowContactForm(false);
+      loadSupContacts(editTarget.id);
+    } catch (err: unknown) {
+      setContactError(err instanceof Error ? err.message : t('sup.errSaveContact'));
+    } finally { setSavingContact(false); }
+  }
+
+  async function handleDeleteContact(cid: string) {
+    if (!editTarget) return;
+    const ok = await confirm({ title: t('sup.delContact'), message: t('sup.delContactMsg') });
+    if (!ok) return;
+    try {
+      await api.delete(`/v1/suppliers/${editTarget.id}/contacts/${cid}`);
+      setContacts(prev => prev.filter(c => c.id !== cid));
+    } catch (err: any) { alert(err.message); }
+  }
+
+  const contactTypeLabel = (type: string) =>
+    t(`sup.contact.${type}` as Parameters<typeof t>[0]) || type;
 
   async function handleCEP(cepValue: string) {
     const d = digits(cepValue);
@@ -374,7 +478,7 @@ export function SuppliersPage() {
 
             {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', marginBottom: 4 }}>
-              {(['general', 'banking'] as const).map(tab => (
+              {(editTarget ? (['general', 'banking', 'contacts'] as const) : (['general', 'banking'] as const)).map(tab => (
                 <button key={tab} type="button" onClick={() => setDrawerTab(tab)} style={{
                   background: 'none', border: 'none', padding: '8px 16px', cursor: 'pointer',
                   fontWeight: drawerTab === tab ? 700 : 400,
@@ -382,7 +486,7 @@ export function SuppliersPage() {
                   borderBottom: drawerTab === tab ? '2px solid var(--primary)' : '2px solid transparent',
                   marginBottom: -2, fontSize: 13,
                 }}>
-                  {tab === 'general' ? t('sup.tabGeneral') : t('sup.tabBanking')}
+                  {tab === 'general' ? t('sup.tabGeneral') : tab === 'banking' ? t('sup.tabBanking') : t('sup.tabContacts')}
                 </button>
               ))}
             </div>
@@ -609,6 +713,108 @@ export function SuppliersPage() {
                     </table>
                   )}
                 </div>
+              )}
+
+              {/* ── Tab: Contatos (somente no modo edição) ── */}
+              {editTarget && drawerTab === 'contacts' && (
+                <>
+                  <h4 style={{ fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    {t('sup.contacts')}
+                  </h4>
+                  {contactsLoading ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                  ) : (
+                    <>
+                      {contacts.length === 0 && !showContactForm && (
+                        <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 8 }}>{t('sup.noContacts')}</div>
+                      )}
+
+                      {contacts.map(ct => (
+                        <div key={ct.id} style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 10,
+                          padding: '10px 12px', marginBottom: 6,
+                          border: '1px solid var(--border)', borderRadius: 8,
+                          background: 'var(--surface)',
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                              <span className="badge badge-product" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                                {contactTypeLabel(ct.contact_type)}
+                              </span>
+                              {ct.name && <strong style={{ fontSize: 13 }}>{ct.name}</strong>}
+                            </div>
+                            {ct.email && <div style={{ fontSize: 12, color: 'var(--muted)' }}>✉ {ct.email}</div>}
+                            {ct.phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>📞 {maskPhone(ct.phone)}</div>}
+                            {ct.notes && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{ct.notes}</div>}
+                          </div>
+                          <div className="flex-gap" style={{ flexShrink: 0 }}>
+                            <button type="button" className="btn btn-secondary btn-sm"
+                              onClick={() => openEditContact(ct)}>{t('c.edit')}</button>
+                            <button type="button" className="btn btn-danger btn-sm"
+                              onClick={() => void handleDeleteContact(ct.id)}>{t('c.del')}</button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {showContactForm ? (
+                        <div style={{ border: '1px solid var(--primary)', borderRadius: 8, padding: 14, marginTop: 8, background: '#f8f9ff' }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
+                            {editingContact ? t('sup.editContact') : t('sup.addContact')}
+                          </div>
+                          {contactError && <div className="alert alert-error" role="alert" style={{ marginBottom: 10 }}>{contactError}</div>}
+                          <div>
+                            <div className="field-row">
+                              <div className="field">
+                                <label>{t('sup.contactType')}</label>
+                                <select value={contactForm.contact_type}
+                                  onChange={e => setContactForm(f => ({ ...f, contact_type: e.target.value }))}>
+                                  {SUPPLIER_CONTACT_TYPES.map(type => (
+                                    <option key={type} value={type}>{contactTypeLabel(type)}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="field">
+                                <label>{t('sup.contactName')}</label>
+                                <input value={contactForm.name}
+                                  onChange={e => setContactForm(f => ({ ...f, name: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="field-row">
+                              <div className="field">
+                                <label>{t('c.email')}</label>
+                                <input type="email" value={contactForm.email}
+                                  onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))} />
+                              </div>
+                              <div className="field">
+                                <label>{t('sup.phone')}</label>
+                                <input value={contactForm.phone} maxLength={15}
+                                  onChange={e => setContactForm(f => ({ ...f, phone: maskPhone(e.target.value) }))} />
+                              </div>
+                            </div>
+                            <div className="field">
+                              <label>{t('sup.notes')}</label>
+                              <input value={contactForm.notes}
+                                onChange={e => setContactForm(f => ({ ...f, notes: e.target.value }))} />
+                            </div>
+                            <div className="flex-gap" style={{ marginTop: 8 }}>
+                              <button type="button" className="btn btn-secondary btn-sm"
+                                onClick={() => setShowContactForm(false)}>{t('c.cancel')}</button>
+                              <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={savingContact}
+                                onClick={() => void handleSaveContact()}>
+                                {savingContact ? t('c.saving') : t('sup.saveContact')}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8, width: 'auto' }}
+                          onClick={openAddContact}>
+                          + {t('sup.addContact')}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </div>
 

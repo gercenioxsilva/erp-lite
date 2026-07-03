@@ -1287,6 +1287,24 @@ const en: Record<TKey, string> = {
   'so.flow.step5Desc':  'Captures photos of the service and collects the client signature, still on site.',
   'so.flow.step6Title': 'Visit completed',
   'so.flow.step6Desc':  'Report saved automatically. The order closes once all visits are done.',
+
+  // ── Supplier contacts ─────────────────────────────────────────────────────
+  'sup.tabContacts':    'Contacts',
+  'sup.contacts':       'Contacts',
+  'sup.noContacts':     'No contacts registered.',
+  'sup.addContact':     'Add contact',
+  'sup.editContact':    'Edit contact',
+  'sup.saveContact':    'Save contact',
+  'sup.delContact':     'Remove contact',
+  'sup.delContactMsg':  'The contact will be permanently removed.',
+  'sup.contactType':    'Contact type',
+  'sup.contactName':    'Contact name',
+  'sup.contact.comercial':  'Sales',
+  'sup.contact.financeiro': 'Finance',
+  'sup.contact.suporte':    'Support',
+  'sup.contact.logistica':  'Logistics',
+  'sup.contact.outro':      'Other',
+  'sup.errSaveContact': 'Error saving contact',
 };
 
 export default en;

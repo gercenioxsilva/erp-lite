@@ -19,6 +19,7 @@ import { payablesRoutes }           from './routes/payables';
 import { tenantRoutes }             from './routes/tenant';
 import { billingRoutes }            from './routes/billing';
 import { clientContactsRoutes }     from './routes/clientContacts';
+import { supplierContactsRoutes }   from './routes/supplierContacts';
 import { serviceContractsRoutes }   from './routes/serviceContracts';
 import { materialImagesRoutes }     from './routes/materialImages';
 import { dashboardRoutes }                                          from './routes/dashboard';
@@ -88,6 +89,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tenantRoutes,             { prefix: '/v1' });
   await app.register(billingRoutes,            { prefix: '/v1' });
   await app.register(clientContactsRoutes,     { prefix: '/v1' });
+  await app.register(supplierContactsRoutes,   { prefix: '/v1' });
   await app.register(serviceContractsRoutes,   { prefix: '/v1' });
   await app.register(materialImagesRoutes,     { prefix: '/v1' });
   await app.register(dashboardRoutes,          { prefix: '/v1' });

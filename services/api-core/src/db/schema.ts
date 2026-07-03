@@ -468,6 +468,24 @@ export const suppliers = pgTable('suppliers', {
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── supplier_contacts ────────────────────────────────────────────────────────
+// Mesmo conceito de client_contacts, com contact_type adaptado ao lado do
+// fornecedor (comercial/financeiro/suporte/logistica/outro — não reaproveita
+// "comprador"/"compras" de client_contacts, que descreve quem compra DE nós).
+export const supplierContacts = pgTable('supplier_contacts', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
+  supplier_id:  uuid('supplier_id').notNull().references(() => suppliers.id, { onDelete: 'cascade' }),
+  contact_type: varchar('contact_type', { length: 30 }).notNull().default('comercial'),
+  name:         varchar('name',  { length: 255 }),
+  email:        varchar('email', { length: 255 }),
+  phone:        varchar('phone', { length: 20  }),
+  notes:        text('notes'),
+  is_active:    boolean('is_active').notNull().default(true),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── payables ──────────────────────────────────────────────────────────────────
 export const payables = pgTable('payables', {
   id:              uuid('id').primaryKey().defaultRandom(),
