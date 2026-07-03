@@ -97,6 +97,25 @@ describe('Tax routes', () => {
       );
     });
 
+    it('[multi-empresa] honors an explicit company_id, overriding the default company UF (regra 40)', async () => {
+      state.nfeConfig = { uf: 'RJ', is_active: true } as any;
+      mockResolveAndCalculateTaxes.mockResolvedValue({ ok: true });
+      const token = app.jwt.sign({ tenantId: 'tenant-1', userId: 'user-1', role: 'admin' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/tax/calculate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          tax_regime: 'lucro_presumido', company_id: 'company-rj',
+          lines: [{ quantity: 1, unit_price: 10 }],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(mockResolveAndCalculateTaxes).toHaveBeenCalledWith(
+        expect.objectContaining({ origin_state: 'RJ' }),
+        expect.anything(),
+      );
+    });
+
     it('falls back to SP when there is no nfe_configs row', async () => {
       state.nfeConfig = null;
       mockResolveAndCalculateTaxes.mockResolvedValue({ ok: true });

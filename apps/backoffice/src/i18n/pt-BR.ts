@@ -1179,10 +1179,15 @@ const ptBR = {
   'comp.modules.subtitle':      'Habilite recursos adicionais sob demanda. Nenhum módulo aqui afeta o restante do sistema quando desativado.',
   'comp.modules.serviceOrders':      'Ordens de Serviço / Visita Técnica',
   'comp.modules.serviceOrdersDesc':  'Ordens de serviço com agendamento de visita técnica, portal do técnico com login próprio, coleta de fotos e assinatura do cliente em campo.',
+  'comp.modules.multiEmpresa':      'Multi-Empresa (múltiplos CNPJs)',
+  'comp.modules.multiEmpresaDesc':  'Permite cadastrar mais de um CNPJ na mesma conta e escolher qual empresa emite cada NF-e, NFS-e ou contrato — clientes, materiais e estoque continuam compartilhados entre as empresas.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',
   'comp.modules.disabled':      'Desabilitado',
+  'comp.companies.default':     'Empresa padrão',
+  'comp.companies.new':         'Nova empresa',
+  'comp.companies.emittingCompany': 'Empresa emissora',
 
   // ── Ordens de Serviço ───────────────────────────────────────────────────────
   'nav.group.fieldService':  'Campo',

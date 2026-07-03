@@ -37,6 +37,7 @@ interface Contract {
   nfse_enabled:      boolean;
   codigo_servico:    string | null;
   aliquota_iss:      string | null;
+  company_id:        string | null;
 }
 
 interface Billing {
@@ -75,6 +76,7 @@ const EMPTY_FORM = {
   nfse_enabled:      false,
   codigo_servico:    '',
   aliquota_iss:      '',
+  company_id:        '',
 };
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -103,6 +105,8 @@ export function ContractsPage() {
   // Clients and materials for dropdowns
   const [clients,   setClients]   = useState<Client[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
+  const [companies, setCompanies] = useState<{ id: string; razao_social: string; is_default: boolean }[]>([]);
 
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -148,6 +152,10 @@ export function ContractsPage() {
     ]);
     setClients(cl.data.map(c => ({ id: c.id, name: c.company_name ?? c.full_name ?? c.id })));
     setMaterials(mt.data.map(m => ({ id: m.id, name: m.name, sku: m.sku, description: m.description })));
+
+    const comp = await api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies')
+      .catch(() => ({ data: [] }));
+    setCompanies(comp.data);
   }
 
   async function loadBillings(contractId: string) {
@@ -195,7 +203,7 @@ export function ContractsPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ ...EMPTY_FORM });
+    setForm({ ...EMPTY_FORM, company_id: companies.find(c => c.is_default)?.id ?? '' });
     setFormError('');
     setDrawerOpen(true);
   }
@@ -216,6 +224,7 @@ export function ContractsPage() {
       nfse_enabled:      c.nfse_enabled ?? false,
       codigo_servico:    c.codigo_servico ?? '',
       aliquota_iss:      c.aliquota_iss != null ? String(c.aliquota_iss) : '',
+      company_id:        c.company_id ?? '',
     });
     setFormError('');
     setDrawerOpen(true);
@@ -248,6 +257,7 @@ export function ContractsPage() {
         nfse_enabled:      form.nfse_enabled,
         codigo_servico:    form.nfse_enabled ? (form.codigo_servico || undefined) : undefined,
         aliquota_iss:      form.nfse_enabled && form.aliquota_iss ? Number(form.aliquota_iss) : undefined,
+        company_id:        form.company_id || undefined,
       };
       if (editing) await api.patch(`/v1/service-contracts/${editing.id}`, payload);
       else         await api.post('/v1/service-contracts', payload);
@@ -518,6 +528,17 @@ export function ContractsPage() {
                         placeholder={t('sc.issRatePH')}
                         onChange={e => setForm(f => ({ ...f, aliquota_iss: e.target.value }))} />
                     </div>
+                  </div>
+                )}
+                {form.nfse_enabled && companies.length > 1 && (
+                  <div className="field">
+                    <label>{t('comp.companies.emittingCompany')}</label>
+                    <select value={form.company_id}
+                      onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}>
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.razao_social}{c.is_default ? ` (${t('comp.companies.default')})` : ''}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
