@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Colunas adicionadas em v16.0: `payables.dre_category_id`. Colunas adicionadas em v17.0: `users.role` passa a aceitar `'technician'` (CHECK constraint atualizado). Antes de usar qualquer tabela/coluna, confirme que ela existe.
+1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `supplier_contacts`. Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Colunas adicionadas em v16.0: `payables.dre_category_id`. Colunas adicionadas em v17.0: `users.role` passa a aceitar `'technician'` (CHECK constraint atualizado). Antes de usar qualquer tabela/coluna, confirme que ela existe.
 
 2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
    - `POST /v1/auth/login` · `POST /v1/auth/register` · `GET /v1/auth/me`
@@ -33,6 +33,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `POST /v1/receivables/:id/emit-boleto` · `POST /v1/receivables/:id/expire-boleto`
    - `GET|POST|PATCH|DELETE /v1/payables(/:id)?` · `POST /v1/payables/:id/payments` · `DELETE /v1/payables/:id/payments/:pid`
    - `GET|POST|PATCH|DELETE /v1/suppliers(/:id)?` · `GET /v1/suppliers/:id/payables`
+   - `GET /v1/suppliers/:id/contacts` · `POST /v1/suppliers/:id/contacts` · `PATCH|DELETE /v1/suppliers/:id/contacts/:cid` — autenticado por JWT (regra 39), diferente de `client_contacts`
    - `GET|POST|PATCH /v1/service-contracts(/:id)?` · `POST /v1/service-contracts/:id/billings`
    - `GET|POST|PATCH|DELETE /v1/users(/:id)?`
    - `GET|PATCH /v1/tenant` · `PUT|DELETE /v1/tenant/logo`
@@ -144,6 +145,8 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
     - **Assinatura do cliente é artefato 1:1 com a visita** (`service_visits.signature_s3_key`/`signed_by_name`/`signed_at`), não uma linha em `service_visit_photos` (que é a galeria de N fotos por visita) — nunca confundir os dois. É assinatura eletrônica simples (Lei 14.063/2020), não ICP-Brasil — nunca afirmar equivalência com assinatura digital certificada.
     - **Idempotência de foto:** `idempotency_key` gerado no navegador (UUID) antes do upload, `UNIQUE(tenant_id, idempotency_key)` em `service_visit_photos` — retry de rede não duplica a linha (mesmo padrão de `cost_center_movements`/`commission_entries`).
     - **Compressão client-side obrigatória antes do upload** (`apps/backoffice/src/lib/visitUpload.ts`, Canvas API, ~1600px maior lado, JPEG 80%) — controle de custo de storage, não um Lambda de processamento de imagem.
+
+39. **Contatos de fornecedor (`supplier_contacts`) espelham `client_contacts` na estrutura, mas NÃO no padrão de autenticação.** `client_contacts.ts` recebe `tenant_id` do body/query da requisição — exceção legada documentada na regra 4, que antecede o auth Lambda estar totalmente integrado. `supplier_contacts.ts` (rotas em `src/routes/supplierContacts.ts`) foi implementado do zero já com o padrão correto: `onRequest: [(fastify as any).authenticate]` + `tenantId` extraído do JWT, mesmo padrão que `suppliers.ts` já usa. **Nunca copiar o padrão de `client_contacts.ts` para um módulo novo** — ele existe por motivo histórico, não é o padrão de referência. Tipos de contato são diferentes entre os dois: `client_contacts` usa `comercial|juridico|compras|manutencao|comprador|outro` (papéis de quem COMPRA de nós); `supplier_contacts` usa `comercial|financeiro|suporte|logistica|outro` (papéis do lado de quem VENDE para nós) — nunca reaproveitar "comprador"/"compras" para fornecedor, não faz sentido semântico. Frontend: aba "Contatos" em `SuppliersPage.tsx` (terceira aba do drawer, ao lado de `general`/`banking`, só aparece em modo edição) — diferente de `ClientsPage.tsx`, que não usa abas e mostra contatos inline na rolagem única do formulário; a escolha de UI segue o padrão que a própria página hospedeira já usa, não o de `ClientsPage.tsx`.
 
 32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho.
 
@@ -610,7 +613,7 @@ flowchart TD
 | DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables |
 | Contas a Pagar | `/payables` | payables, payable_payments |
 | Contratos | `/contracts` | service_contracts, contract_billings |
-| Fornecedores | `/suppliers` | suppliers |
+| Fornecedores | `/suppliers` | suppliers, supplier_contacts |
 | Relatórios | `/reports` | receivables (inadimplência), order_items (ranking) |
 | Usuários | `/users` | users |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs |
@@ -897,6 +900,20 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 ## Histórico de versões relevantes
 
+### v18.0 — Contatos de Fornecedor
+
+> **Migration 0045.** `supplier_contacts` — mesma ideia de `client_contacts` (lista de contatos por tipo, com nome/e-mail/telefone/observações), aplicada ao cadastro de fornecedores.
+>
+> **Correção de padrão, não cópia cega:** `client_contacts.ts` ainda usa o padrão legado de `tenant_id` vindo do body/query (regra 4 — exceção temporária). O novo `supplierContacts.ts` foi implementado já com o padrão correto (`tenantId` do JWT via `authenticate`), mesmo padrão que `suppliers.ts` já usa — ver regra 39 para o raciocínio completo.
+>
+> **Tipos de contato adaptados ao papel do fornecedor:** `comercial | financeiro | suporte | logistica | outro` — não reaproveita os tipos de `client_contacts` (`comprador`/`compras` descrevem quem compra de nós, não fazem sentido do lado do fornecedor).
+>
+> **Frontend:** terceira aba "Contatos" em `SuppliersPage.tsx` (ao lado de Dados Gerais/Dados Bancários), visível apenas em modo edição — segue o padrão de abas que a própria página já usa, não o layout de rolagem única de `ClientsPage.tsx`.
+>
+> **Testes:** `supplierContacts.test.ts` — 10 testes cobrindo autenticação, isolamento por tenant, validação de `contact_type` e soft-delete.
+>
+> **Soft-delete:** `supplier_contacts.is_active = false` (nunca deletado fisicamente) — mesmo padrão de `client_contacts`, agora também documentado na tabela de soft-delete (lacuna pré-existente corrigida nesta versão).
+
 ### v17.0 — Ordens de Serviço / Visita Técnica (módulo opcional por tenant)
 
 > **Migration 0044.** Primeiro módulo verticalizado do produto — não compete com ERPs de SMB genéricos, abre um segmento (equipamentos, climatização, elétrica, manutenção industrial) onde nenhum concorrente direto de SMB tem um módulo de OS decente.
@@ -1059,9 +1076,11 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | Módulo | Coluna | Valor inativo |
 |--------|--------|---------------|
 | clients | `is_active` | `false` |
+| client_contacts | `is_active` | `false` |
 | materials | `is_active` | `false` |
 | users | `status` | `'disabled'` |
 | suppliers | `is_active` | `false` |
+| supplier_contacts | `is_active` | `false` |
 | cost_centers | `is_active` | `false` |
 | sellers | `is_active` | `false` |
 | orders | `status` | `'cancelled'` |
