@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, sql } from 'drizzle-orm';
-import { db, nfseInvoices, nfseEvents, nfeConfigs } from '../db';
+import { db, nfseInvoices, nfseEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
+import { resolveCompanyId } from '../services/companyService';
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -91,7 +92,9 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     if (nfse.nfse_status === 'authorized')
       return reply.badRequest('Esta NFS-e já foi autorizada.');
 
-    const [cfg] = await db.select().from(nfeConfigs).where(eq(nfeConfigs.tenant_id, tenant_id));
+    // Resolve qual empresa/CNPJ emite esta NFS-e (regra 40) — nfse.company_id
+    // quando definido, senão a empresa padrão do tenant.
+    const cfg = await resolveCompanyId(tenant_id, nfse.company_id).catch(() => null);
     if (!cfg) return reply.badRequest('Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir');
     if (!cfg.inscricao_municipal)
       return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e');

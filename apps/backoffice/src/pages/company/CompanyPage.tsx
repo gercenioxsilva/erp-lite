@@ -35,6 +35,10 @@ interface NfeCfg {
   codigo_servico_padrao: string | null;
 }
 
+// Empresa/CNPJ (regra 40) — mesmo shape de NfeCfg, com identidade própria.
+// GET /v1/companies sempre retorna ao menos 1 linha (a empresa padrão).
+interface Company extends NfeCfg { id: string; is_default: boolean; is_active: boolean; }
+
 const EMPTY_NFE_FORM = {
   cnpj: '', razao_social: '', nome_fantasia: '', regime_tributario: '1',
   logradouro: '', numero: '', complemento: '', bairro: '',
@@ -99,6 +103,14 @@ export function CompanyPage() {
   const [nfeError, setNfeError]       = useState('');
   const [cepLoading, setCepLoading]   = useState(false);
 
+  // Multi-empresa (regra 40) — módulo opcional. companies sempre tem ao menos
+  // 1 linha (a empresa padrão); o seletor só aparece com mais de uma.
+  const [companies, setCompanies]             = useState<Company[]>([]);
+  const [multiEmpresaEnabled, setMultiEmpresaEnabled] = useState(false);
+  // null = empresa padrão (fluxo legado /v1/nfe-config) · 'new' = criando nova
+  // empresa · id = editando uma empresa específica não-padrão via /v1/companies/:id
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | 'new' | null>(null);
+
   const [notifForm, setNotifForm]     = useState({ notify_receivable_due_days: 3 });
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSuccess, setNotifSuccess] = useState('');
@@ -113,8 +125,49 @@ export function CompanyPage() {
     loadTenant();
     loadNfeConfig();
     loadNotifConfig();
+    loadCompanies();
+    loadMultiEmpresaFlag();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
+
+  async function loadCompanies() {
+    try {
+      const r = await api.get<{ data: Company[] }>('/v1/companies');
+      setCompanies(r.data);
+    } catch { /* silent — comportamento de empresa única fica intacto */ }
+  }
+
+  async function loadMultiEmpresaFlag() {
+    try {
+      const r = await api.get<{ available: string[]; enabled: string[] }>('/v1/tenant/modules');
+      setMultiEmpresaEnabled(r.enabled.includes('multi_empresa'));
+    } catch { /* silent */ }
+  }
+
+  function fillNfeFormFromCompany(c: Company) {
+    setNfeForm({
+      cnpj: c.cnpj || '', razao_social: c.razao_social || '', nome_fantasia: c.nome_fantasia || '',
+      regime_tributario: String(c.regime_tributario ?? 1),
+      logradouro: c.logradouro || '', numero: c.numero || '', complemento: c.complemento || '',
+      bairro: c.bairro || '', municipio: c.municipio || 'SAO PAULO', uf: c.uf || 'SP', cep: c.cep || '',
+      telefone: c.telefone || '', email: c.email || '',
+      cfop_padrao: c.cfop_padrao || '5102', cfop_interestadual: c.cfop_interestadual || '6102',
+      natureza_operacao: c.natureza_operacao || 'Venda de mercadoria', focus_ambiente: String(c.focus_ambiente ?? 2),
+      focus_token_homologacao: '', focus_token_producao: '',
+      inscricao_municipal: c.inscricao_municipal || '', codigo_municipio_ibge: c.codigo_municipio_ibge || '3550308',
+      aliquota_iss_padrao: c.aliquota_iss_padrao != null ? String(c.aliquota_iss_padrao) : '5.00',
+      codigo_servico_padrao: c.codigo_servico_padrao || '',
+    });
+  }
+
+  function selectCompany(id: string | 'new' | null) {
+    setSelectedCompanyId(id);
+    setNfeError(''); setNfeSuccess('');
+    if (id === 'new') { setNfeForm({ ...EMPTY_NFE_FORM }); return; }
+    if (id === null) { loadNfeConfig(); return; } // empresa padrão — fluxo legado
+    const company = companies.find(c => c.id === id);
+    if (company) fillNfeFormFromCompany(company);
+  }
 
   async function loadTenant() {
     setLoading(true);
@@ -252,35 +305,51 @@ export function CompanyPage() {
     if (!nfeForm.cnpj.trim() || !nfeForm.razao_social.trim())
       return setNfeError(t('comp.nfe.errRequired'));
     setNfeSaving(true);
+
+    const payload = {
+      cnpj:                   nfeForm.cnpj,
+      razao_social:           nfeForm.razao_social,
+      nome_fantasia:          nfeForm.nome_fantasia || null,
+      regime_tributario:      Number(nfeForm.regime_tributario),
+      logradouro:             nfeForm.logradouro,
+      numero:                 nfeForm.numero,
+      complemento:            nfeForm.complemento || null,
+      bairro:                 nfeForm.bairro,
+      municipio:              nfeForm.municipio,
+      uf:                     nfeForm.uf,
+      cep:                    nfeForm.cep,
+      telefone:               nfeForm.telefone || null,
+      email:                  nfeForm.email || null,
+      cfop_padrao:            nfeForm.cfop_padrao,
+      cfop_interestadual:     nfeForm.cfop_interestadual,
+      natureza_operacao:      nfeForm.natureza_operacao,
+      focus_ambiente:         Number(nfeForm.focus_ambiente),
+      focus_token_homologacao: nfeForm.focus_token_homologacao || null,
+      focus_token_producao:    nfeForm.focus_token_producao    || null,
+      inscricao_municipal:    nfeForm.inscricao_municipal || null,
+      codigo_municipio_ibge:  nfeForm.codigo_municipio_ibge || null,
+      aliquota_iss_padrao:    nfeForm.aliquota_iss_padrao ? Number(nfeForm.aliquota_iss_padrao) : null,
+      codigo_servico_padrao:  nfeForm.codigo_servico_padrao || null,
+    };
+
     try {
-      await api.put('/v1/nfe-config', {
-        tenant_id:              tenantId,
-        cnpj:                   nfeForm.cnpj,
-        razao_social:           nfeForm.razao_social,
-        nome_fantasia:          nfeForm.nome_fantasia || null,
-        regime_tributario:      Number(nfeForm.regime_tributario),
-        logradouro:             nfeForm.logradouro,
-        numero:                 nfeForm.numero,
-        complemento:            nfeForm.complemento || null,
-        bairro:                 nfeForm.bairro,
-        municipio:              nfeForm.municipio,
-        uf:                     nfeForm.uf,
-        cep:                    nfeForm.cep,
-        telefone:               nfeForm.telefone || null,
-        email:                  nfeForm.email || null,
-        cfop_padrao:            nfeForm.cfop_padrao,
-        cfop_interestadual:     nfeForm.cfop_interestadual,
-        natureza_operacao:      nfeForm.natureza_operacao,
-        focus_ambiente:         Number(nfeForm.focus_ambiente),
-        focus_token_homologacao: nfeForm.focus_token_homologacao || null,
-        focus_token_producao:    nfeForm.focus_token_producao    || null,
-        inscricao_municipal:    nfeForm.inscricao_municipal || null,
-        codigo_municipio_ibge:  nfeForm.codigo_municipio_ibge || null,
-        aliquota_iss_padrao:    nfeForm.aliquota_iss_padrao ? Number(nfeForm.aliquota_iss_padrao) : null,
-        codigo_servico_padrao:  nfeForm.codigo_servico_padrao || null,
-      });
-      setNfeSuccess(t('comp.nfe.saved'));
-      loadNfeConfig();
+      if (selectedCompanyId === 'new') {
+        await api.post('/v1/companies', payload);
+        setNfeSuccess(t('comp.nfe.saved'));
+        await loadCompanies();
+        setSelectedCompanyId(null);
+        loadNfeConfig();
+      } else if (selectedCompanyId) {
+        await api.patch(`/v1/companies/${selectedCompanyId}`, payload);
+        setNfeSuccess(t('comp.nfe.saved'));
+        await loadCompanies();
+      } else {
+        // Empresa padrão — fluxo legado, retrocompatível (regra 40).
+        await api.put('/v1/nfe-config', { tenant_id: tenantId, ...payload });
+        setNfeSuccess(t('comp.nfe.saved'));
+        loadNfeConfig();
+        loadCompanies();
+      }
     } catch (err: any) {
       setNfeError(err.message || t('comp.nfe.errSave'));
     } finally { setNfeSaving(false); }
@@ -700,6 +769,36 @@ export function CompanyPage() {
 
       {tab === 'fiscal' && (
         <div style={{ maxWidth: 720 }}>
+          {/* Seletor de empresa (regra 40) — só aparece com mais de 1 CNPJ
+              cadastrado ou quando o módulo multi_empresa está habilitado.
+              Tenant com 1 empresa só não vê nenhuma mudança aqui. */}
+          {(companies.length > 1 || multiEmpresaEnabled) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+              <button type="button"
+                className={`btn btn-sm ${selectedCompanyId === null ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ width: 'auto' }}
+                onClick={() => selectCompany(null)}>
+                {companies.find(c => c.is_default)?.razao_social || t('comp.companies.default')}
+              </button>
+              {companies.filter(c => !c.is_default).map(c => (
+                <button key={c.id} type="button"
+                  className={`btn btn-sm ${selectedCompanyId === c.id ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ width: 'auto' }}
+                  onClick={() => selectCompany(c.id)}>
+                  {c.razao_social}
+                </button>
+              ))}
+              {multiEmpresaEnabled && (
+                <button type="button"
+                  className={`btn btn-sm ${selectedCompanyId === 'new' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ width: 'auto' }}
+                  onClick={() => selectCompany('new')}>
+                  + {t('comp.companies.new')}
+                </button>
+              )}
+            </div>
+          )}
+
           {nfeLoading ? (
             <div className="spinner">{t('c.loading')}</div>
           ) : (
@@ -995,8 +1094,9 @@ export function CompanyPage() {
 // toggle é só a interface de autoatendimento para o tenant ligar/desligar.
 interface ModulesResponse { available: string[]; enabled: string[]; }
 
-const MODULE_LABELS: Record<string, { titleKey: 'comp.modules.serviceOrders'; descKey: 'comp.modules.serviceOrdersDesc' }> = {
+const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   service_orders: { titleKey: 'comp.modules.serviceOrders', descKey: 'comp.modules.serviceOrdersDesc' },
+  multi_empresa:  { titleKey: 'comp.modules.multiEmpresa',  descKey: 'comp.modules.multiEmpresaDesc' },
 };
 
 function ModulesTab() {

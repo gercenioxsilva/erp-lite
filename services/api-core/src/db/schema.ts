@@ -246,6 +246,9 @@ export const invoices = pgTable('invoices', {
   tenant_id: uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
   client_id: uuid('client_id').notNull().references(() => clients.id,  { onDelete: 'restrict' }),
   order_id:  uuid('order_id').references(() => orders.id,   { onDelete: 'set null' }),
+  // Qual empresa/CNPJ emite esta nota (migration 0046, regra 40) — nullable,
+  // resolvido para a empresa padrão do tenant quando omitido.
+  company_id: uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
   number:    varchar('number', { length: 20 }),
   serie:     varchar('serie',  { length: 5  }).notNull().default('1'),
   status:    varchar('status', { length: 20 }).notNull().default('draft'),
@@ -314,8 +317,15 @@ export const invoiceItems = pgTable('invoice_items', {
 });
 
 // ── nfe_configs ───────────────────────────────────────────────────────────────
+// nfe_configs é a entidade "Empresa/CNPJ" do tenant (regra 40). Até a migration
+// 0046 era um singleton por tenant (tenant_id era a PRIMARY KEY); agora tenant_id
+// é uma FK comum e cada linha é uma empresa — is_default marca qual delas é usada
+// quando nenhum company_id é informado explicitamente (retrocompatibilidade).
 export const nfeConfigs = pgTable('nfe_configs', {
-  tenant_id:   uuid('tenant_id').primaryKey().references(() => tenants.id, { onDelete: 'cascade' }),
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  is_default:  boolean('is_default').notNull().default(true),
+  is_active:   boolean('is_active').notNull().default(true),
   cnpj:        varchar('cnpj', { length: 14 }).notNull(),
   razao_social: varchar('razao_social', { length: 255 }).notNull(),
   nome_fantasia: varchar('nome_fantasia', { length: 255 }),
@@ -549,6 +559,9 @@ export const serviceContracts = pgTable('service_contracts', {
   tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id,  { onDelete: 'cascade' }),
   client_id:         uuid('client_id').notNull().references(() => clients.id,  { onDelete: 'restrict' }),
   material_id:       uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  // Qual empresa/CNPJ fatura este contrato (migration 0046, regra 40) — nullable,
+  // resolvido para a empresa padrão do tenant quando omitido.
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
   contract_number:   varchar('contract_number', { length: 20 }).notNull(),
   description:       text('description').notNull(),
   start_date:        date('start_date').notNull(),
@@ -609,6 +622,9 @@ export const nfseInvoices = pgTable('nfse_invoices', {
   contract_billing_id: uuid('contract_billing_id').references(() => contractBillings.id, { onDelete: 'set null' }),
   receivable_id:       uuid('receivable_id').references(() => receivables.id, { onDelete: 'set null' }),
   client_id:           uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  // Qual empresa/CNPJ emite esta NFS-e (migration 0046, regra 40) — nullable,
+  // resolvido para a empresa padrão do tenant quando omitido.
+  company_id:          uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
   description:         text('description').notNull(),
   amount:              decimal('amount', { precision: 15, scale: 2 }).notNull(),
   iss_rate:            decimal('iss_rate', { precision: 5, scale: 2 }).notNull(),

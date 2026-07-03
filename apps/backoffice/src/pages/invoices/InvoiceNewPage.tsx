@@ -96,6 +96,9 @@ export function InvoiceNewPage() {
   const [ccStock,          setCcStock]          = useState<StockItem[]>([]);
   const [sellers,          setSellers]          = useState<SellerOption[]>([]);
   const [formSellerId,     setFormSellerId]     = useState('');
+  // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
+  const [companies,        setCompanies]        = useState<{ id: string; razao_social: string; is_default: boolean }[]>([]);
+  const [formCompanyId,    setFormCompanyId]    = useState('');
 
   const hasClient = !!formClientId;
   const hasItems  = formItems.some(it => it.name);
@@ -116,7 +119,8 @@ export function InvoiceNewPage() {
         .catch(() => ({ focus_ambiente: null, uf: undefined, regime_tributario: undefined })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
-    ]).then(([cl, mt, or, cfg, cc, sl]) => {
+      api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
+    ]).then(([cl, mt, or, cfg, cc, sl, comp]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
       setMaterials(mt.data ?? []);
@@ -124,6 +128,9 @@ export function InvoiceNewPage() {
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
       setSellers(Array.isArray(sl) ? sl : []);
+      const companyRows = comp.data ?? [];
+      setCompanies(companyRows);
+      setFormCompanyId(prev => prev || companyRows.find(c => c.is_default)?.id || '');
       // Origem e regime tributário herdam o cadastro fiscal do tenant — só
       // sobrescreve o default inicial, nunca uma escolha que o usuário já fez.
       if (cfg.uf) { setOriginState(cfg.uf); setFormDestState(prev => prev || cfg.uf!); }
@@ -284,6 +291,7 @@ export function InvoiceNewPage() {
         notes: formNotes || null,
         cost_center_id: formCostCenterId || null,
         seller_id: formSellerId || undefined,
+        company_id: formCompanyId || undefined,
         tax_regime: formTaxRegime, origin_state: originState,
         items: formItems.filter(it => it.name).map(it => {
           const base = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
@@ -381,6 +389,17 @@ export function InvoiceNewPage() {
                 ))}
               </select>
             </div>
+            {companies.length > 1 && (
+              <div className="field">
+                <label htmlFor="inv-company">{t('comp.companies.emittingCompany')}</label>
+                <select id="inv-company" value={formCompanyId}
+                  onChange={e => setFormCompanyId(e.target.value)}>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>{c.razao_social}{c.is_default ? ` (${t('comp.companies.default')})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </SectionCard>
 
           {/* Step 2 — Cliente */}

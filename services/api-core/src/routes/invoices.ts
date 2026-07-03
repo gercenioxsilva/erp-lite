@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, invoices, invoiceItems, receivables, orders } from '../db';
 import { applyEntry } from '../services/costCenterStock';
 import { cancelCommission } from '../services/commissionService';
+import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -71,9 +72,24 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/invoices', async (request, reply) => {
     const body = request.body as any;
     const { tenant_id, client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id } = body;
     if (!tenant_id || !client_id) return reply.badRequest('tenant_id and client_id are required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
+
+    // company_id (regra 40) é opcional na criação — quando informado, precisa
+    // pertencer ao tenant e estar ativo. Quando omitido, fica null e a emissão
+    // resolve para a empresa padrão do tenant (mesmo comportamento de antes
+    // para quem nunca configurou multi-empresa).
+    let resolvedCompanyId: string | null = null;
+    if (company_id) {
+      try {
+        const company = await resolveCompanyId(tenant_id, company_id);
+        resolvedCompanyId = company.id;
+      } catch (err) {
+        if (err instanceof CompanyDomainError) return reply.badRequest('Empresa (company_id) inválida para este tenant');
+        throw err;
+      }
+    }
 
     // Herda o vendedor do pedido de origem quando não informado explicitamente
     let resolvedSellerId: string | null = seller_id || null;
@@ -96,6 +112,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     const invoice = await db.transaction(async (tx) => {
       const [inv] = await tx.insert(invoices).values({
         tenant_id, client_id, order_id: order_id || null, serie,
+        company_id: resolvedCompanyId,
         notes: notes || null,
         subtotal: String(subtotal), tax_total: String(taxTotal), total: String(total),
         status: 'draft',
