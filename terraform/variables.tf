@@ -110,6 +110,16 @@ variable "itau_client_secret" {
   default     = ""
 }
 
+variable "app_public_origins" {
+  description = <<-EOT
+    Origens (scheme+host) autorizadas a fazer upload direto no bucket de fotos
+    de visita técnica via presigned POST (CORS). Inclui localhost para
+    desenvolvimento local contra LocalStack.
+  EOT
+  type        = list(string)
+  default     = ["https://orquestraerp.com.br", "https://www.orquestraerp.com.br", "http://localhost:5173"]
+}
+
 variable "acm_certificate_arn" {
   description = <<-EOT
     ARN of the ACM certificate for orquestraerp.com.br (must be in us-east-1).
