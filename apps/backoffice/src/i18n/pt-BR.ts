@@ -1270,6 +1270,21 @@ const ptBR = {
   'tp.order':          'Ordem de serviço',
   'tp.scheduledFor':   'Agendada para',
   'tp.client':         'Cliente',
+
+  // ── Diagrama do fluxo de OS / Visita Técnica (Minha Empresa → Módulos) ────
+  'comp.modules.howItWorks': 'Como funciona',
+  'so.flow.step1Title': 'OS criada',
+  'so.flow.step1Desc':  'Você registra o cliente, o tipo de atendimento e as peças/mão de obra previstas.',
+  'so.flow.step2Title': 'Visita agendada',
+  'so.flow.step2Desc':  'Escolhe o técnico e o horário — ele recebe um e-mail com o compromisso.',
+  'so.flow.step3Title': 'Técnico faz login',
+  'so.flow.step3Desc':  'Acessa a visita com a própria conta — nunca por um link anônimo.',
+  'so.flow.step4Title': 'Check-in em campo',
+  'so.flow.step4Desc':  'Inicia o atendimento pelo celular, na hora que chega ao local.',
+  'so.flow.step5Title': 'Fotos e assinatura',
+  'so.flow.step5Desc':  'Registra fotos do serviço e coleta a assinatura do cliente, ainda em campo.',
+  'so.flow.step6Title': 'Visita concluída',
+  'so.flow.step6Desc':  'Relatório salvo automaticamente. A OS fecha quando todas as visitas terminam.',
 } as const;
 
 export type TKey = keyof typeof ptBR;

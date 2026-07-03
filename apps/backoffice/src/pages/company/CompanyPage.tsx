@@ -3,6 +3,7 @@ import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
+import type { TKey } from '../../i18n/pt-BR';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -1040,27 +1041,71 @@ function ModulesTab() {
         const labels  = MODULE_LABELS[key];
         if (!labels) return null;
         return (
-          <div key={key} className="card" style={{ padding: 20, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <strong>{t(labels.titleKey)}</strong>
-                <span className={`badge ${enabled ? 'badge-active' : 'badge-inactive'}`}>
-                  {enabled ? t('comp.modules.enabled') : t('comp.modules.disabled')}
-                </span>
+          <div key={key} className="card" style={{ padding: 20, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <strong>{t(labels.titleKey)}</strong>
+                  <span className={`badge ${enabled ? 'badge-active' : 'badge-inactive'}`}>
+                    {enabled ? t('comp.modules.enabled') : t('comp.modules.disabled')}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t(labels.descKey)}</p>
               </div>
-              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t(labels.descKey)}</p>
+              <button
+                className={`btn ${enabled ? 'btn-secondary' : 'btn-primary'} btn-sm`}
+                style={{ width: 'auto', flex: 'none' }}
+                disabled={busyKey === key}
+                onClick={() => toggle(key, !enabled)}
+              >
+                {busyKey === key ? t('c.saving') : enabled ? t('comp.modules.disable') : t('comp.modules.enable')}
+              </button>
             </div>
-            <button
-              className={`btn ${enabled ? 'btn-secondary' : 'btn-primary'} btn-sm`}
-              style={{ width: 'auto', flex: 'none' }}
-              disabled={busyKey === key}
-              onClick={() => toggle(key, !enabled)}
-            >
-              {busyKey === key ? t('c.saving') : enabled ? t('comp.modules.disable') : t('comp.modules.enable')}
-            </button>
+
+            {key === 'service_orders' && <ServiceOrderFlowDiagram />}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Diagrama do fluxo de Ordem de Serviço / Visita Técnica ────────────────────
+// Mostrado junto do módulo (mesmo antes de habilitar) para o tenant entender o
+// processo de ponta a ponta antes de decidir ligar a chave.
+function ServiceOrderFlowDiagram() {
+  const { t } = useI18n();
+  const steps: { icon: string; titleKey: TKey; descKey: TKey }[] = [
+    { icon: '📋', titleKey: 'so.flow.step1Title', descKey: 'so.flow.step1Desc' },
+    { icon: '📅', titleKey: 'so.flow.step2Title', descKey: 'so.flow.step2Desc' },
+    { icon: '🔐', titleKey: 'so.flow.step3Title', descKey: 'so.flow.step3Desc' },
+    { icon: '📍', titleKey: 'so.flow.step4Title', descKey: 'so.flow.step4Desc' },
+    { icon: '📷', titleKey: 'so.flow.step5Title', descKey: 'so.flow.step5Desc' },
+    { icon: '✅', titleKey: 'so.flow.step6Title', descKey: 'so.flow.step6Desc' },
+  ];
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <strong style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>{t('comp.modules.howItWorks')}</strong>
+      <div>
+        {steps.map((s, i) => (
+          <div key={s.titleKey} style={{ display: 'flex', gap: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none',
+              }}>
+                {s.icon}
+              </div>
+              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 22, background: 'var(--border)' }} />}
+            </div>
+            <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{t(s.titleKey)}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{t(s.descKey)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
