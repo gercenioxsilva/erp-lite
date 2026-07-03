@@ -40,6 +40,11 @@ import { PosPage }              from './pages/pos/PosPage';
 import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
+import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
+import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
+import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
+import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
+import { TechnicianVisitDetailPage } from './pages/technician/TechnicianVisitDetailPage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
@@ -79,6 +84,8 @@ function GuardedRoutes() {
         <Route path="/pos/sales"       element={<PosHistoryPage />} />
         <Route path="/pos/terminals"   element={<PosTerminalsPage />} />
         <Route path="/pos/sessions"    element={<PosSessionsPage />} />
+        <Route path="/service-orders"  element={<ServiceOrdersPage />} />
+        <Route path="/technicians"     element={<TechniciansPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
@@ -99,6 +106,9 @@ export function App() {
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
+              <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
+              <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
+              <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>
