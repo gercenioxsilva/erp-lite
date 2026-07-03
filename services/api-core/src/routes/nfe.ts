@@ -1,21 +1,24 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, sql } from 'drizzle-orm';
-import { db, invoices, nfeConfigs, nfeEvents } from '../db';
+import { db, invoices, nfeEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
-import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { getDefaultCompany, upsertDefaultCompany, resolveCompanyId } from '../services/companyService';
 
 export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
+  const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
+
   /* ── GET /v1/nfe-config ─────────────────────────────────────────────── */
+  // Retrocompatível: sempre lê/edita a empresa PADRÃO do tenant (regra 40).
+  // Multi-empresa de verdade é exposto em /v1/companies — esta rota continua
+  // existindo para não quebrar clientes (web antigo, app mobile) que ainda
+  // não sabem de multi-empresa.
   fastify.get('/nfe-config', async (request, reply) => {
     const { tenant_id } = request.query as { tenant_id: string };
     if (!tenant_id) return reply.badRequest('tenant_id is required');
-    const [cfg] = await db.select().from(nfeConfigs).where(eq(nfeConfigs.tenant_id, tenant_id));
+    const cfg = await getDefaultCompany(tenant_id);
     if (!cfg) return reply.notFound('Configuração NF-e não encontrada');
-
-    const mask = (t: string | null | undefined) =>
-      t ? '****' + t.slice(-4) : null;
 
     return {
       ...cfg,
@@ -27,80 +30,18 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── PUT /v1/nfe-config ─────────────────────────────────────────────── */
   fastify.put('/nfe-config', async (request, reply) => {
     const body = request.body as any;
-    const { tenant_id, cnpj, razao_social, nome_fantasia, regime_tributario,
-            logradouro, numero, complemento, bairro, municipio, uf, cep,
-            telefone, email, cfop_padrao, cfop_interestadual,
-            natureza_operacao, focus_ambiente,
-            focus_token_homologacao, focus_token_producao,
-            inscricao_municipal, codigo_municipio_ibge,
-            aliquota_iss_padrao, codigo_servico_padrao } = body;
+    const { tenant_id, cnpj, razao_social, logradouro, numero, bairro, cep } = body;
 
     if (!tenant_id || !cnpj || !razao_social || !logradouro || !numero || !bairro || !cep)
       return reply.badRequest('Campos obrigatórios: tenant_id, cnpj, razao_social, logradouro, numero, bairro, cep');
 
-    // Token is only updated when a new plaintext value is provided (masked values are ignored)
-    const newTokenHomo = focus_token_homologacao && !String(focus_token_homologacao).startsWith('****')
-      ? String(focus_token_homologacao) : null;
-    const newTokenProd = focus_token_producao && !String(focus_token_producao).startsWith('****')
-      ? String(focus_token_producao) : null;
+    // Tokens mascarados ('****...') nunca sobrescrevem o valor existente —
+    // mesmo comportamento de antes, agora dentro de companyService.
+    const clean = { ...body };
+    if (typeof clean.focus_token_homologacao === 'string' && clean.focus_token_homologacao.startsWith('****')) delete clean.focus_token_homologacao;
+    if (typeof clean.focus_token_producao === 'string' && clean.focus_token_producao.startsWith('****')) delete clean.focus_token_producao;
 
-    const [cfg] = await db.insert(nfeConfigs).values({
-      tenant_id,
-      cnpj: normalizeCNPJ(cnpj),
-      razao_social,
-      nome_fantasia:           nome_fantasia      || null,
-      regime_tributario:       regime_tributario  ?? 1,
-      logradouro, numero,
-      complemento:             complemento        || null,
-      bairro,
-      municipio:               municipio          ?? 'SAO PAULO',
-      uf:                      uf                 ?? 'SP',
-      cep:                     cep.replace(/\D/g, ''),
-      telefone:                telefone           || null,
-      email:                   email              || null,
-      cfop_padrao:             cfop_padrao        ?? '5102',
-      cfop_interestadual:      cfop_interestadual ?? '6102',
-      natureza_operacao:       natureza_operacao  ?? 'Venda de mercadoria',
-      focus_ambiente:          focus_ambiente     ?? 2,
-      focus_token_homologacao: newTokenHomo,
-      focus_token_producao:    newTokenProd,
-      inscricao_municipal:     inscricao_municipal   || null,
-      codigo_municipio_ibge:   codigo_municipio_ibge ?? '3550308',
-      aliquota_iss_padrao:     aliquota_iss_padrao != null ? String(aliquota_iss_padrao) : '5.00',
-      codigo_servico_padrao:   codigo_servico_padrao || null,
-    }).onConflictDoUpdate({
-      target: nfeConfigs.tenant_id,
-      set: {
-        cnpj:               sql`EXCLUDED.cnpj`,
-        razao_social:       sql`EXCLUDED.razao_social`,
-        nome_fantasia:      sql`EXCLUDED.nome_fantasia`,
-        regime_tributario:  sql`EXCLUDED.regime_tributario`,
-        logradouro:         sql`EXCLUDED.logradouro`,
-        numero:             sql`EXCLUDED.numero`,
-        complemento:        sql`EXCLUDED.complemento`,
-        bairro:             sql`EXCLUDED.bairro`,
-        municipio:          sql`EXCLUDED.municipio`,
-        uf:                 sql`EXCLUDED.uf`,
-        cep:                sql`EXCLUDED.cep`,
-        telefone:           sql`EXCLUDED.telefone`,
-        email:              sql`EXCLUDED.email`,
-        cfop_padrao:        sql`EXCLUDED.cfop_padrao`,
-        cfop_interestadual: sql`EXCLUDED.cfop_interestadual`,
-        natureza_operacao:  sql`EXCLUDED.natureza_operacao`,
-        focus_ambiente:     sql`EXCLUDED.focus_ambiente`,
-        inscricao_municipal:   sql`EXCLUDED.inscricao_municipal`,
-        codigo_municipio_ibge: sql`EXCLUDED.codigo_municipio_ibge`,
-        aliquota_iss_padrao:   sql`EXCLUDED.aliquota_iss_padrao`,
-        codigo_servico_padrao: sql`EXCLUDED.codigo_servico_padrao`,
-        // Tokens: only update when a new value was provided (EXCLUDED is non-null), keep existing otherwise
-        focus_token_homologacao: sql`CASE WHEN EXCLUDED.focus_token_homologacao IS NOT NULL THEN EXCLUDED.focus_token_homologacao ELSE nfe_configs.focus_token_homologacao END`,
-        focus_token_producao:    sql`CASE WHEN EXCLUDED.focus_token_producao IS NOT NULL THEN EXCLUDED.focus_token_producao ELSE nfe_configs.focus_token_producao END`,
-        updated_at:         sql`NOW()`,
-      },
-    }).returning();
-
-    const mask = (t: string | null | undefined) =>
-      t ? '****' + t.slice(-4) : null;
+    const cfg = await upsertDefaultCompany(tenant_id, clean);
 
     return {
       ...cfg,
@@ -117,7 +58,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
     const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
     if (!queueUrl) return reply.badRequest('Emissão de NF-e não configurada neste ambiente');
 
-    const [{ rows: [invoice] }, { rows: items }, [cfg]] = await Promise.all([
+    const [{ rows: [invoice] }, { rows: items }] = await Promise.all([
       db.execute<any>(sql`
         SELECT i.*, c.person_type, c.company_name, c.full_name,
                c.cnpj AS client_cnpj, c.cpf AS client_cpf, c.icms_taxpayer,
@@ -128,11 +69,19 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
         WHERE i.id = ${id} AND i.tenant_id = ${tenant_id}
       `),
       db.execute<any>(sql`SELECT * FROM invoice_items WHERE invoice_id = ${id} ORDER BY created_at`),
-      db.select().from(nfeConfigs).where(eq(nfeConfigs.tenant_id, tenant_id)),
     ]);
 
     if (!invoice) return reply.notFound('Nota fiscal não encontrada');
-    if (!cfg)     return reply.badRequest('Configure os dados fiscais em Configurações → NF-e antes de emitir');
+
+    // Resolve qual empresa/CNPJ emite esta nota (regra 40) — invoice.company_id
+    // quando definido, senão a empresa padrão do tenant (mesmo comportamento
+    // de antes para tenants que nunca usaram multi-empresa).
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenant_id, invoice.company_id);
+    } catch {
+      return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal antes de emitir');
+    }
     // Trava de segurança: produção exige o token do próprio tenant (não cair no fallback do env)
     if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
       return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');

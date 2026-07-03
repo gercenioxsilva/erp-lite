@@ -1181,10 +1181,15 @@ const en: Record<TKey, string> = {
   'comp.modules.subtitle':      'Enable additional features on demand. No module here affects the rest of the system when disabled.',
   'comp.modules.serviceOrders':      'Service Orders / Field Visits',
   'comp.modules.serviceOrdersDesc':  'Service orders with technical visit scheduling, a dedicated technician portal with its own login, and on-site photo and client signature capture.',
+  'comp.modules.multiEmpresa':      'Multi-Company (multiple CNPJs)',
+  'comp.modules.multiEmpresaDesc':  'Lets you register more than one CNPJ (legal entity) on the same account and choose which company issues each invoice, service invoice or contract — clients, materials and stock stay shared across companies.',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',
   'comp.modules.disabled':      'Disabled',
+  'comp.companies.default':     'Default company',
+  'comp.companies.new':         'New company',
+  'comp.companies.emittingCompany': 'Issuing company',
 
   // ── Service Orders ────────────────────────────────────────────────────────
   'nav.group.fieldService':  'Field',

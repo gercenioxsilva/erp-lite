@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
+import { db } from '../db';
 
 vi.mock('../lib/sqsClient', () => ({
   getSqsClient: vi.fn().mockReturnValue({
@@ -97,6 +98,27 @@ describe('NFS-e routes', () => {
     it('requires tenant_id', async () => {
       const res = await app.inject({ method: 'POST', url: '/v1/nfse/nfse-1/emit' });
       expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    });
+
+    it('[multi-empresa] resolves via nfse.company_id — usa a Inscrição Municipal daquela empresa, não de uma outra qualquer (regra 40)', async () => {
+      state.nfseRows = [{
+        id: 'nfse-1', tenant_id: 'tenant-1', nfse_status: null,
+        client_id: 'client-1', description: 'svc', amount: '100.00',
+        iss_rate: '5.00', iss_value: '5.00', service_code: '14.01',
+        period_start: null, period_end: null, company_id: 'company-filial',
+      }];
+      // resolveCompanyId (companyService) faz a próxima chamada de db.select —
+      // simula uma empresa SEM inscrição municipal configurada.
+      (db.select as any).mockReturnValueOnce({
+        from: () => ({ where: () => Promise.resolve([{ id: 'company-filial', is_active: true, inscricao_municipal: null }]) }),
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/nfse/nfse-1/emit?tenant_id=tenant-1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toMatch(/Inscrição Municipal/);
     });
   });
 });
