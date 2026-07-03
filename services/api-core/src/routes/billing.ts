@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
-import { db, receivables, boletos, boletoEvents, tenants } from '../db';
+import { db, receivables, boletos, boletoEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { BillingEmitMessage } from '../lib/billing-types';
+import { resolveBankAccount, BankAccountDomainError } from '../services/bankAccountService';
 
 export const billingRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -25,17 +26,19 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
       if (rec.status === 'cancelled') return reply.badRequest('Conta está cancelada');
       if (rec.boleto_id) return reply.badRequest('Boleto já foi gerado para esta conta');
 
-      const [tenant] = await db
-        .select()
-        .from(tenants)
-        .where(eq(tenants.id, tenantId));
-
-      if (!tenant) return reply.notFound('Empresa não encontrada');
-
-      if (!tenant.bank_code || !tenant.agency || !tenant.account || !tenant.account_digit) {
-        return reply.badRequest(
-          'Dados bancários incompletos. Configure banco, agência, conta e dígito em Minha Empresa > Dados Bancários'
-        );
+      // Resolve qual conta bancária emite este boleto (regra 41) —
+      // bank_account_id explícito no body, senão a conta padrão do tenant.
+      const { bank_account_id } = (request.body as { bank_account_id?: string } | undefined) ?? {};
+      let account;
+      try {
+        account = await resolveBankAccount(tenantId, bank_account_id);
+      } catch (err) {
+        if (err instanceof BankAccountDomainError) {
+          return reply.badRequest(
+            'Dados bancários incompletos. Configure banco, agência, conta e dígito em Minha Empresa > Dados Bancários'
+          );
+        }
+        throw err;
       }
 
       const queueUrl = process.env.BILLING_REQUESTS_QUEUE_URL;
@@ -48,12 +51,13 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
       const [boleto] = await db.insert(boletos).values({
         tenant_id:    tenantId,
         receivable_id: rec.id,
-        banco_code:   tenant.bank_code,
-        agencia:      tenant.agency,
-        conta:        tenant.account,
-        digito:       tenant.account_digit,
+        bank_account_id: account.id,
+        banco_code:   account.bank_code,
+        agencia:      account.agency,
+        conta:        account.account,
+        digito:       account.account_digit,
         status:       'pending',
-        expires_at:   new Date(Date.now() + (tenant.billing_days_to_expire || 30) * 86400_000)
+        expires_at:   new Date(Date.now() + (account.billing_days_to_expire || 30) * 86400_000)
                         .toISOString().slice(0, 10),
       }).returning();
 
@@ -69,16 +73,16 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
         amount:        rec.amount,
         due_date:      new Date(rec.due_date).toISOString().split('T')[0],
         description:   rec.description,
-        days_to_expire: tenant.billing_days_to_expire || 30,
+        days_to_expire: account.billing_days_to_expire || 30,
         banking: {
-          bank_code:              tenant.bank_code,
-          agency:                 tenant.agency,
-          account:                tenant.account,
-          account_digit:          tenant.account_digit,
-          billing_provider:       tenant.billing_provider || 'itau',
-          billing_days_to_expire: tenant.billing_days_to_expire || 30,
-          itau_client_id:         tenant.itau_client_id     ?? null,
-          itau_client_secret:     tenant.itau_client_secret ?? null,
+          bank_code:              account.bank_code,
+          agency:                 account.agency,
+          account:                account.account,
+          account_digit:          account.account_digit,
+          billing_provider:       account.billing_provider || 'itau',
+          billing_days_to_expire: account.billing_days_to_expire || 30,
+          itau_client_id:         account.itau_client_id     ?? null,
+          itau_client_secret:     account.itau_client_secret ?? null,
         },
       };
 
