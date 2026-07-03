@@ -354,6 +354,30 @@ export const nfeConfigs = pgTable('nfe_configs', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── bank_accounts ────────────────────────────────────────────────────────────
+// N contas bancárias por empresa (nfe_configs) — mesma promoção de singleton
+// para N-por-escopo já feita em nfe_configs (migration 0046), um nível abaixo.
+// is_default marca qual conta é usada quando nenhuma é escolhida explicitamente
+// na emissão de boleto/PIX (regra 41).
+export const bankAccounts = pgTable('bank_accounts', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id,    { onDelete: 'cascade' }),
+  company_id: uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  label:      varchar('label', { length: 100 }),
+  bank_code:              varchar('bank_code',              { length: 3   }).notNull(),
+  agency:                 varchar('agency',                 { length: 10  }).notNull(),
+  account:                varchar('account',                { length: 20  }).notNull(),
+  account_digit:          varchar('account_digit',          { length: 2   }).notNull(),
+  billing_provider:       varchar('billing_provider',       { length: 30  }).notNull().default('brcode'),
+  billing_days_to_expire: integer('billing_days_to_expire').notNull().default(30),
+  itau_client_id:         varchar('itau_client_id',     { length: 100 }),
+  itau_client_secret:     varchar('itau_client_secret', { length: 255 }),
+  is_default: boolean('is_default').notNull().default(true),
+  is_active:  boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── nfe_events ────────────────────────────────────────────────────────────────
 export const nfeEvents = pgTable('nfe_events', {
   id:          uuid('id').primaryKey().defaultRandom(),
@@ -398,6 +422,9 @@ export const boletos = pgTable('boletos', {
   id:           uuid('id').primaryKey().defaultRandom(),
   tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id,       { onDelete: 'cascade' }),
   receivable_id: uuid('receivable_id').notNull().references(() => receivables.id, { onDelete: 'cascade' }),
+  // Qual conta bancária emitiu este boleto (regra 41) — nullable, rastreabilidade
+  // extra; banco_code/agencia/conta/digito abaixo continuam sendo o snapshot real.
+  bank_account_id: uuid('bank_account_id').references(() => bankAccounts.id, { onDelete: 'set null' }),
 
   boleto_id:    varchar('boleto_id',    { length: 100 }),
   brcode:       text('brcode'),

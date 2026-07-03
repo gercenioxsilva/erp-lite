@@ -39,6 +39,15 @@ interface NfeCfg {
 // GET /v1/companies sempre retorna ao menos 1 linha (a empresa padrão).
 interface Company extends NfeCfg { id: string; is_default: boolean; is_active: boolean; }
 
+// Conta bancária (regra 41) — N por empresa. GET /v1/bank-accounts sempre
+// retorna ao menos 1 linha por empresa que já tinha dados bancários configurados.
+interface BankAccount {
+  id: string; company_id: string; label: string | null; is_default: boolean; is_active: boolean;
+  bank_code: string; agency: string; account: string; account_digit: string;
+  billing_provider: string; billing_days_to_expire: number;
+  itau_client_id: string | null; itau_client_secret: string | null; // mascarado (****xxxx) na leitura
+}
+
 const EMPTY_NFE_FORM = {
   cnpj: '', razao_social: '', nome_fantasia: '', regime_tributario: '1',
   logradouro: '', numero: '', complemento: '', bairro: '',
@@ -95,6 +104,14 @@ export function CompanyPage() {
   const [bankSuccess, setBankSuccess] = useState('');
   const [bankError, setBankError]   = useState('');
 
+  // Multi-conta bancária (regra 41) — N contas por empresa. Seletor só aparece
+  // com mais de 1 conta no tenant; tenant com 1 empresa/1 conta não vê mudança.
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankingCompanyId, setBankingCompanyId] = useState<string | null>(null);
+  // null = conta padrão da empresa padrão (fluxo legado /v1/tenant) · 'new' =
+  // criando nova conta · id = editando uma conta específica via /v1/bank-accounts/:id
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string | 'new' | null>(null);
+
   const [nfeCfg, setNfeCfg]           = useState<NfeCfg | null>(null);
   const [nfeLoading, setNfeLoading]   = useState(false);
   const [nfeForm, setNfeForm]         = useState({ ...EMPTY_NFE_FORM });
@@ -127,6 +144,7 @@ export function CompanyPage() {
     loadNotifConfig();
     loadCompanies();
     loadMultiEmpresaFlag();
+    loadBankAccounts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -135,6 +153,34 @@ export function CompanyPage() {
       const r = await api.get<{ data: Company[] }>('/v1/companies');
       setCompanies(r.data);
     } catch { /* silent — comportamento de empresa única fica intacto */ }
+  }
+
+  async function loadBankAccounts() {
+    try {
+      const r = await api.get<{ data: BankAccount[] }>('/v1/bank-accounts');
+      setBankAccounts(r.data);
+      setBankingCompanyId(prev => prev || r.data.find(a => a.is_default)?.company_id || null);
+    } catch { /* silent — comportamento de conta única fica intacto */ }
+  }
+
+  function fillBankFormFromAccount(a: BankAccount) {
+    setBankForm({
+      bank_code: a.bank_code || '', agency: a.agency || '', account: a.account || '', account_digit: a.account_digit || '',
+      billing_provider: a.billing_provider || 'itau', billing_days_to_expire: String(a.billing_days_to_expire ?? 30),
+      itau_client_id: a.itau_client_id || '', itau_client_secret: '',
+    });
+  }
+
+  function selectBankAccount(id: string | 'new' | null) {
+    setSelectedBankAccountId(id);
+    setBankError(''); setBankSuccess('');
+    if (id === 'new') {
+      setBankForm({ bank_code: '', agency: '', account: '', account_digit: '', billing_provider: 'itau', billing_days_to_expire: '30', itau_client_id: '', itau_client_secret: '' });
+      return;
+    }
+    if (id === null) { loadTenant(); return; } // conta padrão — fluxo legado
+    const account = bankAccounts.find(a => a.id === id);
+    if (account) fillBankFormFromAccount(account);
   }
 
   async function loadMultiEmpresaFlag() {
@@ -358,19 +404,35 @@ export function CompanyPage() {
   async function handleBankSave(e: FormEvent) {
     e.preventDefault(); setBankError(''); setBankSuccess('');
     setBankSaving(true);
+
+    const payload = {
+      bank_code:              bankForm.bank_code              || null,
+      agency:                 bankForm.agency                 || null,
+      account:                bankForm.account                || null,
+      account_digit:          bankForm.account_digit          || null,
+      billing_provider:       bankForm.billing_provider       || null,
+      billing_days_to_expire: bankForm.billing_days_to_expire ? Number(bankForm.billing_days_to_expire) : null,
+      itau_client_id:         bankForm.itau_client_id         || null,
+      itau_client_secret:     bankForm.itau_client_secret     || null,
+    };
+
     try {
-      await api.patch('/v1/tenant', {
-        bank_code:              bankForm.bank_code              || null,
-        agency:                 bankForm.agency                 || null,
-        account:                bankForm.account                || null,
-        account_digit:          bankForm.account_digit          || null,
-        billing_provider:       bankForm.billing_provider       || null,
-        billing_days_to_expire: bankForm.billing_days_to_expire ? Number(bankForm.billing_days_to_expire) : null,
-        itau_client_id:         bankForm.itau_client_id         || null,
-        itau_client_secret:     bankForm.itau_client_secret     || null,
-      });
-      setBankSuccess(t('comp.bank.saved'));
-      loadTenant();
+      if (selectedBankAccountId === 'new') {
+        await api.post('/v1/bank-accounts', { ...payload, company_id: bankingCompanyId });
+        setBankSuccess(t('comp.bank.saved'));
+        await loadBankAccounts();
+        setSelectedBankAccountId(null);
+      } else if (selectedBankAccountId) {
+        await api.patch(`/v1/bank-accounts/${selectedBankAccountId}`, payload);
+        setBankSuccess(t('comp.bank.saved'));
+        await loadBankAccounts();
+      } else {
+        // Conta padrão — fluxo legado, retrocompatível (regra 41).
+        await api.patch('/v1/tenant', payload);
+        setBankSuccess(t('comp.bank.saved'));
+        loadTenant();
+        loadBankAccounts();
+      }
     } catch (err: any) {
       setBankError(err.message || t('comp.bank.errSave'));
     } finally { setBankSaving(false); }
@@ -681,6 +743,58 @@ export function CompanyPage() {
 
       {tab === 'banking' && (
         <div style={{ maxWidth: 600 }}>
+          {/* Seletor de empresa + conta bancária (regra 41) — só aparece com
+              mais de 1 empresa ou mais de 1 conta cadastrada. Tenant com 1
+              empresa/1 conta não vê nenhuma mudança aqui. */}
+          {companies.length > 1 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+              {companies.map(c => (
+                <button key={c.id} type="button"
+                  className={`btn btn-sm ${bankingCompanyId === c.id ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ width: 'auto' }}
+                  onClick={() => { setBankingCompanyId(c.id); selectBankAccount(null); }}>
+                  {c.razao_social}
+                </button>
+              ))}
+            </div>
+          )}
+          {(() => {
+            const accountsForCompany = bankAccounts.filter(a => a.company_id === bankingCompanyId);
+            if (accountsForCompany.length <= 1) return null;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+                <button type="button"
+                  className={`btn btn-sm ${selectedBankAccountId === null ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ width: 'auto' }}
+                  onClick={() => selectBankAccount(null)}>
+                  {accountsForCompany.find(a => a.is_default)?.label || t('comp.bank.defaultAccount')}
+                </button>
+                {accountsForCompany.filter(a => !a.is_default).map(a => (
+                  <button key={a.id} type="button"
+                    className={`btn btn-sm ${selectedBankAccountId === a.id ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ width: 'auto' }}
+                    onClick={() => selectBankAccount(a.id)}>
+                    {a.label || `${a.bank_code} · ${a.agency}/${a.account}`}
+                  </button>
+                ))}
+                <button type="button"
+                  className={`btn btn-sm ${selectedBankAccountId === 'new' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ width: 'auto' }}
+                  onClick={() => selectBankAccount('new')}>
+                  + {t('comp.bank.newAccount')}
+                </button>
+              </div>
+            );
+          })()}
+          {companies.length > 1 && bankAccounts.filter(a => a.company_id === bankingCompanyId).length <= 1 && (
+            <div style={{ marginBottom: 16 }}>
+              <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                onClick={() => selectBankAccount('new')}>
+                + {t('comp.bank.newAccount')}
+              </button>
+            </div>
+          )}
+
           <div className="card" style={{ padding: 24 }}>
             <form onSubmit={handleBankSave} noValidate>
               {bankError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{bankError}</div>}
@@ -1097,20 +1211,25 @@ interface ModulesResponse { available: string[]; enabled: string[]; }
 const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   service_orders: { titleKey: 'comp.modules.serviceOrders', descKey: 'comp.modules.serviceOrdersDesc' },
   multi_empresa:  { titleKey: 'comp.modules.multiEmpresa',  descKey: 'comp.modules.multiEmpresaDesc' },
+  pos:            { titleKey: 'comp.modules.pos',           descKey: 'comp.modules.posDesc' },
 };
 
 function ModulesTab() {
   const { t } = useI18n();
   const [data, setData]       = useState<ModulesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError]     = useState('');
 
   async function load() {
+    setError('');
     try {
       const r = await api.get<ModulesResponse>('/v1/tenant/modules');
       setData(r);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar módulos');
+    } finally {
+      setLoading(false);
     }
   }
   useEffect(() => { void load(); }, []);
@@ -1127,7 +1246,7 @@ function ModulesTab() {
     }
   }
 
-  if (!data) return <div className="spinner">{t('c.loading')}</div>;
+  if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
   return (
     <div style={{ maxWidth: 680 }}>
@@ -1136,8 +1255,8 @@ function ModulesTab() {
 
       {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {data.available.map(key => {
-        const enabled = data.enabled.includes(key);
+      {(data?.available ?? []).map(key => {
+        const enabled = data?.enabled.includes(key) ?? false;
         const labels  = MODULE_LABELS[key];
         if (!labels) return null;
         return (
@@ -1163,6 +1282,7 @@ function ModulesTab() {
             </div>
 
             {key === 'service_orders' && <ServiceOrderFlowDiagram />}
+            {key === 'pos'            && <PdvFlowDiagram />}
           </div>
         );
       })}
@@ -1182,6 +1302,46 @@ function ServiceOrderFlowDiagram() {
     { icon: '📍', titleKey: 'so.flow.step4Title', descKey: 'so.flow.step4Desc' },
     { icon: '📷', titleKey: 'so.flow.step5Title', descKey: 'so.flow.step5Desc' },
     { icon: '✅', titleKey: 'so.flow.step6Title', descKey: 'so.flow.step6Desc' },
+  ];
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <strong style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>{t('comp.modules.howItWorks')}</strong>
+      <div>
+        {steps.map((s, i) => (
+          <div key={s.titleKey} style={{ display: 'flex', gap: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none',
+              }}>
+                {s.icon}
+              </div>
+              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 22, background: 'var(--border)' }} />}
+            </div>
+            <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{t(s.titleKey)}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{t(s.descKey)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Passo a passo do PDV (Ponto de Venda) ─────────────────────────────────────
+// Mesmo padrão de ServiceOrderFlowDiagram: mostra o fluxo de ponta a ponta junto
+// do card do módulo, para o tenant entender como operar o PDV antes de ligar a chave.
+function PdvFlowDiagram() {
+  const { t } = useI18n();
+  const steps: { icon: string; titleKey: TKey; descKey: TKey }[] = [
+    { icon: '🏪', titleKey: 'pdv.flow.step1Title', descKey: 'pdv.flow.step1Desc' },
+    { icon: '🔓', titleKey: 'pdv.flow.step2Title', descKey: 'pdv.flow.step2Desc' },
+    { icon: '🛒', titleKey: 'pdv.flow.step3Title', descKey: 'pdv.flow.step3Desc' },
+    { icon: '💳', titleKey: 'pdv.flow.step4Title', descKey: 'pdv.flow.step4Desc' },
+    { icon: '🧾', titleKey: 'pdv.flow.step5Title', descKey: 'pdv.flow.step5Desc' },
+    { icon: '🔒', titleKey: 'pdv.flow.step6Title', descKey: 'pdv.flow.step6Desc' },
   ];
 
   return (

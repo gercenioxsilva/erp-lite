@@ -594,6 +594,8 @@ const ptBR = {
   'comp.bank.provider':     'Provedor de Cobrança',
   'comp.bank.daysToExpire': 'Dias para vencer o boleto',
   'comp.bank.saved':        'Dados bancários salvos com sucesso.',
+  'comp.bank.defaultAccount': 'Conta padrão',
+  'comp.bank.newAccount':     'Nova conta',
   'comp.bank.errSave':           'Erro ao salvar dados bancários.',
   'comp.bank.itauOauth':         'Credenciais OAuth2 Itaú (API v2)',
   'comp.bank.itauClientId':      'Client ID',
@@ -642,6 +644,7 @@ const ptBR = {
 
   // ── Cobrança (Boleto) ─────────────────────────────────────────────────
   'bill.emitBoleto':     'Emitir Boleto',
+  'bill.bankAccount':    'Conta bancária',
   'bill.emitting':       'Emitindo…',
   'bill.boleto':         'Boleto',
   'bill.statusLabel':    'Status do Boleto',
@@ -1181,6 +1184,8 @@ const ptBR = {
   'comp.modules.serviceOrdersDesc':  'Ordens de serviço com agendamento de visita técnica, portal do técnico com login próprio, coleta de fotos e assinatura do cliente em campo.',
   'comp.modules.multiEmpresa':      'Multi-Empresa (múltiplos CNPJs)',
   'comp.modules.multiEmpresaDesc':  'Permite cadastrar mais de um CNPJ na mesma conta e escolher qual empresa emite cada NF-e, NFS-e ou contrato — clientes, materiais e estoque continuam compartilhados entre as empresas.',
+  'comp.modules.pos':                'PDV — Ponto de Venda',
+  'comp.modules.posDesc':            'Frente de caixa completa: terminais, abertura e fechamento de caixa, vendas com múltiplas formas de pagamento e emissão de NFC-e.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',
@@ -1313,6 +1318,19 @@ const ptBR = {
   'sup.contact.logistica':  'Logística',
   'sup.contact.outro':      'Outro',
   'sup.errSaveContact': 'Erro ao salvar contato',
+
+  'pdv.flow.step1Title': 'Cadastre um terminal',
+  'pdv.flow.step1Desc':  'Em PDV → Terminais, crie o ponto de venda com nome, série da NFC-e e centro de custo.',
+  'pdv.flow.step2Title': 'Abra o caixa',
+  'pdv.flow.step2Desc':  'Em PDV → Caixa, abra a sessão informando o fundo de troco. Toda venda fica vinculada a essa sessão.',
+  'pdv.flow.step3Title': 'Registre a venda',
+  'pdv.flow.step3Desc':  'Em PDV → Venda, adicione produtos e quantidades e, se quiser, identifique o cliente.',
+  'pdv.flow.step4Title': 'Receba o pagamento',
+  'pdv.flow.step4Desc':  'Informe uma ou mais formas de pagamento (dinheiro, cartão, PIX) até cobrir o total da venda.',
+  'pdv.flow.step5Title': 'Finalize e emita a NFC-e',
+  'pdv.flow.step5Desc':  'Ao finalizar, a venda baixa o estoque e emite o cupom fiscal eletrônico (NFC-e).',
+  'pdv.flow.step6Title': 'Feche o caixa',
+  'pdv.flow.step6Desc':  'Em PDV → Sessões, confira os valores e feche o caixa. O resumo fica no Histórico.',
 } as const;
 
 export type TKey = keyof typeof ptBR;

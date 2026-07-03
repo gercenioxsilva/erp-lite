@@ -96,6 +96,9 @@ export function ReceivablesPage() {
   const [emitting, setEmitting]       = useState(false);
   const [boletoError, setBoletoError] = useState('');
   const [brcodeCopied, setBrcodeCopied] = useState(false);
+  // Multi-conta bancária (regra 41) — seletor só aparece com mais de 1 conta ativa.
+  const [bankAccounts, setBankAccounts] = useState<{ id: string; label: string | null; bank_code: string; agency: string; account: string; is_default: boolean }[]>([]);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState('');
 
   const PER_PAGE = 20;
 
@@ -114,6 +117,14 @@ export function ReceivablesPage() {
       .catch(() => {});
     api.get<any>(`/v1/cost-centers/active?tenant_id=${tenantId}`)
       .then(d => { if (!cancelled) setCostCenters(d.data ?? []); })
+      .catch(() => {});
+    api.get<any>('/v1/bank-accounts')
+      .then(d => {
+        if (cancelled) return;
+        const rows = d.data ?? [];
+        setBankAccounts(rows);
+        setSelectedBankAccountId(rows.find((a: any) => a.is_default)?.id ?? '');
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -221,7 +232,9 @@ export function ReceivablesPage() {
     if (!selected) return;
     setBoletoError(''); setEmitting(true);
     try {
-      await api.post(`/v1/receivables/${selected.id}/emit-boleto`, {});
+      await api.post(`/v1/receivables/${selected.id}/emit-boleto`, {
+        bank_account_id: selectedBankAccountId || undefined,
+      });
       const updated = await api.get<any>(`/v1/receivables/${selected.id}`);
       setSelected(updated);
       await loadBoleto(selected.id);
@@ -537,9 +550,23 @@ export function ReceivablesPage() {
                     <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
                   ) : !selected.boleto_id ? (
                     selected.status !== 'paid' && (
-                      <button className="btn btn-secondary btn-sm" onClick={handleEmitBoleto} disabled={emitting}>
-                        {emitting ? t('bill.emitting') : t('bill.emitBoleto')}
-                      </button>
+                      <div>
+                        {bankAccounts.length > 1 && (
+                          <div className="field" style={{ marginBottom: 8 }}>
+                            <label>{t('bill.bankAccount')}</label>
+                            <select value={selectedBankAccountId} onChange={e => setSelectedBankAccountId(e.target.value)}>
+                              {bankAccounts.map(a => (
+                                <option key={a.id} value={a.id}>
+                                  {a.label || `${a.bank_code} · ${a.agency}/${a.account}`}{a.is_default ? ` (${t('comp.bank.defaultAccount')})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <button className="btn btn-secondary btn-sm" onClick={handleEmitBoleto} disabled={emitting}>
+                          {emitting ? t('bill.emitting') : t('bill.emitBoleto')}
+                        </button>
+                      </div>
                     )
                   ) : boleto ? (
                     <div>
