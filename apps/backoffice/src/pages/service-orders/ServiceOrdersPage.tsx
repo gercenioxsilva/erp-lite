@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
 
 interface ServiceOrder {
@@ -21,7 +22,8 @@ interface ServiceOrderDetail extends ServiceOrder {
 }
 interface ClientOption { id: string; company_name: string | null; full_name: string | null; }
 interface TechnicianOption { id: string; name: string; is_active: boolean; }
-interface FormItem { _key: string; description: string; quantity: string; unit_price: string; }
+interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
+interface FormItem { _key: string; material_id: string; description: string; quantity: string; unit_price: string; }
 interface ListResp { data: ServiceOrder[]; total: number; page: number; per_page: number; }
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -36,7 +38,7 @@ function statusBadge(s: string) {
   return map[s] ?? 'badge-service';
 }
 function newItem(): FormItem {
-  return { _key: Math.random().toString(36).slice(2), description: '', quantity: '1', unit_price: '0' };
+  return { _key: Math.random().toString(36).slice(2), material_id: '', description: '', quantity: '1', unit_price: '0' };
 }
 function fmtDateTime(d: string | null) {
   if (!d) return '—';
@@ -67,6 +69,7 @@ export function ServiceOrdersPage() {
 
   const [clients, setClients]         = useState<ClientOption[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianOption[]>([]);
+  const [materials, setMaterials]     = useState<MaterialOption[]>([]);
 
   const [visitTechId, setVisitTechId] = useState('');
   const [visitAt, setVisitAt]         = useState('');
@@ -90,12 +93,16 @@ export function ServiceOrdersPage() {
   useEffect(() => {
     if (!drawerOpen || !tenantId) return;
     Promise.all([
-      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100`),
+      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
       api.get<{ data: TechnicianOption[] }>(`/v1/technicians?per_page=100`),
-    ]).then(([cl, tc]) => {
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=500&tenant_id=${tenantId}`),
+    ]).then(([cl, tc, mt]) => {
       setClients(cl.data ?? []);
       setTechnicians((tc.data ?? []).filter(x => x.is_active));
-    }).catch(() => { /**/ });
+      setMaterials(mt.data ?? []);
+    }).catch((err: unknown) => {
+      setFormError(err instanceof Error ? err.message : t('cl.errSave'));
+    });
   }, [drawerOpen, tenantId]);
 
   function openCreate() {
@@ -124,6 +131,15 @@ export function ServiceOrdersPage() {
   function updateItem(idx: number, field: keyof FormItem, val: string) {
     setFormItems(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
   }
+  function handlePickMaterial(idx: number, id: string) {
+    if (!id) { updateItem(idx, 'material_id', ''); return; }
+    const mat = materials.find(m => m.id === id);
+    setFormItems(prev => prev.map((it, i) => i !== idx ? it : {
+      ...it, material_id: id,
+      description: mat?.name ?? it.description,
+      unit_price: mat?.sale_price != null ? String(mat.sale_price) : it.unit_price,
+    }));
+  }
 
   const totalCalc = formItems.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
 
@@ -138,6 +154,7 @@ export function ServiceOrdersPage() {
         type: formType,
         client_id: formClientId || undefined,
         items: formItems.filter(it => it.description.trim()).map(it => ({
+          materialId: it.material_id || undefined,
           description: it.description.trim(),
           quantity: Number(it.quantity), unit_price: Number(it.unit_price),
         })),
@@ -357,7 +374,23 @@ export function ServiceOrdersPage() {
                             const lineTotal = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
                             return (
                               <tr key={it._key}>
-                                <td><input value={it.description} onChange={e => updateItem(idx, 'description', e.target.value)} /></td>
+                                <td>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <ProductPicker
+                                      options={materials}
+                                      value={it.material_id}
+                                      onChange={id => handlePickMaterial(idx, id)}
+                                      placeholder={t('o.selectMat')}
+                                      emptyLabel={t('o.noMatch')}
+                                      ariaLabel={t('o.material')}
+                                    />
+                                    <input
+                                      placeholder={t('so.itemDesc')}
+                                      value={it.description}
+                                      onChange={e => updateItem(idx, 'description', e.target.value)}
+                                    />
+                                  </div>
+                                </td>
                                 <td><input type="number" min="0.001" step="0.001" value={it.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} /></td>
                                 <td><input type="number" min="0" step="0.01" value={it.unit_price} onChange={e => updateItem(idx, 'unit_price', e.target.value)} /></td>
                                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{BRL.format(lineTotal)}</td>

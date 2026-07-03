@@ -1272,6 +1272,21 @@ const en: Record<TKey, string> = {
   'tp.order':          'Service order',
   'tp.scheduledFor':   'Scheduled for',
   'tp.client':         'Client',
+
+  // ── Service Order / Field Visit flow diagram (My Company → Modules) ───────
+  'comp.modules.howItWorks': 'How it works',
+  'so.flow.step1Title': 'Service order created',
+  'so.flow.step1Desc':  'You register the client, the type of service, and the expected parts/labor.',
+  'so.flow.step2Title': 'Visit scheduled',
+  'so.flow.step2Desc':  'You pick the technician and time — they get an email with the appointment.',
+  'so.flow.step3Title': 'Technician logs in',
+  'so.flow.step3Desc':  'Accesses the visit with their own account — never through an anonymous link.',
+  'so.flow.step4Title': 'On-site check-in',
+  'so.flow.step4Desc':  'Starts the service from their phone, right when they arrive on site.',
+  'so.flow.step5Title': 'Photos and signature',
+  'so.flow.step5Desc':  'Captures photos of the service and collects the client signature, still on site.',
+  'so.flow.step6Title': 'Visit completed',
+  'so.flow.step6Desc':  'Report saved automatically. The order closes once all visits are done.',
 };
 
 export default en;
