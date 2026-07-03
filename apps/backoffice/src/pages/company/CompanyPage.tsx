@@ -62,7 +62,7 @@ export function CompanyPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
 
-  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal' | 'notifications'>('general');
+  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal' | 'notifications' | 'modules'>('general');
   const [tenant, setTenant]     = useState<Tenant | null>(null);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -400,7 +400,7 @@ export function CompanyPage() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'banking', 'fiscal', 'notifications'] as const).map(key => (
+        {(['general', 'banking', 'fiscal', 'notifications', 'modules'] as const).map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -408,7 +408,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : t('comp.tabNotifications')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : t('comp.tabModules')}
           </button>
         ))}
       </div>
@@ -983,6 +983,84 @@ export function CompanyPage() {
           </div>
         </div>
       )}
+
+      {tab === 'modules' && <ModulesTab />}
+    </div>
+  );
+}
+
+// ── Módulos opcionais ─────────────────────────────────────────────────────────
+// Backend é sempre a autoridade (requireModule em cada rota gated) — este
+// toggle é só a interface de autoatendimento para o tenant ligar/desligar.
+interface ModulesResponse { available: string[]; enabled: string[]; }
+
+const MODULE_LABELS: Record<string, { titleKey: 'comp.modules.serviceOrders'; descKey: 'comp.modules.serviceOrdersDesc' }> = {
+  service_orders: { titleKey: 'comp.modules.serviceOrders', descKey: 'comp.modules.serviceOrdersDesc' },
+};
+
+function ModulesTab() {
+  const { t } = useI18n();
+  const [data, setData]       = useState<ModulesResponse | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError]     = useState('');
+
+  async function load() {
+    try {
+      const r = await api.get<ModulesResponse>('/v1/tenant/modules');
+      setData(r);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar módulos');
+    }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function toggle(key: string, enabled: boolean) {
+    setBusyKey(key); setError('');
+    try {
+      await api.patch(`/v1/tenant/modules/${key}`, { enabled });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar módulo');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  if (!data) return <div className="spinner">{t('c.loading')}</div>;
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <h3 style={{ marginBottom: 4 }}>{t('comp.modules.title')}</h3>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.modules.subtitle')}</p>
+
+      {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {data.available.map(key => {
+        const enabled = data.enabled.includes(key);
+        const labels  = MODULE_LABELS[key];
+        if (!labels) return null;
+        return (
+          <div key={key} className="card" style={{ padding: 20, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <strong>{t(labels.titleKey)}</strong>
+                <span className={`badge ${enabled ? 'badge-active' : 'badge-inactive'}`}>
+                  {enabled ? t('comp.modules.enabled') : t('comp.modules.disabled')}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t(labels.descKey)}</p>
+            </div>
+            <button
+              className={`btn ${enabled ? 'btn-secondary' : 'btn-primary'} btn-sm`}
+              style={{ width: 'auto', flex: 'none' }}
+              disabled={busyKey === key}
+              onClick={() => toggle(key, !enabled)}
+            >
+              {busyKey === key ? t('c.saving') : enabled ? t('comp.modules.disable') : t('comp.modules.enable')}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

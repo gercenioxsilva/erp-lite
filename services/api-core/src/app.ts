@@ -31,7 +31,12 @@ import { purchaseOrdersRoutes }  from './routes/purchaseOrders';
 import { supplierInvoicesRoutes } from './routes/supplierInvoices';
 import { subscriptionRoutes, subscriptionWebhookRoute } from './routes/subscription';
 import { posRoutes }           from './routes/pos';
+import { tenantModulesRoutes }     from './routes/tenantModules';
+import { techniciansRoutes }       from './routes/technicians';
+import { serviceOrdersRoutes }     from './routes/serviceOrders';
+import { technicianPortalRoutes }  from './routes/technicianPortal';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
+import { technicianRoleGuard } from './middleware/technicianRoleGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
@@ -96,8 +101,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(subscriptionRoutes,       { prefix: '/v1' });
   await app.register(subscriptionWebhookRoute, { prefix: '/v1' });
   await app.register(posRoutes,                { prefix: '/v1' });
+  await app.register(tenantModulesRoutes,      { prefix: '/v1' });
+  await app.register(techniciansRoutes,        { prefix: '/v1' });
+  await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
+  await app.register(technicianPortalRoutes,   { prefix: '/v1' });
 
   app.addHook('preHandler', subscriptionGuard);
+  app.addHook('preHandler', technicianRoleGuard);
 
   app.addHook('onReady', async () => {
     startNfeResultsWorker();

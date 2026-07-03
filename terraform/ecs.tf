@@ -75,6 +75,7 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "NOTIFICATIONS_QUEUE_URL",    value = aws_sqs_queue.notifications.url },
       { name = "BILLING_REQUESTS_QUEUE_URL", value = aws_sqs_queue.billing_requests.url },
       { name = "BILLING_RESULTS_QUEUE_URL",  value = aws_sqs_queue.billing_results.url },
+      { name = "SERVICE_VISIT_PHOTOS_BUCKET", value = aws_s3_bucket.service_visit_photos.bucket },
     ]
 
     logConfiguration = {
