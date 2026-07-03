@@ -995,22 +995,27 @@ export function CompanyPage() {
 // toggle é só a interface de autoatendimento para o tenant ligar/desligar.
 interface ModulesResponse { available: string[]; enabled: string[]; }
 
-const MODULE_LABELS: Record<string, { titleKey: 'comp.modules.serviceOrders'; descKey: 'comp.modules.serviceOrdersDesc' }> = {
+const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   service_orders: { titleKey: 'comp.modules.serviceOrders', descKey: 'comp.modules.serviceOrdersDesc' },
+  pos:            { titleKey: 'comp.modules.pos',           descKey: 'comp.modules.posDesc' },
 };
 
 function ModulesTab() {
   const { t } = useI18n();
   const [data, setData]       = useState<ModulesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError]     = useState('');
 
   async function load() {
+    setError('');
     try {
       const r = await api.get<ModulesResponse>('/v1/tenant/modules');
       setData(r);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar módulos');
+    } finally {
+      setLoading(false);
     }
   }
   useEffect(() => { void load(); }, []);
@@ -1027,7 +1032,7 @@ function ModulesTab() {
     }
   }
 
-  if (!data) return <div className="spinner">{t('c.loading')}</div>;
+  if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
   return (
     <div style={{ maxWidth: 680 }}>
@@ -1036,8 +1041,8 @@ function ModulesTab() {
 
       {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {data.available.map(key => {
-        const enabled = data.enabled.includes(key);
+      {(data?.available ?? []).map(key => {
+        const enabled = data?.enabled.includes(key) ?? false;
         const labels  = MODULE_LABELS[key];
         if (!labels) return null;
         return (
@@ -1063,6 +1068,7 @@ function ModulesTab() {
             </div>
 
             {key === 'service_orders' && <ServiceOrderFlowDiagram />}
+            {key === 'pos'            && <PdvFlowDiagram />}
           </div>
         );
       })}
@@ -1082,6 +1088,46 @@ function ServiceOrderFlowDiagram() {
     { icon: '📍', titleKey: 'so.flow.step4Title', descKey: 'so.flow.step4Desc' },
     { icon: '📷', titleKey: 'so.flow.step5Title', descKey: 'so.flow.step5Desc' },
     { icon: '✅', titleKey: 'so.flow.step6Title', descKey: 'so.flow.step6Desc' },
+  ];
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <strong style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>{t('comp.modules.howItWorks')}</strong>
+      <div>
+        {steps.map((s, i) => (
+          <div key={s.titleKey} style={{ display: 'flex', gap: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none',
+              }}>
+                {s.icon}
+              </div>
+              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 22, background: 'var(--border)' }} />}
+            </div>
+            <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{t(s.titleKey)}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{t(s.descKey)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Passo a passo do PDV (Ponto de Venda) ─────────────────────────────────────
+// Mesmo padrão de ServiceOrderFlowDiagram: mostra o fluxo de ponta a ponta junto
+// do card do módulo, para o tenant entender como operar o PDV antes de ligar a chave.
+function PdvFlowDiagram() {
+  const { t } = useI18n();
+  const steps: { icon: string; titleKey: TKey; descKey: TKey }[] = [
+    { icon: '🏪', titleKey: 'pdv.flow.step1Title', descKey: 'pdv.flow.step1Desc' },
+    { icon: '🔓', titleKey: 'pdv.flow.step2Title', descKey: 'pdv.flow.step2Desc' },
+    { icon: '🛒', titleKey: 'pdv.flow.step3Title', descKey: 'pdv.flow.step3Desc' },
+    { icon: '💳', titleKey: 'pdv.flow.step4Title', descKey: 'pdv.flow.step4Desc' },
+    { icon: '🧾', titleKey: 'pdv.flow.step5Title', descKey: 'pdv.flow.step5Desc' },
+    { icon: '🔒', titleKey: 'pdv.flow.step6Title', descKey: 'pdv.flow.step6Desc' },
   ];
 
   return (

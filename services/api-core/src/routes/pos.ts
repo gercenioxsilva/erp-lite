@@ -9,8 +9,17 @@ import {
   addPayment, removePayment, finalizeSale, cancelSale, reemitirFiscal,
 } from '../services/pos/posSaleService';
 import { consultarNFCe } from '../services/fiscal/focusNfe';
+import { requireModule } from '../lib/requireModule';
 
 export const posRoutes: FastifyPluginAsync = async (fastify) => {
+
+  // PDV é um módulo opcional (regra tenant_modules, igual a service_orders).
+  // Autentica no onRequest e bloqueia a rota inteira se o tenant não tiver o
+  // módulo 'pos' habilitado — backend é sempre a autoridade; esconder o menu no
+  // frontend é só conveniência de UX. O requireModule roda depois do
+  // authenticate porque depende de request.user.tenantId.
+  fastify.addHook('onRequest', (fastify as any).authenticate);
+  fastify.addHook('preHandler', requireModule('pos'));
 
   // ── TERMINALS ─────────────────────────────────────────────────────────────
 

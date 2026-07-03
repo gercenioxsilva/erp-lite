@@ -160,13 +160,15 @@ export function Layout({ children }: { children: ReactNode }) {
         { to: '/technicians',    label: t('nav.technicians')  },
       ],
     } as NavGroupDef] : []),
-    { id: 'pos', label: t('nav.pos'), icon: IcoPDV, children: [
-      { to: '/pos/caixa',     label: 'Caixa'           },
-      { to: '/pos',           label: 'Venda', end: true },
-      { to: '/pos/sales',     label: 'Histórico'       },
-      { to: '/pos/terminals', label: 'Terminais'       },
-      { to: '/pos/sessions',  label: 'Sessões'         },
-    ] },
+    ...(enabledModules.includes('pos') ? [{
+      id: 'pos', label: t('nav.pos'), icon: IcoPDV, children: [
+        { to: '/pos/caixa',     label: 'Caixa'           },
+        { to: '/pos',           label: 'Venda', end: true },
+        { to: '/pos/sales',     label: 'Histórico'       },
+        { to: '/pos/terminals', label: 'Terminais'       },
+        { to: '/pos/sessions',  label: 'Sessões'         },
+      ],
+    } as NavGroupDef] : []),
     { id: 'inventory', label: t('nav.group.inventory'), icon: IcoStock, children: [
       { to: '/materials',         label: t('nav.materials')        },
       { to: '/stock',             label: t('nav.stock')            },

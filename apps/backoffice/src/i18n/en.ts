@@ -1181,6 +1181,8 @@ const en: Record<TKey, string> = {
   'comp.modules.subtitle':      'Enable additional features on demand. No module here affects the rest of the system when disabled.',
   'comp.modules.serviceOrders':      'Service Orders / Field Visits',
   'comp.modules.serviceOrdersDesc':  'Service orders with technical visit scheduling, a dedicated technician portal with its own login, and on-site photo and client signature capture.',
+  'comp.modules.pos':                'POS — Point of Sale',
+  'comp.modules.posDesc':            'Full checkout front end: terminals, cash session open/close, sales with multiple payment methods and NFC-e receipt issuance.',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',
@@ -1287,6 +1289,19 @@ const en: Record<TKey, string> = {
   'so.flow.step5Desc':  'Captures photos of the service and collects the client signature, still on site.',
   'so.flow.step6Title': 'Visit completed',
   'so.flow.step6Desc':  'Report saved automatically. The order closes once all visits are done.',
+
+  'pdv.flow.step1Title': 'Register a terminal',
+  'pdv.flow.step1Desc':  'In POS → Terminals, create the point of sale with a name, NFC-e series and cost center.',
+  'pdv.flow.step2Title': 'Open the cash session',
+  'pdv.flow.step2Desc':  'In POS → Cash, open the session with its starting float. Every sale is tied to this session.',
+  'pdv.flow.step3Title': 'Ring up the sale',
+  'pdv.flow.step3Desc':  'In POS → Sale, add products and quantities and optionally identify the customer.',
+  'pdv.flow.step4Title': 'Take payment',
+  'pdv.flow.step4Desc':  'Enter one or more payment methods (cash, card, PIX) until the sale total is covered.',
+  'pdv.flow.step5Title': 'Finalize and issue the NFC-e',
+  'pdv.flow.step5Desc':  'On finalize, the sale deducts stock and issues the electronic receipt (NFC-e).',
+  'pdv.flow.step6Title': 'Close the cash session',
+  'pdv.flow.step6Desc':  'In POS → Sessions, review the amounts and close the register. The summary lands in History.',
 };
 
 export default en;
