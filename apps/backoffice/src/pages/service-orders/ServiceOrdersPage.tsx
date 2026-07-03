@@ -90,12 +90,14 @@ export function ServiceOrdersPage() {
   useEffect(() => {
     if (!drawerOpen || !tenantId) return;
     Promise.all([
-      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100`),
+      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
       api.get<{ data: TechnicianOption[] }>(`/v1/technicians?per_page=100`),
     ]).then(([cl, tc]) => {
       setClients(cl.data ?? []);
       setTechnicians((tc.data ?? []).filter(x => x.is_active));
-    }).catch(() => { /**/ });
+    }).catch((err: unknown) => {
+      setFormError(err instanceof Error ? err.message : t('cl.errSave'));
+    });
   }, [drawerOpen, tenantId]);
 
   function openCreate() {
