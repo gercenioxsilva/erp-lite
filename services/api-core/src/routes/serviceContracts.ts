@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, ilike, or, sql } from 'drizzle-orm';
-import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices, nfeConfigs } from '../db';
+import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
+import { resolveCompanyId } from '../services/companyService';
 
 const FREQUENCIES = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
 const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
@@ -14,6 +15,9 @@ const contractBody = {
     tenant_id:         { type: 'string', format: 'uuid' },
     client_id:         { type: 'string', format: 'uuid' },
     material_id:       { type: 'string', format: 'uuid' },
+    // Qual empresa/CNPJ fatura este contrato (regra 40) — opcional, resolvido
+    // para a empresa padrão do tenant quando omitido.
+    company_id:        { type: 'string', format: 'uuid' },
     description:       { type: 'string', minLength: 1 },
     start_date:        { type: 'string', format: 'date' },
     end_date:          { type: 'string', format: 'date' },
@@ -101,6 +105,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       tenant_id:         b.tenant_id         as string,
       client_id:         b.client_id         as string,
       material_id:       (b.material_id      ?? null) as string | null,
+      company_id:        (b.company_id       ?? null) as string | null,
       contract_number:   contractNumber,
       description:       b.description       as string,
       start_date:        b.start_date        as string,
@@ -158,7 +163,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       .from(serviceContracts).where(eq(serviceContracts.id, id));
     if (!existing) return reply.notFound('Contract not found');
 
-    const allowed = ['description', 'client_id', 'material_id', 'start_date', 'end_date',
+    const allowed = ['description', 'client_id', 'material_id', 'company_id', 'start_date', 'end_date',
                      'billing_frequency', 'billing_day', 'amount', 'status', 'notes',
                      'nfse_enabled', 'codigo_servico', 'aliquota_iss'];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
@@ -219,7 +224,9 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
       if (!queueUrl) return reply.badRequest('Emissão de NFS-e não configurada neste ambiente');
 
-      [cfg] = await db.select().from(nfeConfigs).where(eq(nfeConfigs.tenant_id, contract.tenant_id));
+      // Resolve qual empresa/CNPJ fatura este contrato (regra 40) —
+      // contract.company_id quando definido, senão a empresa padrão do tenant.
+      cfg = await resolveCompanyId(contract.tenant_id, contract.company_id).catch(() => null);
       if (!cfg) return reply.badRequest('Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir');
       if (!cfg.inscricao_municipal)
         return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e (Empresa → NFS-e)');
@@ -268,6 +275,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
           contract_billing_id: b.id,
           receivable_id:       rec.id,
           client_id:           contract.client_id,
+          company_id:          cfg?.id ?? null,
           description,
           amount:              String(contract.amount),
           iss_rate:            String(issRate),

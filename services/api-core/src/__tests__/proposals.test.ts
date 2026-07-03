@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
+import { db } from '../db';
 
 vi.mock('../lib/sqsClient', () => ({
   getSqsClient: vi.fn().mockReturnValue({
@@ -94,5 +95,31 @@ describe('Proposals routes', () => {
       payload: { reason: 'Too expensive' },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('[regressão] PATCH /v1/proposals/:id persiste notes, valid_until e terms_text (campos extraídos do body mas antes ausentes do UPDATE)', async () => {
+    const executeCalls: string[] = [];
+    (db.execute as any).mockImplementation(async (query: any) => {
+      const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+      executeCalls.push(text);
+      if (/SELECT id, status FROM proposals/i.test(text)) return { rows: [{ id: 'prop-1', status: 'draft' }] };
+      if (/SELECT quantity, unit_price, discount_pct/i.test(text)) return { rows: [] };
+      if (/SELECT discount, shipping FROM proposals/i.test(text)) return { rows: [{ discount: '0', shipping: '0' }] };
+      return { rows: [] };
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/proposals/prop-1',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { notes: 'Entrega combinada por telefone', valid_until: '2026-12-31', terms_text: 'Pagamento à vista' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const updateCall = executeCalls.find(c => /UPDATE proposals SET/i.test(c));
+    expect(updateCall).toBeDefined();
+    expect(updateCall).toMatch(/notes/);
+    expect(updateCall).toMatch(/valid_until/);
+    expect(updateCall).toMatch(/terms_text/);
   });
 });

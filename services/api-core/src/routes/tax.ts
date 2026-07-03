@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { db, nfeConfigs, tenants } from '../db';
+import { db, tenants } from '../db';
 import { resolveAndCalculateTaxes } from '../lib/taxCalculationService';
 import { getSimplesEffectiveRate, TaxRuleNotFoundError } from '../lib/taxRulesResolver';
 import type { TaxRegime, TaxLine } from '../lib/taxEngine';
+import { resolveCompanyId } from '../services/companyService';
 
 export const taxRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -17,6 +18,7 @@ export const taxRoutes: FastifyPluginAsync = async (fastify) => {
         properties: {
           origin_state:      { type: 'string', minLength: 2, maxLength: 2 },
           destination_state: { type: 'string', minLength: 2, maxLength: 2 },
+          company_id:         { type: 'string' },
           icms_taxpayer:      { type: 'string' },
           consumer_type:      { type: 'string' },
           tax_regime: {
@@ -46,19 +48,17 @@ export const taxRoutes: FastifyPluginAsync = async (fastify) => {
     const body = request.body as {
       origin_state?:      string;
       destination_state?: string;
+      company_id?:        string;
       icms_taxpayer?:     string;
       consumer_type?:     string;
       tax_regime:         TaxRegime;
       lines:              TaxLine[];
     };
 
-    // Origem padrão: UF cadastrada em Empresa → Fiscal (nfe_configs.uf). O chamador
-    // ainda pode sobrescrever explicitamente (ex.: simulação), mas o default deixa
-    // de ser 'SP' fixo — regra 33 do README.
-    const [cfg] = await db
-      .select({ uf: nfeConfigs.uf })
-      .from(nfeConfigs)
-      .where(eq(nfeConfigs.tenant_id, tenantId));
+    // Origem padrão: UF da empresa (regra 40) — company_id explícito quando
+    // informado, senão a empresa padrão do tenant. O chamador ainda pode
+    // sobrescrever a UF diretamente (ex.: simulação) — regra 33 do README.
+    const cfg = await resolveCompanyId(tenantId, body.company_id).catch(() => null);
 
     const originState = (body.origin_state ?? cfg?.uf ?? 'SP').toUpperCase();
     const destState    = (body.destination_state ?? originState).toUpperCase();

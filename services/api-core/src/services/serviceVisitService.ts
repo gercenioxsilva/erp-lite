@@ -32,6 +32,18 @@ function generateRoutingToken(): string {
   return crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
 }
 
+/**
+ * Monta o link de ROTEAMENTO enviado ao técnico por e-mail (`service_visit_assigned`)
+ * e também exibido no backoffice para reenvio manual (ex.: WhatsApp) — mesmo link,
+ * uma única função, para nunca divergir entre os dois pontos de uso. O link em si
+ * nunca concede acesso (regra 38): exige login do técnico + technician_id da visita
+ * batendo com o técnico logado.
+ */
+export function buildVisitLink(visitId: string, routingToken: string): string {
+  const appUrl = process.env.APP_URL || 'https://orquestraerp.com.br';
+  return `${appUrl}/tecnico/entrar?redirect=/tecnico/visitas/${visitId}&rt=${routingToken}`;
+}
+
 // ── Agendamento (lado do backoffice) ─────────────────────────────────────────
 
 export interface ScheduleVisitArgs {
@@ -70,7 +82,6 @@ export async function scheduleVisit(args: ScheduleVisitArgs, db: DrizzleDB = _db
     await db.update(serviceOrders).set({ status: 'scheduled' }).where(eq(serviceOrders.id, order.id));
   }
 
-  const appUrl = process.env.APP_URL || 'https://orquestraerp.com.br';
   sendSystemNotification({
     tenant_id: args.tenantId,
     type:      'service_visit_assigned',
@@ -81,7 +92,7 @@ export async function scheduleVisit(args: ScheduleVisitArgs, db: DrizzleDB = _db
       scheduled_at:        args.scheduledAt.toISOString(),
       // Link de ROTEAMENTO — exige login (role='technician') para ver qualquer
       // dado; routing_token só decide para qual visita navegar após autenticar.
-      visit_link: `${appUrl}/tecnico/entrar?redirect=/tecnico/visitas/${visit.id}&rt=${routingToken}`,
+      visit_link: buildVisitLink(visit.id, routingToken),
     },
   }).catch(() => { /* falha de e-mail nunca derruba o agendamento */ });
 
