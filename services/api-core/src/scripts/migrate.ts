@@ -74,6 +74,7 @@ const migrations = [
   '0042_dre.sql',
   '0043_cnpj_alphanum.sql',
   '0044_service_orders.sql',
+  '0045_supplier_contacts.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

@@ -1285,6 +1285,24 @@ const ptBR = {
   'so.flow.step5Desc':  'Registra fotos do serviço e coleta a assinatura do cliente, ainda em campo.',
   'so.flow.step6Title': 'Visita concluída',
   'so.flow.step6Desc':  'Relatório salvo automaticamente. A OS fecha quando todas as visitas terminam.',
+
+  // ── Contatos do fornecedor ──────────────────────────────────────────────────
+  'sup.tabContacts':    'Contatos',
+  'sup.contacts':       'Contatos',
+  'sup.noContacts':     'Nenhum contato cadastrado.',
+  'sup.addContact':     'Adicionar contato',
+  'sup.editContact':    'Editar contato',
+  'sup.saveContact':    'Salvar contato',
+  'sup.delContact':     'Remover contato',
+  'sup.delContactMsg':  'O contato será removido permanentemente.',
+  'sup.contactType':    'Tipo de contato',
+  'sup.contactName':    'Nome do contato',
+  'sup.contact.comercial':  'Comercial',
+  'sup.contact.financeiro': 'Financeiro',
+  'sup.contact.suporte':    'Suporte',
+  'sup.contact.logistica':  'Logística',
+  'sup.contact.outro':      'Outro',
+  'sup.errSaveContact': 'Erro ao salvar contato',
 } as const;
 
 export type TKey = keyof typeof ptBR;
