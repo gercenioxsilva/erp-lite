@@ -7,7 +7,9 @@ export type NotificationType =
   | 'receivable_due_soon'
   | 'proposal_sent'
   | 'proposal_accepted'
-  | 'proposal_rejected';
+  | 'proposal_rejected'
+  | 'technician_welcome'
+  | 'service_visit_assigned';
 
 export type NotificationChannel = 'email';
 

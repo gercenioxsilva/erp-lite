@@ -58,6 +58,14 @@ function IcoPDV() {
   );
 }
 
+function IcoField() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.5 2.5a3 3 0 0 0-4 4L2 12l2 2 5.5-5.5a3 3 0 0 0 4-4L11 7l-2-2 2.5-2.5Z"/>
+    </svg>
+  );
+}
+
 function IcoMenu() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -137,6 +145,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const NAV: NavEntry[] = [
     { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard },
     { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
@@ -145,6 +154,12 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/invoices',  label: t('nav.invoices')  },
       { to: '/nfse',      label: t('nav.nfse')      },
     ] },
+    ...(enabledModules.includes('service_orders') ? [{
+      id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [
+        { to: '/service-orders', label: t('nav.serviceOrders') },
+        { to: '/technicians',    label: t('nav.technicians')  },
+      ],
+    } as NavGroupDef] : []),
     { id: 'pos', label: t('nav.pos'), icon: IcoPDV, children: [
       { to: '/pos/caixa',     label: 'Caixa'           },
       { to: '/pos',           label: 'Venda', end: true },
@@ -205,6 +220,14 @@ export function Layout({ children }: { children: ReactNode }) {
           setTrialDaysLeft(data.days_left);
         }
       })
+      .catch(() => {});
+  }, []);
+
+  // Item de menu de módulo opcional só aparece se o tenant tiver habilitado —
+  // backend (requireModule) é a autoridade de verdade; isto é só conveniência de UX.
+  useEffect(() => {
+    api.get<{ available: string[]; enabled: string[] }>('/v1/tenant/modules')
+      .then(data => setEnabledModules(data.enabled ?? []))
       .catch(() => {});
   }, []);
 

@@ -1055,3 +1055,106 @@ export const dreCategories = pgTable('dre_categories', {
   sort_order: smallint('sort_order').notNull().default(0),
   is_active:  boolean('is_active').notNull().default(true),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Ordens de Serviço / Visita Técnica  (migration 0044) — módulo opcional por tenant
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Flag genérica de módulo opcional habilitado por tenant — reaproveitável por
+// qualquer módulo de nicho futuro, não é específica de OS.
+export const tenantModules = pgTable('tenant_modules', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  module_key:  varchar('module_key', { length: 40 }).notNull(),
+  enabled:     boolean('enabled').notNull().default(false),
+  enabled_at:  timestamp('enabled_at', { withTimezone: true }),
+  enabled_by:  uuid('enabled_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Perfil do técnico — 1:1 obrigatório com users (login é o próprio requisito
+// de segurança, diferente de sellers onde user_id é opcional).
+export const technicians = pgTable('technicians', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  user_id:    uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name:       varchar('name',  { length: 255 }).notNull(),
+  email:      varchar('email', { length: 255 }).notNull(),
+  phone:      varchar('phone', { length: 20 }),
+  cpf:        varchar('cpf',   { length: 11 }).notNull(),
+  specialty:  varchar('specialty', { length: 120 }),
+  is_active:  boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const serviceOrders = pgTable('service_orders', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  client_id:      uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  cost_center_id: uuid('cost_center_id').references(() => costCenters.id, { onDelete: 'set null' }),
+  number:         varchar('number', { length: 20 }).notNull(),
+  title:          varchar('title',  { length: 255 }).notNull(),
+  description:    text('description'),
+  type:           varchar('type',   { length: 20 }).notNull().default('maintenance'),
+  status:         varchar('status', { length: 20 }).notNull().default('draft'),
+  subtotal:       decimal('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:          decimal('total',    { precision: 15, scale: 2 }).notNull().default('0'),
+  created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const serviceOrderItems = pgTable('service_order_items', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  service_order_id:  uuid('service_order_id').notNull().references(() => serviceOrders.id, { onDelete: 'cascade' }),
+  material_id:       uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  description:       varchar('description', { length: 255 }).notNull(),
+  quantity:          decimal('quantity',   { precision: 15, scale: 3 }).notNull(),
+  unit_price:        decimal('unit_price', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:             decimal('total',      { precision: 15, scale: 2 }).notNull().default('0'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Visita técnica — 1:N com a OS. routing_token é só roteamento (qual visita
+// mostrar após login), NUNCA autorização — a autorização real é o JWT do
+// técnico + technician_id da visita batendo com o technicianId do token.
+// technician_name/technician_cpf são snapshot no check-in (mesmo raciocínio
+// de order_items/invoice_items congelarem nome/preço).
+export const serviceVisits = pgTable('service_visits', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  service_order_id:  uuid('service_order_id').notNull().references(() => serviceOrders.id, { onDelete: 'cascade' }),
+  technician_id:     uuid('technician_id').notNull().references(() => technicians.id, { onDelete: 'restrict' }),
+  scheduled_at:      timestamp('scheduled_at', { withTimezone: true }).notNull(),
+  status:            varchar('status', { length: 20 }).notNull().default('scheduled'),
+  routing_token:     varchar('routing_token', { length: 64 }).notNull(),
+  token_expires_at:  timestamp('token_expires_at', { withTimezone: true }).notNull(),
+  checked_in_at:     timestamp('checked_in_at',  { withTimezone: true }),
+  checked_out_at:    timestamp('checked_out_at', { withTimezone: true }),
+  technician_name:   varchar('technician_name', { length: 255 }),
+  technician_cpf:    varchar('technician_cpf',  { length: 11 }),
+  report_notes:      text('report_notes'),
+  signature_s3_key:  text('signature_s3_key'),
+  signed_by_name:    varchar('signed_by_name', { length: 255 }),
+  signed_at:         timestamp('signed_at', { withTimezone: true }),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Fotos da visita — append-only. idempotency_key é gerada no navegador (UUID)
+// antes do upload — mesma chave vira o sufixo da key no S3 e o valor UNIQUE
+// aqui, evitando duplicidade em caso de retry (mesmo padrão de
+// cost_center_movements/commission_entries).
+export const serviceVisitPhotos = pgTable('service_visit_photos', {
+  id:               uuid('id').primaryKey().defaultRandom(),
+  tenant_id:        uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  service_visit_id: uuid('service_visit_id').notNull().references(() => serviceVisits.id, { onDelete: 'cascade' }),
+  s3_key:           text('s3_key').notNull(),
+  content_type:     varchar('content_type', { length: 60 }).notNull(),
+  file_size_bytes:  integer('file_size_bytes').notNull(),
+  caption:          varchar('caption', { length: 255 }),
+  idempotency_key:  varchar('idempotency_key', { length: 80 }).notNull(),
+  created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

@@ -11,6 +11,8 @@ import { receivableDueSoonTemplate } from './receivable_due_soon';
 import { proposalSentTemplate }     from './proposal_sent';
 import { proposalAcceptedTemplate } from './proposal_accepted';
 import { proposalRejectedTemplate } from './proposal_rejected';
+import { technicianWelcomeTemplate }    from './technician_welcome';
+import { serviceVisitAssignedTemplate } from './service_visit_assigned';
 
 const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplate> = {
   nfe_authorized:   nfeAuthorizedTemplate,
@@ -25,6 +27,8 @@ const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplat
   proposal_sent:     proposalSentTemplate,
   proposal_accepted: proposalAcceptedTemplate,
   proposal_rejected: proposalRejectedTemplate,
+  technician_welcome:      technicianWelcomeTemplate,
+  service_visit_assigned:  serviceVisitAssignedTemplate,
 };
 
 export function getTemplate(type: NotificationType, data: TemplateData): EmailTemplate {
