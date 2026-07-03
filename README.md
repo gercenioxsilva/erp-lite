@@ -60,7 +60,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
    - `GET /v1/dre/categories` — categorias DRE disponíveis para o tenant (globais + personalizadas)
    - `GET /v1/tenant/modules` · `PATCH /v1/tenant/modules/:key` — módulos opcionais habilitados por tenant (regra 38; `MODULE_KEYS` atuais: `service_orders`, `multi_empresa`)
    - `GET|POST /v1/technicians(/:id)?` · `PATCH /v1/technicians/:id/active` — gated por `requireModule('service_orders')`
-   - `GET|POST /v1/service-orders(/:id)?` · `POST /v1/service-orders/:id/visits` · `GET /v1/service-orders/:id/visits/:visitId` · `POST /v1/service-orders/:id/cancel` — gated por `requireModule('service_orders')`
+   - `GET|POST /v1/service-orders(/:id)?` · `POST /v1/service-orders/:id/visits` · `GET /v1/service-orders/:id/visits/:visitId` · `POST /v1/service-orders/:id/cancel` — gated por `requireModule('service_orders')`. `GET /v1/service-orders/:id` retorna `visit_link` (URL pronta, montada por `buildVisitLink()` em `serviceVisitService.ts`) e `link_valid` (via `isRoutingTokenValid()`) por visita — nunca o `routing_token` bruto — para reenvio manual do link ao técnico (ex.: WhatsApp) pelo backoffice.
    - `GET /v1/technician/visits(/:id)?` · `POST /v1/technician/visits/:id/check-in` · `POST /v1/technician/visits/:id/complete` — autenticado, role=`technician`, escopado ao próprio técnico
    - `POST /v1/technician/visits/:id/photos/presign` · `POST /v1/technician/visits/:id/photos/confirm` · `POST /v1/technician/visits/:id/signature/presign` · `POST /v1/technician/visits/:id/signature/confirm` — upload direto ao S3 (presigned POST), nunca pela API
    - Se uma rota não está nesta lista, ela não existe — crie antes de usar.

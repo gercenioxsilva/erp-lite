@@ -5,7 +5,8 @@ import { requireModule } from '../lib/requireModule';
 import {
   createServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
 } from '../services/serviceOrderService';
-import { scheduleVisit, ServiceVisitDomainError } from '../services/serviceVisitService';
+import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../services/serviceVisitService';
+import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
 import { getPresignedReadUrl } from '../services/servicePhotoStorageService';
 
 export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
@@ -81,6 +82,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT sv.id, sv.status, sv.scheduled_at, sv.checked_in_at, sv.checked_out_at,
                sv.technician_name, sv.report_notes, sv.signed_by_name, sv.signed_at,
+               sv.routing_token, sv.token_expires_at,
                t.name AS technician_current_name
         FROM service_visits sv
         LEFT JOIN technicians t ON t.id = sv.technician_id
@@ -90,7 +92,21 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     ]);
 
     if (!so) return reply.notFound('Ordem de serviço não encontrada');
-    return { ...so, items, visits };
+
+    // Link de roteamento do técnico (regra 38) — exposto aqui para reenvio manual
+    // (ex.: WhatsApp) pelo backoffice; o link em si nunca concede acesso sozinho.
+    const visitsWithLink = visits.map((v: any) => {
+      const { routing_token, token_expires_at, ...rest } = v;
+      return {
+        ...rest,
+        visit_link: routing_token ? buildVisitLink(v.id, routing_token) : null,
+        link_valid: routing_token
+          ? isRoutingTokenValid(new Date(token_expires_at), v.status)
+          : false,
+      };
+    });
+
+    return { ...so, items, visits: visitsWithLink };
   });
 
   // ── POST /v1/service-orders/:id/visits ───────────────────────────────────

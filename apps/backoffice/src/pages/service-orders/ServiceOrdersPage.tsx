@@ -15,6 +15,7 @@ interface VisitRow {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   technician_name: string | null; technician_current_name: string | null; report_notes: string | null;
   signed_by_name: string | null; signed_at: string | null;
+  visit_link: string | null; link_valid: boolean;
 }
 interface ServiceOrderDetail extends ServiceOrder {
   description: string | null; client_id: string | null;
@@ -74,6 +75,7 @@ export function ServiceOrdersPage() {
   const [visitTechId, setVisitTechId] = useState('');
   const [visitAt, setVisitAt]         = useState('');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
+  const [copiedVisitId, setCopiedVisitId] = useState('');
 
   async function load() {
     if (!tenantId) return;
@@ -181,6 +183,14 @@ export function ServiceOrdersPage() {
       void load();
     } catch (err: unknown) { modal.error(err); }
     finally { setSchedulingVisit(false); }
+  }
+
+  async function copyVisitLink(visitId: string, link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedVisitId(visitId);
+      setTimeout(() => setCopiedVisitId(id => id === visitId ? '' : id), 2000);
+    } catch { /* clipboard indisponível — o link ainda pode ser copiado manualmente do campo */ }
   }
 
   async function cancelOrder(id: string) {
@@ -293,6 +303,26 @@ export function ServiceOrdersPage() {
                         <div style={{ color: 'var(--muted)' }}>{fmtDateTime(v.scheduled_at)}</div>
                         {v.signed_by_name && <div style={{ color: 'var(--muted)', marginTop: 4 }}>Assinado por {v.signed_by_name}</div>}
                         {v.report_notes && <div style={{ marginTop: 6 }}>{v.report_notes}</div>}
+
+                        {v.visit_link && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                            {v.link_valid ? (
+                              <>
+                                <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                  onClick={() => void copyVisitLink(v.id, v.visit_link!)}>
+                                  {copiedVisitId === v.id ? t('so.linkCopied') : t('so.copyLink')}
+                                </button>
+                                <a href={`https://wa.me/?text=${encodeURIComponent(t('so.whatsappMsg') + ' ' + v.visit_link)}`}
+                                  target="_blank" rel="noreferrer"
+                                  className="btn btn-secondary btn-sm" style={{ width: 'auto', textDecoration: 'none', textAlign: 'center' }}>
+                                  {t('so.sendWhatsapp')}
+                                </a>
+                              </>
+                            ) : (
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t('so.linkExpired')}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
