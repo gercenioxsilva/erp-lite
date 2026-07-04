@@ -130,6 +130,20 @@ variable "mercado_livre_client_secret" {
   default     = ""
 }
 
+variable "stripe_secret_key" {
+  description = "Stripe secret key (sk_live_... em produção) — assinatura SaaS. Vazio = módulo de billing fica desabilitado (isStripeEnabled() retorna false, subscriptionGuard vira no-op)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "stripe_webhook_secret" {
+  description = "Stripe webhook signing secret (whsec_...) do endpoint /v1/subscription/webhook cadastrado no Stripe Dashboard"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "app_public_origins" {
   description = <<-EOT
     Origens (scheme+host) autorizadas a fazer upload direto no bucket de fotos

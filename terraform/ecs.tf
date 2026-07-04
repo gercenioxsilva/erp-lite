@@ -76,6 +76,14 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "BILLING_REQUESTS_QUEUE_URL", value = aws_sqs_queue.billing_requests.url },
       { name = "BILLING_RESULTS_QUEUE_URL",  value = aws_sqs_queue.billing_results.url },
       { name = "SERVICE_VISIT_PHOTOS_BUCKET", value = aws_s3_bucket.service_visit_photos.bucket },
+      { name = "MARKETPLACE_SYNC_REQUESTS_QUEUE_URL", value = aws_sqs_queue.marketplace_sync_requests.url },
+      { name = "MARKETPLACE_SYNC_RESULTS_QUEUE_URL", value = aws_sqs_queue.marketplace_sync_results.url },
+      # Nomes sem "_" entre MERCADO e LIVRE — é o que marketplaceConnectionService.ts (Fase 1)
+      # já lê hoje; diferente de MERCADO_LIVRE_CLIENT_ID/SECRET usado só pelo lambda-marketplace.
+      { name = "MERCADOLIVRE_CLIENT_ID", value = var.mercado_livre_client_id },
+      { name = "MERCADOLIVRE_CLIENT_SECRET", value = var.mercado_livre_client_secret },
+      { name = "STRIPE_SECRET_KEY", value = var.stripe_secret_key },
+      { name = "STRIPE_WEBHOOK_SECRET", value = var.stripe_webhook_secret },
     ]
 
     logConfiguration = {
