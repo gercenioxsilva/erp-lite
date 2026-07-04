@@ -197,6 +197,8 @@ jobs:
           TF_VAR_lambda_marketplace_image_tag:        ${{ github.sha }}
           TF_VAR_mercado_livre_client_id:             ${{ secrets.TF_VAR_MERCADO_LIVRE_CLIENT_ID }}
           TF_VAR_mercado_livre_client_secret:         ${{ secrets.TF_VAR_MERCADO_LIVRE_CLIENT_SECRET }}
+          TF_VAR_stripe_secret_key:                   ${{ secrets.TF_VAR_STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_webhook_secret:               ${{ secrets.TF_VAR_STRIPE_WEBHOOK_SECRET }}
         run: terraform apply -auto-approve
 
       # ── Read Terraform outputs (single step, post-apply) ─────────────────────
