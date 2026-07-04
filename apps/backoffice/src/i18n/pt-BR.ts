@@ -232,6 +232,16 @@ const ptBR = {
   'mi.imgUploadErr': 'Erro ao enviar imagem.',
   'mi.imgHint':      'JPEG, PNG ou WebP · máx. 500 KB por imagem · máx. 5 imagens por produto',
 
+  // ── Mercado Livre (regra 42) ────────────────────────────────────────────────
+  'ml.title':       'Mercado Livre',
+  'ml.noLinks':     'Nenhum anúncio vinculado ainda.',
+  'ml.store':       'Loja',
+  'ml.selectStore': 'Selecione a loja…',
+  'ml.itemId':      'Código do anúncio (opcional)',
+  'ml.addLink':     'Vincular anúncio',
+  'ml.sync':        'Sincronizar',
+  'ml.errSave':     'Erro ao salvar o vínculo com o Mercado Livre.',
+
   // Impostos NF-e
   'tax.regime':      'Regime tributário',
   'tax.regimeLLP':   'Lucro Presumido',
@@ -1176,6 +1186,22 @@ const ptBR = {
   'pos.caixa.sangriaTitle':   'Sangria de Caixa',
   'pos.caixa.suprimentoTitle':'Suprimento de Caixa',
 
+  // ── Integrações (Minha Empresa) ────────────────────────────────────────────
+  'comp.tabIntegrations':         'Integrações',
+  'comp.integrations.title':      'Integrações com marketplaces',
+  'comp.integrations.subtitle':   'Conecte uma conta do Mercado Livre por CNPJ — cada empresa tem sua própria loja.',
+  'comp.integrations.moduleDisabled': 'Habilite o módulo "Integração Mercado Livre" na aba Módulos para conectar uma conta.',
+  'comp.integrations.connected':    'Conectado',
+  'comp.integrations.disconnected': 'Não conectado',
+  'comp.integrations.account':      'Conta',
+  'comp.integrations.connect':      'Conectar',
+  'comp.integrations.disconnect':   'Desconectar',
+  'comp.integrations.connectedOk':  'Conta do Mercado Livre conectada com sucesso!',
+  'comp.integrations.connectError': 'Não foi possível conectar a conta do Mercado Livre.',
+  'comp.integrations.errLoad':      'Erro ao carregar integrações.',
+  'comp.integrations.errConnect':   'Erro ao iniciar a conexão com o Mercado Livre.',
+  'comp.integrations.errDisconnect':'Erro ao desconectar.',
+
   // ── Módulos opcionais (Minha Empresa) ──────────────────────────────────────
   'comp.tabModules':            'Módulos',
   'comp.modules.title':         'Módulos opcionais',
@@ -1186,6 +1212,8 @@ const ptBR = {
   'comp.modules.multiEmpresaDesc':  'Permite cadastrar mais de um CNPJ na mesma conta e escolher qual empresa emite cada NF-e, NFS-e ou contrato — clientes, materiais e estoque continuam compartilhados entre as empresas.',
   'comp.modules.pos':                'PDV — Ponto de Venda',
   'comp.modules.posDesc':            'Frente de caixa completa: terminais, abertura e fechamento de caixa, vendas com múltiplas formas de pagamento e emissão de NFC-e.',
+  'comp.modules.mercadolivre':     'Integração Mercado Livre',
+  'comp.modules.mercadolivreDesc': 'Conecta uma conta do Mercado Livre por CNPJ, vincula produtos aos anúncios e importa pedidos automaticamente (Fase 1: conexão e vínculo — sincronização automática chega na Fase 2).',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',
