@@ -166,11 +166,15 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
     - **Retrocompatibilidade: `GET|PATCH /v1/tenant` continua com o mesmo contrato de request/response para os campos bancários**, mas por trás delega para `bankAccountService.getDefaultBankAccount`/`upsertDefaultBankAccount` (conta padrão da empresa padrão). `upsertDefaultBankAccount` faz merge com os dados já gravados em atualização parcial (ex.: só trocar `itau_client_secret` sem reenviar agência/conta) — mesmo comportamento que o `PATCH /v1/tenant` sempre teve. **Correção de uma inconsistência:** `GET /v1/tenant` retornava `itau_client_secret` em texto puro (diferente de `nfe_configs`, que já mascarava tokens Focus) — agora mascarado (`****xxxx`), só no novo caminho; o padrão antigo não foi retroativamente alterado em nenhum outro lugar.
     - **Frontend: mesmo padrão de progressive disclosure de duas camadas** — seletor de empresa (reaproveita `companies` já carregado pela regra 40) aparece só com >1 empresa; dentro da empresa selecionada, seletor de conta aparece só com >1 conta cadastrada para ela. Tenant com 1 empresa e 1 conta não vê nenhuma mudança de UI, continua no `PATCH /v1/tenant` legado. `ReceivablesPage.tsx` ganha um `<select>` de conta bancária na emissão de boleto, só renderizado com mais de 1 conta ativa no tenant.
 
-42. **Integração Mercado Livre: uma conexão OAuth é por EMPRESA (`nfe_configs`), não por tenant.** Uma conta do Mercado Livre é vinculada a um CNPJ específico — um tenant com 2 empresas (regra 40) pode ter 2 lojas ML separadas. `marketplace_connections.company_id` é `NOT NULL` e único por `(company_id, provider)`. **Esta é explicitamente uma implementação em duas fases, e a fronteira entre elas é deliberada, não um esquecimento:**
-    - **Fase 1 (implementada — só api-core):** migration `0048_mercadolivre.sql`, domínio (`src/domain/marketplace/marketplaceDomain.ts`), serviços (`marketplaceConnectionService.ts`, `materialMarketplaceLinkService.ts`, `marketplaceWebhookService.ts`), rotas, worker in-process (`marketplaceSyncResultsWorker.ts`) e frontend (`CompanyPage.tsx` aba Integrações, `MaterialsPage.tsx` seção Mercado Livre). Tudo 100% testável sem AWS real.
-    - **Fase 2 (não implementada nesta sessão, sem credenciais para validar):** o Lambda `lambda-marketplace` (mesmo molde de `lambda-billing`: handler SQS + adapter OAuth2), a infraestrutura Terraform (filas `marketplace-sync-requests`/`marketplace-sync-results`/`marketplace-sync-dlq`, ECR, IAM, KMS) e o CI/CD. **Até a Fase 2 existir, tudo que depende de fila SQS é um no-op deliberado** (`if (!queueUrl) { log; return }`, mesmo padrão já usado em toda emissão fiscal/boleto) — sincronizar preço/estoque de um anúncio e processar webhook ficam registrados/auditados mas não vão adiante sozinhos; conectar/desconectar conta e vincular material a anúncio funcionam de ponta a ponta hoje, sem depender de fila nenhuma.
+42. **Integração Mercado Livre: uma conexão OAuth é por EMPRESA (`nfe_configs`), não por tenant.** Uma conta do Mercado Livre é vinculada a um CNPJ específico — um tenant com 2 empresas (regra 40) pode ter 2 lojas ML separadas. `marketplace_connections.company_id` é `NOT NULL` e único por `(company_id, provider)`. **Esta foi uma implementação em duas fases — ambas concluídas:**
+    - **Fase 1 (api-core apenas):** migration `0048_mercadolivre.sql`, domínio (`src/domain/marketplace/marketplaceDomain.ts`), serviços (`marketplaceConnectionService.ts`, `materialMarketplaceLinkService.ts`, `marketplaceWebhookService.ts`), rotas, worker in-process (`marketplaceSyncResultsWorker.ts`) e frontend (`CompanyPage.tsx` aba Integrações, `MaterialsPage.tsx` seção Mercado Livre). Tudo 100% testável sem AWS real.
+    - **Fase 2 (Lambda + Terraform + sync real):** `services/lambda-marketplace` (mesmo molde de `lambda-billing`: handler SQS + adapter OAuth2) + infraestrutura Terraform (`terraform/marketplace.tf`, filas `marketplace-sync-requests`/`marketplace-sync-results`/`marketplace-sync-dlq` em `sqs.tf`, ECR em `ecr.tf`) + CI/CD (`deploy.yml`). **Lambdas neste projeto nunca acessam o Postgres diretamente** (mesmo padrão de `BillingEmitMessage.banking`) — por isso `requestSync()` e `ingestWebhook()` embutem um snapshot dos tokens da conexão (`access_token`/`refresh_token`/`token_expires_at`) e, no caso do sync, do preço/estoque atuais do material, na própria mensagem SQS (`MarketplaceSyncRequestMessage` em `lib/marketplace-types.ts`).
+    - **Sync só manual nesta fase (decisão deliberada):** o botão "Sincronizar" já existente (`POST /v1/materials/:id/marketplace-links/:linkId/sync`) funciona de ponta a ponta; sync automático ao alterar preço/estoque no ERP fica para uma versão futura, para validar o fluxo básico com a conta real antes de automatizar.
+    - **Refresh do token OAuth: o `refresh_token` do Mercado Livre é de uso único** — a API invalida o anterior ao emitir um novo. `MercadoLivreAdapter.ensureFreshToken()` (`lambda-marketplace/src/adapters/mercadolivre.ts`) renova quando faltam menos de 5 min para expirar, e **sempre** devolve o par renovado no campo opcional `refreshed_tokens` da mensagem de resultado — nunca só em memória. `marketplaceSyncResultsWorker.ts` persiste esse campo em `marketplace_connections` independente do tipo da mensagem (`sync_material` ou `order_import`); ignorar esse campo derrubaria a conexão na próxima chamada (refresh_token já consumido).
+    - **`syncMaterial` limitação de v1 documentada:** quando `ml_variation_id` está presente no vínculo, o `PUT /items/:id` ainda mira o item base — variações ficam para uma iteração futura, não travam o sync manual.
+    - **`fetchResource` só processa tópicos de pedido** (`topic` iniciando com `orders`, ex.: `orders_v2`) — outros tópicos de webhook (perguntas, itens) são reconhecidos e ignorados em silêncio nesta fase (sem erro, sem mensagem de resultado).
+    - **Tokens (`access_token`/`refresh_token`) continuam em texto puro** — mesma limitação documentada de `itau_client_secret`/`focus_token_producao`: nenhum segredo deste projeto usa KMS hoje. Criar KMS só para o Mercado Livre seria inconsistente com o resto da base; migrar todos os segredos para KMS, se necessário, é um projeto à parte. Nunca afirmar que os tokens estão criptografados em repouso.
     - **`signState`/`verifyState` (`marketplaceDomain.ts`) protegem o callback OAuth contra CSRF sem tabela nova** — o `state` da URL de autorização carrega o próprio `company_id` assinado com HMAC-SHA256 + timestamp (expira em 10 min), revalidado no callback antes de confiar nele. O callback é público (`GET /v1/public/integrations/mercadolivre/callback` — o Mercado Livre redireciona o navegador do usuário, não há JWT nesse ponto) e **sempre termina em redirect de volta ao app**, nunca em JSON.
-    - **Segredos (`access_token`/`refresh_token`) ficam em texto puro nesta fase** — mesma limitação documentada de `itau_client_secret`/`focus_token_producao`/`bank_accounts.itau_client_secret`: nenhum segredo deste projeto usa KMS hoje. Envelope encryption via KMS fica para a Fase 2 (é Terraform — criar a KMS key sem poder usá-la ainda seria meia solução). Nunca afirmar que os tokens estão criptografados em repouso antes da Fase 2 existir.
     - **Webhook nunca é fonte de verdade, só um gatilho** (mesmo raciocínio de segurança da regra 38 sobre o link de roteamento do técnico): `POST /v1/public/marketplace/mercadolivre/webhook` valida só a forma do payload (topic/resource/user_id), grava em `marketplace_webhook_events` (idempotência via `UNIQUE(idempotency_key)` = `provider:topic:resource` — reenvio do mesmo evento não duplica a linha) e **sempre responde 200 rápido**, mesmo em erro interno — nunca deixar o Mercado Livre nos marcar como endpoint instável.
     - **Módulo opcional `mercadolivre`, desligado por padrão** (mesmo mecanismo genérico de `tenant_modules` da regra 38) — gated via `requireModule('mercadolivre')` em `routes/marketplaceIntegration.ts` e `routes/materialMarketplaceLinks.ts`. `GET /v1/integrations/mercadolivre/connections` (lista) nunca é gated — é leitura inofensiva usada por outras telas.
     - **`mapMlOrderToErpOrder()` (domínio puro) nunca cria `order_item` órfão** — se um item vendido no ML não tem `material_marketplace_links` correspondente, lança erro explícito em vez de silenciosamente ignorar. Pedido importado entra direto em `orders.status='confirmed'` (pula `draft` — a venda no ML já está paga/comprometida), com `origin='mercadolivre'` e `marketplace_order_id` preenchidos.
@@ -202,10 +206,14 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 │  ├─ boletoResultsWorker  (SQS long-poll → UPDATE boletos)       │
 │  ├─ contractBillingWorker(SQS long-poll → INSERT billings)      │
 │  ├─ recurringPayablesWorker (23h interval → INSERT payables)    │
-│  └─ dueSoonWorker        (23h interval → SQS notifications)     │
+│  ├─ dueSoonWorker        (23h interval → SQS notifications)     │
+│  └─ marketplaceSyncResultsWorker (SQS long-poll → UPDATE        │
+│      marketplace_connections/material_marketplace_links,        │
+│      INSERT orders — regra 42)                                  │
 │                                                                 │
 │  → RDS PostgreSQL 16 (SSL PGSSLMODE=require)                   │
-│  → SQS: nfe-requests, billing-requests, notifications           │
+│  → SQS: nfe-requests, billing-requests, notifications,          │
+│         marketplace-sync-requests/results                       │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌───────────────────────┐  ┌────────────────────────┐  ┌──────────────────────────┐
@@ -218,6 +226,16 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 │  → SQS nfe-results    │  │ → SQS billing-results   │  │ proposta, vencimento     │
 └───────────────────────┘  └────────────────────────┘  └──────────────────────────┘
 
+┌───────────────────────────────┐
+│  Lambda: lambda-marketplace   │
+│  (ECR container)              │
+│  SQS trigger (sync-requests)  │
+│  → Mercado Livre API OAuth2   │
+│  → Sync preço/estoque (PUT)   │
+│  → Import de pedido (GET)     │
+│  → SQS marketplace-sync-results│
+└───────────────────────────────┘
+
 ┌─────────────────────────────────────────────────────────────────┐
 │  App Mobile Flutter  (apps/mobile)                              │
 │  Android & iOS — mesma API REST /v1/* — JWT Bearer              │
@@ -225,8 +243,9 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
 
 Infraestrutura (Terraform):
   Route 53 → ACM us-east-1 → CloudFront → NLB → ECS
-  ECR: api-core, lambda-fiscal, lambda-billing, lambda-notifications
-  SQS: nfe-requests/results, billing-requests/results, notifications, notifications-dlq
+  ECR: api-core, lambda-fiscal, lambda-billing, lambda-notifications, lambda-marketplace
+  SQS: nfe-requests/results, billing-requests/results, notifications, notifications-dlq,
+       marketplace-sync-requests/results, marketplace-sync-dlq
   S3: static (SPA), nfe-xml (lifecycle 5 anos), billing-pdf (lifecycle 7 anos)
   RDS: PostgreSQL 16, db.t3.micro, single-AZ, backup 7 dias
   Scheduler (EventBridge): RDS auto-stop 20h→08h seg-sex (dev only)
@@ -245,6 +264,7 @@ Infraestrutura (Terraform):
 | Fiscal | Focus NF-e API (`api.focusnfe.com.br` / `homologacao.focusnfe.com.br`) |
 | E-mail | Amazon SES v2, SQS → lambda-notifications |
 | Cobrança | Itaú API v2 OAuth2 `client_credentials` → boleto + PIX |
+| Marketplace | Mercado Livre API OAuth2 `authorization_code` → sync preço/estoque + import de pedido (`lambda-marketplace`) |
 
 ---
 
@@ -271,6 +291,7 @@ C4Context
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail transacional")
     System_Ext(viacep, "ViaCEP", "Consulta de endereço por CEP — chamado direto do browser, sem backend")
     System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications para o app mobile")
+    System_Ext(ml, "Mercado Livre API", "Marketplace — OAuth2 por empresa/CNPJ. Conexão, webhook, sync de preço/estoque e importação de pedido")
 
     Rel(user, erp, "Opera via browser ou app mobile", "HTTPS")
     Rel(client, erp, "Acessa portal /p/:token", "HTTPS (sem autenticação)")
@@ -281,6 +302,7 @@ C4Context
     Rel(erp, fcm, "Envia push notifications", "Firebase Admin SDK")
     Rel(erp, client, "Notifica por e-mail", "SES")
     Rel(user, viacep, "Consulta CEP (browser direto)", "REST HTTPS")
+    Rel(erp, ml, "Conecta via OAuth2, sincroniza preço/estoque e importa pedidos", "REST HTTPS (regra 42)")
 ```
 
 ---
@@ -298,19 +320,21 @@ C4Container
         Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA e assets. Roteia /v1/* para NLB. Certificado ACM us-east-1")
         Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo + portal público /p/:token")
         Container(mobile, "App Mobile", "Flutter 3.x · Dart 3.x", "Android & iOS — consome API /v1/*. JWT Bearer. Push via FCM")
-        Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, recurringPayables, dueSoon")
+        Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, recurringPayables, dueSoon, marketplaceSyncResults")
         ContainerDb(db, "RDS PostgreSQL 16", "PostgreSQL · SSL obrigatório", "Todos os dados isolados por tenant_id. Migrations em db/migrations/")
-        ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests · nfe-results · billing-requests · billing-results · notifications · notifications-dlq")
+        ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests · nfe-results · billing-requests · billing-results · notifications · notifications-dlq · marketplace-sync-requests/results")
         ContainerDb(s3data, "S3 Data Buckets", "Amazon S3", "nfe-xml (lifecycle 5 anos) · billing-pdf (lifecycle 7 anos)")
         Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e e NFS-e via Focus. Discrimina por {type:'nfse'}. Salva XML no S3")
         Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/PIX via Itaú OAuth2. Salva PDF no S3")
         Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
+        Container(lmarket, "lambda-marketplace", "Node 22 · ECR Container", "OAuth2 refresh, sync de preço/estoque (PUT /items) e import de pedido (GET /orders) via API do Mercado Livre")
     }
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal")
     System_Ext(itau, "Itaú API v2", "Boleto + PIX")
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail")
     System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications")
+    System_Ext(ml, "Mercado Livre API", "OAuth2 + sync + pedidos")
 
     Rel(user, cdn, "Acessa via browser", "HTTPS")
     Rel(user, mobile, "Acessa via app", "iOS / Android")
@@ -325,11 +349,14 @@ C4Container
     Rel(sqs, lfiscal, "Trigger nfe-requests", "SQS Event Source Mapping")
     Rel(sqs, lbilling, "Trigger billing-requests", "SQS Event Source Mapping")
     Rel(sqs, lnotif, "Trigger notifications", "SQS Event Source Mapping")
+    Rel(sqs, lmarket, "Trigger marketplace-sync-requests", "SQS Event Source Mapping")
     Rel(lfiscal, focus, "POST /v2/nfe ou /v2/nfse", "REST HTTPS")
     Rel(lfiscal, s3data, "Salva XML", "AWS SDK PutObject")
     Rel(lbilling, itau, "OAuth2 token + POST /boletos", "REST HTTPS")
     Rel(lbilling, s3data, "Salva PDF", "AWS SDK PutObject")
     Rel(lnotif, ses, "SendEmail com template HTML", "AWS SDK v3")
+    Rel(lmarket, ml, "OAuth2 refresh + PUT/GET items/orders", "REST HTTPS")
+    Rel(api, ml, "OAuth2 connect/callback + recebe webhook", "REST HTTPS")
 ```
 
 ---
@@ -931,11 +958,27 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 ## Histórico de versões relevantes
 
+### v22.0 — Integração Mercado Livre (Fase 2 — Lambda + Terraform + sync real)
+
+> **Conclui a Fase 2 anunciada na v21.0** — usuário obteve cadastro de desenvolvedor no Mercado Livre. Entrega: novo serviço `services/lambda-marketplace` (mesmo molde de `lambda-billing`), infraestrutura Terraform (`terraform/marketplace.tf`, filas em `sqs.tf`, ECR em `ecr.tf`, variáveis `mercado_livre_client_id`/`mercado_livre_client_secret`) e CI/CD (`deploy.yml`).
+>
+> **Lambdas nunca acessam o Postgres diretamente** (mesmo padrão de `BillingEmitMessage.banking`) — `materialMarketplaceLinkService.requestSync()` e `marketplaceWebhookService.ingestWebhook()` (ambos da v21.0) passaram a embutir um snapshot dos tokens da conexão e do preço/estoque do material na mensagem SQS (`MarketplaceSyncRequestMessage` em `lib/marketplace-types.ts`, duplicado em `lambda-marketplace/lib/types.ts` — mesma convenção de tipos duplicados por workspace já usada por `lambda-billing`).
+>
+> **Refresh de token OAuth — o `refresh_token` do Mercado Livre é de uso único.** `MercadoLivreAdapter.ensureFreshToken()` renova quando faltam menos de 5 min de validade e devolve sempre o novo par via `refreshed_tokens` na mensagem de resultado; `marketplaceSyncResultsWorker.ts` persiste esse campo em `marketplace_connections` (independente do tipo da mensagem) — sem isso, a próxima chamada usaria um refresh_token já invalidado pela própria API do ML.
+>
+> **Decisões confirmadas com o usuário (ambas recomendadas):** tokens continuam em texto puro (consistente com `itau_client_secret`/`focus_token_producao` — nenhum segredo do projeto usa KMS hoje); sync só manual nesta fase (o endpoint `POST /v1/materials/:id/marketplace-links/:linkId/sync` já existente passa a funcionar de ponta a ponta — sync automático ao alterar preço/estoque fica para depois).
+>
+> **Escopo do MVP:** `fetchResource` só processa tópicos de pedido (`orders_v2`); outros tópicos de webhook são ignorados em silêncio. `syncMaterial` atualiza preço/estoque via `PUT /items/:id` — quando o vínculo tem `ml_variation_id`, o PUT ainda mira o item base (variações ficam para uma iteração futura).
+>
+> **Testes:** 17 testes novos — 5 em `materialMarketplaceLinks.test.ts`/`marketplaceWebhook.test.ts`/`marketplaceSyncResultsWorker.test.ts` (api-core, cobrindo o novo shape de mensagem e a persistência de `refreshed_tokens`) + 12 em `lambda-marketplace` (`mercadolivre.test.ts`, `marketplaceSyncService.test.ts` — token refresh, sync de preço/estoque, mapeamento de pedido, propagação de erro para retry do SQS).
+>
+> **Sem `terraform apply` nesta sessão** — arquivos `.tf` validados localmente (`terraform validate`/`fmt`), aplicação real acontece pelo pipeline `deploy.yml` já existente quando mergeado, ou manualmente quando as credenciais do app do Mercado Livre estiverem configuradas nos GitHub Secrets (`TF_VAR_MERCADO_LIVRE_CLIENT_ID`/`_SECRET`).
+
 ### v21.0 — Integração Mercado Livre (Fase 1 — api-core)
 
 > **Migration 0048.** Novas tabelas `marketplace_connections` (conexão OAuth por EMPRESA — `nfe_configs`, não por tenant), `material_marketplace_links` (vínculo material↔anúncio, N por conexão) e `marketplace_webhook_events` (append-only, idempotente por `topic+resource`). `orders` ganha `marketplace_order_id` e `origin` (`'erp'`|`'mercadolivre'`), nullable/aditivo.
 >
-> **Implementação em duas fases, deliberada:** esta versão entrega só o módulo **api-core** — migration, domínio, serviços, rotas, worker in-process e testes unitários, 100% verificável sem AWS real. O Lambda `lambda-marketplace`, a infraestrutura Terraform (SQS, KMS, ECR, IAM) e o CI/CD ficam para a Fase 2, quando houver credenciais reais do Mercado Livre para validar o fluxo OAuth de ponta a ponta. Até lá, tudo que dependeria da fila SQS é um no-op deliberado (mesmo padrão de graceful-degradation já usado em toda emissão fiscal/boleto quando a fila não está configurada) — conectar/desconectar conta e vincular material a anúncio funcionam hoje, de ponta a ponta.
+> **Implementação em duas fases, deliberada:** esta versão entrega só o módulo **api-core** — migration, domínio, serviços, rotas, worker in-process e testes unitários, 100% verificável sem AWS real. O Lambda `lambda-marketplace`, a infraestrutura Terraform (SQS, ECR, IAM) e o CI/CD ficam para a Fase 2, quando houver credenciais reais do Mercado Livre para validar o fluxo OAuth de ponta a ponta. Até lá, tudo que dependeria da fila SQS é um no-op deliberado (mesmo padrão de graceful-degradation já usado em toda emissão fiscal/boleto quando a fila não está configurada) — conectar/desconectar conta e vincular material a anúncio funcionam hoje, de ponta a ponta. **Atualização: a Fase 2 foi concluída na v22.0.**
 >
 > **OAuth2 sem tabela de state:** `signState`/`verifyState` (`marketplaceDomain.ts`) assinam o `company_id` com HMAC-SHA256 + timestamp (expira em 10 min) — o parâmetro `state` da URL de autorização carrega a própria empresa, revalidado no callback antes de confiar nele. O callback (`GET /v1/public/integrations/mercadolivre/callback`) é público — o Mercado Livre redireciona o navegador do usuário, sem JWT — e sempre termina em redirect de volta ao app.
 >

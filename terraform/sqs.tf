@@ -112,6 +112,55 @@ resource "aws_cloudwatch_metric_alarm" "billing_dlq_depth" {
   tags = { Environment = var.environment }
 }
 
+# ── SQS queues for Mercado Livre marketplace sync (Fase 2) ────────────────────
+# marketplace_sync_requests: api-core (ECS) publica sync_material/fetch_resource
+# → lambda-marketplace consome → publica em marketplace_sync_results
+# → marketplaceSyncResultsWorker (api-core) consome e persiste no Postgres.
+
+resource "aws_sqs_queue" "marketplace_sync_dlq" {
+  name                      = "erp-lite-marketplace-sync-dlq-${var.environment}"
+  message_retention_seconds = 1209600 # 14 days
+  tags                      = { Environment = var.environment }
+}
+
+resource "aws_sqs_queue" "marketplace_sync_requests" {
+  name                       = "erp-lite-marketplace-sync-requests-${var.environment}"
+  visibility_timeout_seconds = 60 # >= Lambda timeout (30s)
+  message_retention_seconds  = 86400
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.marketplace_sync_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = { Environment = var.environment }
+}
+
+resource "aws_sqs_queue" "marketplace_sync_results" {
+  name                       = "erp-lite-marketplace-sync-results-${var.environment}"
+  visibility_timeout_seconds = 60
+  message_retention_seconds  = 86400
+  receive_wait_time_seconds  = 15 # long-poll
+  tags                       = { Environment = var.environment }
+}
+
+resource "aws_cloudwatch_metric_alarm" "marketplace_sync_dlq_depth" {
+  alarm_name          = "erp-lite-marketplace-sync-dlq-${var.environment}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Marketplace sync (Mercado Livre) failed 3× and landed in DLQ — manual intervention required"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = { QueueName = aws_sqs_queue.marketplace_sync_dlq.name }
+
+  tags = { Environment = var.environment }
+}
+
 # ── IAM: ECS task role permissions for SQS ────────────────────────────────────
 resource "aws_iam_role_policy" "ecs_task_sqs" {
   name = "nfe-notifications-billing-sqs"
@@ -144,6 +193,16 @@ resource "aws_iam_role_policy" "ecs_task_sqs" {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.billing_results.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.marketplace_sync_requests.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Resource = aws_sqs_queue.marketplace_sync_results.arn
       }
     ]
   })

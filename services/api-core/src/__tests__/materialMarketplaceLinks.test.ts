@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
 
+const mockSqsSend = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+vi.mock('../lib/sqsClient', () => ({
+  getSqsClient: () => ({ send: mockSqsSend }),
+}));
+
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
   insert: vi.fn(),
@@ -123,5 +128,39 @@ describe('POST /v1/materials/:id/marketplace-links/:linkId/sync', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().enqueued).toBe(false);
+  });
+
+  it('enqueues sync_material with connection tokens + material price/stock embedded, when the queue is configured (Fase 2)', async () => {
+    process.env.MARKETPLACE_SYNC_REQUESTS_QUEUE_URL = 'http://localhost/queue/marketplace-sync-requests';
+
+    mockDb.select
+      .mockReturnValueOnce(moduleEnabled())
+      .mockReturnValueOnce(selectOnce([{
+        id: LINK_ID, connection_id: CONNECTION_ID, material_id: MATERIAL_ID,
+        ml_item_id: 'MLB1', ml_variation_id: null, sync_price: true, sync_stock: true,
+      }])) // getOwnedLink
+      .mockReturnValueOnce(selectOnce([{
+        id: CONNECTION_ID, access_token: 'tok-abc', refresh_token: 'ref-abc',
+        token_expires_at: new Date('2026-01-01T00:00:00Z'),
+      }])) // marketplaceConnections
+      .mockReturnValueOnce(selectOnce([{ sale_price: '99.90' }])) // materials
+      .mockReturnValueOnce(selectOnce([{ quantity: '10.000' }])); // inventory
+    mockDb.update.mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }) });
+
+    const res = await app.inject({
+      method: 'POST', url: `/v1/materials/${MATERIAL_ID}/marketplace-links/${LINK_ID}/sync`,
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().enqueued).toBe(true);
+    expect(mockSqsSend).toHaveBeenCalledTimes(1);
+    const sentBody = JSON.parse(mockSqsSend.mock.calls[0][0].input.MessageBody);
+    expect(sentBody).toMatchObject({
+      type: 'sync_material', tenant_id: TENANT_ID, connection_id: CONNECTION_ID, link_id: LINK_ID,
+      ml_item_id: 'MLB1', sync_price: true, sync_stock: true,
+      price: '99.90', available_quantity: 10,
+      connection: { access_token: 'tok-abc', refresh_token: 'ref-abc' },
+    });
   });
 });

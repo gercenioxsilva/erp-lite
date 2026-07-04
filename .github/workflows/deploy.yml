@@ -12,6 +12,7 @@ env:
   LAMBDA_ECR_REPO:              erp-lite/lambda-fiscal
   LAMBDA_NOTIFICATIONS_ECR_REPO: erp-lite/lambda-notifications
   LAMBDA_BILLING_ECR_REPO:      erp-lite/lambda-billing
+  LAMBDA_MARKETPLACE_ECR_REPO:  erp-lite/lambda-marketplace
   TF_STATE_BUCKET:              erp-lite-terraform-state
 
 jobs:
@@ -86,7 +87,9 @@ jobs:
             -target=aws_ecr_repository.lambda_notifications \
             -target=aws_ecr_lifecycle_policy.lambda_notifications \
             -target=aws_ecr_repository.lambda_billing \
-            -target=aws_ecr_lifecycle_policy.lambda_billing
+            -target=aws_ecr_lifecycle_policy.lambda_billing \
+            -target=aws_ecr_repository.lambda_marketplace \
+            -target=aws_ecr_lifecycle_policy.lambda_marketplace
 
       # ── Compute ECR registry URL from current AWS account ─────────────────────
       # {account_id}.dkr.ecr.{region}.amazonaws.com — no secret needed.
@@ -159,6 +162,20 @@ jobs:
           cache-from: type=gha,scope=lambda-billing
           cache-to: type=gha,mode=max,scope=lambda-billing
 
+      - name: Build and push lambda-marketplace image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/lambda-marketplace
+          push: true
+          # Lambda requires single-platform Docker v2 Schema 2 manifest.
+          platforms: linux/amd64
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_MARKETPLACE_ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.LAMBDA_MARKETPLACE_ECR_REPO }}:latest
+          cache-from: type=gha,scope=lambda-marketplace
+          cache-to: type=gha,mode=max,scope=lambda-marketplace
+
       # ── Terraform Apply: full infra + ECS rolling deploy ─────────────────────
       # TF_VAR_image_tag sets var.image_tag → new task definition revision →
       # aws_ecs_service updates to the new revision → rolling deploy starts.
@@ -177,6 +194,9 @@ jobs:
           TF_VAR_lambda_billing_image_tag:            ${{ github.sha }}
           TF_VAR_itau_client_id:                      ${{ secrets.TF_VAR_ITAU_CLIENT_ID }}
           TF_VAR_itau_client_secret:                  ${{ secrets.TF_VAR_ITAU_CLIENT_SECRET }}
+          TF_VAR_lambda_marketplace_image_tag:        ${{ github.sha }}
+          TF_VAR_mercado_livre_client_id:             ${{ secrets.TF_VAR_MERCADO_LIVRE_CLIENT_ID }}
+          TF_VAR_mercado_livre_client_secret:         ${{ secrets.TF_VAR_MERCADO_LIVRE_CLIENT_SECRET }}
         run: terraform apply -auto-approve
 
       # ── Read Terraform outputs (single step, post-apply) ─────────────────────
@@ -196,8 +216,10 @@ jobs:
           echo "lambda_fiscal=$(terraform output -raw lambda_fiscal_name)"       >> $GITHUB_OUTPUT
           echo "lambda_notif=$(terraform output -raw lambda_notifications_name)" >> $GITHUB_OUTPUT
           echo "lambda_billing=$(terraform output -raw lambda_billing_name)"     >> $GITHUB_OUTPUT
+          echo "lambda_marketplace=$(terraform output -raw lambda_marketplace_name)" >> $GITHUB_OUTPUT
           echo "notif_dlq=$(terraform output -raw notifications_dlq_url)"        >> $GITHUB_OUTPUT
           echo "nfe_dlq=$(terraform output -raw nfe_dlq_url)"                   >> $GITHUB_OUTPUT
+          echo "marketplace_dlq=$(terraform output -raw marketplace_sync_dlq_url)" >> $GITHUB_OUTPUT
 
       # ── Force Lambda image update + wait ─────────────────────────────────────
       # Terraform updates the Lambda's image_uri config, but the update is
@@ -227,6 +249,12 @@ jobs:
             --image-uri "${REGISTRY}/${{ env.LAMBDA_BILLING_ECR_REPO }}:${{ github.sha }}" \
             --no-cli-pager
 
+          echo "Updating lambda-marketplace → ${{ steps.tf.outputs.lambda_marketplace }}"
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.lambda_marketplace }}" \
+            --image-uri "${REGISTRY}/${{ env.LAMBDA_MARKETPLACE_ECR_REPO }}:${{ github.sha }}" \
+            --no-cli-pager
+
           echo "Waiting for Lambda functions to be active..."
           aws lambda wait function-updated \
             --function-name "${{ steps.tf.outputs.lambda_fiscal }}"
@@ -239,6 +267,10 @@ jobs:
           aws lambda wait function-updated \
             --function-name "${{ steps.tf.outputs.lambda_billing }}"
           echo "✓ lambda-billing ready"
+
+          aws lambda wait function-updated \
+            --function-name "${{ steps.tf.outputs.lambda_marketplace }}"
+          echo "✓ lambda-marketplace ready"
 
           echo "All Lambda functions updated and active."
 
@@ -336,6 +368,7 @@ jobs:
           check_lambda_logs "${{ steps.tf.outputs.lambda_fiscal }}"
           check_lambda_logs "${{ steps.tf.outputs.lambda_notif }}"
           check_lambda_logs "${{ steps.tf.outputs.lambda_billing }}"
+          check_lambda_logs "${{ steps.tf.outputs.lambda_marketplace }}"
 
       # ── DLQ health check ──────────────────────────────────────────────────────
       # If there are messages in DLQ after deploy it means Lambda failed 3×.
@@ -358,8 +391,9 @@ jobs:
             fi
           }
 
-          check_dlq "notifications-dlq" "${{ steps.tf.outputs.notif_dlq }}"
-          check_dlq "nfe-dlq"           "${{ steps.tf.outputs.nfe_dlq }}"
+          check_dlq "notifications-dlq"    "${{ steps.tf.outputs.notif_dlq }}"
+          check_dlq "nfe-dlq"              "${{ steps.tf.outputs.nfe_dlq }}"
+          check_dlq "marketplace-sync-dlq" "${{ steps.tf.outputs.marketplace_dlq }}"
 
       # ── Build backoffice ──────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
