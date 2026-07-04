@@ -110,6 +110,26 @@ variable "itau_client_secret" {
   default     = ""
 }
 
+variable "lambda_marketplace_image_tag" {
+  description = "Docker image tag for lambda-marketplace (ECR)"
+  type        = string
+  default     = "latest"
+}
+
+variable "mercado_livre_client_id" {
+  description = "Mercado Livre app client_id (OAuth2 authorization_code — um único app, compartilhado por todas as conexões/empresas)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mercado_livre_client_secret" {
+  description = "Mercado Livre app client_secret (OAuth2 authorization_code)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "app_public_origins" {
   description = <<-EOT
     Origens (scheme+host) autorizadas a fazer upload direto no bucket de fotos

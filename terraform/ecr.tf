@@ -60,3 +60,15 @@ resource "aws_ecr_lifecycle_policy" "lambda_billing" {
   repository = aws_ecr_repository.lambda_billing.name
   policy     = local.ecr_lifecycle_policy
 }
+
+resource "aws_ecr_repository" "lambda_marketplace" {
+  name                 = "erp-lite/lambda-marketplace"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+  tags = { Environment = var.environment }
+}
+
+resource "aws_ecr_lifecycle_policy" "lambda_marketplace" {
+  repository = aws_ecr_repository.lambda_marketplace.name
+  policy     = local.ecr_lifecycle_policy
+}

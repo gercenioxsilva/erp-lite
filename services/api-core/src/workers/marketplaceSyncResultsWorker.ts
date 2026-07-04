@@ -1,26 +1,16 @@
-// Consumidor da fila marketplace-sync-results (Fase 2 — Lambda ainda não
-// existe). Mesmo molde de boletoResultsWorker.ts: long-poll in-process no ECS,
-// desabilitado (log + no-op) quando a fila não está configurada — hoje, em
-// qualquer ambiente, já que a fila é Terraform/Fase 2. Fica pronto e testável
-// para quando a Fase 2 publicar mensagens de verdade.
+// Consumidor da fila marketplace-sync-results (Fase 2 — populada pelo
+// lambda-marketplace). Mesmo molde de boletoResultsWorker.ts: long-poll
+// in-process no ECS, desabilitado (log + no-op) quando a fila não está
+// configurada.
 
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, orders, orderItems, clients, materialMarketplaceLinks } from '../db';
-import { mapMlOrderToErpOrder, MarketplaceDomainError, type MlOrder } from '../domain/marketplace/marketplaceDomain';
+import { db, orders, orderItems, clients, materialMarketplaceLinks, marketplaceConnections } from '../db';
+import { mapMlOrderToErpOrder, MarketplaceDomainError } from '../domain/marketplace/marketplaceDomain';
+import type { MarketplaceSyncResultMessage } from '../lib/marketplace-types';
 
-export interface MarketplaceSyncResultMessage {
-  type: 'order_import' | 'sync_material';
-  tenant_id: string;
-  connection_id: string;
-  // order_import
-  ml_order?: MlOrder;
-  // sync_material
-  link_id?: string;
-  status?: 'active' | 'error';
-  error_reason?: string;
-}
+export type { MarketplaceSyncResultMessage };
 
 let running = true;
 
@@ -79,7 +69,28 @@ async function getOrCreateMarketplaceClient(tenantId: string): Promise<string> {
   return created.id;
 }
 
-async function processResult(result: MarketplaceSyncResultMessage): Promise<void> {
+/**
+ * O refresh_token do Mercado Livre é de uso único — se o Lambda renovou o
+ * token durante o processamento (em qualquer um dos dois fluxos), o novo par
+ * precisa ser persistido aqui, senão a próxima chamada usaria um
+ * refresh_token já invalidado pela própria API do ML.
+ */
+async function persistRefreshedTokens(result: MarketplaceSyncResultMessage): Promise<void> {
+  if (!result.refreshed_tokens) return;
+  await db.update(marketplaceConnections).set({
+    access_token: result.refreshed_tokens.access_token,
+    refresh_token: result.refreshed_tokens.refresh_token,
+    token_expires_at: new Date(result.refreshed_tokens.token_expires_at),
+    last_refreshed_at: new Date(),
+  }).where(and(eq(marketplaceConnections.id, result.connection_id), eq(marketplaceConnections.tenant_id, result.tenant_id)));
+}
+
+// Exportado só para teste unitário direto (mesmo racional de expor um pouco
+// mais de superfície do que os outros workers in-process — a persistência de
+// refreshed_tokens é sensível o bastante para merecer cobertura isolada).
+export async function processResult(result: MarketplaceSyncResultMessage): Promise<void> {
+  await persistRefreshedTokens(result);
+
   if (result.type === 'sync_material') {
     if (!result.link_id) return;
     await db.update(materialMarketplaceLinks).set({
