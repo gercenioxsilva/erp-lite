@@ -27,6 +27,23 @@ import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 import { ProposalPrintPage }  from './pages/proposals/ProposalPrintPage';
 import { ReportsPage }            from './pages/reports/ReportsPage';
 import { DREPage }                from './pages/reports/DREPage';
+import { CashflowPage }          from './pages/reports/CashflowPage';
+import { AgingPage }             from './pages/reports/AgingPage';
+import { ExpensesPage }          from './pages/reports/ExpensesPage';
+import { PosCashReportPage }     from './pages/reports/PosCashReportPage';
+import { OverduePage }           from './pages/reports/OverduePage';
+import { TopProductsPage }       from './pages/reports/TopProductsPage';
+import { CommissionsPage }       from './pages/reports/CommissionsPage';
+import { SalesPage }                     from './pages/reports/SalesPage';
+import { ProposalsFunnelPage }           from './pages/reports/ProposalsFunnelPage';
+import { PosPaymentsPage }               from './pages/reports/PosPaymentsPage';
+import { StockPositionPage }             from './pages/reports/StockPositionPage';
+import { AbcPage }                       from './pages/reports/AbcPage';
+import { KardexPage }                    from './pages/reports/KardexPage';
+import { TechnicianProductivityPage }    from './pages/reports/TechnicianProductivityPage';
+import { RecurringRevenuePage }          from './pages/reports/RecurringRevenuePage';
+import { SupplierSpendPage }             from './pages/reports/SupplierSpendPage';
+import { TaxSummaryPage }                from './pages/reports/TaxSummaryPage';
 import { PurchaseOrdersPage }     from './pages/purchasing/PurchaseOrdersPage';
 import { SupplierInvoicesPage }   from './pages/purchasing/SupplierInvoicesPage';
 import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
@@ -69,7 +86,24 @@ function GuardedRoutes() {
         <Route path="/contracts"   element={<ContractsPage />} />
         <Route path="/nfse"        element={<NfsePage />} />
         <Route path="/proposals"       element={<ProposalsPage />} />
-        <Route path="/reports"         element={<ReportsPage />} />
+        <Route path="/reports"              element={<ReportsPage />} />
+        <Route path="/reports/cashflow"     element={<CashflowPage />} />
+        <Route path="/reports/aging"        element={<AgingPage />} />
+        <Route path="/reports/expenses"     element={<ExpensesPage />} />
+        <Route path="/reports/pos-cash"     element={<PosCashReportPage />} />
+        <Route path="/reports/overdue"      element={<OverduePage />} />
+        <Route path="/reports/top-products" element={<TopProductsPage />} />
+        <Route path="/reports/commissions"  element={<CommissionsPage />} />
+        <Route path="/reports/sales"                    element={<SalesPage />} />
+        <Route path="/reports/proposals-funnel"         element={<ProposalsFunnelPage />} />
+        <Route path="/reports/pos-payments"             element={<PosPaymentsPage />} />
+        <Route path="/reports/stock-position"           element={<StockPositionPage />} />
+        <Route path="/reports/abc"                      element={<AbcPage />} />
+        <Route path="/reports/kardex"                   element={<KardexPage />} />
+        <Route path="/reports/technician-productivity"  element={<TechnicianProductivityPage />} />
+        <Route path="/reports/recurring-revenue"        element={<RecurringRevenuePage />} />
+        <Route path="/reports/supplier-spend"           element={<SupplierSpendPage />} />
+        <Route path="/reports/tax-summary"              element={<TaxSummaryPage />} />
         <Route path="/cost-centers"     element={<CostCentersPage />} />
         <Route path="/cost-centers/:id" element={<CostCenterDetailPage />} />
         <Route path="/sellers"     element={<SellersPage />} />
