@@ -234,6 +234,16 @@ const en: Record<TKey, string> = {
   'mi.imgUploadErr': 'Error uploading image.',
   'mi.imgHint':      'JPEG, PNG or WebP · max 500 KB per image · max 5 images per product',
 
+  // ── Mercado Livre (regra 42) ────────────────────────────────────────────────
+  'ml.title':       'Mercado Livre',
+  'ml.noLinks':     'No linked listings yet.',
+  'ml.store':       'Store',
+  'ml.selectStore': 'Select the store…',
+  'ml.itemId':      'Listing ID (optional)',
+  'ml.addLink':     'Link listing',
+  'ml.sync':        'Sync',
+  'ml.errSave':     'Error saving the Mercado Livre link.',
+
   // NF-e Taxes
   'tax.regime':      'Tax regime',
   'tax.regimeLLP':   'Lucro Presumido',
@@ -1178,6 +1188,22 @@ const en: Record<TKey, string> = {
   'pos.caixa.sangriaTitle':   'Cash Out',
   'pos.caixa.suprimentoTitle':'Cash In',
 
+  // ── Integrations (My Company) ──────────────────────────────────────────────
+  'comp.tabIntegrations':         'Integrations',
+  'comp.integrations.title':      'Marketplace integrations',
+  'comp.integrations.subtitle':   'Connect one Mercado Livre account per CNPJ — each company has its own store.',
+  'comp.integrations.moduleDisabled': 'Enable the "Mercado Livre Integration" module in the Modules tab to connect an account.',
+  'comp.integrations.connected':    'Connected',
+  'comp.integrations.disconnected': 'Not connected',
+  'comp.integrations.account':      'Account',
+  'comp.integrations.connect':      'Connect',
+  'comp.integrations.disconnect':   'Disconnect',
+  'comp.integrations.connectedOk':  'Mercado Livre account connected successfully!',
+  'comp.integrations.connectError': 'Could not connect the Mercado Livre account.',
+  'comp.integrations.errLoad':      'Error loading integrations.',
+  'comp.integrations.errConnect':   'Error starting the Mercado Livre connection.',
+  'comp.integrations.errDisconnect':'Error disconnecting.',
+
   // ── Optional modules (My Company) ──────────────────────────────────────────
   'comp.tabModules':            'Modules',
   'comp.modules.title':         'Optional modules',
@@ -1188,6 +1214,8 @@ const en: Record<TKey, string> = {
   'comp.modules.multiEmpresaDesc':  'Lets you register more than one CNPJ (legal entity) on the same account and choose which company issues each invoice, service invoice or contract — clients, materials and stock stay shared across companies.',
   'comp.modules.pos':                'POS — Point of Sale',
   'comp.modules.posDesc':            'Full checkout front end: terminals, cash session open/close, sales with multiple payment methods and NFC-e receipt issuance.',
+  'comp.modules.mercadolivre':     'Mercado Livre Integration',
+  'comp.modules.mercadolivreDesc': 'Connects one Mercado Livre account per CNPJ, links products to listings and imports orders automatically (Phase 1: connection and linking — automatic sync ships in Phase 2).',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',

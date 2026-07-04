@@ -76,7 +76,9 @@ export function CompanyPage() {
   const { tenantId } = useAuth();
   const { t }        = useI18n();
 
-  const [tab, setTab]           = useState<'general' | 'banking' | 'fiscal' | 'notifications' | 'modules'>('general');
+  const [tab, setTab] = useState<'general' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations'>(
+    () => (new URLSearchParams(window.location.search).get('ml_status') ? 'integrations' : 'general'),
+  );
   const [tenant, setTenant]     = useState<Tenant | null>(null);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -127,6 +129,15 @@ export function CompanyPage() {
   // null = empresa padrão (fluxo legado /v1/nfe-config) · 'new' = criando nova
   // empresa · id = editando uma empresa específica não-padrão via /v1/companies/:id
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | 'new' | null>(null);
+
+  // Fallback: se o tenant nunca configurou nenhuma conta bancária ainda,
+  // bankAccounts vem vazio e não há de onde inferir bankingCompanyId a partir
+  // dele — usa a empresa padrão assim que companies carregar, senão "+ Nova
+  // Conta" nunca teria um company_id para enviar no POST.
+  useEffect(() => {
+    if (bankingCompanyId || companies.length === 0) return;
+    setBankingCompanyId(companies.find(c => c.is_default)?.id ?? companies[0]?.id ?? null);
+  }, [companies, bankingCompanyId]);
 
   const [notifForm, setNotifForm]     = useState({ notify_receivable_due_days: 3 });
   const [notifSaving, setNotifSaving] = useState(false);
@@ -532,7 +543,7 @@ export function CompanyPage() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'banking', 'fiscal', 'notifications', 'modules'] as const).map(key => (
+        {(['general', 'banking', 'fiscal', 'notifications', 'integrations', 'modules'] as const).map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -540,7 +551,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : t('comp.tabModules')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : key === 'integrations' ? t('comp.tabIntegrations') : t('comp.tabModules')}
           </button>
         ))}
       </div>
@@ -760,23 +771,29 @@ export function CompanyPage() {
           )}
           {(() => {
             const accountsForCompany = bankAccounts.filter(a => a.company_id === bankingCompanyId);
-            if (accountsForCompany.length <= 1) return null;
             return (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-                <button type="button"
-                  className={`btn btn-sm ${selectedBankAccountId === null ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ width: 'auto' }}
-                  onClick={() => selectBankAccount(null)}>
-                  {accountsForCompany.find(a => a.is_default)?.label || t('comp.bank.defaultAccount')}
-                </button>
-                {accountsForCompany.filter(a => !a.is_default).map(a => (
-                  <button key={a.id} type="button"
-                    className={`btn btn-sm ${selectedBankAccountId === a.id ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ width: 'auto' }}
-                    onClick={() => selectBankAccount(a.id)}>
-                    {a.label || `${a.bank_code} · ${a.agency}/${a.account}`}
-                  </button>
-                ))}
+                {accountsForCompany.length > 1 && (
+                  <>
+                    <button type="button"
+                      className={`btn btn-sm ${selectedBankAccountId === null ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ width: 'auto' }}
+                      onClick={() => selectBankAccount(null)}>
+                      {accountsForCompany.find(a => a.is_default)?.label || t('comp.bank.defaultAccount')}
+                    </button>
+                    {accountsForCompany.filter(a => !a.is_default).map(a => (
+                      <button key={a.id} type="button"
+                        className={`btn btn-sm ${selectedBankAccountId === a.id ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ width: 'auto' }}
+                        onClick={() => selectBankAccount(a.id)}>
+                        {a.label || `${a.bank_code} · ${a.agency}/${a.account}`}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {/* Sempre visível — é assim que se cria a 2ª+ conta (sem isso, ninguém
+                    consegue sair de "1 conta só", já que os seletores acima só
+                    aparecem quando já existe mais de uma). */}
                 <button type="button"
                   className={`btn btn-sm ${selectedBankAccountId === 'new' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ width: 'auto' }}
@@ -786,14 +803,6 @@ export function CompanyPage() {
               </div>
             );
           })()}
-          {companies.length > 1 && bankAccounts.filter(a => a.company_id === bankingCompanyId).length <= 1 && (
-            <div style={{ marginBottom: 16 }}>
-              <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-                onClick={() => selectBankAccount('new')}>
-                + {t('comp.bank.newAccount')}
-              </button>
-            </div>
-          )}
 
           <div className="card" style={{ padding: 24 }}>
             <form onSubmit={handleBankSave} noValidate>
@@ -1198,7 +1207,135 @@ export function CompanyPage() {
         </div>
       )}
 
+      {tab === 'integrations' && <IntegrationsTab />}
       {tab === 'modules' && <ModulesTab />}
+    </div>
+  );
+}
+
+// ── Integrações (Mercado Livre) ──────────────────────────────────────────────
+// Uma conexão OAuth é por EMPRESA, não por tenant (regra 42) — cada CNPJ pode
+// ter sua própria loja no Mercado Livre. Backend é sempre a autoridade
+// (requireModule em cada rota gated); esta tela só existe para autoatendimento.
+interface MlConnectionStatus {
+  connected: boolean; status?: string; nickname?: string | null;
+  ml_user_id?: string | null; connected_at?: string | null;
+}
+
+function IntegrationsTab() {
+  const { t } = useI18n();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [mlEnabled, setMlEnabled] = useState(false);
+  const [statusByCompany, setStatusByCompany] = useState<Record<string, MlConnectionStatus>>({});
+  const [loading, setLoading]   = useState(true);
+  const [busyCompanyId, setBusyCompanyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const urlStatus = new URLSearchParams(window.location.search).get('ml_status');
+  const urlReason = new URLSearchParams(window.location.search).get('reason');
+
+  async function load() {
+    setLoading(true); setError('');
+    try {
+      const [compResp, modResp] = await Promise.all([
+        api.get<{ data: Company[] }>('/v1/companies'),
+        api.get<{ available: string[]; enabled: string[] }>('/v1/tenant/modules'),
+      ]);
+      setCompanies(compResp.data);
+      setMlEnabled(modResp.enabled.includes('mercadolivre'));
+
+      const statuses = await Promise.all(compResp.data.map(async c => {
+        try {
+          const s = await api.get<MlConnectionStatus>(`/v1/integrations/mercadolivre/status?company_id=${c.id}`);
+          return [c.id, s] as const;
+        } catch {
+          return [c.id, { connected: false }] as const;
+        }
+      }));
+      setStatusByCompany(Object.fromEntries(statuses));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('comp.integrations.errLoad'));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function connect(companyId: string) {
+    setBusyCompanyId(companyId); setError('');
+    try {
+      const r = await api.get<{ authorization_url: string }>(`/v1/integrations/mercadolivre/connect?company_id=${companyId}`);
+      window.location.href = r.authorization_url;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('comp.integrations.errConnect'));
+      setBusyCompanyId(null);
+    }
+  }
+
+  async function disconnect(companyId: string) {
+    setBusyCompanyId(companyId); setError('');
+    try {
+      await api.delete(`/v1/integrations/mercadolivre?company_id=${companyId}`);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('comp.integrations.errDisconnect'));
+    } finally {
+      setBusyCompanyId(null);
+    }
+  }
+
+  if (loading) return <div className="spinner">{t('c.loading')}</div>;
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <h3 style={{ marginBottom: 4 }}>{t('comp.integrations.title')}</h3>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.integrations.subtitle')}</p>
+
+      {urlStatus === 'connected' && (
+        <div role="alert" className="alert alert-success" style={{ marginBottom: 16 }}>{t('comp.integrations.connectedOk')}</div>
+      )}
+      {urlStatus === 'error' && (
+        <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>
+          {t('comp.integrations.connectError')} {urlReason ? `(${urlReason})` : ''}
+        </div>
+      )}
+      {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {!mlEnabled ? (
+        <div className="card" style={{ padding: 20 }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.integrations.moduleDisabled')}</p>
+        </div>
+      ) : (
+        companies.map(c => {
+          const status = statusByCompany[c.id];
+          const connected = status?.connected ?? false;
+          return (
+            <div key={c.id} className="card" style={{ padding: 20, marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <strong>{c.razao_social}</strong>
+                    <span className={`badge ${connected ? 'badge-active' : 'badge-inactive'}`}>
+                      {connected ? t('comp.integrations.connected') : t('comp.integrations.disconnected')}
+                    </span>
+                  </div>
+                  {connected && status?.nickname && (
+                    <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.integrations.account')}: {status.nickname}</p>
+                  )}
+                </div>
+                <button
+                  className={`btn ${connected ? 'btn-secondary' : 'btn-primary'} btn-sm`}
+                  style={{ width: 'auto', flex: 'none' }}
+                  disabled={busyCompanyId === c.id}
+                  onClick={() => connected ? void disconnect(c.id) : void connect(c.id)}
+                >
+                  {busyCompanyId === c.id ? t('c.saving') : connected ? t('comp.integrations.disconnect') : t('comp.integrations.connect')}
+                </button>
+              </div>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -1212,6 +1349,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   service_orders: { titleKey: 'comp.modules.serviceOrders', descKey: 'comp.modules.serviceOrdersDesc' },
   multi_empresa:  { titleKey: 'comp.modules.multiEmpresa',  descKey: 'comp.modules.multiEmpresaDesc' },
   pos:            { titleKey: 'comp.modules.pos',           descKey: 'comp.modules.posDesc' },
+  mercadolivre:   { titleKey: 'comp.modules.mercadolivre',   descKey: 'comp.modules.mercadolivreDesc' },
 };
 
 function ModulesTab() {

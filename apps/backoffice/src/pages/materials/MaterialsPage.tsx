@@ -36,6 +36,13 @@ interface Material {
   tracks_inventory: boolean;
 }
 
+// Mercado Livre (regra 42) — conexão OAuth por empresa, vínculo material↔anúncio.
+interface MlConnection { id: string; company_id: string; status: string; nickname: string | null; }
+interface MlLink {
+  id: string; connection_id: string; ml_item_id: string | null; ml_variation_id: string | null;
+  status: string; sync_price: boolean; sync_stock: boolean;
+}
+
 interface MaterialImage {
   id:         string;
   material_id: string;
@@ -140,6 +147,16 @@ export function MaterialsPage() {
   const [imageError,      setImageError]      = useState('');
   const imgFileRef = useRef<HTMLInputElement>(null);
 
+  // Mercado Livre (regra 42) — módulo opcional, conexão é por empresa/CNPJ.
+  const [mlEnabled,     setMlEnabled]     = useState(false);
+  const [mlConnections, setMlConnections] = useState<MlConnection[]>([]);
+  const [mlLinks,       setMlLinks]       = useState<MlLink[]>([]);
+  const [mlLoading,     setMlLoading]     = useState(false);
+  const [mlError,       setMlError]       = useState('');
+  const [mlSavingLink,  setMlSavingLink]  = useState(false);
+  const [mlNewConnectionId, setMlNewConnectionId] = useState('');
+  const [mlNewItemId,       setMlNewItemId]       = useState('');
+
   // Import state
   const [importOpen,   setImportOpen]   = useState(false);
   const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
@@ -198,6 +215,64 @@ export function MaterialsPage() {
     finally  { setImagesLoading(false); }
   }
 
+  // Mercado Livre — carregado uma vez (módulo + conexões existem no nível do
+  // tenant, não por material). Se o módulo não estiver habilitado ou não
+  // houver nenhuma conexão, a seção fica escondida (progressive disclosure).
+  async function loadMlSetup() {
+    try {
+      const mods = await api.get<{ enabled: string[] }>('/v1/tenant/modules');
+      const enabled = mods.enabled.includes('mercadolivre');
+      setMlEnabled(enabled);
+      if (!enabled) return;
+      const conns = await api.get<{ data: MlConnection[] }>('/v1/integrations/mercadolivre/connections');
+      setMlConnections(conns.data.filter(c => c.status === 'connected'));
+    } catch { /* silent — seção de ML só não aparece */ }
+  }
+  useEffect(() => { void loadMlSetup(); }, []);
+
+  async function loadMlLinks(materialId: string) {
+    setMlLoading(true); setMlError('');
+    try {
+      const resp = await api.get<{ data: MlLink[] }>(`/v1/materials/${materialId}/marketplace-links`);
+      setMlLinks(resp.data);
+    } catch { setMlLinks([]); }
+    finally { setMlLoading(false); }
+  }
+
+  async function handleAddMlLink() {
+    if (!editing || !mlNewConnectionId) return;
+    setMlSavingLink(true); setMlError('');
+    try {
+      await api.post(`/v1/materials/${editing.id}/marketplace-links`, {
+        connection_id: mlNewConnectionId, ml_item_id: mlNewItemId || undefined,
+      });
+      setMlNewConnectionId(''); setMlNewItemId('');
+      await loadMlLinks(editing.id);
+    } catch (err: unknown) {
+      setMlError(err instanceof Error ? err.message : t('ml.errSave'));
+    } finally { setMlSavingLink(false); }
+  }
+
+  async function handleRemoveMlLink(linkId: string) {
+    if (!editing) return;
+    try {
+      await api.delete(`/v1/materials/${editing.id}/marketplace-links/${linkId}`);
+      await loadMlLinks(editing.id);
+    } catch (err: unknown) {
+      setMlError(err instanceof Error ? err.message : t('ml.errSave'));
+    }
+  }
+
+  async function handleSyncMlLink(linkId: string) {
+    if (!editing) return;
+    try {
+      await api.post(`/v1/materials/${editing.id}/marketplace-links/${linkId}/sync`, {});
+      await loadMlLinks(editing.id);
+    } catch (err: unknown) {
+      setMlError(err instanceof Error ? err.message : t('ml.errSave'));
+    }
+  }
+
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY_FORM });
@@ -205,6 +280,7 @@ export function MaterialsPage() {
     setImages([]);
     setImageError('');
     setKitComponents([]);
+    setMlLinks([]); setMlError('');
     void loadPickList();
     setDrawerOpen(true);
   }
@@ -228,6 +304,8 @@ export function MaterialsPage() {
     setEditing(m);
     void loadImages(m.id);
     void loadPickList();
+    void loadMlLinks(m.id);
+    setMlError(''); setMlNewConnectionId(''); setMlNewItemId('');
     if (m.type === 'kit') void loadKitComponents(m.id);
     else setKitComponents([]);
     setForm({
@@ -771,6 +849,68 @@ export function MaterialsPage() {
                     )}
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                       {t('mi.imgHint')}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Mercado Livre (regra 42, só no modo edição, módulo habilitado e com conta conectada) ── */}
+                {editing && mlEnabled && mlConnections.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <label style={{ fontWeight: 600, display: 'block', marginBottom: 10 }}>{t('ml.title')}</label>
+
+                    {mlError && <div role="alert" className="alert alert-error" style={{ marginBottom: 10, fontSize: 13 }}>{mlError}</div>}
+
+                    {mlLoading ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                    ) : mlLinks.length === 0 ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 10 }}>{t('ml.noLinks')}</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                        {mlLinks.map(link => {
+                          const conn = mlConnections.find(c => c.id === link.connection_id);
+                          return (
+                            <div key={link.id} className="card" style={{ padding: 12, fontSize: 13 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <strong>{conn?.nickname || t('ml.store')}</strong>
+                                  {link.ml_item_id && <span style={{ color: 'var(--muted)', marginLeft: 8 }}>{link.ml_item_id}</span>}
+                                  <span className={`badge ${link.status === 'active' ? 'badge-active' : 'badge-inactive'}`} style={{ marginLeft: 8 }}>
+                                    {link.status}
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                    onClick={() => void handleSyncMlLink(link.id)}>{t('ml.sync')}</button>
+                                  <button type="button" className="btn btn-danger btn-sm" style={{ width: 'auto' }}
+                                    onClick={() => void handleRemoveMlLink(link.id)}>{t('c.del')}</button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="field-row">
+                      <div className="field">
+                        <label>{t('ml.store')}</label>
+                        <select value={mlNewConnectionId} onChange={e => setMlNewConnectionId(e.target.value)}>
+                          <option value="">{t('ml.selectStore')}</option>
+                          {mlConnections.map(c => <option key={c.id} value={c.id}>{c.nickname || c.id}</option>)}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>{t('ml.itemId')}</label>
+                        <input type="text" value={mlNewItemId} placeholder="MLB123456789"
+                          onChange={e => setMlNewItemId(e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                        disabled={!mlNewConnectionId || mlSavingLink}
+                        onClick={() => void handleAddMlLink()}>
+                        {mlSavingLink ? t('c.saving') : t('ml.addLink')}
+                      </button>
                     </div>
                   </div>
                 )}
