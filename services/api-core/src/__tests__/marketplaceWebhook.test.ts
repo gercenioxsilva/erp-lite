@@ -77,4 +77,35 @@ describe('POST /v1/public/marketplace/mercadolivre/webhook', () => {
     expect(res.statusCode).toBe(200);
     delete process.env.MARKETPLACE_SYNC_REQUESTS_QUEUE_URL;
   });
+
+  it('embeds the connection tokens in the fetch_resource message (Fase 2 — Lambda não acessa o Postgres)', async () => {
+    process.env.MARKETPLACE_SYNC_REQUESTS_QUEUE_URL = 'http://localhost/queue/marketplace-sync-requests';
+    const sendMock = vi.fn().mockResolvedValue({});
+    const { getSqsClient } = await import('../lib/sqsClient');
+    (getSqsClient as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ send: sendMock });
+
+    mockDb.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'evt-3' }]) }),
+    });
+    mockDb.select.mockReturnValueOnce(selectOnce([{
+      id: 'conn-1', tenant_id: 'tenant-1',
+      access_token: 'tok-xyz', refresh_token: 'ref-xyz',
+      token_expires_at: new Date('2026-01-01T00:00:00Z'),
+    }]));
+    mockDb.update.mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }) });
+
+    const res = await app.inject({
+      method: 'POST', url: '/v1/public/marketplace/mercadolivre/webhook',
+      payload: { topic: 'orders_v2', resource: '/orders/789', user_id: 999 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const sentBody = JSON.parse(sendMock.mock.calls[0][0].input.MessageBody);
+    expect(sentBody).toMatchObject({
+      type: 'fetch_resource', tenant_id: 'tenant-1', connection_id: 'conn-1',
+      topic: 'orders_v2', resource: '/orders/789',
+      connection: { access_token: 'tok-xyz', refresh_token: 'ref-xyz' },
+    });
+    delete process.env.MARKETPLACE_SYNC_REQUESTS_QUEUE_URL;
+  });
 });

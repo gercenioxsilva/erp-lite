@@ -66,6 +66,14 @@ function IcoField() {
   );
 }
 
+function IcoReports() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 15h14"/><path d="M5 15V9M9 15V4M13 15v-4"/>
+    </svg>
+  );
+}
+
 function IcoMenu() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -181,7 +189,27 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/payables',     label: t('nav.payables')    },
       { to: '/cost-centers', label: t('nav.costCenters') },
       { to: '/sellers',      label: t('nav.sellers')     },
-      { to: '/dre',          label: t('nav.dre')         },
+    ] },
+    { id: 'reports', label: t('nav.reports'), icon: IcoReports, children: [
+      { to: '/reports',              label: 'Visão geral', end: true },
+      { to: '/reports/cashflow',     label: 'Fluxo de Caixa' },
+      { to: '/reports/aging',        label: 'Aging' },
+      { to: '/reports/expenses',     label: 'Despesas' },
+      { to: '/dre',                  label: t('nav.dre') },
+      { to: '/reports/overdue',      label: 'Inadimplência' },
+      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-cash', label: 'Caixa PDV' }] : []),
+      { to: '/reports/sales',              label: 'Faturamento' },
+      { to: '/reports/top-products',       label: 'Ranking de Produtos' },
+      { to: '/reports/proposals-funnel',   label: 'Funil de Propostas' },
+      { to: '/reports/commissions',        label: 'Comissões' },
+      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-payments', label: 'Formas de Pagamento (PDV)' }] : []),
+      { to: '/reports/stock-position',     label: 'Posição de Estoque' },
+      { to: '/reports/abc',                label: 'Curva ABC' },
+      { to: '/reports/kardex',             label: 'Kardex' },
+      ...(enabledModules.includes('service_orders') ? [{ to: '/reports/technician-productivity', label: 'Produtividade Técnicos' }] : []),
+      { to: '/reports/recurring-revenue',  label: 'Receita Recorrente' },
+      { to: '/reports/supplier-spend',     label: 'Gasto por Fornecedor' },
+      { to: '/reports/tax-summary',        label: 'Apuração de Impostos' },
     ] },
     { id: 'registrations', label: t('nav.group.registrations'), icon: IcoClients, children: [
       { to: '/clients',   label: t('nav.clients')   },
@@ -190,7 +218,6 @@ export function Layout({ children }: { children: ReactNode }) {
     { id: 'admin', label: t('nav.group.admin'), icon: IcoCompany, children: [
       { to: '/users',   label: t('nav.users')   },
       { to: '/company', label: t('nav.company') },
-      { to: '/reports', label: t('nav.reports') },
       { to: '/billing', label: t('nav.billing') },
     ] },
   ];

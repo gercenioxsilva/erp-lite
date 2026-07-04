@@ -11,6 +11,7 @@ import { marketplaceWebhookEvents } from '../db/schema';
 import { getSqsClient } from '../lib/sqsClient';
 import { findConnectionByMlUserId } from './marketplaceConnectionService';
 import { MarketplaceDomainError } from '../domain/marketplace/marketplaceDomain';
+import type { MarketplaceSyncRequestMessage } from '../lib/marketplace-types';
 
 export { MarketplaceDomainError };
 
@@ -84,12 +85,22 @@ export async function ingestWebhook(payload: WebhookPayload, db: DrizzleDB = _db
     return { ok: true, enqueued: false };
   }
 
+  const message: MarketplaceSyncRequestMessage = {
+    type: 'fetch_resource',
+    tenant_id: connection.tenant_id,
+    connection_id: connection.id,
+    connection: {
+      access_token: connection.access_token,
+      refresh_token: connection.refresh_token,
+      token_expires_at: connection.token_expires_at ? connection.token_expires_at.toISOString() : null,
+    },
+    topic: payload.topic,
+    resource: payload.resource,
+  };
+
   await getSqsClient().send(new SendMessageCommand({
     QueueUrl: queueUrl,
-    MessageBody: JSON.stringify({
-      type: 'fetch_resource', tenant_id: connection.tenant_id, connection_id: connection.id,
-      topic: payload.topic, resource: payload.resource,
-    }),
+    MessageBody: JSON.stringify(message),
   }));
 
   await db.update(marketplaceWebhookEvents).set({ status: 'enqueued', processed_at: new Date() })

@@ -7,9 +7,10 @@
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and } from 'drizzle-orm';
 import { db as _db } from '../db';
-import { materialMarketplaceLinks, materials, marketplaceConnections } from '../db/schema';
+import { materialMarketplaceLinks, materials, marketplaceConnections, inventory } from '../db/schema';
 import { getSqsClient } from '../lib/sqsClient';
 import { MarketplaceDomainError } from '../domain/marketplace/marketplaceDomain';
+import type { MarketplaceSyncRequestMessage } from '../lib/marketplace-types';
 
 export { MarketplaceDomainError };
 
@@ -93,9 +94,13 @@ export async function closeLink(tenantId: string, linkId: string, db: DrizzleDB 
 
 /**
  * Pede uma sincronização de preço/estoque para o Mercado Livre. Enfileira em
- * marketplace-sync-requests SE a fila estiver configurada — a Lambda que
- * consome essa fila é Fase 2; até lá, isto é um no-op deliberado (mesmo
- * comportamento de toda emissão fiscal quando a fila não está configurada).
+ * marketplace-sync-requests SE a fila estiver configurada (Fase 2 — o Lambda
+ * lambda-marketplace consome essa fila); sem a fila configurada, continua um
+ * no-op deliberado (mesmo comportamento de toda emissão fiscal).
+ *
+ * O Lambda nunca acessa o Postgres diretamente (mesmo padrão de
+ * BillingEmitMessage.banking) — por isso a mensagem carrega um snapshot dos
+ * tokens da conexão e do preço/estoque atuais do material.
  */
 export async function requestSync(tenantId: string, linkId: string, db: DrizzleDB = _db): Promise<{ enqueued: boolean }> {
   const link = await getOwnedLink(tenantId, linkId, db);
@@ -106,12 +111,36 @@ export async function requestSync(tenantId: string, linkId: string, db: DrizzleD
     return { enqueued: false };
   }
 
+  const [connection] = await db.select().from(marketplaceConnections)
+    .where(eq(marketplaceConnections.id, link.connection_id));
+  if (!connection) throw new MarketplaceDomainError('connection_not_found', { connectionId: link.connection_id });
+
+  const [material] = await db.select({ sale_price: materials.sale_price }).from(materials)
+    .where(eq(materials.id, link.material_id));
+  const [stock] = await db.select({ quantity: inventory.quantity }).from(inventory)
+    .where(eq(inventory.material_id, link.material_id));
+
+  const message: MarketplaceSyncRequestMessage = {
+    type: 'sync_material',
+    tenant_id: tenantId,
+    connection_id: link.connection_id,
+    connection: {
+      access_token: connection.access_token,
+      refresh_token: connection.refresh_token,
+      token_expires_at: connection.token_expires_at ? connection.token_expires_at.toISOString() : null,
+    },
+    link_id: link.id,
+    ml_item_id: link.ml_item_id,
+    ml_variation_id: link.ml_variation_id,
+    sync_price: link.sync_price,
+    sync_stock: link.sync_stock,
+    price: material?.sale_price ?? undefined,
+    available_quantity: stock ? Number(stock.quantity) : undefined,
+  };
+
   await getSqsClient().send(new SendMessageCommand({
     QueueUrl: queueUrl,
-    MessageBody: JSON.stringify({
-      type: 'sync_material', tenant_id: tenantId, link_id: link.id,
-      connection_id: link.connection_id, material_id: link.material_id,
-    }),
+    MessageBody: JSON.stringify(message),
   }));
 
   await db.update(materialMarketplaceLinks).set({ status: 'pending', updated_at: new Date() })

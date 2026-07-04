@@ -82,6 +82,11 @@ output "lambda_billing_name" {
   value       = aws_lambda_function.billing.function_name
 }
 
+output "lambda_marketplace_name" {
+  description = "Lambda marketplace (Mercado Livre) function name (used by CI to force-update and wait)"
+  value       = aws_lambda_function.marketplace.function_name
+}
+
 output "notifications_dlq_url" {
   description = "Notifications DLQ URL (used by CI to check for failed messages)"
   value       = aws_sqs_queue.notifications_dlq.url
@@ -90,4 +95,9 @@ output "notifications_dlq_url" {
 output "nfe_dlq_url" {
   description = "NF-e DLQ URL (used by CI to check for failed messages)"
   value       = aws_sqs_queue.nfe_dlq.url
+}
+
+output "marketplace_sync_dlq_url" {
+  description = "Marketplace sync (Mercado Livre) DLQ URL (used by CI to check for failed messages)"
+  value       = aws_sqs_queue.marketplace_sync_dlq.url
 }
