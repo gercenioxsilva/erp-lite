@@ -223,6 +223,9 @@ export const orders = pgTable('orders', {
   cost_center_id: uuid('cost_center_id'),
   // Vendedor (migration 0036)
   seller_id: uuid('seller_id'),
+  // Mercado Livre (migration 0048, regra 42) — pedido importado de um marketplace
+  marketplace_order_id: varchar('marketplace_order_id', { length: 50 }),
+  origin: varchar('origin', { length: 20 }).notNull().default('erp'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -376,6 +379,67 @@ export const bankAccounts = pgTable('bank_accounts', {
   is_active:  boolean('is_active').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── marketplace_connections ──────────────────────────────────────────────────
+// Conexão OAuth do Mercado Livre — uma por empresa (nfe_configs), não por
+// tenant: uma conta ML é vinculada a um CNPJ específico (regra 42). Segredos em
+// texto puro nesta fase (Fase 1, api-core apenas) — mesmo padrão já usado em
+// bank_accounts.itau_client_secret; envelope encryption via KMS fica pra Fase 2.
+export const marketplaceConnections = pgTable('marketplace_connections', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id,    { onDelete: 'cascade' }),
+  company_id: uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  provider:   varchar('provider', { length: 30 }).notNull().default('mercadolivre'),
+  ml_user_id: varchar('ml_user_id', { length: 50 }),
+  nickname:   varchar('nickname',   { length: 100 }),
+  access_token:  text('access_token'),
+  refresh_token: text('refresh_token'),
+  token_expires_at: timestamp('token_expires_at', { withTimezone: true }),
+  scope:      varchar('scope', { length: 100 }),
+  status:     varchar('status', { length: 20 }).notNull().default('disconnected'),
+  connected_at:      timestamp('connected_at', { withTimezone: true }),
+  connected_by:      uuid('connected_by').references(() => users.id, { onDelete: 'set null' }),
+  disconnected_at:   timestamp('disconnected_at', { withTimezone: true }),
+  last_refreshed_at: timestamp('last_refreshed_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── material_marketplace_links ───────────────────────────────────────────────
+// Vínculo material↔item do Mercado Livre — N por conexão. sync_price/sync_stock
+// controlam se o ERP empurra preço/estoque para aquele anúncio (Fase 2).
+export const materialMarketplaceLinks = pgTable('material_marketplace_links', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id,    { onDelete: 'cascade' }),
+  material_id:   uuid('material_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  connection_id: uuid('connection_id').notNull().references(() => marketplaceConnections.id, { onDelete: 'cascade' }),
+  ml_item_id:      varchar('ml_item_id',      { length: 50 }),
+  ml_variation_id: varchar('ml_variation_id', { length: 50 }),
+  status:     varchar('status', { length: 20 }).notNull().default('pending'),
+  sync_price: boolean('sync_price').notNull().default(true),
+  sync_stock: boolean('sync_stock').notNull().default(true),
+  last_synced_at: timestamp('last_synced_at', { withTimezone: true }),
+  last_error: text('last_error'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── marketplace_webhook_events (append-only) ─────────────────────────────────
+// O payload do webhook nunca é fonte de verdade, só um gatilho (regra 42) —
+// idempotência via UNIQUE(idempotency_key), mesmo padrão de nfe_events.
+export const marketplaceWebhookEvents = pgTable('marketplace_webhook_events', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  provider:       varchar('provider', { length: 30 }).notNull().default('mercadolivre'),
+  ml_user_id:     varchar('ml_user_id', { length: 50 }),
+  topic:          varchar('topic', { length: 50 }),
+  resource:       varchar('resource', { length: 255 }),
+  application_id: varchar('application_id', { length: 50 }),
+  idempotency_key: varchar('idempotency_key', { length: 200 }).notNull(),
+  status:         varchar('status', { length: 20 }).notNull().default('received'),
+  error_message:  text('error_message'),
+  received_at:  timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  processed_at: timestamp('processed_at', { withTimezone: true }),
 });
 
 // ── nfe_events ────────────────────────────────────────────────────────────────
