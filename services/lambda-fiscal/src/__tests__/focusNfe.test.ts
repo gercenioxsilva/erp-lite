@@ -27,7 +27,7 @@ function makeMsg(itens: NfeItem[] = [makeItem()]): NfeEmitMessage {
 }
 
 describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => {
-  it('sends the exact field names documented by the Focus NF-e API, with the 2026 test rates as defaults', () => {
+  it('sends the exact field names documented by the Focus NF-e API, deriving valor from base×aliquota with the 2026 test rates as defaults', () => {
     const payload = buildFocusPayload(makeMsg()) as any;
     const item = payload.items[0];
 
@@ -35,12 +35,31 @@ describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => 
     expect(item.ibs_cbs_classificacao_tributaria).toBe('000001');
     expect(item.ibs_cbs_base_calculo).toBe(1000);
     expect(item.cbs_aliquota).toBe(0.9);
-    expect(item.cbs_valor).toBe(0);
+    expect(item.cbs_valor).toBe(9);       // 1000 * 0.9%
     expect(item.ibs_uf_aliquota).toBe(0.1);
-    expect(item.ibs_uf_valor).toBe(0);
+    expect(item.ibs_uf_valor).toBe(1);    // 1000 * 0.1%
     // Split UF/Município não publicado para 2026 — simplificação documentada.
     expect(item.ibs_mun_aliquota).toBe(0);
     expect(item.ibs_mun_valor).toBe(0);
+  });
+
+  it('[regressão SEFAZ — "Valor do IBS da UF difere do calculado"] nunca confia num ibs_valor/cbs_valor zerado persistido — sempre deriva de base×aliquota', () => {
+    // Reproduz o cenário real de produção: o frontend ainda não envia ibs_rate/
+    // ibs_value ao criar a nota, então invoice_items.ibs_value/cbs_value ficam
+    // '0' — routes/nfe.ts mapeia isso para `undefined` (Number(0) || undefined),
+    // então o item chega aqui SEM ibs_valor/cbs_valor, só com valor_bruto.
+    const payload = buildFocusPayload(makeMsg([makeItem({
+      ibs_aliquota: undefined, ibs_valor: undefined,
+      cbs_aliquota: undefined, cbs_valor: undefined,
+    })])) as any;
+    const item = payload.items[0];
+
+    // Antes do fix, isso era 0 — descasando de ibs_uf_aliquota=0.1 e causando
+    // a rejeição do SEFAZ. Agora precisa bater com base(1000) × aliquota(0.1%).
+    expect(item.ibs_uf_valor).toBe(1);
+    expect(item.cbs_valor).toBe(9);
+    expect(item.ibs_uf_valor).toBe(round2(item.ibs_cbs_base_calculo * item.ibs_uf_aliquota / 100));
+    expect(item.cbs_valor).toBe(round2(item.ibs_cbs_base_calculo * item.cbs_aliquota / 100));
   });
 
   it('uses the class_trib override from the item when provided, splitting the 3-digit CST prefix', () => {
@@ -50,14 +69,16 @@ describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => 
     expect(item.ibs_cbs_classificacao_tributaria).toBe('200001');
   });
 
-  it('forwards the resolved IBS/CBS base/rate/value computed by taxEngine (informational)', () => {
+  it('ignores a passed-in ibs_valor/cbs_valor and always re-derives from base×aliquota (single source of truth at the SEFAZ boundary)', () => {
+    // Mesmo se vier um valor (ex.: calculado por uma versão antiga do
+    // taxEngine, ou adulterado), o Lambda nunca confia — sempre recalcula.
     const payload = buildFocusPayload(makeMsg([makeItem({
-      ibs_base_calculo: 1000, ibs_aliquota: 0.1, ibs_valor: 1,
-      cbs_base_calculo: 1000, cbs_aliquota: 0.9, cbs_valor: 9,
+      ibs_base_calculo: 1000, ibs_aliquota: 0.1, ibs_valor: 999,   // valor deliberadamente errado
+      cbs_base_calculo: 1000, cbs_aliquota: 0.9, cbs_valor: 999,   // valor deliberadamente errado
     })])) as any;
     const item = payload.items[0];
-    expect(item.ibs_uf_valor).toBe(1);
-    expect(item.cbs_valor).toBe(9);
+    expect(item.ibs_uf_valor).toBe(1);  // recalculado, não 999
+    expect(item.cbs_valor).toBe(9);     // recalculado, não 999
   });
 
   it('never changes valor_bruto — IBS/CBS are informational, not additive, in 2026', () => {
@@ -67,3 +88,7 @@ describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => 
     expect(payload.items[0].valor_bruto).toBe(1000);
   });
 });
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
