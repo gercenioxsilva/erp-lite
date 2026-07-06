@@ -207,6 +207,23 @@ export const inventoryMovements = pgTable('inventory_movements', {
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── material_price_history ───────────────────────────────────────────────────
+// Append-only (migration 0050) — nunca UPDATE/DELETE após o insert. Uma linha
+// por evento de mudança de preço (venda e custo juntos geram uma linha só).
+export const materialPriceHistory = pgTable('material_price_history', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id,   { onDelete: 'cascade' }),
+  material_id:       uuid('material_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  sale_price_before: decimal('sale_price_before', { precision: 15, scale: 2 }),
+  sale_price_after:  decimal('sale_price_after',  { precision: 15, scale: 2 }),
+  cost_price_before: decimal('cost_price_before', { precision: 15, scale: 2 }),
+  cost_price_after:  decimal('cost_price_after',  { precision: 15, scale: 2 }),
+  source:            varchar('source', { length: 20 }).notNull(), // 'manual_edit' | 'bulk_import'
+  import_batch_id:   uuid('import_batch_id'),
+  created_by:        uuid('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── orders ────────────────────────────────────────────────────────────────────
 export const orders = pgTable('orders', {
   id:        uuid('id').primaryKey().defaultRandom(),
