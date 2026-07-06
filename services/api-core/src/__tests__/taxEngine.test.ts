@@ -105,6 +105,51 @@ describe('calculateTaxes — lucro_real (não-cumulativo)', () => {
   });
 });
 
+describe('calculateTaxes — IBS/CBS (Reforma Tributária, regra 44)', () => {
+  it('defaults to the 2026 test rates (IBS 0.1% + CBS 0.9%) when not provided', () => {
+    const result = calculateTaxes(BASE);
+    expect(result.lines[0].ibs_rate).toBe(0.1);
+    expect(result.lines[0].ibs_value).toBe(1);   // 1000 * 0.1%
+    expect(result.lines[0].cbs_rate).toBe(0.9);
+    expect(result.lines[0].cbs_value).toBe(9);   // 1000 * 0.9%
+    expect(result.applied_rates.ibs).toBe(0.1);
+    expect(result.applied_rates.cbs).toBe(0.9);
+  });
+
+  it('never adds IBS/CBS into line_total or grand_total — informational only in 2026', () => {
+    const result = calculateTaxes(BASE);
+    expect(result.lines[0].line_total).toBe(1000); // subtotal only, no IPI here
+    expect(result.totals.grand_total).toBe(1000);
+    expect(result.totals.ibs_total).toBe(1);
+    expect(result.totals.cbs_total).toBe(9);
+  });
+
+  it('does not zero IBS/CBS for Simples Nacional/MEI (different legal basis than ICMS/PIS/COFINS)', () => {
+    const result = calculateTaxes({ ...BASE, tax_regime: 'simples_nacional' });
+    expect(result.lines[0].ibs_value).toBe(1);
+    expect(result.lines[0].cbs_value).toBe(9);
+  });
+
+  it('defaults class_trib to "000001" (tributação integral) when no override is given', () => {
+    const result = calculateTaxes(BASE);
+    expect(result.lines[0].class_trib).toBe('000001');
+  });
+
+  it('uses the per-line class_trib override when provided', () => {
+    const result = calculateTaxes({
+      ...BASE,
+      lines: [{ quantity: 10, unit_price: 100, class_trib: '200001' }],
+    });
+    expect(result.lines[0].class_trib).toBe('200001');
+  });
+
+  it('respects custom ibs_rate/cbs_rate resolved by taxCalculationService', () => {
+    const result = calculateTaxes({ ...BASE, ibs_rate: 0.5, cbs_rate: 1.2 });
+    expect(result.lines[0].ibs_value).toBe(5);   // 1000 * 0.5%
+    expect(result.lines[0].cbs_value).toBe(12);  // 1000 * 1.2%
+  });
+});
+
 describe('calculateTaxes — multiple lines', () => {
   it('sums totals across all lines correctly', () => {
     const result = calculateTaxes({

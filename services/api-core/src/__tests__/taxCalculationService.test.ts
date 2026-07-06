@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockGetIcmsRate = vi.fn();
-const mockGetFcpRate  = vi.fn();
+const mockGetIcmsRate   = vi.fn();
+const mockGetFcpRate    = vi.fn();
+const mockGetIbsCbsRates = vi.fn();
 
 vi.mock('../lib/taxRulesResolver', () => ({
-  getIcmsRate: (...args: unknown[]) => mockGetIcmsRate(...args),
-  getFcpRate:  (...args: unknown[]) => mockGetFcpRate(...args),
+  getIcmsRate:    (...args: unknown[]) => mockGetIcmsRate(...args),
+  getFcpRate:     (...args: unknown[]) => mockGetFcpRate(...args),
+  getIbsCbsRates: (...args: unknown[]) => mockGetIbsCbsRates(...args),
 }));
 
 import { resolveAndCalculateTaxes } from '../lib/taxCalculationService';
@@ -23,7 +25,9 @@ const BASE_INPUT = {
 beforeEach(() => {
   mockGetIcmsRate.mockReset();
   mockGetFcpRate.mockReset();
+  mockGetIbsCbsRates.mockReset();
   mockGetFcpRate.mockResolvedValue(0);
+  mockGetIbsCbsRates.mockResolvedValue({ ibsRate: 0.1, cbsRate: 0.9 });
 });
 
 describe('resolveAndCalculateTaxes — intra-state', () => {
@@ -109,5 +113,22 @@ describe('resolveAndCalculateTaxes — uppercases UFs', () => {
     mockGetIcmsRate.mockResolvedValue(18);
     await resolveAndCalculateTaxes({ ...BASE_INPUT, origin_state: 'sp', destination_state: 'sp' }, fakeDb);
     expect(mockGetIcmsRate).toHaveBeenCalledWith('SP', 'SP', fakeDb);
+  });
+});
+
+describe('resolveAndCalculateTaxes — IBS/CBS (Reforma Tributária, regra 44)', () => {
+  it('resolves IBS/CBS rates for the destination UF and passes them into calculateTaxes', async () => {
+    mockGetIcmsRate.mockResolvedValue(18);
+    mockGetIbsCbsRates.mockResolvedValue({ ibsRate: 0.1, cbsRate: 0.9 });
+
+    const result = await resolveAndCalculateTaxes({ ...BASE_INPUT, destination_state: 'RJ' }, fakeDb);
+
+    expect(mockGetIbsCbsRates).toHaveBeenCalledWith('RJ', fakeDb);
+    expect(result.applied_rates.ibs).toBe(0.1);
+    expect(result.applied_rates.cbs).toBe(0.9);
+    // subtotal = 1000 → ibs = 1, cbs = 9 — informativos, nunca somados ao grand_total
+    expect(result.totals.ibs_total).toBe(1);
+    expect(result.totals.cbs_total).toBe(9);
+    expect(result.totals.grand_total).toBe(1000);
   });
 });

@@ -25,12 +25,14 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 type CacheEntry<T> = { value: T; expiresAt: number };
 
-const icmsCache: Map<string, CacheEntry<number>> = new Map();
-const fcpCache:  Map<string, CacheEntry<number>> = new Map();
+const icmsCache:   Map<string, CacheEntry<number>> = new Map();
+const fcpCache:    Map<string, CacheEntry<number>> = new Map();
+const ibsCbsCache: Map<string, CacheEntry<{ ibsRate: number; cbsRate: number }>> = new Map();
 
 export function clearTaxRulesCache(): void {
   icmsCache.clear();
   fcpCache.clear();
+  ibsCbsCache.clear();
 }
 
 function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
@@ -84,6 +86,27 @@ export async function getFcpRate(uf: string, db: DrizzleDB): Promise<number> {
   const rate = rows[0] ? Number(rows[0].rate) : 0;
   setCached(fcpCache, uf, rate);
   return rate;
+}
+
+// ── IBS/CBS — Reforma Tributária (LC 214/2025, migration 0049) ────────────────
+// Sem regra configurada para a UF => alíquotas de teste 2026 (0,1% IBS + 0,9%
+// CBS, fixas por lei para o ano) — nunca bloqueia o cálculo, mesmo espírito de
+// getFcpRate() acima.
+
+export async function getIbsCbsRates(
+  uf: string, db: DrizzleDB,
+): Promise<{ ibsRate: number; cbsRate: number }> {
+  const cached = getCached(ibsCbsCache, uf);
+  if (cached !== undefined) return cached;
+
+  const { rows } = await db.execute<{ ibs_rate: string; cbs_rate: string }>(
+    sql`SELECT ibs_rate, cbs_rate FROM tax_ibs_cbs_rates WHERE uf = ${uf}`
+  );
+  const result = rows[0]
+    ? { ibsRate: Number(rows[0].ibs_rate), cbsRate: Number(rows[0].cbs_rate) }
+    : { ibsRate: 0.1, cbsRate: 0.9 };
+  setCached(ibsCbsCache, uf, result);
+  return result;
 }
 
 // ── ICMS-ST — Substituição Tributária ─────────────────────────────────────────

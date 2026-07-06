@@ -37,6 +37,7 @@ export const taxRoutes: FastifyPluginAsync = async (fastify) => {
                 quantity:   { type: 'number', minimum: 0.001 },
                 unit_price: { type: 'number', minimum: 0 },
                 ipi_rate:   { type: 'number', minimum: 0, maximum: 100, default: 0 },
+                class_trib: { type: 'string' }, // Reforma Tributária (regra 44) — override por linha/material
               },
             },
           },
