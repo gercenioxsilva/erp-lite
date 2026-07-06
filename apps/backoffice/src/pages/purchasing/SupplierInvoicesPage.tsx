@@ -17,6 +17,19 @@ interface SupplierOption { id: string; company_name: string | null; full_name: s
 interface POOption { id: string; number: string; }
 interface ListResp { data: SI[]; total: number; page: number; per_page: number; }
 
+interface UnmatchedSupplier {
+  matched: false; cnpj: string; name: string;
+  street: string | null; street_number: string | null; neighborhood: string | null;
+  city: string | null; state: string | null; zip_code: string | null;
+}
+interface LookupResp {
+  found: boolean;
+  reason?: string;
+  supplier?: { matched: true; id: string; name: string | null } | UnmatchedSupplier;
+  nfe?: { chave: string; numero: string; serie: string; data_emissao: string | null; valor_total: number };
+  items?: Array<{ name: string; ncm_code: string | null; cfop: string | null; unit: string; quantity: number; unit_price: number }>;
+}
+
 const STATUS_TABS = ['all', 'draft', 'confirmed', 'divergence', 'cancelled'] as const;
 type StatusTab = typeof STATUS_TABS[number];
 
@@ -56,6 +69,11 @@ export function SupplierInvoicesPage() {
   const [suppliers,    setSuppliers]    = useState<SupplierOption[]>([]);
   const [pos,          setPOs]          = useState<POOption[]>([]);
 
+  const [keyLookupLoading, setKeyLookupLoading] = useState(false);
+  const [keyLookupMsg, setKeyLookupMsg] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
+  const [keySupplierSuggestion, setKeySupplierSuggestion] = useState<UnmatchedSupplier | null>(null);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
   const perPage = 20;
 
   async function load() {
@@ -88,6 +106,70 @@ export function SupplierInvoicesPage() {
     setFormSupplier(''); setFormPO(''); setFormNfeKey(''); setFormNfeNum('');
     setFormSeries('1'); setFormIssue(''); setFormDue(''); setFormTotal('');
     setFormItems([newItem()]); setFormError(''); setDrawerOpen(true);
+    setKeyLookupMsg(null); setKeySupplierSuggestion(null);
+  }
+
+  async function handleLookupByKey() {
+    const chave = formNfeKey.trim();
+    if (chave.length !== 44) return;
+    setKeyLookupLoading(true); setKeyLookupMsg(null); setKeySupplierSuggestion(null);
+    try {
+      const r = await api.post<LookupResp>('/v1/supplier-invoices/lookup-by-key', { chave_acesso: chave });
+      if (!r.found) {
+        setKeyLookupMsg({ type: 'info', text: r.reason ?? t('si.lookupNotFound') });
+        return;
+      }
+      if (r.nfe) {
+        if (r.nfe.numero) setFormNfeNum(r.nfe.numero);
+        if (r.nfe.serie)  setFormSeries(r.nfe.serie);
+        if (r.nfe.data_emissao) setFormIssue(r.nfe.data_emissao.slice(0, 10));
+        if (r.nfe.valor_total) setFormTotal(String(r.nfe.valor_total));
+      }
+      if (r.items?.length) {
+        setFormItems(r.items.map(it => ({
+          _key: Math.random().toString(36).slice(2), material_id: '',
+          name: it.name, unit: it.unit || 'UN',
+          quantity: String(it.quantity), unit_price: String(it.unit_price),
+        })));
+      }
+      if (r.supplier?.matched) {
+        setFormSupplier(r.supplier.id);
+        setKeyLookupMsg({ type: 'info', text: `${t('si.lookupFilled')} ${t('si.lookupSupplierMatched')} ${r.supplier.name ?? ''}` });
+      } else if (r.supplier) {
+        setKeySupplierSuggestion(r.supplier);
+        setKeyLookupMsg({ type: 'info', text: t('si.lookupFilled') });
+      }
+    } catch (err: unknown) {
+      setKeyLookupMsg({ type: 'error', text: err instanceof Error ? err.message : t('si.lookupError') });
+    } finally {
+      setKeyLookupLoading(false);
+    }
+  }
+
+  async function handleCreateSuggestedSupplier() {
+    if (!keySupplierSuggestion) return;
+    setCreatingSupplier(true);
+    try {
+      const created = await api.post<{ id: string; company_name: string | null }>('/v1/suppliers', {
+        person_type:   'PJ',
+        company_name:  keySupplierSuggestion.name,
+        cnpj:          keySupplierSuggestion.cnpj,
+        street:        keySupplierSuggestion.street,
+        street_number: keySupplierSuggestion.street_number,
+        neighborhood:  keySupplierSuggestion.neighborhood,
+        city:          keySupplierSuggestion.city,
+        state:         keySupplierSuggestion.state,
+        zip_code:      keySupplierSuggestion.zip_code,
+      });
+      setSuppliers(prev => [...prev, { id: created.id, company_name: created.company_name, full_name: null }]);
+      setFormSupplier(created.id);
+      setKeySupplierSuggestion(null);
+      setKeyLookupMsg({ type: 'info', text: t('si.lookupSupplierCreated') });
+    } catch (err: unknown) {
+      modal.error(err);
+    } finally {
+      setCreatingSupplier(false);
+    }
   }
 
   async function handleSave(e: FormEvent) {
@@ -263,8 +345,16 @@ export function SupplierInvoicesPage() {
                 <div className="field-row">
                   <div className="field" style={{ flex: 3 }}>
                     <label>{t('si.nfeKey')}</label>
-                    <input value={formNfeKey} maxLength={44} onChange={e => setFormNfeKey(e.target.value)}
-                      placeholder="44 dígitos" style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input value={formNfeKey} maxLength={44}
+                        onChange={e => { setFormNfeKey(e.target.value); setKeyLookupMsg(null); setKeySupplierSuggestion(null); }}
+                        placeholder="44 dígitos" style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', whiteSpace: 'nowrap' }}
+                        disabled={formNfeKey.trim().length !== 44 || keyLookupLoading}
+                        onClick={() => void handleLookupByKey()}>
+                        {keyLookupLoading ? t('si.lookupLoading') : t('si.lookupButton')}
+                      </button>
+                    </div>
                   </div>
                   <div className="field" style={{ flex: '0 0 100px' }}>
                     <label>{t('si.nfeSeries')}</label>
@@ -275,6 +365,25 @@ export function SupplierInvoicesPage() {
                     <input value={formNfeNum} maxLength={20} onChange={e => setFormNfeNum(e.target.value)} />
                   </div>
                 </div>
+
+                {keyLookupMsg && (
+                  <div className={`alert ${keyLookupMsg.type === 'error' ? 'alert-error' : 'alert-info'}`} style={{ marginBottom: 8 }}>
+                    {keyLookupMsg.text}
+                  </div>
+                )}
+
+                {keySupplierSuggestion && (
+                  <div className="alert alert-info" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <span>
+                      {t('si.lookupSupplierNotFound')}{' '}
+                      <strong>{keySupplierSuggestion.name}</strong> ({keySupplierSuggestion.cnpj})
+                    </span>
+                    <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                      disabled={creatingSupplier} onClick={() => void handleCreateSuggestedSupplier()}>
+                      {creatingSupplier ? t('c.saving') : t('si.lookupCreateSupplier')}
+                    </button>
+                  </div>
+                )}
 
                 <div className="field-row">
                   <div className="field">
