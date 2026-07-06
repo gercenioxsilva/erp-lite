@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
-import { sql } from 'drizzle-orm';
-import { db } from '../db';
+import { sql, eq, and } from 'drizzle-orm';
+import { db, suppliers } from '../db';
 import {
   createSupplierInvoice,
   confirmSupplierInvoice,
   cancelSupplierInvoice,
   SupplierInvoiceDomainError,
 } from '../services/supplierInvoiceService';
+import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
+import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { consultarNFeRecebida } from '../services/fiscal/focusNfe';
 
 export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -107,6 +110,55 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (err instanceof SupplierInvoiceDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
       throw err;
     }
+  });
+
+  /* ── POST /v1/supplier-invoices/lookup-by-key ─────────────────────────────── */
+  // Busca uma NF-e de terceiro (fornecedor → nós) no Focus NF-e pela chave de
+  // acesso, para pré-preencher o formulário. Rota é só leitura: nunca cria
+  // fornecedor nem grava a NF-e de entrada — quem decide isso é o usuário,
+  // via POST /v1/suppliers e POST /v1/supplier-invoices já existentes.
+  fastify.post('/supplier-invoices/lookup-by-key', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { chave_acesso, company_id } = request.body as { chave_acesso?: string; company_id?: string };
+
+    if (!chave_acesso || !/^\d{44}$/.test(chave_acesso))
+      return reply.badRequest('chave_acesso deve ter 44 dígitos numéricos');
+
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenantId, company_id ?? null);
+    } catch (err) {
+      if (err instanceof CompanyDomainError)
+        return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal antes de buscar por chave');
+      throw err;
+    }
+
+    const result = await consultarNFeRecebida(chave_acesso, cfg);
+    if (!result.found) return { found: false, reason: result.reason };
+
+    const cnpj = normalizeCNPJ(result.emitente!.cnpj);
+    const [matched] = await db.select({ id: suppliers.id, company_name: suppliers.company_name })
+      .from(suppliers)
+      .where(and(eq(suppliers.tenant_id, tenantId), eq(suppliers.cnpj, cnpj)));
+
+    return {
+      found: true,
+      supplier: matched
+        ? { matched: true, id: matched.id, name: matched.company_name }
+        : {
+            matched:       false,
+            cnpj,
+            name:          result.emitente!.razao_social,
+            street:        result.emitente!.logradouro ?? null,
+            street_number: result.emitente!.numero ?? null,
+            neighborhood:  result.emitente!.bairro ?? null,
+            city:          result.emitente!.municipio ?? null,
+            state:         result.emitente!.uf ?? null,
+            zip_code:      result.emitente!.cep ?? null,
+          },
+      nfe:   result.nfe,
+      items: result.items,
+    };
   });
 
   /* ── POST /v1/supplier-invoices/:id/cancel ────────────────────────────────── */
