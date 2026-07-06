@@ -59,7 +59,43 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!b.total && b.total !== 0) return reply.badRequest('total é obrigatório');
 
     try {
-      const si = await createSupplierInvoice({ ...b, tenantId, createdBy: userId }, db);
+      // Mapeamento explícito snake_case (payload HTTP) → camelCase (SICreate) —
+      // um `{ ...b }` direto nunca preenchia supplier_id/purchase_order_id/
+      // nfe_key/material_id etc., porque os nomes das chaves nunca batiam com
+      // os campos que o service realmente lê (bug pré-existente, corrigido
+      // aqui: era a causa raiz de "não é possível associar Pedido de Compra"
+      // e de itens nunca ficarem vinculados a um material).
+      const si = await createSupplierInvoice({
+        tenantId,
+        supplierId:       b.supplier_id,
+        supplierName:     b.supplier_name,
+        purchaseOrderId:  b.purchase_order_id,
+        nfeKey:           b.nfe_key,
+        nfeNumber:        b.nfe_number,
+        nfeSeries:        b.nfe_series,
+        issueDate:        b.issue_date,
+        dueDate:          b.due_date,
+        subtotal:         b.subtotal,
+        taxTotal:         b.tax_total,
+        total:            b.total,
+        installments:     b.installments,
+        notes:            b.notes,
+        costCenterId:     b.cost_center_id,
+        createdBy:        userId,
+        items: (b.items as any[]).map(it => ({
+          materialId: it.material_id,
+          name:       it.name,
+          ncmCode:    it.ncm_code,
+          cfop:       it.cfop,
+          unit:       it.unit,
+          quantity:   it.quantity,
+          unit_price: it.unit_price,
+          icmsRate:   it.icms_rate,
+          icmsValue:  it.icms_value,
+          ipiRate:    it.ipi_rate,
+          ipiValue:   it.ipi_value,
+        })),
+      }, db);
       return reply.code(201).send(si);
     } catch (err) {
       if (err instanceof SupplierInvoiceDomainError) return reply.code(422).send({ error: err.code });

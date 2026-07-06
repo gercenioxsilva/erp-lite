@@ -970,6 +970,9 @@ const en: Record<TKey, string> = {
   'si.lookupSupplierNotFound': 'Supplier not registered:',
   'si.lookupCreateSupplier': 'Register this supplier',
   'si.lookupSupplierCreated': 'Supplier registered and selected.',
+  'si.installments':          'Installments',
+  'si.installmentsHint':      'The due date above is for the 1st installment; the others are generated monthly, with the amount split evenly.',
+  'si.installmentsGenerated': 'installments generated.',
 
   // ── DRE Report (P3) ───────────────────────────────────────────────────────
   'nav.dre':                 'P&L Report',
