@@ -1,11 +1,13 @@
-// Focus NF-e HTTP client — NFC-e (modelo 65) only
-// Auth: Basic with FOCUS_NFE_TOKEN as username, empty password
+// Focus NF-e HTTP client — NFC-e (modelo 65) emission + consulta de NF-e
+// recebida (MDe) por chave de acesso.
+// Auth: Basic com o token como username, senha vazia.
 
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { nfeConfigs } from '../../db/schema';
 import { getIcmsRate, getIbsCbsRates } from '../../lib/taxRulesResolver';
+import type { Company } from '../companyService';
 
 const PAYMENT_METHOD_MAP: Record<string, string> = {
   cash:         '01',
@@ -266,4 +268,119 @@ export async function cancelarNFCe(ref: string, justificativa: string): Promise<
   });
   const body = await res.json() as Record<string, unknown>;
   return parseResponse(body);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// NF-e de Entrada — autofill pela chave de acesso (produto MDe do Focus)
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /v2/nfes_recebidas/{chave}.json devolve dados de uma nota onde o CNPJ da
+// empresa consultante é o DESTINATÁRIO (distribuição SEFAZ NFeDistribuicaoDFe).
+// Requer o produto "Manifestação do Destinatário" ativo na conta Focus da
+// empresa — sem isso, ou se a nota ainda não foi distribuída, o Focus responde
+// 404 e aqui isso é tratado como resultado válido (found: false), nunca como
+// erro que bloqueia o cadastro manual da NF-e de entrada.
+
+export interface NFeRecebidaEmitente {
+  cnpj:         string;
+  razao_social: string;
+  logradouro?:  string;
+  numero?:      string;
+  bairro?:      string;
+  municipio?:   string;
+  uf?:          string;
+  cep?:         string;
+}
+
+export interface NFeRecebidaItem {
+  name:       string;
+  ncm_code:   string | null;
+  cfop:       string | null;
+  unit:       string;
+  quantity:   number;
+  unit_price: number;
+}
+
+export interface NFeRecebidaResult {
+  found:     boolean;
+  reason?:   string;
+  emitente?: NFeRecebidaEmitente;
+  nfe?: {
+    chave:        string;
+    numero:       string;
+    serie:        string;
+    data_emissao: string | null;
+    valor_total:  number;
+  };
+  items?: NFeRecebidaItem[];
+}
+
+function focusBaseUrlForAmbiente(ambiente: number): string {
+  return ambiente === 1 ? 'https://api.focusnfe.com.br' : 'https://homologacao.focusnfe.com.br';
+}
+
+export async function consultarNFeRecebida(chave: string, cfg: Company): Promise<NFeRecebidaResult> {
+  const token = cfg.focus_ambiente === 1 ? cfg.focus_token_producao : cfg.focus_token_homologacao;
+  if (!token) {
+    return { found: false, reason: 'Token Focus NF-e não configurado para esta empresa (Empresa → Fiscal)' };
+  }
+
+  const url  = `${focusBaseUrlForAmbiente(cfg.focus_ambiente)}/v2/nfes_recebidas/${encodeURIComponent(chave)}.json`;
+  const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Authorization: auth } });
+  } catch (err) {
+    return { found: false, reason: `Falha ao consultar o Focus NF-e: ${String(err)}` };
+  }
+
+  if (res.status === 404) {
+    return { found: false, reason: 'Nota não encontrada — pode ainda não ter sido distribuída pela SEFAZ ao destinatário, ou o produto Manifestação do Destinatário (MDe) não está ativo para esta empresa' };
+  }
+  if (!res.ok) {
+    return { found: false, reason: `Focus NF-e retornou erro ao consultar a nota (HTTP ${res.status})` };
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await res.json() as Record<string, unknown>;
+  } catch {
+    return { found: false, reason: 'Resposta inválida do Focus NF-e' };
+  }
+
+  const emit = body.emitente as Record<string, unknown> | undefined;
+  if (!emit || typeof emit.cnpj !== 'string') {
+    return { found: false, reason: 'Nota encontrada, mas sem dados de emitente na resposta do Focus NF-e' };
+  }
+
+  const itensRaw = Array.isArray(body.itens) ? body.itens as Array<Record<string, unknown>> : [];
+
+  return {
+    found: true,
+    emitente: {
+      cnpj:         emit.cnpj,
+      razao_social: String(emit.razao_social ?? emit.nome ?? ''),
+      logradouro:   typeof emit.logradouro === 'string' ? emit.logradouro : undefined,
+      numero:       typeof emit.numero     === 'string' ? emit.numero     : undefined,
+      bairro:       typeof emit.bairro     === 'string' ? emit.bairro     : undefined,
+      municipio:    typeof emit.municipio  === 'string' ? emit.municipio  : undefined,
+      uf:           typeof emit.uf         === 'string' ? emit.uf         : undefined,
+      cep:          typeof emit.cep        === 'string' ? emit.cep        : undefined,
+    },
+    nfe: {
+      chave,
+      numero:       String(body.numero ?? ''),
+      serie:        String(body.serie  ?? '1'),
+      data_emissao: typeof body.data_emissao === 'string' ? body.data_emissao : null,
+      valor_total:  Number(body.valor_total ?? 0),
+    },
+    items: itensRaw.map((it) => ({
+      name:       String(it.descricao ?? it.nome ?? 'Item'),
+      ncm_code:   typeof it.ncm === 'string' ? it.ncm : null,
+      cfop:       typeof it.cfop === 'string' ? it.cfop : null,
+      unit:       typeof it.unidade_comercial === 'string' ? it.unidade_comercial : 'UN',
+      quantity:   Number(it.quantidade_comercial ?? 0),
+      unit_price: Number(it.valor_unitario_comercial ?? 0),
+    })),
+  };
 }

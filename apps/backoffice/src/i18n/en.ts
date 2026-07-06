@@ -961,6 +961,15 @@ const en: Record<TKey, string> = {
   'si.purchaseOrder':        'Linked Purchase Order',
   'si.empty':                'No supplier invoices registered.',
   'si.divergenceHint':       'This invoice has quantity or price divergences vs. the linked Purchase Order.',
+  'si.lookupButton':         'Look up by key',
+  'si.lookupLoading':        'Looking up...',
+  'si.lookupFilled':         'Invoice data filled in automatically.',
+  'si.lookupNotFound':       'Could not automatically locate this invoice — it may not have been distributed by SEFAZ yet. Please fill in the data manually below.',
+  'si.lookupError':          'Error looking up the invoice. Please fill in the data manually below.',
+  'si.lookupSupplierMatched': 'Supplier identified:',
+  'si.lookupSupplierNotFound': 'Supplier not registered:',
+  'si.lookupCreateSupplier': 'Register this supplier',
+  'si.lookupSupplierCreated': 'Supplier registered and selected.',
 
   // ── DRE Report (P3) ───────────────────────────────────────────────────────
   'nav.dre':                 'P&L Report',

@@ -959,6 +959,15 @@ const ptBR = {
   'si.purchaseOrder':        'Pedido de Compra vinculado',
   'si.empty':                'Nenhuma NF-e de entrada registrada.',
   'si.divergenceHint':       'Esta NF-e apresenta divergências em relação ao Pedido de Compra vinculado.',
+  'si.lookupButton':         'Buscar dados pela chave',
+  'si.lookupLoading':        'Buscando...',
+  'si.lookupFilled':         'Dados da nota preenchidos automaticamente.',
+  'si.lookupNotFound':       'Não foi possível localizar esta nota automaticamente — ela pode ainda não ter sido distribuída pela SEFAZ. Cadastre os dados manualmente abaixo.',
+  'si.lookupError':          'Erro ao buscar a nota. Cadastre os dados manualmente abaixo.',
+  'si.lookupSupplierMatched': 'Fornecedor identificado:',
+  'si.lookupSupplierNotFound': 'Fornecedor não cadastrado:',
+  'si.lookupCreateSupplier': 'Cadastrar este fornecedor',
+  'si.lookupSupplierCreated': 'Fornecedor cadastrado e selecionado.',
 
   // ── DRE Gerencial (P3) ──────────────────────────────────────────────────
   'nav.dre':                 'DRE Gerencial',
