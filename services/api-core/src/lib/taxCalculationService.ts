@@ -2,7 +2,7 @@
 // (taxEngine) — é aqui que mora a regra de negócio de QUANDO cada coisa se
 // aplica (DIFAL, FCP), não no motor nem no resolver.
 
-import { getIcmsRate, getFcpRate, type DrizzleDB } from './taxRulesResolver';
+import { getIcmsRate, getFcpRate, getIbsCbsRates, type DrizzleDB } from './taxRulesResolver';
 import { calculateTaxes, type TaxRegime, type TaxLine, type TaxResult } from './taxEngine';
 
 export interface ResolveTaxInput {
@@ -21,9 +21,11 @@ export async function resolveAndCalculateTaxes(input: ResolveTaxInput, db: Drizz
   const dest   = input.destination_state.toUpperCase();
   const interstate = origin !== dest;
 
-  const [icmsRate, fcpRate] = await Promise.all([
+  const [icmsRate, fcpRate, ibsCbs] = await Promise.all([
     getIcmsRate(origin, dest, db),
     getFcpRate(dest, db),
+    // IBS é do destino, mesmo racional já usado pra ICMS interno/DIFAL (regra 44).
+    getIbsCbsRates(dest, db),
   ]);
 
   // DIFAL (EC 87/2015, Convênio ICMS 236/2021): venda interestadual para
@@ -48,6 +50,8 @@ export async function resolveAndCalculateTaxes(input: ResolveTaxInput, db: Drizz
     icms_rate:          icmsRate,
     fcp_rate:           fcpRate,
     icms_difal_rate:    difalRate,
+    ibs_rate:           ibsCbs.ibsRate,
+    cbs_rate:           ibsCbs.cbsRate,
     lines:              input.lines,
   });
 }

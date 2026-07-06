@@ -148,6 +148,11 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
         cofins_cst: it.cofins_cst || undefined, cofins_base_calculo: Number(it.cofins_base) || undefined,
         cofins_aliquota_percentual: Number(it.cofins_rate) || undefined, cofins_valor: Number(it.cofins_value) || undefined,
         ipi_aliquota: Number(it.ipi_rate) || undefined, ipi_valor: Number(it.ipi_value) || undefined,
+        // Reforma Tributária — IBS/CBS (regra 44); default '000001' quando o
+        // item não tem override de class_trib (materials.class_trib).
+        class_trib: it.class_trib || '000001',
+        ibs_base_calculo: Number(it.ibs_base) || undefined, ibs_aliquota: Number(it.ibs_rate) || undefined, ibs_valor: Number(it.ibs_value) || undefined,
+        cbs_base_calculo: Number(it.cbs_base) || undefined, cbs_aliquota: Number(it.cbs_rate) || undefined, cbs_valor: Number(it.cbs_value) || undefined,
       })),
       pagamentos: [{ forma_pagamento: '99', valor_pagamento: Number(invoice.total) }],
     };

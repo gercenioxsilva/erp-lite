@@ -172,6 +172,25 @@ function buildItem(item: NfeItem): Record<string, unknown> {
     base.ipi_valor               = item.ipi_valor;
   }
 
+  // IBS/CBS — Reforma Tributária (LC 214/2025). Campos conforme documentação
+  // do Focus NF-e (focusnfe.com.br/guides/reforma-tributaria/). Informativos
+  // em 2026 — o valor_bruto do item não muda.
+  //
+  // Split IBS estado/município: a proporção oficial para a fase de teste 2026
+  // não está publicada — lançamos o valor cheio em ibs_uf_valor e 0 em
+  // ibs_mun_valor (simplificação documentada, não esquecimento; revisar
+  // quando a Receita publicar a proporção oficial).
+  const classTrib = item.class_trib ?? '000001';
+  base.ibs_cbs_situacao_tributaria      = classTrib.slice(0, 3);
+  base.ibs_cbs_classificacao_tributaria = classTrib;
+  base.ibs_cbs_base_calculo             = item.ibs_base_calculo ?? item.valor_bruto;
+  base.cbs_aliquota   = item.cbs_aliquota ?? 0.9;
+  base.cbs_valor      = item.cbs_valor    ?? 0;
+  base.ibs_uf_aliquota = item.ibs_aliquota ?? 0.1;
+  base.ibs_uf_valor    = item.ibs_valor    ?? 0;
+  base.ibs_mun_aliquota = 0;
+  base.ibs_mun_valor    = 0;
+
   return base;
 }
 

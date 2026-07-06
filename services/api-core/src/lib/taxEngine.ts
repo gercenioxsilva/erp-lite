@@ -21,11 +21,17 @@ const PIS_COFINS_BY_REGIME: Record<TaxRegime, { pis: number; cofins: number }> =
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
+// cClassTrib não deriva de NCM/CFOP (depende de contexto/regime) — nunca
+// tentar inferir automaticamente. Default de "tributação integral" quando a
+// linha/material não tem override (materials.class_trib) — regra 44.
+export const DEFAULT_CLASS_TRIB = '000001';
+
 export interface TaxLine {
-  ncm_code?:  string;
-  quantity:   number;
-  unit_price: number;
-  ipi_rate?:  number; // IPI is "por fora" (added on top); defaults to 0
+  ncm_code?:   string;
+  quantity:    number;
+  unit_price:  number;
+  ipi_rate?:   number; // IPI is "por fora" (added on top); defaults to 0
+  class_trib?: string; // Reforma Tributária — override por linha/material; default DEFAULT_CLASS_TRIB
 }
 
 export interface TaxTransaction {
@@ -35,6 +41,8 @@ export interface TaxTransaction {
   icms_rate:          number; // já resolvido (interno ou interestadual) pelo taxCalculationService
   fcp_rate?:          number; // já resolvido — 0 se a UF de destino não tem FCP configurado
   icms_difal_rate?:   number; // já resolvido — 0 se a operação não é DIFAL (EC 87/2015)
+  ibs_rate?:          number; // já resolvido — Reforma Tributária, alíquota de teste 2026 (regra 44)
+  cbs_rate?:          number; // já resolvido — Reforma Tributária, alíquota de teste 2026 (regra 44)
   lines:              TaxLine[];
 }
 
@@ -64,6 +72,16 @@ export interface TaxLineResult {
   ipi_base:      number;
   ipi_rate:      number;
   ipi_value:     number;
+  // IBS/CBS — Reforma Tributária (regra 44). Calculados sobre o mesmo subtotal
+  // do ICMS, mas SEMPRE informativos em 2026 — nunca somados em line_total/
+  // grand_total (são compensáveis com PIS/COFINS este ano, sem cobrança nova).
+  class_trib:    string;
+  ibs_base:      number;
+  ibs_rate:      number;
+  ibs_value:     number;
+  cbs_base:      number;
+  cbs_rate:      number;
+  cbs_value:     number;
   // Summary
   embedded_tax_total: number; // ICMS + FCP + DIFAL + PIS + COFINS (informational; já está dentro do subtotal)
   line_total:         number; // subtotal + ipi_value
@@ -79,6 +97,9 @@ export interface TaxResult {
     pis_total:          number;
     cofins_total:       number;
     ipi_total:          number;
+    // Reforma Tributária — informativos, NUNCA somados em grand_total (regra 44).
+    ibs_total:          number;
+    cbs_total:          number;
     embedded_tax_total: number;
     grand_total:        number; // subtotal + ipi_total
   };
@@ -88,6 +109,8 @@ export interface TaxResult {
     icms_difal:  number;
     pis:         number;
     cofins:      number;
+    ibs:         number;
+    cbs:         number;
   };
   tax_regime:        TaxRegime;
   origin_state:      string;
@@ -125,6 +148,13 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
   const fcpRate   = isSimples ? 0 : (tx.fcp_rate ?? 0);
   const difalRate = isSimples ? 0 : (tx.icms_difal_rate ?? 0);
   const { pis, cofins } = PIS_COFINS_BY_REGIME[tx.tax_regime] ?? PIS_COFINS_BY_REGIME.lucro_presumido;
+  // IBS/CBS (Reforma Tributária) — diferente de ICMS/FCP/DIFAL/PIS/COFINS, NÃO
+  // são zerados para Simples/MEI: são tributos novos, sem a mesma base legal de
+  // imunidade/unificação no DAS que justifica zerar os impostos acima (LC
+  // 214/2025 tem regime diferenciado para o Simples, mas o campo do XML segue
+  // obrigatório). Ver regra 44.
+  const ibsRate = tx.ibs_rate ?? 0.1;
+  const cbsRate = tx.cbs_rate ?? 0.9;
 
   const lines: TaxLineResult[] = tx.lines.map(line => {
     const subtotal  = round2(line.quantity * line.unit_price);
@@ -139,6 +169,12 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
 
     // IPI is "por fora" — computed on subtotal then added to the total
     const ipiValue = round2(subtotal * ipiRate / 100);
+
+    // IBS/CBS — mesma base do ICMS (subtotal), mas nunca entram em embedded_tax_total
+    // nem em line_total: são só informativos em 2026 (regra 44).
+    const ibsValue = round2(subtotal * ibsRate / 100);
+    const cbsValue = round2(subtotal * cbsRate / 100);
+    const classTrib = line.class_trib ?? DEFAULT_CLASS_TRIB;
 
     const embedded = round2(icmsValue + fcpValue + difalValue + pisValue + cofinsValue);
 
@@ -162,13 +198,21 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
       ipi_base:      subtotal,
       ipi_rate:      ipiRate,
       ipi_value:     ipiValue,
+      class_trib:    classTrib,
+      ibs_base:      subtotal,
+      ibs_rate:      ibsRate,
+      ibs_value:     ibsValue,
+      cbs_base:      subtotal,
+      cbs_rate:      cbsRate,
+      cbs_value:     cbsValue,
       embedded_tax_total: embedded,
       line_total:    round2(subtotal + ipiValue),
     };
   });
 
   const ZERO = { subtotal: 0, icms_total: 0, fcp_total: 0, icms_difal_total: 0,
-                 pis_total: 0, cofins_total: 0, ipi_total: 0, embedded_tax_total: 0, grand_total: 0 };
+                 pis_total: 0, cofins_total: 0, ipi_total: 0, ibs_total: 0, cbs_total: 0,
+                 embedded_tax_total: 0, grand_total: 0 };
 
   const totals = lines.reduce((acc, l) => ({
     subtotal:           round2(acc.subtotal           + l.subtotal),
@@ -178,6 +222,8 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
     pis_total:          round2(acc.pis_total          + l.pis_value),
     cofins_total:       round2(acc.cofins_total       + l.cofins_value),
     ipi_total:          round2(acc.ipi_total          + l.ipi_value),
+    ibs_total:          round2(acc.ibs_total          + l.ibs_value),
+    cbs_total:          round2(acc.cbs_total          + l.cbs_value),
     embedded_tax_total: round2(acc.embedded_tax_total + l.embedded_tax_total),
     grand_total:        round2(acc.grand_total        + l.line_total),
   }), ZERO);
@@ -190,6 +236,7 @@ export function calculateTaxes(tx: TaxTransaction): TaxResult {
       fcp:        isSimples ? 0 : fcpRate,
       icms_difal: isSimples ? 0 : difalRate,
       pis, cofins,
+      ibs: ibsRate, cbs: cbsRate,
     },
     tax_regime:        tx.tax_regime,
     origin_state:      tx.origin_state,

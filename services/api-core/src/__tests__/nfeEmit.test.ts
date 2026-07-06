@@ -132,6 +132,38 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     expect(res.json().message).toMatch(/Configure os dados fiscais/);
   });
 
+  it('[Reforma Tributária] inclui class_trib e IBS/CBS por item na mensagem SQS, com default quando ausente (regra 44)', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null }),
+      [{
+        ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00', total: '100.00',
+        class_trib: null, ibs_base: '100.00', ibs_rate: '0.100', ibs_value: '0.10',
+        cbs_base: '100.00', cbs_rate: '0.900', cbs_value: '0.90',
+      }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    const item = sentBody.itens[0];
+    expect(item.class_trib).toBe('000001'); // default — item não tinha override
+    expect(item.ibs_base_calculo).toBe(100);
+    expect(item.ibs_aliquota).toBe(0.1);
+    expect(item.ibs_valor).toBe(0.1);
+    expect(item.cbs_aliquota).toBe(0.9);
+    expect(item.cbs_valor).toBe(0.9);
+  });
+
   it('retorna 404 quando a nota não existe (comportamento inalterado)', async () => {
     mockExecuteByQuery(null, []);
 

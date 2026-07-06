@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { nfeConfigs } from '../../db/schema';
-import { getIcmsRate } from '../../lib/taxRulesResolver';
+import { getIcmsRate, getIbsCbsRates } from '../../lib/taxRulesResolver';
 
 const PAYMENT_METHOD_MAP: Record<string, string> = {
   cash:         '01',
@@ -68,7 +68,10 @@ function parseResponse(body: Record<string, unknown>): FiscalResult {
   };
 }
 
-async function buildNfcePayload(saleId: string, tenantId: string): Promise<Record<string, unknown> | null> {
+// Exportado só para teste unitário direto (evita precisar mockar fetch() /
+// rede pra testar a montagem do payload — mesmo racional já usado em
+// marketplaceSyncResultsWorker.processResult).
+export async function buildNfcePayload(saleId: string, tenantId: string): Promise<Record<string, unknown> | null> {
   const saleRows = await db.execute<{
     id: string; customer_doc: string | null; customer_name: string | null;
     terminal_id: string; total: string;
@@ -85,8 +88,9 @@ async function buildNfcePayload(saleId: string, tenantId: string): Promise<Recor
   const itemRows = await db.execute<{
     description: string; quantity: string; unit_price: string; total: string;
     ncm: string | null; cfop: string | null; cst_csosn: string | null; unit: string | null;
+    class_trib: string | null;
   }>(sql`
-    SELECT description, quantity, unit_price, total, ncm, cfop, cst_csosn, unit
+    SELECT description, quantity, unit_price, total, ncm, cfop, cst_csosn, unit, class_trib
     FROM pos_sale_items WHERE sale_id = ${saleId} ORDER BY created_at
   `);
 
@@ -121,6 +125,16 @@ async function buildNfcePayload(saleId: string, tenantId: string): Promise<Recor
     }
   }
 
+  // Reforma Tributária — IBS/CBS (regra 44). Mesmo padrão de tolerância a
+  // falha do ICMS acima: nunca bloqueia a emissão da NFC-e. Informativo em
+  // 2026 — não altera valor_bruto/valor_total.
+  let ibsCbs = { ibsRate: 0.1, cbsRate: 0.9 };
+  try {
+    ibsCbs = await getIbsCbsRates(cfg.uf, db);
+  } catch (err) {
+    console.warn(`[Focus NF-e] Falha ao resolver alíquotas IBS/CBS para UF ${cfg.uf}: ${String(err)}`);
+  }
+
   const payload: Record<string, unknown> = {
     natureza_operacao: 'Venda a consumidor',
     data_emissao:      new Date().toISOString(),
@@ -143,21 +157,39 @@ async function buildNfcePayload(saleId: string, tenantId: string): Promise<Recor
       email:             cfg.email ?? undefined,
       regime_tributario: cfg.regime_tributario ?? 1,
     },
-    itens: itemRows.rows.map((it, idx) => ({
-      numero_item:              idx + 1,
-      codigo_produto:           String(idx + 1),
-      descricao:                it.description,
-      ncm:                      it.ncm ?? '00000000',
-      cfop:                     it.cfop ?? '5102',
-      unidade_comercial:        it.unit ?? 'UN',
-      quantidade_comercial:     Number(it.quantity),
-      valor_unitario_comercial: Number(it.unit_price),
-      valor_bruto:              Number(it.total),
-      icms_modalidade:          isSimples ? undefined : 0,
-      icms_csosn:               isSimples ? (it.cst_csosn ?? '102') : undefined,
-      icms_cst:                 isSimples ? undefined : (it.cst_csosn ?? '00'),
-      icms_aliquota:            isSimples ? undefined : icmsAliquota,
-    })),
+    itens: itemRows.rows.map((it, idx) => {
+      const classTrib = it.class_trib ?? '000001';
+      const itemTotal = Number(it.total);
+      // Split UF/Município não publicado para a fase de teste 2026 — mesma
+      // simplificação documentada do NF-e (lambda-fiscal/lib/focusNfe.ts).
+      const ibsValor = Math.round(itemTotal * ibsCbs.ibsRate) / 100;
+      const cbsValor = Math.round(itemTotal * ibsCbs.cbsRate) / 100;
+      return {
+        numero_item:              idx + 1,
+        codigo_produto:           String(idx + 1),
+        descricao:                it.description,
+        ncm:                      it.ncm ?? '00000000',
+        cfop:                     it.cfop ?? '5102',
+        unidade_comercial:        it.unit ?? 'UN',
+        quantidade_comercial:     Number(it.quantity),
+        valor_unitario_comercial: Number(it.unit_price),
+        valor_bruto:              itemTotal,
+        icms_modalidade:          isSimples ? undefined : 0,
+        icms_csosn:               isSimples ? (it.cst_csosn ?? '102') : undefined,
+        icms_cst:                 isSimples ? undefined : (it.cst_csosn ?? '00'),
+        icms_aliquota:            isSimples ? undefined : icmsAliquota,
+        // Reforma Tributária — IBS/CBS (regra 44), informativo em 2026.
+        ibs_cbs_situacao_tributaria:      classTrib.slice(0, 3),
+        ibs_cbs_classificacao_tributaria: classTrib,
+        ibs_cbs_base_calculo:             itemTotal,
+        cbs_aliquota:    ibsCbs.cbsRate,
+        cbs_valor:       cbsValor,
+        ibs_uf_aliquota: ibsCbs.ibsRate,
+        ibs_uf_valor:    ibsValor,
+        ibs_mun_aliquota: 0,
+        ibs_mun_valor:    0,
+      };
+    }),
     pagamentos: payRows.rows.map((p) => ({
       forma_pagamento: PAYMENT_METHOD_MAP[p.method] ?? '99',
       valor_pagamento: Number(p.amount),

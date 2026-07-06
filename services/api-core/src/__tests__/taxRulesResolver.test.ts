@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  getIcmsRate, getFcpRate, getStRule, getSimplesEffectiveRate,
+  getIcmsRate, getFcpRate, getStRule, getSimplesEffectiveRate, getIbsCbsRates,
   clearTaxRulesCache, TaxRuleNotFoundError,
 } from '../lib/taxRulesResolver';
 import type { DrizzleDB } from '../lib/taxRulesResolver';
@@ -17,6 +17,7 @@ function makeMockDb(fixtures: {
   fcpRate?:           string;
   stRule?:             { mva_percent: string };
   simplesBracket?:     { aliquota_nominal: string; parcela_deduzir: string };
+  ibsCbsRate?:         { ibs_rate: string; cbs_rate: string };
 }) {
   const execute = vi.fn(async (query: unknown) => {
     const text = queryText(query);
@@ -34,6 +35,9 @@ function makeMockDb(fixtures: {
     }
     if (/tax_simples_nacional_brackets/.test(text)) {
       return { rows: fixtures.simplesBracket ? [fixtures.simplesBracket] : [] };
+    }
+    if (/tax_ibs_cbs_rates/.test(text)) {
+      return { rows: fixtures.ibsCbsRate ? [fixtures.ibsCbsRate] : [] };
     }
     return { rows: [] };
   });
@@ -136,5 +140,28 @@ describe('getSimplesEffectiveRate', () => {
     await expect(getSimplesEffectiveRate(999999999, db)).rejects.toMatchObject({
       code: 'simples_bracket_not_found',
     });
+  });
+});
+
+// ── getIbsCbsRates ────────────────────────────────────────────────────────────
+
+describe('getIbsCbsRates', () => {
+  it('returns the 2026 test-rate defaults (IBS 0.1% + CBS 0.9%) when no rule is configured for the UF', async () => {
+    const { db } = makeMockDb({});
+    const rates = await getIbsCbsRates('SP', db);
+    expect(rates).toEqual({ ibsRate: 0.1, cbsRate: 0.9 });
+  });
+
+  it('returns the configured rate when present', async () => {
+    const { db } = makeMockDb({ ibsCbsRate: { ibs_rate: '0.200', cbs_rate: '1.500' } });
+    const rates = await getIbsCbsRates('RJ', db);
+    expect(rates).toEqual({ ibsRate: 0.2, cbsRate: 1.5 });
+  });
+
+  it('caches the result — second call does not hit the db again', async () => {
+    const { db, execute } = makeMockDb({ ibsCbsRate: { ibs_rate: '0.100', cbs_rate: '0.900' } });
+    await getIbsCbsRates('SP', db);
+    await getIbsCbsRates('SP', db);
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });
