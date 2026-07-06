@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { eq, ilike, or, and, sql, asc } from 'drizzle-orm';
-import { db, materials, inventory, inventoryMovements, materialComponents } from '../db';
+import { eq, ilike, or, and, sql, asc, desc } from 'drizzle-orm';
+import { db, materials, inventory, inventoryMovements, materialComponents, materialPriceHistory } from '../db';
+import { diffMaterialPrice, type MaterialPriceInput } from '../domain/materials/materialPriceHistoryDomain';
+import { recordPriceChangeIfNeeded } from '../services/materials/materialPriceHistoryService';
 
 const materialBody = {
   type: 'object',
@@ -123,12 +125,20 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
         properties: {
           tenant_id: { type: 'string', format: 'uuid' },
           materials: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'object', additionalProperties: true } },
+          // update_existing/dry_run — ver regra de importação de materiais no README.
+          // Opt-in deliberado: sem marcar, o comportamento é idêntico ao de antes
+          // (SKU duplicado é ignorado, nunca atualizado).
+          update_existing: { type: 'boolean', default: false },
+          dry_run:         { type: 'boolean', default: false },
         },
       },
     },
   }, async (request) => {
-    const { tenant_id, materials: rows } =
-      request.body as { tenant_id: string; materials: Record<string, unknown>[] };
+    const { tenant_id, materials: rows, update_existing = false, dry_run = false } =
+      request.body as {
+        tenant_id: string; materials: Record<string, unknown>[];
+        update_existing?: boolean; dry_run?: boolean;
+      };
 
     const toStr  = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s || null; };
     const toNum  = (v: unknown): number | null => { const n = parseFloat(String(v ?? '')); return isFinite(n) ? n : null; };
@@ -138,15 +148,25 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     };
     const VALID_TYPES = new Set(['product', 'service', 'raw_material', 'asset', 'kit']);
 
-    let imported = 0; let skipped = 0;
+    type RowAction = 'created' | 'updated' | 'unchanged' | 'skipped' | 'error';
+    interface RowResult {
+      row: number; sku: string | null; action: RowAction;
+      changes?: { sale_price?: { from: number; to: number }; cost_price?: { from: number; to: number } };
+    }
+
+    let created = 0, updated = 0, unchanged = 0, skipped = 0;
     const errors: { row: number; message: string }[] = [];
+    const resultRows: RowResult[] = [];
+    // Agrupa todas as linhas desta chamada — para "ver o que mudou nesta
+    // importação" no histórico (regra correspondente no README).
+    const importBatchId = crypto.randomUUID();
 
     for (let i = 0; i < rows.length; i++) {
       const b = rows[i]; const row = i + 2;
       const sku  = toStr(b.sku);
       const name = toStr(b.nome);
-      if (!sku)  { errors.push({ row, message: 'Coluna "sku" é obrigatória' });  skipped++; continue; }
-      if (!name) { errors.push({ row, message: 'Coluna "nome" é obrigatória' }); skipped++; continue; }
+      if (!sku)  { errors.push({ row, message: 'Coluna "sku" é obrigatória' });  skipped++; resultRows.push({ row, sku, action: 'skipped' }); continue; }
+      if (!name) { errors.push({ row, message: 'Coluna "nome" é obrigatória' }); skipped++; resultRows.push({ row, sku, action: 'skipped' }); continue; }
 
       const rawType    = String(b.tipo ?? '').trim().toLowerCase().replace(' ', '_');
       const type       = VALID_TYPES.has(rawType) ? rawType : 'product';
@@ -156,34 +176,90 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
       try {
         await db.transaction(async (tx) => {
-          const inserted = await tx.insert(materials).values({
-            tenant_id, sku, name,
-            description: toStr(b.descricao), type, category: toStr(b.categoria),
-            brand: toStr(b.marca), unit: toStr(b.unidade) || 'UN',
-            sale_price: String(toNum(b.preco_venda) ?? 0),
-            cost_price: String(toNum(b.preco_custo) ?? 0),
-            ncm_code: toStr(b.ncm),
-            weight_kg: toNum(b.peso_kg) != null ? String(toNum(b.peso_kg)) : null,
-            is_active: true, tracks_inventory: tracksInv,
-          } as any).onConflictDoNothing().returning({ id: materials.id });
+          const [existing] = await tx.select({
+            id: materials.id, sale_price: materials.sale_price, cost_price: materials.cost_price,
+          }).from(materials).where(and(eq(materials.tenant_id, tenant_id), eq(materials.sku, sku)));
 
-          if (!inserted.length) {
-            errors.push({ row, message: `SKU '${sku}' já cadastrado` }); skipped++;
+          // ── SKU novo — cria (comportamento igual ao de antes) ──────────────
+          if (!existing) {
+            if (dry_run) { created++; resultRows.push({ row, sku, action: 'created' }); return; }
+
+            const inserted = await tx.insert(materials).values({
+              tenant_id, sku, name,
+              description: toStr(b.descricao), type, category: toStr(b.categoria),
+              brand: toStr(b.marca), unit: toStr(b.unidade) || 'UN',
+              sale_price: String(toNum(b.preco_venda) ?? 0),
+              cost_price: String(toNum(b.preco_custo) ?? 0),
+              ncm_code: toStr(b.ncm),
+              weight_kg: toNum(b.peso_kg) != null ? String(toNum(b.peso_kg)) : null,
+              is_active: true, tracks_inventory: tracksInv,
+            } as any).onConflictDoNothing().returning({ id: materials.id });
+
+            if (!inserted.length) {
+              // corrida rara: outra chamada inseriu o mesmo SKU entre o SELECT e o INSERT acima.
+              errors.push({ row, message: `SKU '${sku}' já cadastrado` }); skipped++;
+              resultRows.push({ row, sku, action: 'skipped' });
+              return;
+            }
+            if (tracksInv) {
+              await tx.insert(inventory).values({
+                tenant_id, material_id: inserted[0].id, quantity: '0', min_qty: '0',
+              }).onConflictDoNothing();
+            }
+            created++; resultRows.push({ row, sku, action: 'created' });
             return;
           }
-          if (tracksInv) {
-            await tx.insert(inventory).values({
-              tenant_id, material_id: inserted[0].id, quantity: '0', min_qty: '0',
-            }).onConflictDoNothing();
+
+          // ── SKU já existe, sem opt-in de atualização — comportamento de antes ──
+          if (!update_existing) {
+            errors.push({ row, message: `SKU '${sku}' já cadastrado` }); skipped++;
+            resultRows.push({ row, sku, action: 'skipped' });
+            return;
           }
-          imported++;
+
+          // ── SKU já existe, com opt-in — atualiza SÓ preço de venda/custo ────
+          // Deliberado: nunca toca nome/categoria/NCM/marca/etc. via importação
+          // em massa, mesmo que a linha traga esses campos — evita que uma
+          // planilha desatualizada sobrescreva um cadastro já curado.
+          const incoming: MaterialPriceInput = {};
+          const salePrice = toNum(b.preco_venda);
+          const costPrice = toNum(b.preco_custo);
+          if (salePrice != null) incoming.sale_price = salePrice;
+          if (costPrice != null) incoming.cost_price = costPrice;
+
+          const current = { sale_price: Number(existing.sale_price), cost_price: Number(existing.cost_price) };
+          const diff = diffMaterialPrice(current, incoming);
+
+          if (!diff.hasChanges) {
+            unchanged++; resultRows.push({ row, sku, action: 'unchanged' });
+            return;
+          }
+
+          const changes: RowResult['changes'] = {};
+          if (diff.sale_price.changed) changes.sale_price = { from: diff.sale_price.before!, to: diff.sale_price.after! };
+          if (diff.cost_price.changed) changes.cost_price = { from: diff.cost_price.before!, to: diff.cost_price.after! };
+
+          if (!dry_run) {
+            const setValues: Record<string, unknown> = { updated_at: new Date() };
+            if (diff.sale_price.changed) setValues.sale_price = String(diff.sale_price.after);
+            if (diff.cost_price.changed) setValues.cost_price = String(diff.cost_price.after);
+            await tx.update(materials).set(setValues).where(eq(materials.id, existing.id));
+            await recordPriceChangeIfNeeded(tx, {
+              tenantId: tenant_id, materialId: existing.id, current, incoming,
+              source: 'bulk_import', importBatchId,
+            });
+          }
+          updated++; resultRows.push({ row, sku, action: 'updated', changes });
         });
       } catch (err) {
         errors.push({ row, message: err instanceof Error ? err.message : 'Erro interno' });
         skipped++;
+        resultRows.push({ row, sku, action: 'error' });
       }
     }
-    return { imported, skipped, errors };
+    // `imported` mantido por retrocompatibilidade (== created); consumidores
+    // novos devem usar created/updated/unchanged/skipped.
+    return { imported: created, created, updated, unchanged, skipped, errors, rows: resultRows };
   });
 
   // GET /v1/materials
@@ -260,6 +336,37 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     return reply.send({ data: rows });
   });
 
+  // GET /v1/materials/:id/price-history — histórico de preço (append-only)
+  app.get('/materials/:id/price-history', {
+    schema: {
+      params: idParam,
+      querystring: {
+        type: 'object',
+        properties: {
+          page:     { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { page = 1, per_page = 20 } = request.query as Record<string, unknown>;
+    const offset = (Number(page) - 1) * Number(per_page);
+    const where = eq(materialPriceHistory.material_id, id);
+
+    const [[{ count }], data] = await Promise.all([
+      db.select({ count: sql<number>`COUNT(*)::int` }).from(materialPriceHistory).where(where),
+      db.select().from(materialPriceHistory).where(where)
+        .orderBy(desc(materialPriceHistory.created_at))
+        .limit(Number(per_page)).offset(offset),
+    ]);
+
+    return reply.send({
+      data,
+      meta: { total: count, page: Number(page), per_page: Number(per_page), pages: Math.ceil(count / Number(per_page)) },
+    });
+  });
+
   // PATCH /v1/materials/:id
   app.patch('/materials/:id', { schema: { params: idParam, body: materialBody } }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -271,10 +378,31 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
     if (!Object.keys(updateData).length) return reply.badRequest('No valid fields to update');
 
-    const [row] = await db.update(materials)
-      .set({ ...updateData as any, updated_at: new Date() })
-      .where(eq(materials.id, id))
-      .returning();
+    // Precisa do valor ANTES do update, dentro da mesma transação, pra gravar
+    // o histórico de preço (material_price_history) de forma atômica.
+    const row = await db.transaction(async (tx) => {
+      const [before] = await tx.select({
+        tenant_id: materials.tenant_id, sale_price: materials.sale_price, cost_price: materials.cost_price,
+      }).from(materials).where(eq(materials.id, id));
+      if (!before) return null;
+
+      const [after] = await tx.update(materials)
+        .set({ ...updateData as any, updated_at: new Date() })
+        .where(eq(materials.id, id))
+        .returning();
+
+      const incoming: MaterialPriceInput = {};
+      if (updateData.sale_price !== undefined) incoming.sale_price = Number(updateData.sale_price);
+      if (updateData.cost_price !== undefined) incoming.cost_price = Number(updateData.cost_price);
+      if (incoming.sale_price !== undefined || incoming.cost_price !== undefined) {
+        await recordPriceChangeIfNeeded(tx, {
+          tenantId: before.tenant_id, materialId: id,
+          current: { sale_price: Number(before.sale_price), cost_price: Number(before.cost_price) },
+          incoming, source: 'manual_edit',
+        });
+      }
+      return after;
+    });
     if (!row) return reply.notFound('Material not found');
 
     // Atualiza a composição quando enviada e o material é um kit.

@@ -56,6 +56,14 @@ interface MaterialImage {
 
 interface ListResp { data: Material[]; total: number; page: number; per_page: number; }
 
+interface PriceHistoryEntry {
+  id: string;
+  sale_price_before: string | null; sale_price_after: string | null;
+  cost_price_before: string | null; cost_price_after: string | null;
+  source: 'manual_edit' | 'bulk_import';
+  created_at: string;
+}
+
 const EMPTY_FORM = {
   sku: '', name: '', description: '', type: 'product', category: '',
   brand: '', unit: 'UN', sale_price: '', cost_price: '', ncm_code: '',
@@ -74,9 +82,19 @@ interface ImportRow {
   [key: string]: unknown;
 }
 
-interface ImportResult { imported: number; skipped: number; errors: { row: number; message: string }[]; }
+interface ImportRowChange { sale_price?: { from: number; to: number }; cost_price?: { from: number; to: number }; }
+interface ImportRowResult {
+  row: number; sku: string | null;
+  action: 'created' | 'updated' | 'unchanged' | 'skipped' | 'error';
+  changes?: ImportRowChange;
+}
+interface ImportResult {
+  imported: number; created: number; updated: number; unchanged: number; skipped: number;
+  errors: { row: number; message: string }[];
+  rows: ImportRowResult[];
+}
 
-type ImportPhase = 'idle' | 'preview' | 'importing' | 'done';
+type ImportPhase = 'idle' | 'analyzing' | 'preview' | 'importing' | 'done';
 
 const XLSX_COLS = ['sku','nome','tipo','unidade','preco_venda','preco_custo',
                    'ncm','categoria','marca','peso_kg','controla_estoque','descricao'] as const;
@@ -147,6 +165,10 @@ export function MaterialsPage() {
   const [imageError,      setImageError]      = useState('');
   const imgFileRef = useRef<HTMLInputElement>(null);
 
+  // Histórico de preço (somente leitura)
+  const [priceHistory,        setPriceHistory]        = useState<PriceHistoryEntry[]>([]);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+
   // Mercado Livre (regra 42) — módulo opcional, conexão é por empresa/CNPJ.
   const [mlEnabled,     setMlEnabled]     = useState(false);
   const [mlConnections, setMlConnections] = useState<MlConnection[]>([]);
@@ -158,11 +180,15 @@ export function MaterialsPage() {
   const [mlNewItemId,       setMlNewItemId]       = useState('');
 
   // Import state
-  const [importOpen,   setImportOpen]   = useState(false);
-  const [importPhase,  setImportPhase]  = useState<ImportPhase>('idle');
-  const [importRows,   setImportRows]   = useState<ImportRow[]>([]);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [importError,  setImportError]  = useState('');
+  const [importOpen,      setImportOpen]      = useState(false);
+  const [importPhase,     setImportPhase]     = useState<ImportPhase>('idle');
+  const [importRows,      setImportRows]      = useState<ImportRow[]>([]);
+  const [importPreview,   setImportPreview]   = useState<ImportResult | null>(null);
+  const [importResult,    setImportResult]    = useState<ImportResult | null>(null);
+  const [importError,     setImportError]     = useState('');
+  // Opt-in — desmarcado por padrão: sem marcar, SKU já cadastrado continua
+  // sendo ignorado, exatamente como antes.
+  const [updateExisting,  setUpdateExisting]  = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const perPage = 20;
@@ -213,6 +239,15 @@ export function MaterialsPage() {
       setImages(rows);
     } catch { setImages([]); }
     finally  { setImagesLoading(false); }
+  }
+
+  async function loadPriceHistory(materialId: string) {
+    setPriceHistoryLoading(true);
+    try {
+      const resp = await api.get<{ data: PriceHistoryEntry[] }>(`/v1/materials/${materialId}/price-history?per_page=20`);
+      setPriceHistory(resp.data);
+    } catch { setPriceHistory([]); }
+    finally { setPriceHistoryLoading(false); }
   }
 
   // Mercado Livre — carregado uma vez (módulo + conexões existem no nível do
@@ -281,6 +316,7 @@ export function MaterialsPage() {
     setImageError('');
     setKitComponents([]);
     setMlLinks([]); setMlError('');
+    setPriceHistory([]);
     void loadPickList();
     setDrawerOpen(true);
   }
@@ -305,6 +341,7 @@ export function MaterialsPage() {
     void loadImages(m.id);
     void loadPickList();
     void loadMlLinks(m.id);
+    void loadPriceHistory(m.id);
     setMlError(''); setMlNewConnectionId(''); setMlNewItemId('');
     if (m.type === 'kit') void loadKitComponents(m.id);
     else setKitComponents([]);
@@ -458,7 +495,7 @@ export function MaterialsPage() {
           if (valid.length === 0) { setImportError(t('mi.importEmpty')); return; }
 
           setImportRows(valid as ImportRow[]);
-          setImportPhase('preview');
+          void analyzeImport(valid as ImportRow[]);
         } catch {
           setImportError(t('mi.importParseErr'));
         }
@@ -469,13 +506,31 @@ export function MaterialsPage() {
     }
   }
 
+  // Roda a MESMA rota em dry_run=true — classifica cada linha (novo/atualização/
+  // sem alteração/erro) sem escrever nada, pra mostrar o diff antes de confirmar.
+  async function analyzeImport(rows: ImportRow[]) {
+    if (!tenantId) return;
+    setImportPhase('analyzing');
+    try {
+      const result = await api.post<ImportResult>('/v1/materials/import', {
+        tenant_id: tenantId, materials: rows,
+        update_existing: updateExisting, dry_run: true,
+      });
+      setImportPreview(result);
+      setImportPhase('preview');
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : t('cl.errSave'));
+      setImportPhase('idle');
+    }
+  }
+
   async function runImport() {
     if (!tenantId || importRows.length === 0) return;
     setImportPhase('importing');
     try {
       const result = await api.post<ImportResult>('/v1/materials/import', {
-        tenant_id: tenantId,
-        materials: importRows,
+        tenant_id: tenantId, materials: importRows,
+        update_existing: updateExisting, dry_run: false,
       });
       setImportResult(result);
       setImportPhase('done');
@@ -489,9 +544,11 @@ export function MaterialsPage() {
   function closeImport() {
     setImportOpen(false);
     setImportPhase('idle');
+    setImportPreview(null);
     setImportRows([]);
     setImportResult(null);
     setImportError('');
+    setUpdateExisting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -853,6 +910,59 @@ export function MaterialsPage() {
                   </div>
                 )}
 
+                {/* ── Histórico de Preços (somente leitura, só no modo edição) ── */}
+                {editing && (
+                  <div style={{ marginTop: 20 }}>
+                    <label style={{ fontWeight: 600, display: 'block', marginBottom: 10 }}>{t('mi.priceHistory')}</label>
+                    {priceHistoryLoading ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('c.loading')}</div>
+                    ) : priceHistory.length === 0 ? (
+                      <div style={{
+                        border: '2px dashed var(--border)', borderRadius: 8,
+                        padding: '16px', textAlign: 'center',
+                        color: 'var(--muted)', fontSize: 13,
+                      }}>
+                        {t('mi.priceHistoryEmpty')}
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--surface)' }}>
+                              <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistoryDate')}</th>
+                              <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistorySale')}</th>
+                              <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistoryCost')}</th>
+                              <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistorySource')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {priceHistory.map(h => (
+                              <tr key={h.id}>
+                                <td style={{ padding: '5px 8px', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                                  {new Date(h.created_at).toLocaleString('pt-BR')}
+                                </td>
+                                <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>
+                                  {h.sale_price_before != null && h.sale_price_after != null
+                                    ? `${BRL.format(Number(h.sale_price_before))} → ${BRL.format(Number(h.sale_price_after))}`
+                                    : '—'}
+                                </td>
+                                <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>
+                                  {h.cost_price_before != null && h.cost_price_after != null
+                                    ? `${BRL.format(Number(h.cost_price_before))} → ${BRL.format(Number(h.cost_price_after))}`
+                                    : '—'}
+                                </td>
+                                <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>
+                                  {h.source === 'bulk_import' ? t('mi.priceHistorySourceImport') : t('mi.priceHistorySourceManual')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ── Mercado Livre (regra 42, só no modo edição, módulo habilitado e com conta conectada) ── */}
                 {editing && mlEnabled && mlConnections.length > 0 && (
                   <div style={{ marginTop: 20 }}>
@@ -990,6 +1100,22 @@ export function MaterialsPage() {
                       ))}
                     </tbody>
                   </table>
+                  <div className="field" style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={updateExisting}
+                        onChange={e => setUpdateExisting(e.target.checked)}
+                        style={{ marginTop: 2 }}
+                      />
+                      <span>
+                        {t('mi.importUpdateExisting')}
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400, marginTop: 2 }}>
+                          {t('mi.importUpdateExistingHint')}
+                        </div>
+                      </span>
+                    </label>
+                  </div>
                   <div className="field">
                     <label>{t('mi.importFile')}</label>
                     <input
@@ -1002,39 +1128,17 @@ export function MaterialsPage() {
                 </>
               )}
 
-              {/* ── preview: show first rows before import ── */}
-              {importPhase === 'preview' && (
+              {/* ── analyzing: dry-run classificando as linhas antes de mostrar o preview ── */}
+              {importPhase === 'analyzing' && (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div className="spinner" style={{ marginBottom: 12 }}>{t('mi.importAnalyzing')}</div>
+                </div>
+              )}
+
+              {/* ── preview: diff do que vai acontecer, antes de confirmar ── */}
+              {importPhase === 'preview' && importPreview && (
                 <>
-                  <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 13 }}>
-                    <strong>{importRows.length}</strong> {t('mi.importRows')}
-                  </p>
-                  <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-                    <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--surface)' }}>
-                          {['sku','nome','tipo','unidade','preco_venda'].map(c => (
-                            <th key={c} style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)', fontFamily: 'monospace' }}>{c}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importRows.slice(0, PREVIEW_MAX).map((r, i) => (
-                          <tr key={i}>
-                            {['sku','nome','tipo','unidade','preco_venda'].map(c => (
-                              <td key={c} style={{ padding: '5px 8px', border: '1px solid var(--border)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {String(r[c] ?? '')}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {importRows.length > PREVIEW_MAX && (
-                    <p style={{ color: 'var(--muted)', fontSize: 12, margin: '0 0 12px' }}>
-                      {t('mi.importMore')} {importRows.length - PREVIEW_MAX} {t('mi.importMoreRows')}
-                    </p>
-                  )}
+                  {renderImportOutcome(importPreview, true)}
                 </>
               )}
 
@@ -1049,35 +1153,7 @@ export function MaterialsPage() {
               {importPhase === 'done' && importResult && (
                 <>
                   <p style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>{t('mi.importDone')}</p>
-                  <p style={{ color: 'var(--success)', margin: '4px 0' }}>
-                    ✓ <strong>{importResult.imported}</strong> {t('mi.importSuccess')}
-                  </p>
-                  {importResult.skipped > 0 && (
-                    <p style={{ color: 'var(--muted)', margin: '4px 0' }}>
-                      ⊘ <strong>{importResult.skipped}</strong> {t('mi.importSkipped')}
-                    </p>
-                  )}
-                  {importResult.errors.length > 0 && (
-                    <div style={{ marginTop: 14 }}>
-                      <strong style={{ fontSize: 13 }}>{t('mi.importErrors')}</strong>
-                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginTop: 8 }}>
-                        <thead>
-                          <tr style={{ background: 'var(--surface)' }}>
-                            <th style={{ padding: '4px 8px', border: '1px solid var(--border)', width: 60 }}>{t('mi.importErrRow')}</th>
-                            <th style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'left' }}>Descrição</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {importResult.errors.map((e, i) => (
-                            <tr key={i}>
-                              <td style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'center' }}>{e.row}</td>
-                              <td style={{ padding: '4px 8px', border: '1px solid var(--border)', color: 'var(--danger)' }}>{e.message}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  {renderImportOutcome(importResult, false)}
                 </>
               )}
             </div>
@@ -1089,11 +1165,11 @@ export function MaterialsPage() {
               )}
               {importPhase === 'preview' && (
                 <>
-                  <button className="btn btn-secondary" onClick={() => { setImportPhase('idle'); setImportRows([]); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                  <button className="btn btn-secondary" onClick={() => { setImportPhase('idle'); setImportRows([]); setImportPreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
                     {t('c.cancel')}
                   </button>
                   <button className="btn btn-primary" style={{ width: 'auto' }} onClick={runImport}>
-                    {t('mi.importBtn')} {importRows.length} {t('mi.importMaterials')}
+                    {t('mi.importBtn')} {(importPreview?.created ?? 0) + (importPreview?.updated ?? 0)} {t('mi.importMaterials')}
                   </button>
                 </>
               )}
@@ -1108,4 +1184,101 @@ export function MaterialsPage() {
       )}
     </div>
   );
+
+  // Resumo de resultado (usado tanto no preview — "o que vai acontecer" — quanto
+  // no "done" — "o que aconteceu"). `isPreview` só troca a moldura/tom do texto.
+  function renderImportOutcome(result: ImportResult, isPreview: boolean) {
+    const updatedRows = result.rows.filter(r => r.action === 'updated');
+    const errorRows = [...result.errors];
+
+    return (
+      <>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+          <span className="badge badge-active">✨ {result.created} {t('mi.importCreated')}</span>
+          {result.updated > 0 && (
+            <span className="badge" style={{ background: 'var(--primary)', color: '#fff' }}>
+              🔄 {result.updated} {t('mi.importUpdated')}
+            </span>
+          )}
+          {result.unchanged > 0 && (
+            <span className="badge badge-inactive">⏭ {result.unchanged} {t('mi.importUnchanged')}</span>
+          )}
+          {result.skipped > 0 && (
+            <span className="badge" style={{ background: 'var(--surface)', color: 'var(--muted)' }}>
+              ⊘ {result.skipped} {t('mi.importSkipped')}
+            </span>
+          )}
+        </div>
+
+        {isPreview && result.updated > 0 && !updateExisting && (
+          <div role="alert" className="alert alert-error" style={{ marginBottom: 14, fontSize: 12.5 }}>
+            {t('mi.importUpdateHintOff')}
+          </div>
+        )}
+
+        {updatedRows.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <strong style={{ fontSize: 13 }}>{t('mi.importUpdatedDetail')}</strong>
+            <div style={{ overflowX: 'auto', marginTop: 8 }}>
+              <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface)' }}>
+                    <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.importErrRow')}</th>
+                    <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)', fontFamily: 'monospace' }}>SKU</th>
+                    <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistorySale')}</th>
+                    <th style={{ padding: '5px 8px', textAlign: 'left', border: '1px solid var(--border)' }}>{t('mi.priceHistoryCost')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {updatedRows.slice(0, PREVIEW_MAX).map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>{r.row}</td>
+                      <td style={{ padding: '5px 8px', border: '1px solid var(--border)', fontFamily: 'monospace' }}>{r.sku}</td>
+                      <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>
+                        {r.changes?.sale_price
+                          ? `${BRL.format(r.changes.sale_price.from)} → ${BRL.format(r.changes.sale_price.to)}`
+                          : '—'}
+                      </td>
+                      <td style={{ padding: '5px 8px', border: '1px solid var(--border)' }}>
+                        {r.changes?.cost_price
+                          ? `${BRL.format(r.changes.cost_price.from)} → ${BRL.format(r.changes.cost_price.to)}`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {updatedRows.length > PREVIEW_MAX && (
+              <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0' }}>
+                {t('mi.importMore')} {updatedRows.length - PREVIEW_MAX} {t('mi.importMoreRows')}
+              </p>
+            )}
+          </div>
+        )}
+
+        {errorRows.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <strong style={{ fontSize: 13 }}>{t('mi.importErrors')}</strong>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginTop: 8 }}>
+              <thead>
+                <tr style={{ background: 'var(--surface)' }}>
+                  <th style={{ padding: '4px 8px', border: '1px solid var(--border)', width: 60 }}>{t('mi.importErrRow')}</th>
+                  <th style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'left' }}>Descrição</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errorRows.map((e, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: '4px 8px', border: '1px solid var(--border)', textAlign: 'center' }}>{e.row}</td>
+                    <td style={{ padding: '4px 8px', border: '1px solid var(--border)', color: 'var(--danger)' }}>{e.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    );
+  }
 }
