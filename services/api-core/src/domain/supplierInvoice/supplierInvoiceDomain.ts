@@ -73,3 +73,32 @@ export function validateSICreate(input: SICreateInput): void {
     if (it.unit_price < 0) throw new SupplierInvoiceDomainError('si_item_price_negative');
   }
 }
+
+// ── Parcelamento ───────────────────────────────────────────────────────────────
+// Modo automático mensal: usuário só informa o número de parcelas e o
+// vencimento da 1ª; as demais são geradas mensalmente, com o total dividido
+// igualmente e o resto de centavos absorvido pela última parcela.
+
+/** Divide `total` em `count` valores cuja soma bate exatamente com `total`. */
+export function splitInstallmentAmounts(total: number, count: number): number[] {
+  if (count <= 1) return [Math.round(total * 100) / 100];
+
+  const totalCents = Math.round(total * 100);
+  const base        = Math.floor(totalCents / count);
+  const remainder    = totalCents - base * count;
+
+  const amounts = new Array(count).fill(base / 100);
+  amounts[count - 1] = (base + remainder) / 100;
+  return amounts;
+}
+
+/**
+ * Soma `months` a uma data `YYYY-MM-DD`. Segue o rollover padrão do
+ * JS Date (ex.: 31/jan + 1 mês vira 02/03 ou 03/03, conforme o mês seguinte
+ * tenha menos dias) — comportamento aceitável para vencimentos mensais.
+ */
+export function addMonthsToDateStr(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m - 1) + months, d));
+  return dt.toISOString().slice(0, 10);
+}

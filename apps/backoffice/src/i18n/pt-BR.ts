@@ -968,6 +968,9 @@ const ptBR = {
   'si.lookupSupplierNotFound': 'Fornecedor não cadastrado:',
   'si.lookupCreateSupplier': 'Cadastrar este fornecedor',
   'si.lookupSupplierCreated': 'Fornecedor cadastrado e selecionado.',
+  'si.installments':          'Parcelas',
+  'si.installmentsHint':      'Vencimento acima é da 1ª parcela; as demais serão geradas mensalmente, com o valor dividido igualmente.',
+  'si.installmentsGenerated': 'parcelas geradas.',
 
   // ── DRE Gerencial (P3) ──────────────────────────────────────────────────
   'nav.dre':                 'DRE Gerencial',

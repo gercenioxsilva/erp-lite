@@ -644,6 +644,13 @@ export const payables = pgTable('payables', {
   cost_center_id: uuid('cost_center_id'),
   // DRE Gerencial (migration 0042)
   dre_category_id: uuid('dre_category_id'),
+  // Parcelamento de NF-e de Entrada (migration 0051) — installment_group_id
+  // não é FK, só correlaciona as N parcelas de uma mesma nota (mesmo padrão
+  // de material_price_history.import_batch_id). Distinto de
+  // parent_payable_id, que já é usado para recorrência.
+  installment_number:   smallint('installment_number'),
+  installment_total:    smallint('installment_total'),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 // ── payable_payments (append-only) ────────────────────────────────────────────
@@ -1182,6 +1189,10 @@ export const supplierInvoices = pgTable('supplier_invoices', {
   confirmed_at:       timestamp('confirmed_at', { withTimezone: true }),
   created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Parcelamento (migration 0051) — installment_group_id não é FK, só
+  // correlaciona com os N payables gerados na confirmação.
+  installments:         smallint('installments').notNull().default(1),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 export const supplierInvoiceItems = pgTable('supplier_invoice_items', {
