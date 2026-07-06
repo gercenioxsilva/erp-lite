@@ -146,6 +146,9 @@ export const materials = pgTable('materials', {
   cfop:      varchar('cfop',      { length: 4  }),
   cst_csosn: varchar('cst_csosn', { length: 4  }),
   gtin:      varchar('gtin',      { length: 14 }),
+  // Reforma Tributária (migration 0049) — cClassTrib não deriva de NCM/CFOP,
+  // exige override manual por produto (mesmo padrão de cfop/cst_csosn acima).
+  class_trib: varchar('class_trib', { length: 6 }),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -269,6 +272,9 @@ export const invoices = pgTable('invoices', {
   // Motor fiscal multi-estado (migration 0037)
   fcp_total:        decimal('fcp_total',        { precision: 15, scale: 2 }).notNull().default('0'),
   icms_difal_total: decimal('icms_difal_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  // Reforma Tributária — IBS/CBS (migration 0049) — informativos, nunca somados a `total`.
+  ibs_total: decimal('ibs_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_total: decimal('cbs_total', { precision: 15, scale: 2 }).notNull().default('0'),
   // NF-e fields (migration 0009)
   nfe_status:        varchar('nfe_status',        { length: 20  }),
   nfe_chave:         varchar('nfe_chave',          { length: 50  }),
@@ -316,6 +322,14 @@ export const invoiceItems = pgTable('invoice_items', {
   fcp_rate:         decimal('fcp_rate',         { precision: 5,  scale: 2 }).notNull().default('0'),
   fcp_value:        decimal('fcp_value',        { precision: 15, scale: 2 }).notNull().default('0'),
   icms_difal_value: decimal('icms_difal_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  // Reforma Tributária — IBS/CBS (migration 0049)
+  class_trib: varchar('class_trib', { length: 6 }),
+  ibs_base:   decimal('ibs_base',  { precision: 15, scale: 2 }).notNull().default('0'),
+  ibs_rate:   decimal('ibs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  ibs_value:  decimal('ibs_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_base:   decimal('cbs_base',  { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_rate:   decimal('cbs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  cbs_value:  decimal('cbs_value', { precision: 15, scale: 2 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -971,6 +985,11 @@ export const posSaleItems = pgTable('pos_sale_items', {
   cfop:            varchar('cfop',      { length: 4 }),
   cst_csosn:       varchar('cst_csosn', { length: 4 }),
   unit:            varchar('unit',      { length: 6 }),
+  // Reforma Tributária — cClassTrib (migration 0049), NFC-e (regra 44). Só a
+  // classificação é persistida (copiada de materials no addItem, mesmo padrão
+  // de cst_csosn/cfop/ncm acima) — alíquota/valor de IBS/CBS são resolvidos na
+  // emissão, nunca persistidos (mesmo comportamento do ICMS da NFC-e hoje).
+  class_trib: varchar('class_trib', { length: 6 }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

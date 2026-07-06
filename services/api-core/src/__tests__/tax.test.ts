@@ -151,6 +151,24 @@ describe('Tax routes', () => {
       );
     });
 
+    it('passes class_trib through per line (Reforma Tributária, regra 44)', async () => {
+      mockResolveAndCalculateTaxes.mockResolvedValue({ ok: true });
+      const token = app.jwt.sign({ tenantId: 'tenant-1', userId: 'user-1', role: 'admin' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/tax/calculate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          tax_regime: 'lucro_presumido',
+          lines: [{ quantity: 1, unit_price: 10, class_trib: '200001' }],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(mockResolveAndCalculateTaxes).toHaveBeenCalledWith(
+        expect.objectContaining({ lines: [expect.objectContaining({ class_trib: '200001' })] }),
+        expect.anything(),
+      );
+    });
+
     it('returns 422 with the error code when a tax rule is missing', async () => {
       const { TaxRuleNotFoundError } = await import('../lib/taxRulesResolver');
       mockResolveAndCalculateTaxes.mockRejectedValue(

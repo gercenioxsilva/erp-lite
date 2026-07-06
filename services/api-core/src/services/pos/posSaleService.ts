@@ -139,10 +139,11 @@ export async function addItem(params: {
     ncm_code: string | null;
     cfop: string | null;
     cst_csosn: string | null;
+    class_trib: string | null;
     unit: string;
     is_active: boolean;
   }>(
-    sql`SELECT id, name, sale_price, ncm_code, cfop, cst_csosn, unit, is_active
+    sql`SELECT id, name, sale_price, ncm_code, cfop, cst_csosn, class_trib, unit, is_active
         FROM materials
         WHERE id        = ${productId}
           AND tenant_id = ${tenantId}
@@ -170,6 +171,7 @@ export async function addItem(params: {
       ncm:             mat.ncm_code ?? null,
       cfop:            mat.cfop ?? null,
       cst_csosn:       mat.cst_csosn ?? null,
+      class_trib:      mat.class_trib ?? null,
       unit:            mat.unit,
     })
     .returning({ id: posSaleItems.id });
