@@ -7,6 +7,42 @@ on:
     branches: [develop, main]
 
 jobs:
+  test:
+    name: Test — api-core
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       erp_lite
+          POSTGRES_USER:     erp_lite
+          POSTGRES_PASSWORD: erp_lite
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp_lite -d erp_lite"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://erp_lite:erp_lite@localhost:5432/erp_lite
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run migrate:dev --workspace=services/api-core
+
+      - name: Run tests
+        run: npm test --workspace=services/api-core
+
   type-check:
     name: Type check
     runs-on: ubuntu-latest

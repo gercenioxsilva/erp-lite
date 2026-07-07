@@ -843,6 +843,12 @@ const en: Record<TKey, string> = {
   'billing.successMsg':       'Thank you for subscribing to Orquestra ERP. Your plan is now active.',
   'billing.goToDashboard':    'Go to Dashboard',
   'billing.notConfigured':    'The payment system is not configured in this environment.',
+  'billing.contactSupport':   'Contact support',
+  'billing.resubscribe':      'Resubscribe',
+  'billing.pastDueWarning':   'Your payment is past due. Update your payment details to avoid account suspension.',
+  'billing.confirming':       'Confirming your subscription…',
+  'billing.stillProcessing':  'We are still processing your subscription. Please check back shortly.',
+  'billing.retry':            'Try again',
 
   // ── Suppliers ─────────────────────────────────────────────────────────
   'nav.suppliers': 'Suppliers',
@@ -1220,6 +1226,7 @@ const en: Record<TKey, string> = {
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',
   'comp.modules.disabled':      'Disabled',
+  'comp.modules.summary':       '{n} of {total} modules enabled',
   'comp.companies.default':     'Default company',
   'comp.companies.new':         'New company',
   'comp.companies.emittingCompany': 'Issuing company',

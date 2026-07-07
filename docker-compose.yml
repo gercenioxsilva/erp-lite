@@ -83,6 +83,13 @@ services:
       NFE_BUCKET:              nfe-xmls-local
       BILLING_REQUESTS_QUEUE_URL: http://localstack:4566/000000000000/billing-requests
       BILLING_RESULTS_QUEUE_URL:  http://localstack:4566/000000000000/billing-results
+      # Optional Stripe test-mode wiring for local end-to-end billing verification.
+      # Empty by default (Stripe stays disabled) — set these in a git-ignored root
+      # .env with a personal Stripe TEST-mode key to opt in locally, then run
+      # `stripe listen --forward-to http://localhost:3004/v1/subscription/webhook`
+      # (adjust the port to this machine's docker-compose.override.yml mapping).
+      STRIPE_SECRET_KEY:      ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET:  ${STRIPE_WEBHOOK_SECRET:-}
     volumes:
       - ./services/api-core/src:/app/src
       - ./services/api-core/db:/app/db
