@@ -429,14 +429,10 @@ const ptBR = {
   'nfe.evt.cancellation':      'Cancelamento',
 
   // ── Cadastro de empresa ───────────────────────────────────────────────
-  'r.title':       'Crie sua conta empresarial',
-  'r.subtitle':    'Comece seu período gratuito — sem cartão de crédito',
-  'r.company':     'Empresa',
   'r.legalName':   'Razão Social *',
   'r.tradeName':   'Nome Fantasia',
   'r.taxId':       'CNPJ / Tax ID *',
   'r.taxType':     'Tipo',
-  'r.adminUser':   'Usuário administrador',
   'r.yourName':    'Seu nome',
   'r.fullNamePH':  'Nome completo',
   'r.email':       'E-mail *',
@@ -451,6 +447,18 @@ const ptBR = {
   'r.errPwdMatch': 'As senhas não conferem',
   'r.errPwdLen':   'A senha deve ter pelo menos 8 caracteres',
   'r.errFailed':   'Falha no cadastro',
+  'r.continue':    'Continuar',
+  'r.back':        'Voltar',
+  'r.skipTrial':   'Continuar com o período de teste grátis',
+  'r.step1.eyebrow':  'Passo 1 de 3',
+  'r.step1.heading':  'Sobre sua empresa',
+  'r.step1.subtitle': 'Vamos começar com os dados básicos.',
+  'r.step2.eyebrow':  'Passo 2 de 3',
+  'r.step2.heading':  'Crie seu acesso',
+  'r.step2.subtitle': 'Você será o administrador desta conta.',
+  'r.step3.eyebrow':  'Passo 3 de 3',
+  'r.step3.heading':  'Escolha como começar',
+  'r.step3.subtitle': 'Selecione um plano ou continue no período de teste grátis.',
 
   // ── Controle de Estoque ───────────────────────────────────────────────
   'stk.title':       'Controle de Estoque',
