@@ -82,17 +82,17 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/subscription/portal-session — creates Stripe Customer Portal session
-  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const stripe = getStripe();
-    if (!stripe) throw new Error('Stripe not configured');
+    if (!stripe) return reply.serviceUnavailable('Stripe not configured');
 
     const { rows: [tenant] } = await db.execute<any>(sql`
       SELECT stripe_customer_id FROM tenants WHERE id = ${tenantId} LIMIT 1
     `);
     if (!tenant?.stripe_customer_id) {
-      throw new Error('No Stripe customer found for this tenant');
+      return reply.badRequest('No Stripe customer found for this tenant');
     }
 
     const session = await stripe.billingPortal.sessions.create({
@@ -120,8 +120,8 @@ export const subscriptionWebhookRoute: FastifyPluginAsync = async (fastify) => {
     const rawBody = request.body as string;
 
     if (!secret) {
-      fastify.log.warn('STRIPE_WEBHOOK_SECRET not set — skipping signature verification');
-      return reply.send({ received: true });
+      fastify.log.error('STRIPE_WEBHOOK_SECRET not set while Stripe is enabled — rejecting webhook');
+      return reply.code(503).send({ error: 'Webhook not configured' });
     }
 
     let event: any;

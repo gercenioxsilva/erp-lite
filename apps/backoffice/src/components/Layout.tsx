@@ -4,6 +4,7 @@ import { GaxLogo }  from './GaxLogo';
 import { useAuth }  from '../contexts/AuthContext';
 import { useI18n }  from '../i18n';
 import { api }      from '../lib/api';
+import { useSubscription } from '../hooks/useSubscription';
 
 function IcoDashboard() {
   return (
@@ -152,8 +153,14 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
+
+  const { data: subscription } = useSubscription();
+  const trialDaysLeft =
+    subscription?.stripe_enabled && subscription.status === 'trial' && subscription.days_left !== null
+      ? subscription.days_left
+      : null;
+
   const NAV: NavEntry[] = [
     { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard },
     { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
@@ -241,16 +248,6 @@ export function Layout({ children }: { children: ReactNode }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
-
-  useEffect(() => {
-    api.get<{ status: string; days_left: number | null; stripe_enabled: boolean }>('/v1/subscription')
-      .then(data => {
-        if (data.stripe_enabled && data.status === 'trial' && data.days_left !== null) {
-          setTrialDaysLeft(data.days_left);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   // Item de menu de módulo opcional só aparece se o tenant tiver habilitado —
   // backend (requireModule) é a autoridade de verdade; isto é só conveniência de UX.

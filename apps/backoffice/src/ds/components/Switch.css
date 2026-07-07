@@ -1,0 +1,48 @@
+.ds-switch {
+  --ds-switch-w: 40px;
+  --ds-switch-h: 22px;
+  --ds-switch-pad: 2px;
+
+  position: relative;
+  width: var(--ds-switch-w);
+  height: var(--ds-switch-h);
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background .18s ease;
+}
+
+.ds-switch:hover:not(:disabled) { background: #d0d5de; }
+
+.ds-switch--on { background: var(--primary); }
+.ds-switch--on:hover:not(:disabled) { background: var(--primary-h); }
+
+.ds-switch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.ds-switch:disabled { opacity: .55; cursor: not-allowed; }
+
+.ds-switch__thumb {
+  position: absolute;
+  top: var(--ds-switch-pad);
+  left: var(--ds-switch-pad);
+  width: calc(var(--ds-switch-h) - var(--ds-switch-pad) * 2);
+  height: calc(var(--ds-switch-h) - var(--ds-switch-pad) * 2);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  transition: transform .18s ease;
+}
+
+.ds-switch--on .ds-switch__thumb {
+  transform: translateX(calc(var(--ds-switch-w) - var(--ds-switch-h)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-switch, .ds-switch__thumb { transition: none; }
+}

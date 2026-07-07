@@ -337,6 +337,68 @@ tr:hover td { background: #fafbfd; }
 /* ── Bento grid (dashboard) ────────────────────────────────────────────── */
 .bento-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 22px; }
 
+/* ── Modules (Minha Empresa → Módulos) ────────────────────────────────────
+   Módulos com fluxo real (Ordens de Serviço, PDV) ficam em .modules-stack,
+   cheios de largura; toggles simples (Multi-Empresa, Mercado Livre) ficam
+   em .modules-grid, compactos — a diferença de conteúdo decide o layout. */
+.modules-stack { display: flex; flex-direction: column; gap: 16px; }
+.modules-grid  { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; align-items: start; }
+
+.modules-summary {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  font-size: 12.5px; font-weight: 600; color: var(--muted); flex-shrink: 0;
+}
+.modules-summary__dots { display: flex; gap: 5px; }
+.modules-summary__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background .2s; }
+.modules-summary__dot.is-on { background: var(--primary); }
+
+/* Card de módulo — a barra de acento e o tom de fundo só aparecem quando o
+   módulo está ligado, então o estado "habilitado" fica óbvio na varredura
+   visual da tela, não só no badge pequeno. */
+.module-card {
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  padding: 20px 20px 20px 24px;
+  overflow: hidden;
+  transition: border-color .2s ease, background .2s ease;
+}
+.module-card::before {
+  content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 4px;
+  background: transparent; transition: background .2s ease;
+}
+.module-card--on {
+  border-color: rgba(var(--primary-rgb), .22);
+  background: linear-gradient(180deg, rgba(var(--primary-rgb), .04), transparent 140px);
+}
+.module-card--on::before { background: linear-gradient(180deg, var(--primary), var(--accent)); }
+
+.module-flow { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.module-flow__trigger {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; padding: 0; margin: 0;
+  font-family: var(--font); cursor: pointer;
+}
+.module-flow__eyebrow {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); transition: color .14s;
+}
+.module-flow__trigger:hover .module-flow__eyebrow { color: var(--text); }
+.module-flow__chevron { color: var(--muted); flex-shrink: 0; transition: transform .18s ease, color .14s; }
+.module-flow__chevron.is-open { transform: rotate(180deg); }
+.module-flow__trigger:hover .module-flow__chevron { color: var(--text); }
+.module-flow__steps { max-width: 560px; margin-top: 14px; }
+.module-flow__step { display: flex; gap: 14px; }
+.module-flow__track { display: flex; flex-direction: column; align-items: center; flex: none; }
+.module-flow__icon {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none;
+}
+.module-flow__line { width: 2px; flex: 1; min-height: 22px; background: var(--border); }
+.module-flow__title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.module-flow__desc  { font-size: 12.5px; color: var(--muted); }
+
 .bento-card {
   background: var(--surface); border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm); border: 1px solid rgba(0,0,0,.05);
@@ -540,9 +602,10 @@ tr:hover td { background: #fafbfd; }
   .page-header { margin-bottom: 16px; }
 
   /* Grids colapsam para 1 coluna (2 p/ stats) */
-  .field-row, .field-row-3, .bento-grid, .quick-links { grid-template-columns: 1fr; }
+  .field-row, .field-row-3, .bento-grid, .quick-links, .modules-grid { grid-template-columns: 1fr; }
   .bento-hero { grid-column: auto; }
-  .stats-grid, .ls-category-grid { grid-template-columns: 1fr 1fr; }
+  .modules-summary { align-items: flex-start; }
+  .stats-grid, .ls-metrics, .ls-category-grid { grid-template-columns: 1fr 1fr; }
 
   /* Drawer ocupa a tela inteira no celular */
   .overlay { justify-content: stretch; }

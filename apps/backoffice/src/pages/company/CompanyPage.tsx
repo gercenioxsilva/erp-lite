@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
+import { Switch } from '../../ds/components/Switch';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -1352,6 +1353,51 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   mercadolivre:   { titleKey: 'comp.modules.mercadolivre',   descKey: 'comp.modules.mercadolivreDesc' },
 };
 
+// Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o
+// diagrama "Como funciona"; módulos de liga/desliga simples ficam compactos —
+// a diferença de conteúdo é o que decide o layout, não um capricho visual.
+const RICH_MODULES = new Set(['service_orders', 'pos']);
+
+function ModuleToggleHeader({ labels, enabled, busy, onToggle }: {
+  labels: { titleKey: TKey; descKey: TKey };
+  enabled: boolean; busy: boolean; onToggle: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <strong>{t(labels.titleKey)}</strong>
+          <span className={`badge ${enabled ? 'badge-active' : 'badge-inactive'}`}>
+            {enabled ? t('comp.modules.enabled') : t('comp.modules.disabled')}
+          </span>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, maxWidth: 560 }}>{t(labels.descKey)}</p>
+      </div>
+      <Switch
+        checked={enabled}
+        disabled={busy}
+        onChange={onToggle}
+        label={`${t(labels.titleKey)}: ${enabled ? t('comp.modules.disable') : t('comp.modules.enable')}`}
+      />
+    </div>
+  );
+}
+
+function ModulesSummary({ enabledCount, total }: { enabledCount: number; total: number }) {
+  const { t } = useI18n();
+  return (
+    <div className="modules-summary">
+      <span>{t('comp.modules.summary').replace('{n}', String(enabledCount)).replace('{total}', String(total))}</span>
+      <div className="modules-summary__dots">
+        {Array.from({ length: total }, (_, i) => (
+          <span key={i} className={`modules-summary__dot${i < enabledCount ? ' is-on' : ''}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ModulesTab() {
   const { t } = useI18n();
   const [data, setData]       = useState<ModulesResponse | null>(null);
@@ -1386,44 +1432,56 @@ function ModulesTab() {
 
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
+  const available    = data?.available ?? [];
+  const enabledCount = data?.enabled.length ?? 0;
+  const richKeys      = available.filter(k => RICH_MODULES.has(k) && MODULE_LABELS[k]);
+  const compactKeys   = available.filter(k => !RICH_MODULES.has(k) && MODULE_LABELS[k]);
+
   return (
-    <div style={{ maxWidth: 680 }}>
-      <h3 style={{ marginBottom: 4 }}>{t('comp.modules.title')}</h3>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.modules.subtitle')}</p>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+        <div>
+          <h3 style={{ marginBottom: 4 }}>{t('comp.modules.title')}</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.modules.subtitle')}</p>
+        </div>
+        {available.length > 0 && <ModulesSummary enabledCount={enabledCount} total={available.length} />}
+      </div>
 
       {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {(data?.available ?? []).map(key => {
-        const enabled = data?.enabled.includes(key) ?? false;
-        const labels  = MODULE_LABELS[key];
-        if (!labels) return null;
-        return (
-          <div key={key} className="card" style={{ padding: 20, marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <strong>{t(labels.titleKey)}</strong>
-                  <span className={`badge ${enabled ? 'badge-active' : 'badge-inactive'}`}>
-                    {enabled ? t('comp.modules.enabled') : t('comp.modules.disabled')}
-                  </span>
-                </div>
-                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t(labels.descKey)}</p>
-              </div>
-              <button
-                className={`btn ${enabled ? 'btn-secondary' : 'btn-primary'} btn-sm`}
-                style={{ width: 'auto', flex: 'none' }}
-                disabled={busyKey === key}
-                onClick={() => toggle(key, !enabled)}
-              >
-                {busyKey === key ? t('c.saving') : enabled ? t('comp.modules.disable') : t('comp.modules.enable')}
-              </button>
+      <div className="modules-stack">
+        {richKeys.map(key => {
+          const enabled = data?.enabled.includes(key) ?? false;
+          const labels  = MODULE_LABELS[key];
+          return (
+            <div key={key} className={`module-card${enabled ? ' module-card--on' : ''}`}>
+              <ModuleToggleHeader
+                labels={labels} enabled={enabled}
+                busy={busyKey === key} onToggle={() => toggle(key, !enabled)}
+              />
+              {key === 'service_orders' && <ServiceOrderFlowDiagram />}
+              {key === 'pos'            && <PdvFlowDiagram />}
             </div>
+          );
+        })}
 
-            {key === 'service_orders' && <ServiceOrderFlowDiagram />}
-            {key === 'pos'            && <PdvFlowDiagram />}
+        {compactKeys.length > 0 && (
+          <div className="modules-grid">
+            {compactKeys.map(key => {
+              const enabled = data?.enabled.includes(key) ?? false;
+              const labels  = MODULE_LABELS[key];
+              return (
+                <div key={key} className={`module-card${enabled ? ' module-card--on' : ''}`}>
+                  <ModuleToggleHeader
+                    labels={labels} enabled={enabled}
+                    busy={busyKey === key} onToggle={() => toggle(key, !enabled)}
+                  />
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        )}
+      </div>
     </div>
   );
 }
@@ -1431,9 +1489,56 @@ function ModulesTab() {
 // ── Diagrama do fluxo de Ordem de Serviço / Visita Técnica ────────────────────
 // Mostrado junto do módulo (mesmo antes de habilitar) para o tenant entender o
 // processo de ponta a ponta antes de decidir ligar a chave.
-function ServiceOrderFlowDiagram() {
+type FlowStep = { icon: string; titleKey: TKey; descKey: TKey };
+
+// Diagrama de etapas compartilhado — extraído porque Ordens de Serviço e PDV
+// usavam a mesma estrutura byte-a-byte, só com dados de step diferentes.
+// Largura do conteúdo é limitada a 560px mesmo dentro do card cheio: com o
+// texto esticando até a borda do card fica difícil de ler numa linha só.
+// Colapsado por padrão — o passo a passo é conteúdo de apoio, não essencial
+// pra decidir se o módulo é útil; só aparece se o usuário clicar pra ver.
+function ModuleFlowSteps({ steps }: { steps: FlowStep[] }) {
   const { t } = useI18n();
-  const steps: { icon: string; titleKey: TKey; descKey: TKey }[] = [
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="module-flow">
+      <button
+        type="button"
+        className="module-flow__trigger"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+      >
+        <span className="module-flow__eyebrow">{t('comp.modules.howItWorks')}</span>
+        <svg
+          className={`module-flow__chevron${expanded ? ' is-open' : ''}`}
+          width="10" height="10" viewBox="0 0 12 12" fill="none"
+          stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="M2 4l4 4 4-4"/>
+        </svg>
+      </button>
+      {expanded && (
+      <div className="module-flow__steps">
+        {steps.map((s, i) => (
+          <div key={s.titleKey} className="module-flow__step">
+            <div className="module-flow__track">
+              <div className="module-flow__icon">{s.icon}</div>
+              {i < steps.length - 1 && <div className="module-flow__line" />}
+            </div>
+            <div className="module-flow__text" style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
+              <div className="module-flow__title">{t(s.titleKey)}</div>
+              <div className="module-flow__desc">{t(s.descKey)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceOrderFlowDiagram() {
+  const steps: FlowStep[] = [
     { icon: '📋', titleKey: 'so.flow.step1Title', descKey: 'so.flow.step1Desc' },
     { icon: '📅', titleKey: 'so.flow.step2Title', descKey: 'so.flow.step2Desc' },
     { icon: '🔐', titleKey: 'so.flow.step3Title', descKey: 'so.flow.step3Desc' },
@@ -1441,39 +1546,14 @@ function ServiceOrderFlowDiagram() {
     { icon: '📷', titleKey: 'so.flow.step5Title', descKey: 'so.flow.step5Desc' },
     { icon: '✅', titleKey: 'so.flow.step6Title', descKey: 'so.flow.step6Desc' },
   ];
-
-  return (
-    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-      <strong style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>{t('comp.modules.howItWorks')}</strong>
-      <div>
-        {steps.map((s, i) => (
-          <div key={s.titleKey} style={{ display: 'flex', gap: 14 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none',
-              }}>
-                {s.icon}
-              </div>
-              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 22, background: 'var(--border)' }} />}
-            </div>
-            <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{t(s.titleKey)}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{t(s.descKey)}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <ModuleFlowSteps steps={steps} />;
 }
 
 // ── Passo a passo do PDV (Ponto de Venda) ─────────────────────────────────────
 // Mesmo padrão de ServiceOrderFlowDiagram: mostra o fluxo de ponta a ponta junto
 // do card do módulo, para o tenant entender como operar o PDV antes de ligar a chave.
 function PdvFlowDiagram() {
-  const { t } = useI18n();
-  const steps: { icon: string; titleKey: TKey; descKey: TKey }[] = [
+  const steps: FlowStep[] = [
     { icon: '🏪', titleKey: 'pdv.flow.step1Title', descKey: 'pdv.flow.step1Desc' },
     { icon: '🔓', titleKey: 'pdv.flow.step2Title', descKey: 'pdv.flow.step2Desc' },
     { icon: '🛒', titleKey: 'pdv.flow.step3Title', descKey: 'pdv.flow.step3Desc' },
@@ -1481,29 +1561,5 @@ function PdvFlowDiagram() {
     { icon: '🧾', titleKey: 'pdv.flow.step5Title', descKey: 'pdv.flow.step5Desc' },
     { icon: '🔒', titleKey: 'pdv.flow.step6Title', descKey: 'pdv.flow.step6Desc' },
   ];
-
-  return (
-    <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-      <strong style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>{t('comp.modules.howItWorks')}</strong>
-      <div>
-        {steps.map((s, i) => (
-          <div key={s.titleKey} style={{ display: 'flex', gap: 14 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flex: 'none',
-              }}>
-                {s.icon}
-              </div>
-              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 22, background: 'var(--border)' }} />}
-            </div>
-            <div style={{ paddingBottom: i < steps.length - 1 ? 16 : 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{t(s.titleKey)}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{t(s.descKey)}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <ModuleFlowSteps steps={steps} />;
 }

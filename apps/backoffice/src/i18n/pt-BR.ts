@@ -857,6 +857,12 @@ const ptBR = {
   'billing.successMsg':       'Obrigado por assinar o Orquestra ERP. Seu plano já está ativo.',
   'billing.goToDashboard':    'Ir para o Dashboard',
   'billing.notConfigured':    'O sistema de pagamento não está configurado neste ambiente.',
+  'billing.contactSupport':   'Contate o suporte',
+  'billing.resubscribe':      'Reativar assinatura',
+  'billing.pastDueWarning':   'Seu pagamento está em atraso. Atualize os dados de pagamento para evitar a suspensão da conta.',
+  'billing.confirming':       'Confirmando sua assinatura…',
+  'billing.stillProcessing':  'Ainda estamos processando sua assinatura. Verifique novamente em alguns instantes.',
+  'billing.retry':            'Tentar novamente',
 
   // ── Fornecedores ──────────────────────────────────────────────────────
   'nav.suppliers': 'Fornecedores',
@@ -1252,6 +1258,7 @@ const ptBR = {
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',
   'comp.modules.disabled':      'Desabilitado',
+  'comp.modules.summary':       '{n} de {total} módulos habilitados',
   'comp.companies.default':     'Empresa padrão',
   'comp.companies.new':         'Nova empresa',
   'comp.companies.emittingCompany': 'Empresa emissora',
