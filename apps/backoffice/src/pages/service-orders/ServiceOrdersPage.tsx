@@ -20,6 +20,11 @@ interface VisitRow {
 interface ServiceOrderDetail extends ServiceOrder {
   description: string | null; client_id: string | null;
   items: ServiceOrderItemRow[]; visits: VisitRow[];
+  receivable_id: string | null; receivable_status: string | null;
+  receivable_due_date: string | null; receivable_amount: number | null;
+  receivable_paid_amount: number | null;
+  boleto_status: string | null; brcode: string | null; pix_qr_code: string | null; boleto_url: string | null;
+  nfse_id: string | null; nfse_status: string | null;
 }
 interface ClientOption { id: string; company_name: string | null; full_name: string | null; }
 interface TechnicianOption { id: string; name: string; is_active: boolean; }
@@ -76,6 +81,13 @@ export function ServiceOrdersPage() {
   const [visitAt, setVisitAt]         = useState('');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
   const [copiedVisitId, setCopiedVisitId] = useState('');
+
+  const [billingDueDate, setBillingDueDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [billingEmitNfse, setBillingEmitNfse] = useState(true);
+  const [billingLoading, setBillingLoading]   = useState(false);
 
   async function load() {
     if (!tenantId) return;
@@ -201,6 +213,32 @@ export function ServiceOrdersPage() {
       setDrawerOpen(false);
       void load();
     } catch (err: unknown) { modal.error(err); }
+  }
+
+  async function handleBillServiceOrder() {
+    if (!editing) return;
+    setBillingLoading(true);
+    try {
+      await api.post(`/v1/service-orders/${editing.id}/billing`, {
+        due_date: billingDueDate || undefined,
+        emit_nfse: billingEmitNfse,
+      });
+      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
+      setEditing(detail);
+    } catch (err: unknown) { modal.error(err); }
+    finally { setBillingLoading(false); }
+  }
+
+  async function handleEmitBoleto() {
+    if (!editing?.receivable_id) return;
+    setBillingLoading(true);
+    try {
+      await api.post(`/v1/receivables/${editing.receivable_id}/emit-boleto`, {});
+      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
+      setEditing(detail);
+      modal.success(t('so.billingBoletoQueued'));
+    } catch (err: unknown) { modal.error(err); }
+    finally { setBillingLoading(false); }
   }
 
   return (
@@ -348,6 +386,65 @@ export function ServiceOrdersPage() {
                       disabled={schedulingVisit} onClick={scheduleVisit}>
                       {schedulingVisit ? t('c.saving') : t('so.scheduleVisit')}
                     </button>
+                  </div>
+                )}
+
+                {editing.status === 'completed' && (
+                  <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+                    <strong style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>{t('so.billingTitle')}</strong>
+                    {!editing.receivable_id ? (
+                      <>
+                        <div className="field-row">
+                          <div className="field">
+                            <label>{t('so.billingDueDate')}</label>
+                            <input type="date" value={billingDueDate} onChange={e => setBillingDueDate(e.target.value)} />
+                          </div>
+                          <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 8 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400, fontSize: 13 }}>
+                              <input type="checkbox" checked={billingEmitNfse} onChange={e => setBillingEmitNfse(e.target.checked)} />
+                              {t('so.billingEmitNfse')}
+                            </label>
+                          </div>
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                          disabled={billingLoading} onClick={() => void handleBillServiceOrder()}>
+                          {billingLoading ? t('c.saving') : t('so.billingEmit')}
+                        </button>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 13 }}>
+                        <div>
+                          {t('so.billingAmount')}: <strong>{BRL.format(Number(editing.receivable_amount))}</strong>
+                          {' — '}{t('so.billingDueDate')}: {editing.receivable_due_date ? new Date(editing.receivable_due_date).toLocaleDateString('pt-BR') : '—'}
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          {t('so.billingStatus')}: <span className={`badge ${statusBadge(editing.receivable_status ?? '')}`}>{editing.receivable_status}</span>
+                        </div>
+                        {editing.nfse_id && (
+                          <div style={{ marginTop: 4 }}>NFS-e: {editing.nfse_status ?? t('so.billingNfsePending')}</div>
+                        )}
+                        {!editing.boleto_status ? (
+                          <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', marginTop: 10 }}
+                            disabled={billingLoading} onClick={() => void handleEmitBoleto()}>
+                            {billingLoading ? t('c.saving') : t('so.billingEmitBoleto')}
+                          </button>
+                        ) : (
+                          <div style={{ marginTop: 10 }}>
+                            <div>{t('so.billingBoletoStatus')}: {editing.boleto_status}</div>
+                            {editing.boleto_url && (
+                              <a href={editing.boleto_url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 4 }}>
+                                {t('so.billingViewBoleto')}
+                              </a>
+                            )}
+                            {editing.brcode && (
+                              <div style={{ marginTop: 6, wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>
+                                {editing.brcode}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

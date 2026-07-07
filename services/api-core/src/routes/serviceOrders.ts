@@ -8,6 +8,7 @@ import {
 import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../services/serviceVisitService';
 import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
 import { getPresignedReadUrl } from '../services/servicePhotoStorageService';
+import { billServiceOrder, ServiceOrderBillingDomainError } from '../services/serviceOrderBillingService';
 
 export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('service_orders')] };
@@ -70,10 +71,22 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     const { id }   = request.params as { id: string };
 
     const [{ rows: [so] }, { rows: items }, { rows: visits }] = await Promise.all([
+      // Faturamento (regra 47): junta o receivable (no máximo 1 por OS,
+      // via UNIQUE parcial) e o boleto/NFS-e vinculados, se existirem — o
+      // frontend mostra tudo isso direto na tela da OS, sem navegar até
+      // Contas a Receber.
       db.execute<any>(sql`
-        SELECT so.*, COALESCE(c.company_name, c.full_name) AS client_name
+        SELECT so.*, COALESCE(c.company_name, c.full_name) AS client_name,
+               r.id AS receivable_id, r.status AS receivable_status,
+               r.due_date AS receivable_due_date, r.amount AS receivable_amount,
+               r.paid_amount AS receivable_paid_amount,
+               b.status AS boleto_status, b.brcode, b.pix_qr_code, b.boleto_url,
+               n.id AS nfse_id, n.nfse_status
         FROM service_orders so
         LEFT JOIN clients c ON c.id = so.client_id
+        LEFT JOIN receivables r ON r.service_order_id = so.id
+        LEFT JOIN boletos b ON b.id = r.boleto_id
+        LEFT JOIN nfse_invoices n ON n.receivable_id = r.id
         WHERE so.id = ${id} AND so.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`
@@ -168,6 +181,31 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
       return { ok: true, status: 'cancelled' };
     } catch (err) {
       if (err instanceof ServiceOrderDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
+      throw err;
+    }
+  });
+
+  // ── POST /v1/service-orders/:id/billing ──────────────────────────────────
+  // Faturamento manual de uma OS concluída (regra 47): gera o receivable e,
+  // opcionalmente, a NFS-e — a cobrança em si (boleto/Pix) segue pelo fluxo
+  // que já existe, POST /v1/receivables/:id/emit-boleto, sem mudança nenhuma.
+  fastify.post('/service-orders/:id/billing', auth, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const userId   = (request as any).user.userId;
+    const { id }   = request.params as { id: string };
+    const { due_date, emit_nfse, company_id } = request.body as {
+      due_date?: string; emit_nfse?: boolean; company_id?: string;
+    };
+
+    try {
+      const result = await billServiceOrder({
+        tenantId, serviceOrderId: id, dueDate: due_date,
+        emitNfse: Boolean(emit_nfse), companyId: company_id ?? null,
+      }, db);
+      fastify.log.info({ event: 'service_order_billed', service_order_id: id, tenant_id: tenantId, user_id: userId, ...result });
+      return reply.code(201).send(result);
+    } catch (err) {
+      if (err instanceof ServiceOrderBillingDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
       throw err;
     }
   });

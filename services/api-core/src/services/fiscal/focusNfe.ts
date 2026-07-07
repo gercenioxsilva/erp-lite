@@ -384,3 +384,54 @@ export async function consultarNFeRecebida(chave: string, cfg: Company): Promise
     })),
   };
 }
+
+// GET /v2/nfes_recebidas/{chave}.pdf|.xml — documento da nota de terceiro
+// (mesma dependência de MDe do consultarNFeRecebida acima). Diferente do
+// DANFE de uma NF-e/NFC-e emitida por NÓS (cujo caminho_danfe já vem público
+// na resposta do Focus e pode ser linkado direto), este documento exige o
+// MESMO token/Basic Auth da consulta — por isso é buscado pelo backend e
+// devolvido em base64, nunca um link direto pro Focus.
+
+export interface NFeRecebidaDocumentResult {
+  found:         boolean;
+  reason?:       string;
+  content_type?: string;
+  base64?:       string;
+}
+
+export async function fetchNFeRecebidaDocument(
+  chave: string, cfg: Company, format: 'pdf' | 'xml',
+): Promise<NFeRecebidaDocumentResult> {
+  const token = cfg.focus_ambiente === 1 ? cfg.focus_token_producao : cfg.focus_token_homologacao;
+  if (!token) {
+    return { found: false, reason: 'Token Focus NF-e não configurado para esta empresa (Empresa → Fiscal)' };
+  }
+
+  const url  = `${focusBaseUrlForAmbiente(cfg.focus_ambiente)}/v2/nfes_recebidas/${encodeURIComponent(chave)}.${format}`;
+  const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Authorization: auth } });
+  } catch (err) {
+    return { found: false, reason: `Falha ao consultar o Focus NF-e: ${String(err)}` };
+  }
+
+  if (res.status === 404) {
+    return { found: false, reason: 'Documento não encontrado — a nota pode ainda não ter sido distribuída pela SEFAZ, ou o produto Manifestação do Destinatário (MDe) não está ativo para esta empresa' };
+  }
+  if (!res.ok) {
+    return { found: false, reason: `Focus NF-e retornou erro ao buscar o documento (HTTP ${res.status})` };
+  }
+
+  try {
+    const buf = Buffer.from(await res.arrayBuffer());
+    return {
+      found:        true,
+      content_type: format === 'pdf' ? 'application/pdf' : 'application/xml',
+      base64:       buf.toString('base64'),
+    };
+  } catch {
+    return { found: false, reason: 'Resposta inválida do Focus NF-e' };
+  }
+}
