@@ -35,19 +35,25 @@ export interface PlanCardProps {
 }
 
 export function PlanCard({ plan, isCurrent, isActive, isRecommended, stripeEnabled, busy, onSubscribe, t }: PlanCardProps) {
-  const isDisabled = !stripeEnabled || busy === plan.id || (isCurrent && isActive);
+  // "Plano atual" only means something once there's a real active paid
+  // subscription. tenants.plan defaults to 'starter' the moment an account is
+  // created — during an unconverted trial that's just the tier whose limits
+  // apply, not a plan anyone chose or paid for, so it must not read as
+  // "current" (badge, border, disabled button) until isActive is also true.
+  const isCurrentActive = isCurrent && isActive;
+  const isDisabled = !stripeEnabled || busy === plan.id || isCurrentActive;
   const label = !stripeEnabled
     ? t('billing.contactSupport')
     : busy === plan.id
     ? '…'
-    : isCurrent && isActive
+    : isCurrentActive
     ? t('billing.currentPlan')
     : t('billing.subscribe');
 
   // CTA weight: current plan always reads as neutral/disabled; otherwise the
   // recommended tier gets the filled, elevated button and the other two stay
   // outlined — one deliberate hierarchy move, not three identical buttons.
-  const ctaVariant = isCurrent && isActive ? 'btn-secondary' : isRecommended ? 'btn-primary' : 'btn-secondary';
+  const ctaVariant = isCurrentActive ? 'btn-secondary' : isRecommended ? 'btn-primary' : 'btn-secondary';
 
   const tagline = PLAN_TAGLINE[plan.id];
   const features = [
@@ -65,8 +71,8 @@ export function PlanCard({ plan, isCurrent, isActive, isRecommended, stripeEnabl
   ];
 
   return (
-    <div className={`plan-card${isCurrent ? ' plan-card--current' : isRecommended ? ' plan-card--recommended' : ''}`}>
-      {isCurrent ? (
+    <div className={`plan-card${isCurrentActive ? ' plan-card--current' : isRecommended ? ' plan-card--recommended' : ''}`}>
+      {isCurrentActive ? (
         <span className="plan-card__badge plan-card__badge--current">{t('billing.currentPlan')}</span>
       ) : isRecommended ? (
         <span className="plan-card__badge plan-card__badge--recommended">{t('billing.recommended')}</span>
