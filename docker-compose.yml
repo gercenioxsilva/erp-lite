@@ -90,6 +90,13 @@ services:
       # (adjust the port to this machine's docker-compose.override.yml mapping).
       STRIPE_SECRET_KEY:      ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET:  ${STRIPE_WEBHOOK_SECRET:-}
+      # Drives Stripe Checkout/Portal success/cancel/return URLs
+      # (services/api-core/src/routes/subscription.ts). Without this, it falls
+      # back to the hardcoded production URL — after a real Stripe redirect
+      # you'd land on the live site instead of back in your local backoffice.
+      # Defaults to the base backoffice port; override in your root .env if
+      # your docker-compose.override.yml remaps it (e.g. http://localhost:5174).
+      APP_URL: ${APP_URL:-http://localhost:5173}
     volumes:
       - ./services/api-core/src:/app/src
       - ./services/api-core/db:/app/db
