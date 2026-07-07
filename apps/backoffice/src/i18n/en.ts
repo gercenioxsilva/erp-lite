@@ -641,14 +641,10 @@ const en: Record<TKey, string> = {
   'bill.status.paid':    'Boleto paid',
 
   // ── Register ──────────────────────────────────────────────────────────
-  'r.title':       'Create your company account',
-  'r.subtitle':    'Start your free trial — no credit card required',
-  'r.company':     'Company',
   'r.legalName':   'Legal name *',
   'r.tradeName':   'Trade name',
   'r.taxId':       'Tax ID *',
   'r.taxType':     'Type',
-  'r.adminUser':   'Admin user',
   'r.yourName':    'Your name',
   'r.fullNamePH':  'Full name',
   'r.email':       'Email *',
@@ -663,6 +659,18 @@ const en: Record<TKey, string> = {
   'r.errPwdMatch': 'Passwords do not match',
   'r.errPwdLen':   'Password must be at least 8 characters',
   'r.errFailed':   'Registration failed',
+  'r.continue':    'Continue',
+  'r.back':        'Back',
+  'r.skipTrial':   'Continue with the free trial',
+  'r.step1.eyebrow':  'Step 1 of 3',
+  'r.step1.heading':  'About your company',
+  'r.step1.subtitle': "Let's start with the basics.",
+  'r.step2.eyebrow':  'Step 2 of 3',
+  'r.step2.heading':  'Create your login',
+  'r.step2.subtitle': "You'll be the administrator of this account.",
+  'r.step3.eyebrow':  'Step 3 of 3',
+  'r.step3.heading':  'Choose how to start',
+  'r.step3.subtitle': 'Pick a plan or continue on the free trial.',
 
   // ── Service Contracts ─────────────────────────────────────────────────
   'sc.title':          'Maintenance Contracts',

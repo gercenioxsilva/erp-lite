@@ -569,6 +569,16 @@ tr:hover td { background: #fafbfd; }
 @keyframes ls-spin { to { transform: rotate(360deg); } }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   REGISTER WIZARD — STEP BAR
+   Compact 3-segment progress indicator sized for the 360px .ls-form-body
+   column. No per-segment labels (that's what overflowed StepProgress) —
+   step identity is carried instead by the eyebrow + heading above the form.
+═══════════════════════════════════════════════════════════════════════════ */
+.reg-stepbar { display: flex; gap: 6px; margin-bottom: 22px; }
+.reg-stepbar__seg { flex: 1; height: 6px; border-radius: 999px; background: var(--border); transition: background .2s ease; }
+.reg-stepbar__seg--active { background: var(--primary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    DIALOG MODAL
 ═══════════════════════════════════════════════════════════════════════════ */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(12,20,36,.56); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 500; animation: modal-fade-in .15s ease-out; }
@@ -645,7 +655,7 @@ tr:hover td { background: #fafbfd; }
   .page-header { margin-bottom: 16px; }
 
   /* Grids colapsam para 1 coluna (2 p/ stats) */
-  .field-row, .field-row-3, .bento-grid, .quick-links, .modules-grid { grid-template-columns: 1fr; }
+  .field-row, .field-row-3, .bento-grid, .quick-links, .modules-grid, .plans-grid { grid-template-columns: 1fr; }
   .bento-hero { grid-column: auto; }
   .modules-summary { align-items: flex-start; }
   .stats-grid, .ls-metrics, .ls-category-grid { grid-template-columns: 1fr 1fr; }
