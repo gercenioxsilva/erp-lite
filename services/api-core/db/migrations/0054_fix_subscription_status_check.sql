@@ -1,4 +1,4 @@
--- 0049_fix_subscription_status_check.sql
+-- 0054_fix_subscription_status_check.sql
 -- Fixes a drift between the original tenants CHECK constraints (0001_tenants.sql,
 -- status IN ('trial','active','suspended','cancelled') / plan IN ('starter','professional','enterprise'))
 -- and the vocabulary the Stripe webhook handler (routes/subscription.ts) actually writes
@@ -9,6 +9,11 @@
 -- Direction: align tenants.status/plan to the Stripe-code convention ('canceled' single-L,
 -- 'pro'), not the reverse — 'cancelled' (double-L) stays the correct spelling for every
 -- OTHER table's status column (orders, invoices, payables, receivables, purchase_orders, etc).
+--
+-- Compatible with mapStripeStatus() as hardened in 0053_stripe_price_ids_fix.sql's
+-- companion code change: that function now only ever returns 'active'/'trial'/
+-- 'past_due'/'canceled' (incomplete/paused/unknown all fold into 'past_due', never
+-- silently into 'trial') — all four values are covered by the widened constraint below.
 
 UPDATE tenants SET status = 'canceled' WHERE status = 'cancelled';
 UPDATE tenants SET plan   = 'pro'      WHERE plan   = 'professional';
