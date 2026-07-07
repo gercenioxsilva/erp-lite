@@ -178,11 +178,23 @@ async function handleStripeEvent(event: any, fastify: any) {
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const sub       = data;
-        const priceId   = sub.items?.data?.[0]?.price?.id ?? null;
-        const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
-        const status    = mapStripeStatus(sub.status);
-        const planId    = await resolvePlanIdFromPrice(priceId);
+        const sub     = data;
+        const priceId = sub.items?.data?.[0]?.price?.id ?? null;
+        // Stripe's Basil API version (2025-03-31+) removed current_period_end
+        // from the Subscription object, moving it onto each subscription item —
+        // fall back to items[0] so this keeps working regardless of which API
+        // version the connected webhook endpoint is pinned to.
+        const periodEndRaw = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
+        const periodEnd    = Number.isFinite(periodEndRaw) ? new Date(periodEndRaw * 1000).toISOString() : null;
+        const status       = mapStripeStatus(sub.status);
+        const planId       = await resolvePlanIdFromPrice(priceId);
+
+        if (periodEnd === null && (status === 'active' || status === 'past_due')) {
+          fastify.log.warn(
+            { event_id: event.id, tenant_id: tenantId },
+            'Stripe subscription event missing current_period_end on both the subscription object and items[0] — check the webhook endpoint\'s pinned API version',
+          );
+        }
 
         await db.execute(sql`
           UPDATE tenants SET
