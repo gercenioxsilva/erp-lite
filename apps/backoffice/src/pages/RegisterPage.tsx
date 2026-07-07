@@ -131,29 +131,28 @@ function AccountStep({ form, set, showPwd, setShowPwd, loading, onBack, onSubmit
         <input id="reg-email" type="email" value={form.email} onChange={set('email')} required placeholder="voce@empresa.com" autoComplete="username" />
       </div>
 
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="reg-pwd">{t('r.password')}</label>
-          <div className="pwd-wrap">
-            <input
-              id="reg-pwd"
-              type={showPwd ? 'text' : 'password'}
-              value={form.password}
-              onChange={set('password')}
-              required
-              minLength={8}
-              placeholder={t('r.minPwdPH')}
-              autoComplete="new-password"
-            />
-            <button type="button" className="pwd-toggle" onClick={() => setShowPwd(s => !s)} tabIndex={-1}>
-              {showPwd ? t('l.hide') : t('l.show')}
-            </button>
-          </div>
+      <div className="field">
+        <label htmlFor="reg-pwd">{t('r.password')}</label>
+        <div className="pwd-wrap">
+          <input
+            id="reg-pwd"
+            type={showPwd ? 'text' : 'password'}
+            value={form.password}
+            onChange={set('password')}
+            required
+            minLength={8}
+            placeholder={t('r.minPwdPH')}
+            autoComplete="new-password"
+          />
+          <button type="button" className="pwd-toggle" onClick={() => setShowPwd(s => !s)} tabIndex={-1}>
+            {showPwd ? t('l.hide') : t('l.show')}
+          </button>
         </div>
-        <div className="field">
-          <label htmlFor="reg-pwd2">{t('r.confirmPwd')}</label>
-          <input id="reg-pwd2" type={showPwd ? 'text' : 'password'} value={form.password2} onChange={set('password2')} required placeholder={t('r.repeatPwd')} autoComplete="new-password" />
-        </div>
+      </div>
+
+      <div className="field">
+        <label htmlFor="reg-pwd2">{t('r.confirmPwd')}</label>
+        <input id="reg-pwd2" type={showPwd ? 'text' : 'password'} value={form.password2} onChange={set('password2')} required placeholder={t('r.repeatPwd')} autoComplete="new-password" />
       </div>
 
       <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
