@@ -14,6 +14,24 @@ function actionErrorMessage(err: unknown, fallback: string): string {
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// Plano é feito pra quem — derivado do que o plano de fato inclui, não uma
+// estatística inventada ("mais escolhido por X%"). Cai fora graciosamente
+// pra qualquer plan.id futuro que não esteja aqui (sem tagline, não quebra).
+const PLAN_TAGLINE: Record<string, TKey> = {
+  starter:    'billing.tagline.starter',
+  pro:        'billing.tagline.pro',
+  enterprise: 'billing.tagline.enterprise',
+};
+
+function IcoCheck() {
+  return (
+    <svg viewBox="0 0 18 18" width="15" height="15" fill="none" stroke="currentColor"
+         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 9.5l3.5 3.5 7.5-8" />
+    </svg>
+  );
+}
+
 const STATUS_COLOR: Record<string, string> = {
   trial:    '#d97706',
   active:   '#16a34a',
@@ -143,13 +161,14 @@ interface PlanCardProps {
   plan:          Plan;
   isCurrent:     boolean;
   isActive:      boolean;
+  isRecommended: boolean;
   stripeEnabled: boolean;
   busy:          string | null;
   onSubscribe:   (planId: string) => void;
   t:             TFn;
 }
 
-function PlanCard({ plan, isCurrent, isActive, stripeEnabled, busy, onSubscribe, t }: PlanCardProps) {
+function PlanCard({ plan, isCurrent, isActive, isRecommended, stripeEnabled, busy, onSubscribe, t }: PlanCardProps) {
   const isDisabled = !stripeEnabled || busy === plan.id || (isCurrent && isActive);
   const label = !stripeEnabled
     ? t('billing.contactSupport')
@@ -159,50 +178,53 @@ function PlanCard({ plan, isCurrent, isActive, stripeEnabled, busy, onSubscribe,
     ? t('billing.currentPlan')
     : t('billing.subscribe');
 
+  // CTA weight: current plan always reads as neutral/disabled; otherwise the
+  // recommended tier gets the filled, elevated button and the other two stay
+  // outlined — one deliberate hierarchy move, not three identical buttons.
+  const ctaVariant = isCurrent && isActive ? 'btn-secondary' : isRecommended ? 'btn-primary' : 'btn-secondary';
+
+  const tagline = PLAN_TAGLINE[plan.id];
+  const features = [
+    plan.max_users
+      ? t('billing.users').replace('{n}', String(plan.max_users))
+      : t('billing.usersUnlimited'),
+    plan.max_nfe_per_month
+      ? t('billing.nfe').replace('{n}', String(plan.max_nfe_per_month))
+      : t('billing.nfeUnlimited'),
+    plan.max_clients
+      ? t('billing.clients').replace('{n}', String(plan.max_clients))
+      : t('billing.clientsUnlimited'),
+    ...(plan.features.reports ? ['Relatórios avançados'] : []),
+    ...(plan.features.api_access ? ['Acesso à API'] : []),
+  ];
+
   return (
-    <div
-      className="bento-card"
-      style={{
-        padding: 24,
-        border: isCurrent ? '2px solid var(--primary)' : '1px solid var(--border)',
-        position: 'relative',
-      }}
-    >
-      {isCurrent && (
-        <span style={{
-          position: 'absolute', top: -10, left: 16,
-          background: 'var(--primary)', color: '#fff',
-          padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-        }}>
-          {t('billing.currentPlan')}
-        </span>
-      )}
-      <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{plan.name}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--primary)', marginBottom: 16 }}>
+    <div className={`plan-card${isCurrent ? ' plan-card--current' : isRecommended ? ' plan-card--recommended' : ''}`}>
+      {isCurrent ? (
+        <span className="plan-card__badge plan-card__badge--current">{t('billing.currentPlan')}</span>
+      ) : isRecommended ? (
+        <span className="plan-card__badge plan-card__badge--recommended">{t('billing.recommended')}</span>
+      ) : null}
+
+      <div className="plan-card__name">{plan.name}</div>
+      {tagline && <p className="plan-card__tagline">{t(tagline)}</p>}
+
+      <div className="plan-card__price">
         {BRL.format(plan.price_monthly)}
-        <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>/{t('billing.perMonth')}</span>
+        <span className="plan-card__price-suffix">/{t('billing.perMonth')}</span>
       </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', fontSize: 13, lineHeight: 1.8 }}>
-        <li>
-          {plan.max_users
-            ? t('billing.users').replace('{n}', String(plan.max_users))
-            : t('billing.usersUnlimited')}
-        </li>
-        <li>
-          {plan.max_nfe_per_month
-            ? t('billing.nfe').replace('{n}', String(plan.max_nfe_per_month))
-            : t('billing.nfeUnlimited')}
-        </li>
-        <li>
-          {plan.max_clients
-            ? t('billing.clients').replace('{n}', String(plan.max_clients))
-            : t('billing.clientsUnlimited')}
-        </li>
-        {plan.features.reports && <li>✓ Relatórios avançados</li>}
-        {plan.features.api_access && <li>✓ Acesso à API</li>}
+
+      <ul className="plan-card__features">
+        {features.map(f => (
+          <li key={f} className="plan-card__feature">
+            <span className="plan-card__feature-icon"><IcoCheck /></span>
+            {f}
+          </li>
+        ))}
       </ul>
+
       <button
-        className={`btn ${isCurrent ? 'btn-secondary' : 'btn-primary'}`}
+        className={`btn ${ctaVariant} plan-card__cta`}
         style={{ width: '100%' }}
         onClick={() => onSubscribe(plan.id)}
         disabled={isDisabled}
@@ -276,13 +298,14 @@ export function BillingPage() {
               {t('billing.notConfigured')}
             </p>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginTop: stripeEnabled ? 16 : 0 }}>
-            {data.plans.map((plan) => (
+          <div className="plans-grid" style={{ marginTop: stripeEnabled ? 16 : 0 }}>
+            {data.plans.map((plan, i) => (
               <PlanCard
                 key={plan.id}
                 plan={plan}
                 isCurrent={data.plan === plan.id && data.status !== 'canceled'}
                 isActive={data.status === 'active'}
+                isRecommended={data.plans.length >= 3 && i === Math.floor(data.plans.length / 2)}
                 stripeEnabled={stripeEnabled}
                 busy={busy}
                 onSubscribe={handleSubscribe}

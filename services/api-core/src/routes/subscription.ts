@@ -53,15 +53,15 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const { plan_id } = request.body as { plan_id: string };
 
     const stripe = getStripe();
-    if (!stripe) return reply.serviceUnavailable('Stripe not configured');
+    if (!stripe) return reply.serviceUnavailable('Sistema de pagamento não configurado.');
 
     const { rows: [plan] } = await db.execute<any>(sql`
       SELECT stripe_price_id FROM plans WHERE id = ${plan_id} AND is_active = TRUE LIMIT 1
     `);
-    if (!plan) return reply.notFound('Plan not found');
+    if (!plan) return reply.notFound('Plano não encontrado.');
 
     if (plan.stripe_price_id === 'price_placeholder' || plan.stripe_price_id.startsWith('price_placeholder')) {
-      return reply.badRequest('Plan price not configured in Stripe yet');
+      return reply.badRequest('O preço deste plano ainda não foi configurado. Fale com o suporte.');
     }
 
     const { rows: [tenant] } = await db.execute<any>(sql`
@@ -86,13 +86,13 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const tenantId = (request as any).user.tenantId;
 
     const stripe = getStripe();
-    if (!stripe) return reply.serviceUnavailable('Stripe not configured');
+    if (!stripe) return reply.serviceUnavailable('Sistema de pagamento não configurado.');
 
     const { rows: [tenant] } = await db.execute<any>(sql`
       SELECT stripe_customer_id FROM tenants WHERE id = ${tenantId} LIMIT 1
     `);
     if (!tenant?.stripe_customer_id) {
-      return reply.badRequest('No Stripe customer found for this tenant');
+      return reply.badRequest('Nenhuma assinatura ativa encontrada para esta conta. Escolha um plano primeiro.');
     }
 
     const session = await stripe.billingPortal.sessions.create({
