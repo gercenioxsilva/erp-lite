@@ -337,6 +337,111 @@ tr:hover td { background: #fafbfd; }
 /* ── Bento grid (dashboard) ────────────────────────────────────────────── */
 .bento-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 22px; }
 
+/* ── Plan cards (Assinatura → Escolha um plano) ───────────────────────────
+   Three genuinely comparable tiers, side by side. The middle/recommended
+   card carries the one deliberate hierarchy move (stronger border, filled
+   CTA); the other two stay quiet — same surface, same radius, same shadow
+   language as every other card in the app (.bento-card), just outlined. */
+.plans-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: stretch; }
+
+.plan-card {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1.5px solid var(--border);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.plan-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.plan-card--current { border: 2px solid var(--primary); }
+.plan-card--recommended { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+.plan-card--recommended:hover { box-shadow: var(--shadow-md); }
+
+.plan-card__badge {
+  position: absolute; top: -11px; left: 20px;
+  padding: 3px 12px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.plan-card__badge--current { background: var(--primary); color: #fff; }
+.plan-card__badge--recommended { background: var(--accent); color: #fff; }
+
+.plan-card__name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.plan-card__tagline { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-bottom: 16px; min-height: 32px; }
+
+.plan-card__price { font-size: 28px; font-weight: 800; color: var(--primary); margin-bottom: 18px; }
+.plan-card__price-suffix { font-size: 13px; font-weight: 500; color: var(--muted); }
+
+.plan-card__features { list-style: none; padding: 0; margin: 0 0 20px; flex: 1; display: flex; flex-direction: column; gap: 9px; }
+.plan-card__feature { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; }
+.plan-card__feature-icon { flex-shrink: 0; margin-top: 1px; color: var(--success); }
+
+.plan-card__cta.btn-primary { box-shadow: 0 4px 14px rgba(var(--primary-rgb), .28); }
+
+/* ── Modules (Minha Empresa → Módulos) ────────────────────────────────────
+   Módulos com fluxo real (Ordens de Serviço, PDV) ficam em .modules-stack,
+   cheios de largura; toggles simples (Multi-Empresa, Mercado Livre) ficam
+   em .modules-grid, compactos — a diferença de conteúdo decide o layout. */
+.modules-stack { display: flex; flex-direction: column; gap: 16px; }
+.modules-grid  { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; align-items: start; }
+
+.modules-summary {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  font-size: 12.5px; font-weight: 600; color: var(--muted); flex-shrink: 0;
+}
+.modules-summary__dots { display: flex; gap: 5px; }
+.modules-summary__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background .2s; }
+.modules-summary__dot.is-on { background: var(--primary); }
+
+/* Card de módulo — a barra de acento e o tom de fundo só aparecem quando o
+   módulo está ligado, então o estado "habilitado" fica óbvio na varredura
+   visual da tela, não só no badge pequeno. */
+.module-card {
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  padding: 20px 20px 20px 24px;
+  overflow: hidden;
+  transition: border-color .2s ease, background .2s ease;
+}
+.module-card::before {
+  content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 4px;
+  background: transparent; transition: background .2s ease;
+}
+.module-card--on {
+  border-color: rgba(var(--primary-rgb), .22);
+  background: linear-gradient(180deg, rgba(var(--primary-rgb), .04), transparent 140px);
+}
+.module-card--on::before { background: linear-gradient(180deg, var(--primary), var(--accent)); }
+
+.module-flow { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.module-flow__trigger {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; padding: 0; margin: 0;
+  font-family: var(--font); cursor: pointer;
+}
+.module-flow__eyebrow {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); transition: color .14s;
+}
+.module-flow__trigger:hover .module-flow__eyebrow { color: var(--text); }
+.module-flow__chevron { color: var(--muted); flex-shrink: 0; transition: transform .18s ease, color .14s; }
+.module-flow__chevron.is-open { transform: rotate(180deg); }
+.module-flow__trigger:hover .module-flow__chevron { color: var(--text); }
+.module-flow__steps { max-width: 560px; margin-top: 14px; }
+.module-flow__step { display: flex; gap: 14px; }
+.module-flow__track { display: flex; flex-direction: column; align-items: center; flex: none; }
+.module-flow__icon {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none;
+}
+.module-flow__line { width: 2px; flex: 1; min-height: 22px; background: var(--border); }
+.module-flow__title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.module-flow__desc  { font-size: 12.5px; color: var(--muted); }
+
 .bento-card {
   background: var(--surface); border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm); border: 1px solid rgba(0,0,0,.05);
@@ -464,6 +569,16 @@ tr:hover td { background: #fafbfd; }
 @keyframes ls-spin { to { transform: rotate(360deg); } }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   REGISTER WIZARD — STEP BAR
+   Compact 3-segment progress indicator sized for the 360px .ls-form-body
+   column. No per-segment labels (that's what overflowed StepProgress) —
+   step identity is carried instead by the eyebrow + heading above the form.
+═══════════════════════════════════════════════════════════════════════════ */
+.reg-stepbar { display: flex; gap: 6px; margin-bottom: 22px; }
+.reg-stepbar__seg { flex: 1; height: 6px; border-radius: 999px; background: var(--border); transition: background .2s ease; }
+.reg-stepbar__seg--active { background: var(--primary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    DIALOG MODAL
 ═══════════════════════════════════════════════════════════════════════════ */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(12,20,36,.56); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 500; animation: modal-fade-in .15s ease-out; }
@@ -540,9 +655,10 @@ tr:hover td { background: #fafbfd; }
   .page-header { margin-bottom: 16px; }
 
   /* Grids colapsam para 1 coluna (2 p/ stats) */
-  .field-row, .field-row-3, .bento-grid, .quick-links { grid-template-columns: 1fr; }
+  .field-row, .field-row-3, .bento-grid, .quick-links, .modules-grid, .plans-grid { grid-template-columns: 1fr; }
   .bento-hero { grid-column: auto; }
-  .stats-grid, .ls-category-grid { grid-template-columns: 1fr 1fr; }
+  .modules-summary { align-items: flex-start; }
+  .stats-grid, .ls-metrics, .ls-category-grid { grid-template-columns: 1fr 1fr; }
 
   /* Drawer ocupa a tela inteira no celular */
   .overlay { justify-content: stretch; }

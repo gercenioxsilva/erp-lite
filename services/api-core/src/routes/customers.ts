@@ -37,7 +37,7 @@ const customerBodySchema = {
     fiscal_contact_name:  { type: 'string', maxLength: 255 },
     fiscal_contact_phone: { type: 'string', maxLength: 30 },
     fiscal_contact_email: { type: 'string', format: 'email', maxLength: 255 },
-    plan:          { type: 'string', enum: ['starter', 'professional', 'enterprise'], default: 'starter' },
+    plan:          { type: 'string', enum: ['starter', 'pro', 'enterprise'], default: 'starter' },
     trial_ends_at: { type: 'string', format: 'date-time' },
   },
 } as const;
@@ -111,7 +111,7 @@ export const customersRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
         properties: {
           page: { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-          status: { type: 'string', enum: ['trial', 'active', 'suspended', 'cancelled'] },
+          status: { type: 'string', enum: ['trial', 'active', 'past_due', 'suspended', 'canceled'] },
           search: { type: 'string' },
         },
       },
@@ -186,7 +186,7 @@ export const customersRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [row] = await db.update(tenants)
-      .set({ status: 'cancelled', updated_at: new Date() })
+      .set({ status: 'canceled', updated_at: new Date() })
       .where(eq(tenants.id, id))
       .returning();
     if (!row) return reply.notFound('Customer not found');

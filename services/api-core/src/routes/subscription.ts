@@ -53,15 +53,15 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
     const { plan_id } = request.body as { plan_id: string };
 
     const stripe = getStripe();
-    if (!stripe) return reply.serviceUnavailable('Stripe not configured');
+    if (!stripe) return reply.serviceUnavailable('Sistema de pagamento não configurado.');
 
     const { rows: [plan] } = await db.execute<any>(sql`
       SELECT stripe_price_id FROM plans WHERE id = ${plan_id} AND is_active = TRUE LIMIT 1
     `);
-    if (!plan) return reply.notFound('Plan not found');
+    if (!plan) return reply.notFound('Plano não encontrado.');
 
     if (plan.stripe_price_id === 'price_placeholder' || plan.stripe_price_id.startsWith('price_placeholder')) {
-      return reply.badRequest('Plan price not configured in Stripe yet');
+      return reply.badRequest('O preço deste plano ainda não foi configurado. Fale com o suporte.');
     }
 
     const { rows: [tenant] } = await db.execute<any>(sql`
@@ -82,17 +82,17 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/subscription/portal-session — creates Stripe Customer Portal session
-  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const stripe = getStripe();
-    if (!stripe) throw new Error('Stripe not configured');
+    if (!stripe) return reply.serviceUnavailable('Sistema de pagamento não configurado.');
 
     const { rows: [tenant] } = await db.execute<any>(sql`
       SELECT stripe_customer_id FROM tenants WHERE id = ${tenantId} LIMIT 1
     `);
     if (!tenant?.stripe_customer_id) {
-      throw new Error('No Stripe customer found for this tenant');
+      return reply.badRequest('Nenhuma assinatura ativa encontrada para esta conta. Escolha um plano primeiro.');
     }
 
     const session = await stripe.billingPortal.sessions.create({
@@ -120,8 +120,8 @@ export const subscriptionWebhookRoute: FastifyPluginAsync = async (fastify) => {
     const rawBody = request.body as string;
 
     if (!secret) {
-      fastify.log.warn('STRIPE_WEBHOOK_SECRET not set — skipping signature verification');
-      return reply.send({ received: true });
+      fastify.log.error('STRIPE_WEBHOOK_SECRET not set while Stripe is enabled — rejecting webhook');
+      return reply.code(503).send({ error: 'Webhook not configured' });
     }
 
     let event: any;
@@ -178,11 +178,23 @@ async function handleStripeEvent(event: any, fastify: any) {
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const sub       = data;
-        const priceId   = sub.items?.data?.[0]?.price?.id ?? null;
-        const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
-        const status    = mapStripeStatus(sub.status);
-        const planId    = await resolvePlanIdFromPrice(priceId);
+        const sub     = data;
+        const priceId = sub.items?.data?.[0]?.price?.id ?? null;
+        // Stripe's Basil API version (2025-03-31+) removed current_period_end
+        // from the Subscription object, moving it onto each subscription item —
+        // fall back to items[0] so this keeps working regardless of which API
+        // version the connected webhook endpoint is pinned to.
+        const periodEndRaw = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
+        const periodEnd    = Number.isFinite(periodEndRaw) ? new Date(periodEndRaw * 1000).toISOString() : null;
+        const status       = mapStripeStatus(sub.status);
+        const planId       = await resolvePlanIdFromPrice(priceId);
+
+        if (periodEnd === null && (status === 'active' || status === 'past_due')) {
+          fastify.log.warn(
+            { event_id: event.id, tenant_id: tenantId },
+            'Stripe subscription event missing current_period_end on both the subscription object and items[0] — check the webhook endpoint\'s pinned API version',
+          );
+        }
 
         await db.execute(sql`
           UPDATE tenants SET
