@@ -973,6 +973,12 @@ const en: Record<TKey, string> = {
   'si.installments':          'Installments',
   'si.installmentsHint':      'The due date above is for the 1st installment; the others are generated monthly, with the amount split evenly.',
   'si.installmentsGenerated': 'installments generated.',
+  'si.edit':               'Edit Supplier Invoice',
+  'si.saveChanges':        'Save Changes',
+  'si.documentTitle':      'Invoice Document',
+  'si.viewPdf':            'View PDF',
+  'si.viewXml':            'View XML',
+  'si.documentNotFound':   'Document not available for this invoice.',
 
   // ── DRE Report (P3) ───────────────────────────────────────────────────────
   'nav.dre':                 'P&L Report',
@@ -1297,6 +1303,17 @@ const en: Record<TKey, string> = {
   'so.viewVisit':      'View visit',
   'so.empty':          'No service orders registered.',
   'so.errNoTitle':     'Title is required',
+  'so.billingTitle':        'Billing',
+  'so.billingDueDate':      'Due date',
+  'so.billingEmitNfse':     'Also issue NFS-e',
+  'so.billingEmit':         'Issue Billing',
+  'so.billingAmount':       'Amount',
+  'so.billingStatus':       'Billing status',
+  'so.billingNfsePending':  'awaiting issuance',
+  'so.billingEmitBoleto':   'Issue Boleto/Pix',
+  'so.billingBoletoStatus': 'Boleto/Pix',
+  'so.billingViewBoleto':   'View boleto',
+  'so.billingBoletoQueued': 'Boleto/Pix requested — check back shortly.',
 
   // ── Technicians ───────────────────────────────────────────────────────────
   'tech.title':        'Technicians',

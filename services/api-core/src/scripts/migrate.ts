@@ -81,6 +81,7 @@ const migrations = [
   '0049_ibs_cbs_tax_reform.sql',
   '0050_material_price_history.sql',
   '0051_supplier_invoice_installments.sql',
+  '0052_service_order_billing.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

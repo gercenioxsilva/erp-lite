@@ -510,6 +510,11 @@ export const receivables = pgTable('receivables', {
   cost_center_id: uuid('cost_center_id'),
   // Origem PDV (migration 0031) — FK → pos_sales.id (constraint na migration; thunk evita ciclo de definição)
   pos_sale_id: uuid('pos_sale_id'),
+  // Faturamento de Ordem de Serviço (migration 0052) — FK → service_orders.id
+  // (constraint na migration, sem .references() aqui pra evitar ciclo de
+  // definição, já que service_orders é declarada mais adiante neste arquivo).
+  // UNIQUE parcial (na migration) garante no máximo 1 receivable por OS.
+  service_order_id: uuid('service_order_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────

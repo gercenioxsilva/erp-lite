@@ -971,6 +971,12 @@ const ptBR = {
   'si.installments':          'Parcelas',
   'si.installmentsHint':      'Vencimento acima é da 1ª parcela; as demais serão geradas mensalmente, com o valor dividido igualmente.',
   'si.installmentsGenerated': 'parcelas geradas.',
+  'si.edit':               'Editar NF-e de Entrada',
+  'si.saveChanges':        'Salvar Alterações',
+  'si.documentTitle':      'Documento da NF-e',
+  'si.viewPdf':            'Ver PDF',
+  'si.viewXml':            'Ver XML',
+  'si.documentNotFound':   'Documento não disponível para esta nota.',
 
   // ── DRE Gerencial (P3) ──────────────────────────────────────────────────
   'nav.dre':                 'DRE Gerencial',
@@ -1295,6 +1301,17 @@ const ptBR = {
   'so.viewVisit':      'Ver visita',
   'so.empty':          'Nenhuma ordem de serviço cadastrada.',
   'so.errNoTitle':     'Título é obrigatório',
+  'so.billingTitle':        'Faturamento',
+  'so.billingDueDate':      'Vencimento',
+  'so.billingEmitNfse':     'Emitir NFS-e junto',
+  'so.billingEmit':         'Emitir Faturamento',
+  'so.billingAmount':       'Valor',
+  'so.billingStatus':       'Status da cobrança',
+  'so.billingNfsePending':  'aguardando emissão',
+  'so.billingEmitBoleto':   'Emitir Boleto/Pix',
+  'so.billingBoletoStatus': 'Boleto/Pix',
+  'so.billingViewBoleto':   'Ver boleto',
+  'so.billingBoletoQueued': 'Boleto/Pix solicitado — atualize em alguns instantes.',
 
   // ── Técnicos ──────────────────────────────────────────────────────────────
   'tech.title':        'Técnicos',

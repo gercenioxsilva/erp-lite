@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { consultarNFeRecebida } from '../services/fiscal/focusNfe';
+import { consultarNFeRecebida, fetchNFeRecebidaDocument } from '../services/fiscal/focusNfe';
 import type { Company } from '../services/companyService';
 
 // consultarNFeRecebida() nunca deve lançar erro pra cima — qualquer falha
@@ -98,5 +98,65 @@ describe('consultarNFeRecebida', () => {
     const [url, opts] = (global.fetch as any).mock.calls[0];
     expect(url).toContain('https://api.focusnfe.com.br');
     expect(opts.headers.Authorization).toBe('Basic ' + Buffer.from('prod-token:').toString('base64'));
+  });
+});
+
+describe('fetchNFeRecebidaDocument', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => { global.fetch = vi.fn() as any; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('retorna found:false quando a empresa não tem token configurado', async () => {
+    const result = await fetchNFeRecebidaDocument(CHAVE, baseCompany({ focus_token_homologacao: null }), 'pdf');
+    expect(result.found).toBe(false);
+    expect(result.reason).toMatch(/Token Focus NF-e não configurado/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('retorna found:false quando o Focus responde 404 (documento indisponível)', async () => {
+    (global.fetch as any).mockResolvedValue({ ok: false, status: 404 });
+    const result = await fetchNFeRecebidaDocument(CHAVE, baseCompany(), 'pdf');
+    expect(result.found).toBe(false);
+    expect(result.reason).toMatch(/não foi distribuída|MDe/);
+  });
+
+  it('retorna found:false quando fetch rejeita (nunca lança)', async () => {
+    (global.fetch as any).mockRejectedValue(new Error('network down'));
+    const result = await fetchNFeRecebidaDocument(CHAVE, baseCompany(), 'xml');
+    expect(result.found).toBe(false);
+    expect(result.reason).toMatch(/network down/);
+  });
+
+  it('devolve o PDF em base64 com o content-type correto', async () => {
+    const fakeBytes = new Uint8Array([1, 2, 3, 4]);
+    (global.fetch as any).mockResolvedValue({
+      ok: true, status: 200,
+      arrayBuffer: async () => fakeBytes.buffer,
+    });
+
+    const result = await fetchNFeRecebidaDocument(CHAVE, baseCompany(), 'pdf');
+
+    expect(result.found).toBe(true);
+    expect(result.content_type).toBe('application/pdf');
+    expect(result.base64).toBe(Buffer.from(fakeBytes).toString('base64'));
+
+    const [url] = (global.fetch as any).mock.calls[0];
+    expect(url).toContain(`nfes_recebidas/${CHAVE}.pdf`);
+  });
+
+  it('devolve o XML em base64 com o content-type correto', async () => {
+    const fakeBytes = new Uint8Array([5, 6, 7]);
+    (global.fetch as any).mockResolvedValue({
+      ok: true, status: 200,
+      arrayBuffer: async () => fakeBytes.buffer,
+    });
+
+    const result = await fetchNFeRecebidaDocument(CHAVE, baseCompany(), 'xml');
+
+    expect(result.found).toBe(true);
+    expect(result.content_type).toBe('application/xml');
+    const [url] = (global.fetch as any).mock.calls[0];
+    expect(url).toContain(`nfes_recebidas/${CHAVE}.xml`);
   });
 });

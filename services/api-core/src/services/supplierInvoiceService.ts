@@ -5,7 +5,7 @@
 // Segue o padrão de injeção de db para testabilidade isolada.
 
 import crypto from 'crypto';
-import { sql } from 'drizzle-orm';
+import { sql, eq, and } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { supplierInvoices, supplierInvoiceItems, payables, inventory, inventoryMovements } from '../db/schema';
 import {
@@ -83,6 +83,73 @@ export async function createSupplierInvoice(args: SICreate, db: DrizzleDB) {
     for (const it of args.items) {
       await tx.insert(supplierInvoiceItems).values({
         supplier_invoice_id: si.id,
+        material_id:  it.materialId || null,
+        name:         it.name,
+        ncm_code:     it.ncmCode || null,
+        cfop:         it.cfop    || null,
+        unit:         it.unit    || 'UN',
+        quantity:     String(it.quantity),
+        unit_price:   String(it.unit_price),
+        total:        String(Math.round(it.quantity * it.unit_price * 100) / 100),
+        icms_rate:    it.icmsRate  != null ? String(it.icmsRate)  : null,
+        icms_value:   it.icmsValue != null ? String(it.icmsValue) : null,
+        ipi_rate:     it.ipiRate   != null ? String(it.ipiRate)   : null,
+        ipi_value:    it.ipiValue  != null ? String(it.ipiValue)  : null,
+      });
+    }
+
+    return si;
+  });
+}
+
+// Edição só é permitida enquanto a nota está em 'draft' — uma vez confirmada
+// (mesmo que em 'divergence'), estoque e/ou payable já foram gerados a
+// partir dos dados atuais, então editar depois disso corromperia esse
+// rastro. Substitui todos os itens (delete + reinsert), mesma simplicidade
+// do fluxo de criação — não há diff parcial de itens.
+export async function updateSupplierInvoice(
+  id:       string,
+  tenantId: string,
+  args:     Omit<SICreate, 'tenantId' | 'createdBy'>,
+  db:       DrizzleDB,
+) {
+  validateSICreate({
+    items: args.items.map(it => ({ quantity: it.quantity, unit_price: it.unit_price })),
+    total: args.total,
+  });
+
+  return db.transaction(async (tx) => {
+    const { rows: [existing] } = await tx.execute<{ status: string }>(
+      sql`SELECT status FROM supplier_invoices WHERE id = ${id} AND tenant_id = ${tenantId}`,
+    );
+    if (!existing) throw new SupplierInvoiceDomainError('si_not_found', { id });
+    if (existing.status !== 'draft') {
+      throw new SupplierInvoiceDomainError('si_not_editable', { status: existing.status });
+    }
+
+    const [si] = await tx.update(supplierInvoices).set({
+      supplier_id:       args.supplierId   || null,
+      supplier_name:     args.supplierName || null,
+      purchase_order_id: args.purchaseOrderId || null,
+      nfe_key:           args.nfeKey    || null,
+      nfe_number:        args.nfeNumber || null,
+      nfe_series:        args.nfeSeries || '1',
+      issue_date:        args.issueDate || null,
+      due_date:          args.dueDate   || null,
+      subtotal:          String(args.subtotal),
+      tax_total:         String(args.taxTotal ?? 0),
+      total:             String(args.total),
+      installments:      args.installments && args.installments > 1 ? args.installments : 1,
+      notes:             args.notes || null,
+      cost_center_id:    args.costCenterId || null,
+      updated_at:        new Date(),
+    }).where(and(eq(supplierInvoices.id, id), eq(supplierInvoices.tenant_id, tenantId))).returning();
+
+    await tx.delete(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplier_invoice_id, id));
+
+    for (const it of args.items) {
+      await tx.insert(supplierInvoiceItems).values({
+        supplier_invoice_id: id,
         material_id:  it.materialId || null,
         name:         it.name,
         ncm_code:     it.ncmCode || null,
