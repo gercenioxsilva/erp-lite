@@ -4,6 +4,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import type { TKey } from '../../i18n/pt-BR';
+import { ProductPicker, type ProductPickerOption } from '../../ds/components/ProductPicker';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -14,8 +15,36 @@ interface SI {
   purchase_order_id: string | null; payable_id: string | null; created_at: string;
 }
 interface SupplierOption { id: string; company_name: string | null; full_name: string | null; }
-interface POOption { id: string; number: string; }
+interface POOption { id: string; number: string; status: string; }
+interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
 interface ListResp { data: SI[]; total: number; page: number; per_page: number; }
+
+interface SIItemDetail {
+  id: string; material_id: string | null; name: string; unit: string;
+  quantity: number; unit_price: number; total: number; material_name: string | null;
+}
+interface SIFullDetail {
+  id: string; status: string; supplier_id: string | null; supplier_name: string | null;
+  supplier_company_name: string | null; purchase_order_id: string | null; purchase_order_number: string | null;
+  nfe_key: string | null; nfe_number: string | null; nfe_series: string | null;
+  issue_date: string | null; due_date: string | null; subtotal: number; total: number;
+  installments: number; notes: string | null; payable_id: string | null;
+  confirmed_at: string | null; items: SIItemDetail[];
+}
+interface DocumentResp { found: boolean; reason?: string; content_type?: string; base64?: string; }
+
+interface UnmatchedSupplier {
+  matched: false; cnpj: string; name: string;
+  street: string | null; street_number: string | null; neighborhood: string | null;
+  city: string | null; state: string | null; zip_code: string | null;
+}
+interface LookupResp {
+  found: boolean;
+  reason?: string;
+  supplier?: { matched: true; id: string; name: string | null } | UnmatchedSupplier;
+  nfe?: { chave: string; numero: string; serie: string; data_emissao: string | null; valor_total: number };
+  items?: Array<{ name: string; ncm_code: string | null; cfop: string | null; unit: string; quantity: number; unit_price: number }>;
+}
 
 const STATUS_TABS = ['all', 'draft', 'confirmed', 'divergence', 'cancelled'] as const;
 type StatusTab = typeof STATUS_TABS[number];
@@ -52,9 +81,21 @@ export function SupplierInvoicesPage() {
   const [formIssue,    setFormIssue]    = useState('');
   const [formDue,      setFormDue]      = useState('');
   const [formTotal,    setFormTotal]    = useState('');
+  const [formInstallments, setFormInstallments] = useState('1');
   const [formItems,    setFormItems]    = useState([newItem()]);
   const [suppliers,    setSuppliers]    = useState<SupplierOption[]>([]);
   const [pos,          setPOs]          = useState<POOption[]>([]);
+  const [materials,    setMaterials]    = useState<MaterialOption[]>([]);
+
+  const [keyLookupLoading, setKeyLookupLoading] = useState(false);
+  const [keyLookupMsg, setKeyLookupMsg] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
+  const [keySupplierSuggestion, setKeySupplierSuggestion] = useState<UnmatchedSupplier | null>(null);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
+  const [editingId, setEditingId]   = useState<string | null>(null);
+  const [viewOnly, setViewOnly]     = useState(false);
+  const [viewingDetail, setViewingDetail] = useState<SIFullDetail | null>(null);
+  const [docLoading, setDocLoading] = useState<'pdf' | 'xml' | null>(null);
 
   const perPage = 20;
 
@@ -75,19 +116,153 @@ export function SupplierInvoicesPage() {
     let cancelled = false;
     Promise.all([
       api.get<{ data: SupplierOption[] }>(`/v1/suppliers?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ data: POOption[] }>(`/v1/purchase-orders?per_page=100&status=approved`),
-    ]).then(([su, po]) => {
+      // Sem filtro de status: um Pedido de Compra nasce em 'draft' e só vira
+      // 'approved' depois de um clique explícito — filtrar só approved
+      // deixava POs recém-criados impossíveis de associar aqui.
+      api.get<{ data: POOption[] }>(`/v1/purchase-orders?per_page=100`),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
+    ]).then(([su, po, mat]) => {
       if (cancelled) return;
       setSuppliers(su.data ?? []);
-      setPOs(po.data ?? []);
+      setPOs((po.data ?? []).filter(p => p.status === 'draft' || p.status === 'approved'));
+      setMaterials(mat.data ?? []);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [drawerOpen, tenantId]);
 
   function openCreate() {
     setFormSupplier(''); setFormPO(''); setFormNfeKey(''); setFormNfeNum('');
-    setFormSeries('1'); setFormIssue(''); setFormDue(''); setFormTotal('');
-    setFormItems([newItem()]); setFormError(''); setDrawerOpen(true);
+    setFormSeries('1'); setFormIssue(''); setFormDue(''); setFormTotal(''); setFormInstallments('1');
+    setFormItems([newItem()]); setFormError('');
+    setKeyLookupMsg(null); setKeySupplierSuggestion(null);
+    setEditingId(null); setViewOnly(false); setViewingDetail(null);
+    setDrawerOpen(true);
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false);
+    setEditingId(null); setViewOnly(false); setViewingDetail(null);
+  }
+
+  async function openDetail(inv: SI) {
+    setFormError(''); setKeyLookupMsg(null); setKeySupplierSuggestion(null);
+    setEditingId(inv.id); setViewOnly(inv.status !== 'draft'); setViewingDetail(null);
+    setDrawerOpen(true);
+    try {
+      const detail = await api.get<SIFullDetail>(`/v1/supplier-invoices/${inv.id}`);
+      if (detail.status === 'draft') {
+        setFormSupplier(detail.supplier_id ?? '');
+        setFormPO(detail.purchase_order_id ?? '');
+        setFormNfeKey(detail.nfe_key ?? '');
+        setFormNfeNum(detail.nfe_number ?? '');
+        setFormSeries(detail.nfe_series ?? '1');
+        setFormIssue(detail.issue_date ? detail.issue_date.slice(0, 10) : '');
+        setFormDue(detail.due_date ? detail.due_date.slice(0, 10) : '');
+        setFormTotal(String(detail.total ?? ''));
+        setFormInstallments(String(detail.installments ?? 1));
+        setFormItems(detail.items.length ? detail.items.map(it => ({
+          _key: Math.random().toString(36).slice(2),
+          material_id: it.material_id ?? '', name: it.name, unit: it.unit,
+          quantity: String(it.quantity), unit_price: String(it.unit_price),
+        })) : [newItem()]);
+        setViewOnly(false);
+      } else {
+        setViewingDetail(detail);
+        setViewOnly(true);
+      }
+    } catch (err: unknown) {
+      modal.error(err);
+      closeDrawer();
+    }
+  }
+
+  async function openDocument(format: 'pdf' | 'xml') {
+    if (!viewingDetail) return;
+    setDocLoading(format);
+    try {
+      const r = await api.get<DocumentResp>(`/v1/supplier-invoices/${viewingDetail.id}/document?format=${format}`);
+      if (!r.found || !r.base64) { modal.error(r.reason ?? t('si.documentNotFound')); return; }
+      const byteChars = atob(r.base64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([new Uint8Array(byteNumbers)], { type: r.content_type });
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err: unknown) { modal.error(err); }
+    finally { setDocLoading(null); }
+  }
+
+  function updateItem(idx: number, field: string, val: string) {
+    setFormItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (field === 'material_id') {
+        const mat = materials.find(m => m.id === val);
+        return { ...it, material_id: val, name: mat?.name ?? '', unit: mat?.unit ?? 'UN', unit_price: mat?.sale_price ? String(mat.sale_price) : it.unit_price };
+      }
+      return { ...it, [field]: val };
+    }));
+  }
+
+  async function handleLookupByKey() {
+    const chave = formNfeKey.trim();
+    if (chave.length !== 44) return;
+    setKeyLookupLoading(true); setKeyLookupMsg(null); setKeySupplierSuggestion(null);
+    try {
+      const r = await api.post<LookupResp>('/v1/supplier-invoices/lookup-by-key', { chave_acesso: chave });
+      if (!r.found) {
+        setKeyLookupMsg({ type: 'info', text: r.reason ?? t('si.lookupNotFound') });
+        return;
+      }
+      if (r.nfe) {
+        if (r.nfe.numero) setFormNfeNum(r.nfe.numero);
+        if (r.nfe.serie)  setFormSeries(r.nfe.serie);
+        if (r.nfe.data_emissao) setFormIssue(r.nfe.data_emissao.slice(0, 10));
+        if (r.nfe.valor_total) setFormTotal(String(r.nfe.valor_total));
+      }
+      if (r.items?.length) {
+        setFormItems(r.items.map(it => ({
+          _key: Math.random().toString(36).slice(2), material_id: '',
+          name: it.name, unit: it.unit || 'UN',
+          quantity: String(it.quantity), unit_price: String(it.unit_price),
+        })));
+      }
+      if (r.supplier?.matched) {
+        setFormSupplier(r.supplier.id);
+        setKeyLookupMsg({ type: 'info', text: `${t('si.lookupFilled')} ${t('si.lookupSupplierMatched')} ${r.supplier.name ?? ''}` });
+      } else if (r.supplier) {
+        setKeySupplierSuggestion(r.supplier);
+        setKeyLookupMsg({ type: 'info', text: t('si.lookupFilled') });
+      }
+    } catch (err: unknown) {
+      setKeyLookupMsg({ type: 'error', text: err instanceof Error ? err.message : t('si.lookupError') });
+    } finally {
+      setKeyLookupLoading(false);
+    }
+  }
+
+  async function handleCreateSuggestedSupplier() {
+    if (!keySupplierSuggestion) return;
+    setCreatingSupplier(true);
+    try {
+      const created = await api.post<{ id: string; company_name: string | null }>('/v1/suppliers', {
+        person_type:   'PJ',
+        company_name:  keySupplierSuggestion.name,
+        cnpj:          keySupplierSuggestion.cnpj,
+        street:        keySupplierSuggestion.street,
+        street_number: keySupplierSuggestion.street_number,
+        neighborhood:  keySupplierSuggestion.neighborhood,
+        city:          keySupplierSuggestion.city,
+        state:         keySupplierSuggestion.state,
+        zip_code:      keySupplierSuggestion.zip_code,
+      });
+      setSuppliers(prev => [...prev, { id: created.id, company_name: created.company_name, full_name: null }]);
+      setFormSupplier(created.id);
+      setKeySupplierSuggestion(null);
+      setKeyLookupMsg({ type: 'info', text: t('si.lookupSupplierCreated') });
+    } catch (err: unknown) {
+      modal.error(err);
+    } finally {
+      setCreatingSupplier(false);
+    }
   }
 
   async function handleSave(e: FormEvent) {
@@ -99,7 +274,7 @@ export function SupplierInvoicesPage() {
     setSaving(true); setFormError('');
     try {
       const sup = suppliers.find(s => s.id === formSupplier);
-      await api.post('/v1/supplier-invoices', {
+      const payload = {
         supplier_id:      formSupplier || null,
         supplier_name:    sup ? (sup.company_name ?? sup.full_name) : null,
         purchase_order_id: formPO || null,
@@ -110,9 +285,12 @@ export function SupplierInvoicesPage() {
         due_date:         formDue   || null,
         subtotal:         Number(formTotal),
         total:            Number(formTotal),
-        items: namedItems.map(it => ({ name: it.name, unit: it.unit, quantity: Number(it.quantity), unit_price: Number(it.unit_price) })),
-      });
-      setDrawerOpen(false); void load();
+        installments:     Math.max(1, Number(formInstallments) || 1),
+        items: namedItems.map(it => ({ material_id: it.material_id || undefined, name: it.name, unit: it.unit, quantity: Number(it.quantity), unit_price: Number(it.unit_price) })),
+      };
+      if (editingId) await api.patch(`/v1/supplier-invoices/${editingId}`, payload);
+      else await api.post('/v1/supplier-invoices', payload);
+      closeDrawer(); void load();
     } catch (err: unknown) { setFormError(err instanceof Error ? err.message : 'Erro ao salvar.'); }
     finally { setSaving(false); }
   }
@@ -121,7 +299,12 @@ export function SupplierInvoicesPage() {
     const ok = await modal.confirm({ title: t('si.confirm'), message: t('si.confirmMsg'), confirmLabel: t('si.confirm') });
     if (!ok) return;
     try {
-      const result = await api.post<{ status: string; message: string }>(`/v1/supplier-invoices/${id}/confirm`, {});
+      const result = await api.post<{ status: string; message: string; installments_generated?: number }>(`/v1/supplier-invoices/${id}/confirm`, {});
+      if (result.installments_generated && result.installments_generated > 1) {
+        modal.success(`${result.message} ${result.installments_generated}x — ${t('si.installmentsGenerated')}`);
+        void load();
+        return;
+      }
       if (result.status === 'divergence') modal.success(result.message, 'Divergência detectada');
       else modal.success(result.message);
       void load();
@@ -184,7 +367,7 @@ export function SupplierInvoicesPage() {
             </thead>
             <tbody>
               {invoices.map(inv => (
-                <tr key={inv.id}>
+                <tr key={inv.id} onClick={() => void openDetail(inv)} style={{ cursor: 'pointer' }}>
                   <td>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{inv.nfe_number ? `NF ${inv.nfe_number}/${inv.nfe_series}` : '—'}</div>
                     {inv.nfe_key && <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{inv.nfe_key.slice(0, 22)}…</div>}
@@ -205,12 +388,14 @@ export function SupplierInvoicesPage() {
                   <td>
                     <div className="flex-gap">
                       {(inv.status === 'draft' || inv.status === 'divergence') && (
-                        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} onClick={() => void handleConfirm(inv.id)}>
+                        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                          onClick={e => { e.stopPropagation(); void handleConfirm(inv.id); }}>
                           Confirmar
                         </button>
                       )}
                       {(inv.status === 'draft' || inv.status === 'confirmed' || inv.status === 'divergence') && (
-                        <button className="btn btn-danger btn-sm" onClick={() => void handleCancel(inv.id)}>
+                        <button className="btn btn-danger btn-sm"
+                          onClick={e => { e.stopPropagation(); void handleCancel(inv.id); }}>
                           {t('c.del')}
                         </button>
                       )}
@@ -233,12 +418,84 @@ export function SupplierInvoicesPage() {
 
       {/* Drawer */}
       {drawerOpen && (
-        <div className="overlay" onClick={() => setDrawerOpen(false)}>
+        <div className="overlay" onClick={closeDrawer}>
           <div className="drawer" style={{ width: 'min(720px, 96vw)' }} onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
-              <h2>{t('si.new')}</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
+              <h2>
+                {viewOnly
+                  ? (viewingDetail ? `NF ${viewingDetail.nfe_number ?? '—'}/${viewingDetail.nfe_series ?? '1'}` : t('c.loading'))
+                  : (editingId ? t('si.edit') : t('si.new'))}
+              </h2>
+              <button className="btn btn-secondary btn-sm" onClick={closeDrawer}>✕</button>
             </div>
+
+            {viewOnly ? (
+              <div style={{ display: 'contents' }}>
+                <div className="drawer-body">
+                  {!viewingDetail ? (
+                    <div className="spinner">{t('c.loading')}</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+                        <span className={`badge ${statusBadge(viewingDetail.status)}`}>{t(`si.status.${viewingDetail.status}` as TKey)}</span>
+                      </div>
+                      <div className="field-row">
+                        <div className="field"><label>{t('po.supplier')}</label><div>{viewingDetail.supplier_company_name ?? viewingDetail.supplier_name ?? '—'}</div></div>
+                        <div className="field"><label>{t('si.purchaseOrder')}</label><div>{viewingDetail.purchase_order_number ? `#${viewingDetail.purchase_order_number}` : '—'}</div></div>
+                      </div>
+                      <div className="field-row">
+                        <div className="field" style={{ flex: 3 }}><label>{t('si.nfeKey')}</label><div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{viewingDetail.nfe_key ?? '—'}</div></div>
+                        <div className="field" style={{ flex: '0 0 100px' }}><label>{t('si.nfeSeries')}</label><div>{viewingDetail.nfe_series ?? '—'}</div></div>
+                        <div className="field"><label>{t('si.nfeNumber')}</label><div>{viewingDetail.nfe_number ?? '—'}</div></div>
+                      </div>
+                      <div className="field-row">
+                        <div className="field"><label>{t('si.issueDate')}</label><div>{viewingDetail.issue_date ? new Date(viewingDetail.issue_date).toLocaleDateString('pt-BR') : '—'}</div></div>
+                        <div className="field"><label>{t('si.dueDate')}</label><div>{viewingDetail.due_date ? new Date(viewingDetail.due_date).toLocaleDateString('pt-BR') : '—'}</div></div>
+                        <div className="field"><label>{t('si.total')}</label><div><strong>{BRL.format(Number(viewingDetail.total))}</strong></div></div>
+                      </div>
+                      {viewingDetail.notes && <p style={{ fontSize: 13, marginBottom: 16 }}>{viewingDetail.notes}</p>}
+
+                      <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+                        <div style={{ padding: '10px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                          <strong style={{ fontSize: 13 }}>Itens da NF-e</strong>
+                        </div>
+                        <table>
+                          <thead><tr><th>{t('so.itemDesc')}</th><th>{t('so.itemQty')}</th><th className="text-right">{t('so.itemTotal')}</th></tr></thead>
+                          <tbody>
+                            {viewingDetail.items.map(it => (
+                              <tr key={it.id}>
+                                <td>{it.material_name ?? it.name}</td>
+                                <td>{Number(it.quantity)}</td>
+                                <td className="text-right">{BRL.format(Number(it.total))}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {viewingDetail.nfe_key && (
+                        <div className="card" style={{ padding: 16 }}>
+                          <strong style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>{t('si.documentTitle')}</strong>
+                          <div className="flex-gap">
+                            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              disabled={docLoading === 'pdf'} onClick={() => void openDocument('pdf')}>
+                              {docLoading === 'pdf' ? t('c.saving') : t('si.viewPdf')}
+                            </button>
+                            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              disabled={docLoading === 'xml'} onClick={() => void openDocument('xml')}>
+                              {docLoading === 'xml' ? t('c.saving') : t('si.viewXml')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="drawer-footer">
+                  <button type="button" className="btn btn-secondary" onClick={closeDrawer}>{t('c.close')}</button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSave} noValidate style={{ display: 'contents' }}>
               <div className="drawer-body">
                 {formError && <div className="alert alert-error" role="alert">{formError}</div>}
@@ -263,8 +520,16 @@ export function SupplierInvoicesPage() {
                 <div className="field-row">
                   <div className="field" style={{ flex: 3 }}>
                     <label>{t('si.nfeKey')}</label>
-                    <input value={formNfeKey} maxLength={44} onChange={e => setFormNfeKey(e.target.value)}
-                      placeholder="44 dígitos" style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input value={formNfeKey} maxLength={44}
+                        onChange={e => { setFormNfeKey(e.target.value); setKeyLookupMsg(null); setKeySupplierSuggestion(null); }}
+                        placeholder="44 dígitos" style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', whiteSpace: 'nowrap' }}
+                        disabled={formNfeKey.trim().length !== 44 || keyLookupLoading}
+                        onClick={() => void handleLookupByKey()}>
+                        {keyLookupLoading ? t('si.lookupLoading') : t('si.lookupButton')}
+                      </button>
+                    </div>
                   </div>
                   <div className="field" style={{ flex: '0 0 100px' }}>
                     <label>{t('si.nfeSeries')}</label>
@@ -275,6 +540,25 @@ export function SupplierInvoicesPage() {
                     <input value={formNfeNum} maxLength={20} onChange={e => setFormNfeNum(e.target.value)} />
                   </div>
                 </div>
+
+                {keyLookupMsg && (
+                  <div className={`alert ${keyLookupMsg.type === 'error' ? 'alert-error' : 'alert-info'}`} style={{ marginBottom: 8 }}>
+                    {keyLookupMsg.text}
+                  </div>
+                )}
+
+                {keySupplierSuggestion && (
+                  <div className="alert alert-info" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <span>
+                      {t('si.lookupSupplierNotFound')}{' '}
+                      <strong>{keySupplierSuggestion.name}</strong> ({keySupplierSuggestion.cnpj})
+                    </span>
+                    <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                      disabled={creatingSupplier} onClick={() => void handleCreateSuggestedSupplier()}>
+                      {creatingSupplier ? t('c.saving') : t('si.lookupCreateSupplier')}
+                    </button>
+                  </div>
+                )}
 
                 <div className="field-row">
                   <div className="field">
@@ -290,7 +574,17 @@ export function SupplierInvoicesPage() {
                     <input type="number" min="0" step="0.01" value={formTotal}
                       onChange={e => setFormTotal(e.target.value)} required />
                   </div>
+                  <div className="field" style={{ flex: '0 0 110px' }}>
+                    <label>{t('si.installments')}</label>
+                    <input type="number" min="1" step="1" value={formInstallments}
+                      onChange={e => setFormInstallments(e.target.value)} />
+                  </div>
                 </div>
+                {Number(formInstallments) > 1 && (
+                  <div className="alert alert-info" style={{ marginBottom: 8, fontSize: 12 }}>
+                    {t('si.installmentsHint')}
+                  </div>
+                )}
 
                 {/* Items */}
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
@@ -300,10 +594,18 @@ export function SupplierInvoicesPage() {
                       onClick={() => setFormItems(prev => [...prev, newItem()])}>+ Adicionar item</button>
                   </div>
                   {formItems.map((item, idx) => (
-                    <div key={item._key} style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <input placeholder="Descrição do item" value={item.name}
-                        onChange={e => setFormItems(prev => prev.map((it, i) => i === idx ? { ...it, name: e.target.value } : it))}
-                        style={{ flex: '2 1 160px', fontSize: 13 }} />
+                    <div key={item._key} style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ flex: '2 1 200px' }}>
+                        <ProductPicker options={materials.map((m): ProductPickerOption => ({ id: m.id, sku: m.sku, name: m.name, description: m.description, type: m.type }))}
+                          value={item.material_id}
+                          onChange={id => updateItem(idx, 'material_id', id)}
+                          placeholder="Selecionar produto" emptyLabel="Não encontrado" ariaLabel="Produto" />
+                        {!item.material_id && (
+                          <input placeholder="Nome do item (sem vínculo com estoque)" value={item.name}
+                            onChange={e => updateItem(idx, 'name', e.target.value)}
+                            style={{ marginTop: 4, fontSize: 12 }} />
+                        )}
+                      </div>
                       <input type="number" min="0.001" step="0.001" placeholder="Qtd" value={item.quantity}
                         onChange={e => setFormItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))}
                         style={{ flex: '0 1 80px', fontSize: 13 }} />
@@ -318,12 +620,13 @@ export function SupplierInvoicesPage() {
               </div>
 
               <div className="drawer-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.cancel')}</button>
+                <button type="button" className="btn btn-secondary" onClick={closeDrawer}>{t('c.cancel')}</button>
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                  {saving ? t('c.saving') : t('si.new')}
+                  {saving ? t('c.saving') : (editingId ? t('si.saveChanges') : t('si.new'))}
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}

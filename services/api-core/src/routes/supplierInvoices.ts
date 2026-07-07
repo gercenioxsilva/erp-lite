@@ -1,12 +1,16 @@
 import { FastifyPluginAsync } from 'fastify';
-import { sql } from 'drizzle-orm';
-import { db } from '../db';
+import { sql, eq, and } from 'drizzle-orm';
+import { db, suppliers, supplierInvoices } from '../db';
 import {
   createSupplierInvoice,
+  updateSupplierInvoice,
   confirmSupplierInvoice,
   cancelSupplierInvoice,
   SupplierInvoiceDomainError,
 } from '../services/supplierInvoiceService';
+import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
+import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { consultarNFeRecebida, fetchNFeRecebidaDocument } from '../services/fiscal/focusNfe';
 
 export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -56,7 +60,43 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!b.total && b.total !== 0) return reply.badRequest('total é obrigatório');
 
     try {
-      const si = await createSupplierInvoice({ ...b, tenantId, createdBy: userId }, db);
+      // Mapeamento explícito snake_case (payload HTTP) → camelCase (SICreate) —
+      // um `{ ...b }` direto nunca preenchia supplier_id/purchase_order_id/
+      // nfe_key/material_id etc., porque os nomes das chaves nunca batiam com
+      // os campos que o service realmente lê (bug pré-existente, corrigido
+      // aqui: era a causa raiz de "não é possível associar Pedido de Compra"
+      // e de itens nunca ficarem vinculados a um material).
+      const si = await createSupplierInvoice({
+        tenantId,
+        supplierId:       b.supplier_id,
+        supplierName:     b.supplier_name,
+        purchaseOrderId:  b.purchase_order_id,
+        nfeKey:           b.nfe_key,
+        nfeNumber:        b.nfe_number,
+        nfeSeries:        b.nfe_series,
+        issueDate:        b.issue_date,
+        dueDate:          b.due_date,
+        subtotal:         b.subtotal,
+        taxTotal:         b.tax_total,
+        total:            b.total,
+        installments:     b.installments,
+        notes:            b.notes,
+        costCenterId:     b.cost_center_id,
+        createdBy:        userId,
+        items: (b.items as any[]).map(it => ({
+          materialId: it.material_id,
+          name:       it.name,
+          ncmCode:    it.ncm_code,
+          cfop:       it.cfop,
+          unit:       it.unit,
+          quantity:   it.quantity,
+          unit_price: it.unit_price,
+          icmsRate:   it.icms_rate,
+          icmsValue:  it.icms_value,
+          ipiRate:    it.ipi_rate,
+          ipiValue:   it.ipi_value,
+        })),
+      }, db);
       return reply.code(201).send(si);
     } catch (err) {
       if (err instanceof SupplierInvoiceDomainError) return reply.code(422).send({ error: err.code });
@@ -91,6 +131,86 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
     return { ...si, items };
   });
 
+  /* ── PATCH /v1/supplier-invoices/:id ───────────────────────────────────────── */
+  // Só permitido enquanto a nota está em 'draft' (regra 49) — depois de
+  // confirmada (mesmo em divergência), ela já gerou estoque/payable e vira
+  // imutável, por construção.
+  fastify.patch('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const b = request.body as any;
+
+    if (!b.items?.length) return reply.badRequest('Ao menos um item é obrigatório');
+    if (!b.total && b.total !== 0) return reply.badRequest('total é obrigatório');
+
+    try {
+      const si = await updateSupplierInvoice(id, tenantId, {
+        supplierId:       b.supplier_id,
+        supplierName:     b.supplier_name,
+        purchaseOrderId:  b.purchase_order_id,
+        nfeKey:           b.nfe_key,
+        nfeNumber:        b.nfe_number,
+        nfeSeries:        b.nfe_series,
+        issueDate:        b.issue_date,
+        dueDate:          b.due_date,
+        subtotal:         b.subtotal,
+        taxTotal:         b.tax_total,
+        total:            b.total,
+        installments:     b.installments,
+        notes:            b.notes,
+        costCenterId:     b.cost_center_id,
+        items: (b.items as any[]).map(it => ({
+          materialId: it.material_id,
+          name:       it.name,
+          ncmCode:    it.ncm_code,
+          cfop:       it.cfop,
+          unit:       it.unit,
+          quantity:   it.quantity,
+          unit_price: it.unit_price,
+          icmsRate:   it.icms_rate,
+          icmsValue:  it.icms_value,
+          ipiRate:    it.ipi_rate,
+          ipiValue:   it.ipi_value,
+        })),
+      }, db);
+      return si;
+    } catch (err) {
+      if (err instanceof SupplierInvoiceDomainError) {
+        return reply.code(err.code === 'si_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
+  });
+
+  /* ── GET /v1/supplier-invoices/:id/document ───────────────────────────────── */
+  // Busca o PDF ou XML da nota de terceiro pela chave de acesso (mesma
+  // dependência de MDe do lookup-by-key). Sempre 200 mesmo quando não
+  // encontrado — resultado esperado, nunca erro de requisição.
+  fastify.get('/supplier-invoices/:id/document', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const { format, company_id } = request.query as { format?: string; company_id?: string };
+
+    if (format !== 'pdf' && format !== 'xml') return reply.badRequest('format deve ser "pdf" ou "xml"');
+
+    const [si] = await db.select({ nfe_key: supplierInvoices.nfe_key })
+      .from(supplierInvoices)
+      .where(and(eq(supplierInvoices.id, id), eq(supplierInvoices.tenant_id, tenantId)));
+    if (!si) return reply.notFound('NF-e de entrada não encontrada');
+    if (!si.nfe_key) return { found: false, reason: 'Esta nota não tem chave de acesso cadastrada' };
+
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenantId, company_id ?? null);
+    } catch (err) {
+      if (err instanceof CompanyDomainError)
+        return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal');
+      throw err;
+    }
+
+    return await fetchNFeRecebidaDocument(si.nfe_key, cfg, format);
+  });
+
   /* ── POST /v1/supplier-invoices/:id/confirm ───────────────────────────────── */
   fastify.post('/supplier-invoices/:id/confirm', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
@@ -107,6 +227,55 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (err instanceof SupplierInvoiceDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
       throw err;
     }
+  });
+
+  /* ── POST /v1/supplier-invoices/lookup-by-key ─────────────────────────────── */
+  // Busca uma NF-e de terceiro (fornecedor → nós) no Focus NF-e pela chave de
+  // acesso, para pré-preencher o formulário. Rota é só leitura: nunca cria
+  // fornecedor nem grava a NF-e de entrada — quem decide isso é o usuário,
+  // via POST /v1/suppliers e POST /v1/supplier-invoices já existentes.
+  fastify.post('/supplier-invoices/lookup-by-key', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { chave_acesso, company_id } = request.body as { chave_acesso?: string; company_id?: string };
+
+    if (!chave_acesso || !/^\d{44}$/.test(chave_acesso))
+      return reply.badRequest('chave_acesso deve ter 44 dígitos numéricos');
+
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenantId, company_id ?? null);
+    } catch (err) {
+      if (err instanceof CompanyDomainError)
+        return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal antes de buscar por chave');
+      throw err;
+    }
+
+    const result = await consultarNFeRecebida(chave_acesso, cfg);
+    if (!result.found) return { found: false, reason: result.reason };
+
+    const cnpj = normalizeCNPJ(result.emitente!.cnpj);
+    const [matched] = await db.select({ id: suppliers.id, company_name: suppliers.company_name })
+      .from(suppliers)
+      .where(and(eq(suppliers.tenant_id, tenantId), eq(suppliers.cnpj, cnpj)));
+
+    return {
+      found: true,
+      supplier: matched
+        ? { matched: true, id: matched.id, name: matched.company_name }
+        : {
+            matched:       false,
+            cnpj,
+            name:          result.emitente!.razao_social,
+            street:        result.emitente!.logradouro ?? null,
+            street_number: result.emitente!.numero ?? null,
+            neighborhood:  result.emitente!.bairro ?? null,
+            city:          result.emitente!.municipio ?? null,
+            state:         result.emitente!.uf ?? null,
+            zip_code:      result.emitente!.cep ?? null,
+          },
+      nfe:   result.nfe,
+      items: result.items,
+    };
   });
 
   /* ── POST /v1/supplier-invoices/:id/cancel ────────────────────────────────── */

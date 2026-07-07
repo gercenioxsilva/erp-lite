@@ -146,6 +146,9 @@ export const materials = pgTable('materials', {
   cfop:      varchar('cfop',      { length: 4  }),
   cst_csosn: varchar('cst_csosn', { length: 4  }),
   gtin:      varchar('gtin',      { length: 14 }),
+  // Reforma Tributária (migration 0049) — cClassTrib não deriva de NCM/CFOP,
+  // exige override manual por produto (mesmo padrão de cfop/cst_csosn acima).
+  class_trib: varchar('class_trib', { length: 6 }),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -202,6 +205,23 @@ export const inventoryMovements = pgTable('inventory_movements', {
   reference_type: varchar('reference_type', { length: 50 }),
   created_by:     uuid('created_by'),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── material_price_history ───────────────────────────────────────────────────
+// Append-only (migration 0050) — nunca UPDATE/DELETE após o insert. Uma linha
+// por evento de mudança de preço (venda e custo juntos geram uma linha só).
+export const materialPriceHistory = pgTable('material_price_history', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id,   { onDelete: 'cascade' }),
+  material_id:       uuid('material_id').notNull().references(() => materials.id, { onDelete: 'cascade' }),
+  sale_price_before: decimal('sale_price_before', { precision: 15, scale: 2 }),
+  sale_price_after:  decimal('sale_price_after',  { precision: 15, scale: 2 }),
+  cost_price_before: decimal('cost_price_before', { precision: 15, scale: 2 }),
+  cost_price_after:  decimal('cost_price_after',  { precision: 15, scale: 2 }),
+  source:            varchar('source', { length: 20 }).notNull(), // 'manual_edit' | 'bulk_import'
+  import_batch_id:   uuid('import_batch_id'),
+  created_by:        uuid('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── orders ────────────────────────────────────────────────────────────────────
@@ -269,6 +289,9 @@ export const invoices = pgTable('invoices', {
   // Motor fiscal multi-estado (migration 0037)
   fcp_total:        decimal('fcp_total',        { precision: 15, scale: 2 }).notNull().default('0'),
   icms_difal_total: decimal('icms_difal_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  // Reforma Tributária — IBS/CBS (migration 0049) — informativos, nunca somados a `total`.
+  ibs_total: decimal('ibs_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_total: decimal('cbs_total', { precision: 15, scale: 2 }).notNull().default('0'),
   // NF-e fields (migration 0009)
   nfe_status:        varchar('nfe_status',        { length: 20  }),
   nfe_chave:         varchar('nfe_chave',          { length: 50  }),
@@ -316,6 +339,14 @@ export const invoiceItems = pgTable('invoice_items', {
   fcp_rate:         decimal('fcp_rate',         { precision: 5,  scale: 2 }).notNull().default('0'),
   fcp_value:        decimal('fcp_value',        { precision: 15, scale: 2 }).notNull().default('0'),
   icms_difal_value: decimal('icms_difal_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  // Reforma Tributária — IBS/CBS (migration 0049)
+  class_trib: varchar('class_trib', { length: 6 }),
+  ibs_base:   decimal('ibs_base',  { precision: 15, scale: 2 }).notNull().default('0'),
+  ibs_rate:   decimal('ibs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  ibs_value:  decimal('ibs_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_base:   decimal('cbs_base',  { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_rate:   decimal('cbs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  cbs_value:  decimal('cbs_value', { precision: 15, scale: 2 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -479,6 +510,11 @@ export const receivables = pgTable('receivables', {
   cost_center_id: uuid('cost_center_id'),
   // Origem PDV (migration 0031) — FK → pos_sales.id (constraint na migration; thunk evita ciclo de definição)
   pos_sale_id: uuid('pos_sale_id'),
+  // Faturamento de Ordem de Serviço (migration 0052) — FK → service_orders.id
+  // (constraint na migration, sem .references() aqui pra evitar ciclo de
+  // definição, já que service_orders é declarada mais adiante neste arquivo).
+  // UNIQUE parcial (na migration) garante no máximo 1 receivable por OS.
+  service_order_id: uuid('service_order_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────
@@ -613,6 +649,13 @@ export const payables = pgTable('payables', {
   cost_center_id: uuid('cost_center_id'),
   // DRE Gerencial (migration 0042)
   dre_category_id: uuid('dre_category_id'),
+  // Parcelamento de NF-e de Entrada (migration 0051) — installment_group_id
+  // não é FK, só correlaciona as N parcelas de uma mesma nota (mesmo padrão
+  // de material_price_history.import_batch_id). Distinto de
+  // parent_payable_id, que já é usado para recorrência.
+  installment_number:   smallint('installment_number'),
+  installment_total:    smallint('installment_total'),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 // ── payable_payments (append-only) ────────────────────────────────────────────
@@ -971,6 +1014,11 @@ export const posSaleItems = pgTable('pos_sale_items', {
   cfop:            varchar('cfop',      { length: 4 }),
   cst_csosn:       varchar('cst_csosn', { length: 4 }),
   unit:            varchar('unit',      { length: 6 }),
+  // Reforma Tributária — cClassTrib (migration 0049), NFC-e (regra 44). Só a
+  // classificação é persistida (copiada de materials no addItem, mesmo padrão
+  // de cst_csosn/cfop/ncm acima) — alíquota/valor de IBS/CBS são resolvidos na
+  // emissão, nunca persistidos (mesmo comportamento do ICMS da NFC-e hoje).
+  class_trib: varchar('class_trib', { length: 6 }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1146,6 +1194,10 @@ export const supplierInvoices = pgTable('supplier_invoices', {
   confirmed_at:       timestamp('confirmed_at', { withTimezone: true }),
   created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Parcelamento (migration 0051) — installment_group_id não é FK, só
+  // correlaciona com os N payables gerados na confirmação.
+  installments:         smallint('installments').notNull().default(1),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 export const supplierInvoiceItems = pgTable('supplier_invoice_items', {

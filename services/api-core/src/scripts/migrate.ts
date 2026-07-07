@@ -78,7 +78,12 @@ const migrations = [
   '0046_multi_empresa.sql',
   '0047_bank_accounts.sql',
   '0048_mercadolivre.sql',
-  '0049_fix_subscription_status_check.sql',
+  '0049_ibs_cbs_tax_reform.sql',
+  '0050_material_price_history.sql',
+  '0051_supplier_invoice_installments.sql',
+  '0052_service_order_billing.sql',
+  '0053_stripe_price_ids_fix.sql',
+  '0054_fix_subscription_status_check.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

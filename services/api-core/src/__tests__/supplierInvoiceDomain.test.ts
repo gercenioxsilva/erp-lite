@@ -3,6 +3,8 @@ import {
   assertSITransition,
   matchAgainstPO,
   validateSICreate,
+  splitInstallmentAmounts,
+  addMonthsToDateStr,
   SupplierInvoiceDomainError,
 } from '../domain/supplierInvoice/supplierInvoiceDomain';
 
@@ -105,5 +107,51 @@ describe('validateSICreate', () => {
   it('throws si_item_quantity_zero when quantity <= 0', () => {
     const err = catchSIDomainError(() => validateSICreate({ items: [{ quantity: 0, unit_price: 10 }], total: 0 }));
     expect(err).toMatchObject({ code: 'si_item_quantity_zero' });
+  });
+});
+
+// ── splitInstallmentAmounts ────────────────────────────────────────────────────
+
+describe('splitInstallmentAmounts', () => {
+  it('returns the full total for count=1', () => {
+    expect(splitInstallmentAmounts(100, 1)).toEqual([100]);
+  });
+
+  it('divides evenly when it divides exactly', () => {
+    expect(splitInstallmentAmounts(300, 3)).toEqual([100, 100, 100]);
+  });
+
+  it('puts the rounding remainder on the last installment, sum matches total exactly', () => {
+    const amounts = splitInstallmentAmounts(100, 3);
+    expect(amounts).toEqual([33.33, 33.33, 33.34]);
+    const sum = Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100;
+    expect(sum).toBe(100);
+  });
+
+  it('handles many installments without losing cents', () => {
+    const amounts = splitInstallmentAmounts(1000, 7);
+    expect(amounts).toHaveLength(7);
+    const sum = Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100;
+    expect(sum).toBe(1000);
+  });
+});
+
+// ── addMonthsToDateStr ──────────────────────────────────────────────────────────
+
+describe('addMonthsToDateStr', () => {
+  it('adds one month within the same year', () => {
+    expect(addMonthsToDateStr('2026-07-10', 1)).toBe('2026-08-10');
+  });
+
+  it('rolls over into the next year', () => {
+    expect(addMonthsToDateStr('2026-12-15', 1)).toBe('2027-01-15');
+  });
+
+  it('adds multiple months', () => {
+    expect(addMonthsToDateStr('2026-01-05', 5)).toBe('2026-06-05');
+  });
+
+  it('adding 0 months returns the same date', () => {
+    expect(addMonthsToDateStr('2026-03-20', 0)).toBe('2026-03-20');
   });
 });

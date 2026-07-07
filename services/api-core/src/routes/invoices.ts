@@ -13,6 +13,10 @@ interface InvoiceItemPayload {
   cofins_cst?: string; cofins_base?: number; cofins_rate?: number; cofins_value?: number;
   ipi_rate?: number; ipi_value?: number;
   fcp_rate?: number; fcp_value?: number; icms_difal_value?: number;
+  // Reforma Tributária — IBS/CBS (regra 44)
+  class_trib?: string;
+  ibs_base?: number; ibs_rate?: number; ibs_value?: number;
+  cbs_base?: number; cbs_rate?: number; cbs_value?: number;
 }
 
 export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -106,6 +110,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     const pisTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.pis_value),  0);
     const cofinsTotal = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.cofins_value), 0);
     const ipiTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.ipi_value),  0);
+    // Reforma Tributária — informativos, nunca somados em `taxTotal`/`total` (regra 44).
+    const ibsTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.ibs_value), 0);
+    const cbsTotal    = items.reduce((s: number, it: InvoiceItemPayload) => s + n(it.cbs_value), 0);
     const taxTotal    = Math.round((icmsTotal + fcpTotal + difalTotal + pisTotal + cofinsTotal) * 100) / 100;
     const total       = Math.round((subtotal + ipiTotal) * 100) / 100;
 
@@ -119,6 +126,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         tax_regime, origin_state,
         icms_total: String(icmsTotal), pis_total: String(pisTotal), cofins_total: String(cofinsTotal),
         fcp_total: String(fcpTotal), icms_difal_total: String(difalTotal),
+        ibs_total: String(ibsTotal), cbs_total: String(cbsTotal),
         cost_center_id: cost_center_id || null,
         seller_id: resolvedSellerId,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
@@ -138,6 +146,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
           ipi_rate: String(it.ipi_rate ?? 0), ipi_value: String(it.ipi_value ?? 0),
           fcp_rate: String(it.fcp_rate ?? 0), fcp_value: String(it.fcp_value ?? 0),
           icms_difal_value: String(it.icms_difal_value ?? 0),
+          class_trib: it.class_trib || null,
+          ibs_base: String(it.ibs_base ?? 0), ibs_rate: String(it.ibs_rate ?? 0), ibs_value: String(it.ibs_value ?? 0),
+          cbs_base: String(it.cbs_base ?? 0), cbs_rate: String(it.cbs_rate ?? 0), cbs_value: String(it.cbs_value ?? 0),
         } as any);
       }
 

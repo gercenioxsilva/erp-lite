@@ -24,6 +24,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const onlyDigits = (s: string): string => s.replace(/\D/g, '');
 
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 // normalizeCNPJ: remove somente pontuação (. - /), mantém letras A-Z para CNPJs
 // alfanuméricos (IN RFB nº 2.229/2024). Ao contrário de onlyDigits(), não strip letras.
 const normalizeCNPJ = (s: string): string => s.replace(/[.\-\/\s]/g, '').toUpperCase();
@@ -171,6 +173,36 @@ function buildItem(item: NfeItem): Record<string, unknown> {
     base.ipi_aliquota            = item.ipi_aliquota;
     base.ipi_valor               = item.ipi_valor;
   }
+
+  // IBS/CBS — Reforma Tributária (LC 214/2025). Campos conforme documentação
+  // do Focus NF-e (focusnfe.com.br/guides/reforma-tributaria/). Informativos
+  // em 2026 — o valor_bruto do item não muda.
+  //
+  // valor SEMPRE derivado de base_calculo × aliquota aqui — nunca confiar num
+  // ibs_valor/cbs_valor já persistido em invoice_items. Bug real de produção:
+  // como o frontend ainda não envia esses campos ao criar a nota, eles chegam
+  // zerados; a alíquota cai no default (0,1%/0,9%) mas o valor ficava fixo em
+  // 0 → SEFAZ rejeita ("Valor do IBS da UF difere do calculado") porque
+  // base×aliquota ≠ valor enviado. Calcular aqui, no último ponto antes do
+  // Focus, garante consistência interna independente do que veio antes.
+  //
+  // Split IBS estado/município: a proporção oficial para a fase de teste 2026
+  // não está publicada — lançamos o valor cheio em ibs_uf_valor e 0 em
+  // ibs_mun_valor (simplificação documentada, não esquecimento; revisar
+  // quando a Receita publicar a proporção oficial).
+  const classTrib     = item.class_trib ?? '000001';
+  const ibsCbsBase     = item.ibs_base_calculo ?? item.valor_bruto;
+  const ibsUfAliquota  = item.ibs_aliquota ?? 0.1;
+  const cbsAliquota    = item.cbs_aliquota ?? 0.9;
+  base.ibs_cbs_situacao_tributaria      = classTrib.slice(0, 3);
+  base.ibs_cbs_classificacao_tributaria = classTrib;
+  base.ibs_cbs_base_calculo             = ibsCbsBase;
+  base.cbs_aliquota    = cbsAliquota;
+  base.cbs_valor       = round2(ibsCbsBase * cbsAliquota / 100);
+  base.ibs_uf_aliquota  = ibsUfAliquota;
+  base.ibs_uf_valor     = round2(ibsCbsBase * ibsUfAliquota / 100);
+  base.ibs_mun_aliquota = 0;
+  base.ibs_mun_valor    = 0;
 
   return base;
 }

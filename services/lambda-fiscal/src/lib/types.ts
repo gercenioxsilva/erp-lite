@@ -74,6 +74,15 @@ export interface NfeItem {
   // IPI (optional — "por fora")
   ipi_aliquota?: number;
   ipi_valor?:    number;
+  // IBS/CBS — Reforma Tributária (regra 44). Informativos em 2026: entram no
+  // XML mas não alteram valor_bruto/totais cobrados do destinatário.
+  class_trib?:       string; // cClassTrib, 6 dígitos — default '000001' se ausente
+  ibs_base_calculo?: number;
+  ibs_aliquota?:     number;
+  ibs_valor?:        number;
+  cbs_base_calculo?: number;
+  cbs_aliquota?:     number;
+  cbs_valor?:        number;
 }
 
 export interface NfePagamento {
