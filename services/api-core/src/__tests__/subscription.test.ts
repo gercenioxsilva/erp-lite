@@ -381,6 +381,52 @@ describe('subscription routes', () => {
         expect(updateCall).toBeTruthy();
         expect(paramAfterLabel(updateCall, 'status')).toBe('active');
         expect(paramAfterLabel(updateCall, 'plan')).toBe('starter');
+        expect(paramAfterLabel(updateCall, 'subscription_period_end')).toBe(new Date(1_800_000_000 * 1000).toISOString());
+      });
+
+      // Regression coverage for the webhook endpoint being pinned to a
+      // post-Basil Stripe API version (2025-03-31+), which no longer sends
+      // current_period_end on the Subscription object itself — only on each
+      // subscription item. Without the items[0] fallback in subscription.ts,
+      // subscription_period_end silently goes back to NULL for every tenant.
+      it('customer.subscription.updated — reads current_period_end from items[0] when absent on the subscription object (Basil+ API shape)', async () => {
+        const event = {
+          id: 'evt_basil_shape', type: 'customer.subscription.updated',
+          data: { object: {
+            customer: CUSTOMER_ID, id: 'sub_4', status: 'active', cancel_at_period_end: false,
+            items: { data: [{ price: { id: 'price_pro' }, current_period_end: 1_800_000_000 }] },
+          } },
+        };
+        const { calls } = setupWebhook(event, [
+          { match: /SELECT id FROM plans WHERE stripe_price_id/, rows: [{ id: 'pro' }] },
+        ]);
+
+        const res = await inject(app, event);
+        expect(res.statusCode).toBe(200);
+
+        const updateCall = calls.find(c => /cancel_at_period_end/.test(queryText(c)) && /UPDATE tenants/.test(queryText(c)));
+        expect(updateCall).toBeTruthy();
+        expect(paramAfterLabel(updateCall, 'subscription_period_end')).toBe(new Date(1_800_000_000 * 1000).toISOString());
+      });
+
+      it('customer.subscription.updated — resolves subscription_period_end to null (not a throw) when current_period_end is absent everywhere', async () => {
+        const event = {
+          id: 'evt_no_period', type: 'customer.subscription.updated',
+          data: { object: {
+            customer: CUSTOMER_ID, id: 'sub_5', status: 'active', cancel_at_period_end: false,
+            items: { data: [{ price: { id: 'price_pro' } }] },
+          } },
+        };
+        const { calls } = setupWebhook(event, [
+          { match: /SELECT id FROM plans WHERE stripe_price_id/, rows: [{ id: 'pro' }] },
+        ]);
+
+        const res = await inject(app, event);
+        expect(res.statusCode).toBe(200);
+
+        const updateCall = calls.find(c => /cancel_at_period_end/.test(queryText(c)) && /UPDATE tenants/.test(queryText(c)));
+        expect(updateCall).toBeTruthy();
+        expect(paramAfterLabel(updateCall, 'subscription_period_end')).toBeNull();
       });
 
       it('customer.subscription.updated — pro tier + past_due status (the exact scenario that used to violate the CHECK constraint)', async () => {
