@@ -237,14 +237,26 @@ async function handleStripeEvent(event: any, fastify: any) {
   }
 }
 
-function mapStripeStatus(stripeStatus: string): string {
+// Nunca mascarar um status desconhecido/de problema como 'trial' — isso
+// escondia assinaturas com pagamento pendente/travado atrás de um rótulo
+// errado (causa raiz de "todos os produtos voltando trial"). 'incomplete'/
+// 'paused' viram 'past_due' (precisam de atenção, mas não são trial nem
+// canceladas); 'incomplete_expired' vira 'canceled' (nunca chegou a ativar
+// e expirou). Qualquer status realmente inesperado no futuro também cai em
+// 'past_due' — nunca em 'trial' — e loga um aviso para investigação.
+export function mapStripeStatus(stripeStatus: string): string {
   switch (stripeStatus) {
-    case 'active':            return 'active';
-    case 'past_due':          return 'past_due';
-    case 'canceled':          return 'canceled';
-    case 'trialing':          return 'trial';
-    case 'unpaid':            return 'past_due';
-    default:                  return 'trial';
+    case 'active':             return 'active';
+    case 'trialing':           return 'trial';
+    case 'past_due':           return 'past_due';
+    case 'unpaid':             return 'past_due';
+    case 'incomplete':         return 'past_due';
+    case 'paused':             return 'past_due';
+    case 'canceled':           return 'canceled';
+    case 'incomplete_expired': return 'canceled';
+    default:
+      console.warn(`[Stripe] status de assinatura desconhecido recebido do webhook: "${stripeStatus}" — mantendo como past_due`);
+      return 'past_due';
   }
 }
 
