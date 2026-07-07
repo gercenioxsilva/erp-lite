@@ -7,6 +7,12 @@ export class ApiError extends Error {
   }
 }
 
+// Shared by any page that surfaces a failed API call's message directly
+// (BillingPage, RegisterPage's plan step, etc.) instead of a generic fallback.
+export function actionErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = localStorage.getItem('token');
   let res: Response;

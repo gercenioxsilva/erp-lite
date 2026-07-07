@@ -6,9 +6,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n';
 import type { TKey } from '../i18n/pt-BR';
 import { maskCNPJ, digits, normalizeCNPJ } from '../lib/brazil';
-import { api } from '../lib/api';
+import { api, actionErrorMessage } from '../lib/api';
 import { useSubscription } from '../hooks/useSubscription';
-import { PlanCard, actionErrorMessage } from './billing/PlanCard';
+import { PlanCard } from './billing/PlanCard';
 
 type TFn = (key: TKey) => string;
 
