@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { api } from '../../lib/api';
+import { api, actionErrorMessage } from '../../lib/api';
 import { useI18n }  from '../../i18n';
 import type { TKey } from '../../i18n/pt-BR';
 import { useSubscription } from '../../hooks/useSubscription';
 import type { SubscriptionData } from '../../hooks/useSubscription';
-import { PlanCard, actionErrorMessage } from './PlanCard';
+import { PlanCard } from './PlanCard';
 import '../../ds/components/DataTable.css'; // .ds-skeleton shimmer primitive, reused here instead of a duplicate
 
 type TFn = (key: TKey) => string;

@@ -1,14 +1,7 @@
 import type { TKey } from '../../i18n/pt-BR';
 import type { Plan } from '../../hooks/useSubscription';
-import { ApiError } from '../../lib/api';
 
 export type TFn = (key: TKey) => string;
-
-// Shared by BillingPage and RegisterPage's PlanStep — both hit checkout-session
-// with the same error shape, no reason to inline this twice.
-export function actionErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
-}
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
