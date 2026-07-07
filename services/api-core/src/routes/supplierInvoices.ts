@@ -1,15 +1,16 @@
 import { FastifyPluginAsync } from 'fastify';
 import { sql, eq, and } from 'drizzle-orm';
-import { db, suppliers } from '../db';
+import { db, suppliers, supplierInvoices } from '../db';
 import {
   createSupplierInvoice,
+  updateSupplierInvoice,
   confirmSupplierInvoice,
   cancelSupplierInvoice,
   SupplierInvoiceDomainError,
 } from '../services/supplierInvoiceService';
 import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
-import { consultarNFeRecebida } from '../services/fiscal/focusNfe';
+import { consultarNFeRecebida, fetchNFeRecebidaDocument } from '../services/fiscal/focusNfe';
 
 export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -128,6 +129,86 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (!si) return reply.notFound('NF-e de entrada não encontrada');
     return { ...si, items };
+  });
+
+  /* ── PATCH /v1/supplier-invoices/:id ───────────────────────────────────────── */
+  // Só permitido enquanto a nota está em 'draft' (regra 49) — depois de
+  // confirmada (mesmo em divergência), ela já gerou estoque/payable e vira
+  // imutável, por construção.
+  fastify.patch('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const b = request.body as any;
+
+    if (!b.items?.length) return reply.badRequest('Ao menos um item é obrigatório');
+    if (!b.total && b.total !== 0) return reply.badRequest('total é obrigatório');
+
+    try {
+      const si = await updateSupplierInvoice(id, tenantId, {
+        supplierId:       b.supplier_id,
+        supplierName:     b.supplier_name,
+        purchaseOrderId:  b.purchase_order_id,
+        nfeKey:           b.nfe_key,
+        nfeNumber:        b.nfe_number,
+        nfeSeries:        b.nfe_series,
+        issueDate:        b.issue_date,
+        dueDate:          b.due_date,
+        subtotal:         b.subtotal,
+        taxTotal:         b.tax_total,
+        total:            b.total,
+        installments:     b.installments,
+        notes:            b.notes,
+        costCenterId:     b.cost_center_id,
+        items: (b.items as any[]).map(it => ({
+          materialId: it.material_id,
+          name:       it.name,
+          ncmCode:    it.ncm_code,
+          cfop:       it.cfop,
+          unit:       it.unit,
+          quantity:   it.quantity,
+          unit_price: it.unit_price,
+          icmsRate:   it.icms_rate,
+          icmsValue:  it.icms_value,
+          ipiRate:    it.ipi_rate,
+          ipiValue:   it.ipi_value,
+        })),
+      }, db);
+      return si;
+    } catch (err) {
+      if (err instanceof SupplierInvoiceDomainError) {
+        return reply.code(err.code === 'si_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
+  });
+
+  /* ── GET /v1/supplier-invoices/:id/document ───────────────────────────────── */
+  // Busca o PDF ou XML da nota de terceiro pela chave de acesso (mesma
+  // dependência de MDe do lookup-by-key). Sempre 200 mesmo quando não
+  // encontrado — resultado esperado, nunca erro de requisição.
+  fastify.get('/supplier-invoices/:id/document', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const { format, company_id } = request.query as { format?: string; company_id?: string };
+
+    if (format !== 'pdf' && format !== 'xml') return reply.badRequest('format deve ser "pdf" ou "xml"');
+
+    const [si] = await db.select({ nfe_key: supplierInvoices.nfe_key })
+      .from(supplierInvoices)
+      .where(and(eq(supplierInvoices.id, id), eq(supplierInvoices.tenant_id, tenantId)));
+    if (!si) return reply.notFound('NF-e de entrada não encontrada');
+    if (!si.nfe_key) return { found: false, reason: 'Esta nota não tem chave de acesso cadastrada' };
+
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenantId, company_id ?? null);
+    } catch (err) {
+      if (err instanceof CompanyDomainError)
+        return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal');
+      throw err;
+    }
+
+    return await fetchNFeRecebidaDocument(si.nfe_key, cfg, format);
   });
 
   /* ── POST /v1/supplier-invoices/:id/confirm ───────────────────────────────── */
