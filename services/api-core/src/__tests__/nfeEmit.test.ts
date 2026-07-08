@@ -154,6 +154,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
 
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(400);

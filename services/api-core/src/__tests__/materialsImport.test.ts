@@ -145,6 +145,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow({ sku: 'PROD-OBS', observacoes: 'Uso interno — lote 220' })] },
     });
 
