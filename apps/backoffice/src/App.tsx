@@ -20,6 +20,7 @@ import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
+import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
@@ -85,6 +86,7 @@ function GuardedRoutes() {
         <Route path="/company"     element={<CompanyPage />} />
         <Route path="/contracts"   element={<ContractsPage />} />
         <Route path="/nfse"        element={<NfsePage />} />
+        <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
         <Route path="/proposals"       element={<ProposalsPage />} />
         <Route path="/reports"              element={<ReportsPage />} />
         <Route path="/reports/cashflow"     element={<CashflowPage />} />

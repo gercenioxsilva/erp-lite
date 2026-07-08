@@ -174,3 +174,42 @@ export interface NfseResultMessage {
   nfse_xml_s3_key?:    string;
   nfse_reject_reason?: string;
 }
+
+/**
+ * NF-e de Simples Remessa emit message — same SQS queue as NF-e/NFS-e,
+ * discriminated by type='remessa'. Same modelo 55 endpoint as regular NF-e
+ * (conserto/demonstração/comodato/industrialização/amostra grátis/devolução)
+ * — só o CFOP/natureza_operacao/situação tributária dos itens mudam, já
+ * resolvidos pelo domínio de remessa em api-core antes de chegar aqui.
+ */
+export interface RemessaEmitMessage {
+  type:        'remessa';
+  remessa_id:  string;
+  tenant_id:   string;
+  focus_ref:   string;
+  ambiente:    1 | 2;
+  focus_token?: string;
+
+  emitente:     NfeEmitMessage['emitente'];
+  destinatario: NfeEmitMessage['destinatario'];
+
+  natureza_operacao: string;
+  data_emissao:      string;
+
+  itens:      NfeItem[];
+  pagamentos: NfePagamento[];
+}
+
+/** Result from Simples Remessa Lambda processing */
+export interface RemessaResultMessage {
+  type:                'remessa';
+  remessa_id:          string;
+  tenant_id:           string;
+  nfe_status:          'authorized' | 'rejected' | 'error';
+  nfe_chave?:          string;
+  nfe_protocol?:       string;
+  nfe_auth_date?:      string;
+  xml_s3_key?:         string;
+  danfe_url?:          string;
+  nfe_reject_reason?:  string;
+}

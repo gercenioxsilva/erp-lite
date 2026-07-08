@@ -168,6 +168,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/orders',    label: t('nav.orders')    },
       { to: '/invoices',  label: t('nav.invoices')  },
       { to: '/nfse',      label: t('nav.nfse')      },
+      { to: '/simples-remessa', label: t('nav.simplesRemessa') },
     ] },
     ...(enabledModules.includes('service_orders') ? [{
       id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [
