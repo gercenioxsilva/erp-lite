@@ -166,10 +166,15 @@ export function Layout({ children }: { children: ReactNode }) {
   const NAV: NavEntry[] = [
     { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard, permission: 'dashboard:view' },
     { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
+      // sales-pipeline e simples-remessa: módulos novos de develop, sem chave no
+      // catálogo de permissões ainda (RBAC follow-up) — ficam sem `permission`
+      // de propósito, visíveis a qualquer usuário autenticado por enquanto.
+      ...(enabledModules.includes('sales_pipeline') ? [{ to: '/sales-pipeline', label: t('nav.salesPipeline') }] : []),
       { to: '/proposals', label: t('nav.proposals'), permission: 'proposals:view' },
       { to: '/orders',    label: t('nav.orders'),    permission: 'orders:view'    },
       { to: '/invoices',  label: t('nav.invoices'),  permission: 'invoices:view'  },
       { to: '/nfse',      label: t('nav.nfse'),      permission: 'nfse:view'      },
+      { to: '/simples-remessa', label: t('nav.simplesRemessa') },
     ] },
     ...(enabledModules.includes('service_orders') ? [{
       id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [

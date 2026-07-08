@@ -1,7 +1,7 @@
 import type { SQSHandler } from 'aws-lambda';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
-import { processRecord, processNfseRecord } from './services/nfeService';
+import { processRecord, processNfseRecord, processRemessaRecord } from './services/nfeService';
 
 // Singleton: reuses Fastify app (AWS clients + FocusNfe cache) across warm invocations.
 // buildApp() already calls app.ready() so the app is fully initialized on first call.
@@ -21,6 +21,8 @@ export const handler: SQSHandler = async (event) => {
       const body = JSON.parse(record.body);
       if (body.type === 'nfse') {
         await processNfseRecord(app, record);
+      } else if (body.type === 'remessa') {
+        await processRemessaRecord(app, record);
       } else {
         await processRecord(app, record);
       }

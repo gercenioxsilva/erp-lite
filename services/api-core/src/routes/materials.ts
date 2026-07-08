@@ -9,7 +9,8 @@ const materialBody = {
   type: 'object',
   properties: {
     sku: { type: 'string', minLength: 1, maxLength: 100 }, name: { type: 'string', minLength: 1, maxLength: 255 },
-    description: { type: 'string' }, type: { type: 'string', enum: ['product', 'service', 'raw_material', 'asset', 'kit'] },
+    description: { type: 'string' }, notes: { type: 'string' },
+    type: { type: 'string', enum: ['product', 'service', 'raw_material', 'asset', 'kit'] },
     category: { type: 'string', maxLength: 100 }, brand: { type: 'string', maxLength: 100 },
     unit: { type: 'string', maxLength: 20, default: 'UN' },
     sale_price: { type: 'number', minimum: 0 }, cost_price: { type: 'number', minimum: 0 },
@@ -82,6 +83,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
           tenant_id: tenantId,
           sku: b.sku as string, name: b.name as string,
           description:  (b.description  ?? null) as string | null,
+          notes:        (b.notes        ?? null) as string | null,
           type:         (b.type         ?? 'product') as string,
           category:     (b.category     ?? null) as string | null,
           brand:        (b.brand        ?? null) as string | null,
@@ -189,7 +191,8 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
             const inserted = await tx.insert(materials).values({
               tenant_id, sku, name,
-              description: toStr(b.descricao), type, category: toStr(b.categoria),
+              description: toStr(b.descricao), notes: toStr(b.observacoes),
+              type, category: toStr(b.categoria),
               brand: toStr(b.marca), unit: toStr(b.unidade) || 'UN',
               sale_price: String(toNum(b.preco_venda) ?? 0),
               cost_price: String(toNum(b.preco_custo) ?? 0),
@@ -391,7 +394,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     const { id } = request.params as { id: string };
     const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, unknown>;
-    const allowed = ['sku','name','description','type','category','brand','unit',
+    const allowed = ['sku','name','description','notes','type','category','brand','unit',
                      'sale_price','cost_price','ncm_code','tax_group','weight_kg',
                      'length_cm','width_cm','height_cm',
                      'is_active','tracks_inventory'];

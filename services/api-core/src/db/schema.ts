@@ -149,6 +149,10 @@ export const materials = pgTable('materials', {
   // Reforma Tributária (migration 0049) — cClassTrib não deriva de NCM/CFOP,
   // exige override manual por produto (mesmo padrão de cfop/cst_csosn acima).
   class_trib: varchar('class_trib', { length: 6 }),
+  // Observações internas (migration 0057) — distinto de `description`
+  // (descrição do produto, buscável/usada em propostas); nunca aparece fora
+  // do cadastro/importação de materiais.
+  notes:     text('notes'),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -384,6 +388,13 @@ export const nfeConfigs = pgTable('nfe_configs', {
   codigo_municipio_ibge: varchar('codigo_municipio_ibge', { length: 10 }).default('3550308'),
   aliquota_iss_padrao:   decimal('aliquota_iss_padrao', { precision: 5, scale: 2 }).default('5.00'),
   codigo_servico_padrao: varchar('codigo_servico_padrao', { length: 10 }),
+  // Responsabilidade de emissão por empresa (migration 0056, regra 53) —
+  // default true/true preserva o comportamento de hoje pra tenants com 1
+  // empresa só; nunca inferido, sempre decisão explícita do usuário na tela
+  // "Minha Empresa" (mesmo espírito de "nunca inferir automaticamente" da
+  // regra 44 pra class_trib).
+  emite_nfe:  boolean('emite_nfe').notNull().default(true),
+  emite_nfse: boolean('emite_nfse').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -477,6 +488,81 @@ export const marketplaceWebhookEvents = pgTable('marketplace_webhook_events', {
 export const nfeEvents = pgTable('nfe_events', {
   id:          uuid('id').primaryKey().defaultRandom(),
   invoice_id:  uuid('invoice_id').notNull().references(() => invoices.id,  { onDelete: 'cascade' }),
+  tenant_id:   uuid('tenant_id').notNull(),
+  event_type:  varchar('event_type',  { length: 50 }).notNull(),
+  status_code: varchar('status_code', { length: 10 }),
+  protocol:    varchar('protocol',    { length: 50 }),
+  payload:     jsonb('payload'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── simples_remessas (migration 0055, regra 51) ────────────────────────────────
+// NF-e de Simples Remessa (conserto/demonstração/comodato/industrialização/
+// amostra grátis/devolução) — documento fiscal NÃO ONEROSO, distinto de venda
+// (invoices) e de NFS-e. Entidade própria (mesmo princípio já usado pra
+// separar NFS-e de NF-e de venda): invoices tem client_id NOT NULL e gera
+// receivable/comissão, nenhum dos quais cabe numa remessa sem venda.
+export const simplesRemessas = pgTable('simples_remessas', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  // Qual empresa/CNPJ emite esta remessa (regra 40) — nullable, resolvido
+  // para a empresa padrão do tenant quando omitido, mesmo padrão de invoices.
+  company_id: uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  client_id:  uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  // Retorno de remessa: quando não nulo, esta linha É o retorno da remessa
+  // original apontada aqui — mesma tabela, sem entidade paralela (thunk evita
+  // ciclo de definição, já que a tabela referencia a si mesma).
+  parent_remessa_id: uuid('parent_remessa_id').references((): AnyPgColumn => simplesRemessas.id, { onDelete: 'set null' }),
+  motivo:            varchar('motivo', { length: 30 }).notNull(),
+  cfop:              varchar('cfop', { length: 5 }).notNull(),
+  natureza_operacao: varchar('natureza_operacao', { length: 100 }).notNull(),
+  // Único eixo de status (draft/pending/processing/authorized/rejected/cancelled)
+  // — diferente de invoices, aqui não há um eixo "issued" separado da
+  // transmissão SEFAZ, então um único campo é suficiente (sem redundância).
+  status:            varchar('status', { length: 20 }).notNull().default('draft'),
+  subtotal:          decimal('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
+  total:             decimal('total',    { precision: 15, scale: 2 }).notNull().default('0'),
+  notes:             text('notes'),
+  // Rastreio de NF-e — mesmo vocabulário de invoices.*
+  nfe_chave:         varchar('nfe_chave',    { length: 50 }),
+  nfe_protocol:      varchar('nfe_protocol', { length: 50 }),
+  nfe_auth_date:     timestamp('nfe_auth_date', { withTimezone: true }),
+  nfe_reject_reason: text('nfe_reject_reason'),
+  nfe_attempts:      integer('nfe_attempts').notNull().default(0),
+  nfe_xml_s3_key:    varchar('nfe_xml_s3_key', { length: 500 }),
+  nfe_danfe_url:     varchar('nfe_danfe_url',  { length: 500 }),
+  // Controle de baixa/devolução de estoque — idempotência (nunca baixar/devolver duas vezes)
+  stock_applied_at:  timestamp('stock_applied_at', { withTimezone: true }),
+  created_by:        uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const simplesRemessaItems = pgTable('simples_remessa_items', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  simples_remessa_id:  uuid('simples_remessa_id').notNull().references(() => simplesRemessas.id, { onDelete: 'cascade' }),
+  material_id:         uuid('material_id').references(() => materials.id, { onDelete: 'set null' }),
+  name:       varchar('name', { length: 255 }).notNull(),
+  ncm_code:   varchar('ncm_code', { length: 10 }),
+  cfop:       varchar('cfop', { length: 5 }),
+  quantity:   decimal('quantity',   { precision: 15, scale: 3 }).notNull(),
+  unit_price: decimal('unit_price', { precision: 15, scale: 2 }).notNull(),
+  total:      decimal('total',      { precision: 15, scale: 2 }).notNull(),
+  // Situação tributária de suspensão (regra 51) — resolvida pelo domínio de
+  // remessa, independente do class_trib/CST cadastrado no material p/ venda.
+  icms_cst:   varchar('icms_cst', { length: 3 }),
+  class_trib: varchar('class_trib', { length: 6 }),
+  ibs_rate:   decimal('ibs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  ibs_value:  decimal('ibs_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  cbs_rate:   decimal('cbs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
+  cbs_value:  decimal('cbs_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Append-only (mesmo padrão de nfeEvents/nfseEvents) — nunca UPDATE/DELETE.
+export const simplesRemessaEvents = pgTable('simples_remessa_events', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  simples_remessa_id:  uuid('simples_remessa_id').notNull().references(() => simplesRemessas.id, { onDelete: 'cascade' }),
   tenant_id:   uuid('tenant_id').notNull(),
   event_type:  varchar('event_type',  { length: 50 }).notNull(),
   status_code: varchar('status_code', { length: 10 }),
@@ -840,6 +926,60 @@ export const proposalItems = pgTable('proposal_items', {
   notes:        text('notes'),
   sort_order:   smallint('sort_order').notNull().default(0),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Funil de Vendas / CRM (migration 0058) — módulo opcional, desligado por
+// padrão. Etapas configuráveis por tenant; status (aberto/ganho/perdido) é um
+// eixo separado da etapa — Ganho/Perdido nunca são linhas de
+// sales_pipeline_stages, são colunas fixas no Kanban do frontend.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const salesPipelineStages = pgTable('sales_pipeline_stages', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:       varchar('name', { length: 80 }).notNull(),
+  sort_order: integer('sort_order').notNull().default(0),
+  is_active:  boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const salesOpportunities = pgTable('sales_opportunities', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  stage_id:            uuid('stage_id').notNull().references(() => salesPipelineStages.id, { onDelete: 'restrict' }),
+  client_id:           uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  seller_id:           uuid('seller_id').references(() => sellers.id, { onDelete: 'set null' }),
+  proposal_id:         uuid('proposal_id').references(() => proposals.id, { onDelete: 'set null' }),
+  title:               varchar('title', { length: 255 }).notNull(),
+  contact_name:        varchar('contact_name',  { length: 255 }),
+  contact_email:       varchar('contact_email', { length: 255 }),
+  contact_phone:       varchar('contact_phone', { length: 30 }),
+  value:               decimal('value', { precision: 15, scale: 2 }).notNull().default('0'),
+  source:              varchar('source', { length: 60 }),
+  status:              varchar('status', { length: 20 }).notNull().default('open'),
+  lost_reason:         text('lost_reason'),
+  expected_close_date: date('expected_close_date'),
+  notes:               text('notes'),
+  won_at:              timestamp('won_at',  { withTimezone: true }),
+  lost_at:             timestamp('lost_at', { withTimezone: true }),
+  created_by:          uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Timeline append-only — nunca UPDATE/DELETE, mesmo padrão de nfe_events.
+// stage_change/won/lost são logados automaticamente pelo service, nunca
+// manualmente pela rota.
+export const salesOpportunityActivities = pgTable('sales_opportunity_activities', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  opportunity_id: uuid('opportunity_id').notNull().references(() => salesOpportunities.id, { onDelete: 'cascade' }),
+  type:           varchar('type', { length: 20 }).notNull(),
+  description:    text('description'),
+  created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

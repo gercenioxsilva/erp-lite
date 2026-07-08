@@ -1,10 +1,11 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, sql } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents } from '../db';
+import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents, simplesRemessaEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
+import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -31,6 +32,19 @@ interface NfseResultMessage {
   nfse_pdf_url?:       string;
   nfse_xml_s3_key?:    string;
   nfse_reject_reason?: string;
+}
+
+interface RemessaResultMessage {
+  type:                'remessa';
+  remessa_id:          string;
+  tenant_id:           string;
+  nfe_status:          'authorized' | 'rejected' | 'error';
+  nfe_chave?:          string;
+  nfe_protocol?:       string;
+  nfe_auth_date?:      string;
+  xml_s3_key?:         string;
+  danfe_url?:          string;
+  nfe_reject_reason?:  string;
 }
 
 let running = true;
@@ -60,9 +74,12 @@ async function poll(queueUrl: string): Promise<void> {
       for (const msg of resp.Messages ?? []) {
         try {
           const body = JSON.parse(msg.Body!);
-          // type='nfse' → NFS-e result; anything else (incl. undefined) → NF-e result
+          // type='nfse' → NFS-e result; type='remessa' → Simples Remessa
+          // result; anything else (incl. undefined) → NF-e de venda result.
           if (body.type === 'nfse') {
             await processNfseResult(body as NfseResultMessage);
+          } else if (body.type === 'remessa') {
+            await processRemessaResult(body as RemessaResultMessage);
           } else {
             await processResult(body as NfeResultMessage);
           }
@@ -324,6 +341,63 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
         data: { nfse_number: inv.nfse_number ?? '', reject_reason: nfse_reject_reason ?? '' },
       }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
     }
+  }
+}
+
+async function processRemessaResult(result: RemessaResultMessage): Promise<void> {
+  const { remessa_id, tenant_id, nfe_status, nfe_chave, nfe_protocol,
+          nfe_auth_date, xml_s3_key, danfe_url, nfe_reject_reason } = result;
+
+  if (nfe_status === 'authorized') {
+    const { rows: [updated] } = await db.execute<{ id: string; parent_remessa_id: string | null }>(sql`
+      UPDATE simples_remessas SET
+        status         = 'authorized',
+        nfe_chave      = ${nfe_chave ? nfe_chave.replace(/\D/g, '') : null},
+        nfe_protocol   = ${nfe_protocol  || null},
+        nfe_auth_date  = ${nfe_auth_date ? new Date(nfe_auth_date) : null},
+        nfe_xml_s3_key = ${xml_s3_key || null},
+        nfe_danfe_url  = ${danfe_url  || null},
+        updated_at     = now()
+      WHERE id = ${remessa_id} AND status = 'processing'
+      RETURNING id, parent_remessa_id
+    `);
+    if (!updated) return; // já processado (idempotência) ou não encontrado
+
+    await db.insert(simplesRemessaEvents).values({
+      simples_remessa_id: remessa_id, tenant_id,
+      event_type:  'emission',
+      status_code: '100',
+      protocol:    nfe_protocol || null,
+      payload:     { nfe_chave, nfe_protocol, nfe_auth_date },
+    });
+
+    console.info(JSON.stringify({ event: 'remessa_result_authorized', remessa_id, nfe_chave }));
+
+    // Estoque (regra 51): uma remessa original baixa estoque ('out'); um
+    // retorno (parent_remessa_id preenchido) devolve ('in'). Nunca gera
+    // receivable nem comissão — não é venda.
+    try {
+      await applyRemessaStockMovement(remessa_id, tenant_id, updated.parent_remessa_id ? 'in' : 'out', db);
+    } catch (stockErr) {
+      console.error(JSON.stringify({ event: 'remessa_stock_error', remessa_id, error: String(stockErr) }));
+    }
+
+  } else {
+    const { rows: [updated] } = await db.execute<{ id: string }>(sql`
+      UPDATE simples_remessas SET
+        status = 'rejected', nfe_reject_reason = ${nfe_reject_reason || null}, updated_at = now()
+      WHERE id = ${remessa_id} AND status = 'processing'
+      RETURNING id
+    `);
+    if (!updated) return;
+
+    await db.insert(simplesRemessaEvents).values({
+      simples_remessa_id: remessa_id, tenant_id,
+      event_type: 'emission_rejected',
+      payload:    { nfe_reject_reason },
+    });
+
+    console.warn(JSON.stringify({ event: 'remessa_result_rejected', remessa_id, nfe_reject_reason }));
   }
 }
 

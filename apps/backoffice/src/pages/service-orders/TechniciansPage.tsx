@@ -26,8 +26,10 @@ export function TechniciansPage() {
   const [search, setSearch]           = useState('');
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editing,    setEditing]    = useState<Technician | null>(null);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
+  const [resending, setResending]   = useState(false);
 
   const [name,      setName]      = useState('');
   const [email,     setEmail]     = useState('');
@@ -47,7 +49,15 @@ export function TechniciansPage() {
   useEffect(() => { void load(); }, [tenantId, search]);
 
   function openCreate() {
+    setEditing(null);
     setName(''); setEmail(''); setPhone(''); setCpf(''); setSpecialty('');
+    setFormError('');
+    setDrawerOpen(true);
+  }
+
+  function openEdit(tc: Technician) {
+    setEditing(tc);
+    setName(tc.name); setEmail(tc.email); setPhone(tc.phone ?? ''); setCpf(tc.cpf); setSpecialty(tc.specialty ?? '');
     setFormError('');
     setDrawerOpen(true);
   }
@@ -59,17 +69,35 @@ export function TechniciansPage() {
     if (!cpf.trim())   { setFormError(t('tech.cpf')   + ' *'); return; }
     setSaving(true); setFormError('');
     try {
-      await api.post('/v1/technicians', {
+      const payload = {
         name: name.trim(), email: email.trim(), phone: phone || undefined,
         cpf: cpf.replace(/\D/g, ''), specialty: specialty || undefined,
-      });
+      };
+      if (editing) await api.patch(`/v1/technicians/${editing.id}`, payload);
+      else         await api.post('/v1/technicians', payload);
       setDrawerOpen(false);
-      modal.success(t('tech.created'));
+      if (!editing) modal.success(t('tech.created'));
       void load();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       setFormError(msg.includes('CPF') ? t('tech.errCPF') : msg.includes('E-mail') || msg.includes('mail') ? t('tech.errEmail') : msg || t('tech.errCPF'));
     } finally { setSaving(false); }
+  }
+
+  async function handleResendInvite() {
+    if (!editing) return;
+    const ok = await modal.confirm({
+      title: t('tech.resendInvite'),
+      message: t('tech.resendInviteConfirm'),
+      confirmLabel: t('tech.resendInvite'),
+    });
+    if (!ok) return;
+    setResending(true);
+    try {
+      await api.post(`/v1/technicians/${editing.id}/resend-invite`, {});
+      modal.success(t('tech.resendInviteSent'));
+    } catch (err: unknown) { modal.error(err); }
+    finally { setResending(false); }
   }
 
   async function toggleActive(tech: Technician) {
@@ -115,7 +143,7 @@ export function TechniciansPage() {
                 <th>{t('tech.cpf')}</th>
                 <th>{t('tech.specialty')}</th>
                 <th style={{ width: 90 }}>{t('c.status')}</th>
-                <th style={{ width: 120 }}></th>
+                <th style={{ width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -133,9 +161,12 @@ export function TechniciansPage() {
                   </td>
                   <td>
                     <Can permission="technicians:edit">
-                      <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(tc)}>
-                        {tc.is_active ? t('tech.deactivate') : t('tech.activate')}
-                      </button>
+                      <div className="flex-gap">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(tc)}>{t('c.edit')}</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(tc)}>
+                          {tc.is_active ? t('tech.deactivate') : t('tech.activate')}
+                        </button>
+                      </div>
                     </Can>
                   </td>
                 </tr>
@@ -149,7 +180,7 @@ export function TechniciansPage() {
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()}>
             <div className="drawer-header">
-              <h2>{t('tech.new')}</h2>
+              <h2>{editing ? t('tech.edit') : t('tech.new')}</h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
@@ -179,6 +210,17 @@ export function TechniciansPage() {
                   <label htmlFor="tc-specialty">{t('tech.specialty')}</label>
                   <input id="tc-specialty" value={specialty} onChange={e => setSpecialty(e.target.value)} />
                 </div>
+
+                {editing && (
+                  <div style={{ marginTop: 8, padding: '12px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>{t('tech.accessTitle')}</strong>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{t('tech.accessHint')}</p>
+                    <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                      disabled={resending} onClick={() => void handleResendInvite()}>
+                      {resending ? t('c.saving') : t('tech.resendInvite')}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="drawer-footer">

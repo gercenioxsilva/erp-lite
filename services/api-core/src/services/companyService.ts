@@ -6,8 +6,13 @@
 import { eq, and, ne } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { nfeConfigs } from '../db/schema';
-import { canDeactivate, validateNewCompanyCnpj, CompanyDomainError, type CompanyLike } from '../domain/company/companyDomain';
+import {
+  canDeactivate, validateNewCompanyCnpj, hasCapability, CompanyDomainError,
+  type CompanyLike, type EmissionDocType,
+} from '../domain/company/companyDomain';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+
+export type { EmissionDocType };
 
 export { CompanyDomainError };
 
@@ -40,6 +45,8 @@ export interface CompanyInput {
   codigo_municipio_ibge?: string;
   aliquota_iss_padrao?: number | string;
   codigo_servico_padrao?: string | null;
+  emite_nfe?:  boolean;
+  emite_nfse?: boolean;
 }
 
 function toValues(input: CompanyInput) {
@@ -65,7 +72,34 @@ function toValues(input: CompanyInput) {
     codigo_municipio_ibge: input.codigo_municipio_ibge ?? '3550308',
     aliquota_iss_padrao: input.aliquota_iss_padrao != null ? String(input.aliquota_iss_padrao) : '5.00',
     codigo_servico_padrao: input.codigo_servico_padrao ?? null,
+    emite_nfe:  input.emite_nfe  ?? true,
+    emite_nfse: input.emite_nfse ?? true,
   };
+}
+
+/**
+ * Traduz um CompanyDomainError vindo de resolveCompanyId() numa mensagem
+ * acionável em pt-BR — ponto único de mensagem, reaproveitado por toda rota
+ * de emissão (nfe.ts, nfse.ts, serviceContracts.ts, serviceOrders.ts,
+ * simplesRemessa.ts) em vez de cada uma reescrever o mesmo switch.
+ *
+ * Só os 3 códigos novos da regra 53 (`company_missing_capability`,
+ * `no_company_for_doc_type`, `company_selection_required`) ganham mensagem
+ * própria — os demais (`company_not_found`, `no_default_company`, etc.) já
+ * existiam antes desta regra e mantêm a MESMA mensagem genérica de sempre,
+ * pra não quebrar nenhuma tela/teste que já depende desse texto.
+ */
+export function companyResolutionErrorMessage(err: CompanyDomainError, docLabel: string): string {
+  switch (err.code) {
+    case 'company_missing_capability':
+      return `A empresa selecionada não está configurada para emitir ${docLabel}. Configure em Empresa → Fiscal.`;
+    case 'no_company_for_doc_type':
+      return `Nenhuma empresa está configurada para emitir ${docLabel}. Configure em Empresa → Fiscal.`;
+    case 'company_selection_required':
+      return `Mais de uma empresa pode emitir ${docLabel} — selecione qual empresa vai emitir.`;
+    default:
+      return 'Configure os dados fiscais em Empresa → Fiscal antes de emitir.';
+  }
 }
 
 /** Todas as empresas ativas do tenant, empresa padrão primeiro. */
@@ -90,21 +124,48 @@ export async function getDefaultCompany(tenantId: string, db: DrizzleDB = _db): 
  * Resolve qual empresa deve ser usada: se companyId for informado, valida que
  * pertence ao tenant e está ativa; caso contrário, devolve a empresa padrão.
  * Ponto único de resolução usado por todo fluxo de emissão fiscal (regra 40).
+ *
+ * `docType` é opcional e retrocompatível por design (regra 53) — omitido,
+ * o comportamento é idêntico ao de antes desta regra existir (usado hoje por
+ * tax.ts/bankAccountService.ts/marketplaceConnectionService.ts, que resolvem
+ * "uma" empresa sem relação com tipo de documento fiscal). Quando informado,
+ * a resolução também respeita `emite_nfe`/`emite_nfse`:
+ *   - companyId explícito sem a capacidade → `company_missing_capability`.
+ *   - companyId omitido: empresa padrão tem a capacidade → usa ela; senão,
+ *     exatamente 1 outra empresa ativa tem → resolve sozinho (sem
+ *     ambiguidade real); nenhuma tem → `no_company_for_doc_type`; mais de
+ *     uma tem e nenhuma é a padrão → `company_selection_required` (nunca
+ *     escolhe arbitrariamente por trás do usuário).
  */
 export async function resolveCompanyId(
   tenantId: string, companyId: string | null | undefined, db: DrizzleDB = _db,
+  docType?: EmissionDocType,
 ): Promise<Company> {
-  if (!companyId) {
+  if (companyId) {
+    const [row] = await db.select().from(nfeConfigs)
+      .where(and(eq(nfeConfigs.id, companyId), eq(nfeConfigs.tenant_id, tenantId)));
+
+    if (!row || !row.is_active) throw new CompanyDomainError('company_not_found', { companyId });
+    if (docType && !hasCapability(row, docType)) {
+      throw new CompanyDomainError('company_missing_capability', { companyId, docType });
+    }
+    return row;
+  }
+
+  if (!docType) {
     const def = await getDefaultCompany(tenantId, db);
     if (!def) throw new CompanyDomainError('no_default_company', { tenantId });
     return def;
   }
 
-  const [row] = await db.select().from(nfeConfigs)
-    .where(and(eq(nfeConfigs.id, companyId), eq(nfeConfigs.tenant_id, tenantId)));
+  const active = await listCompanies(tenantId, db); // empresa padrão primeiro
+  const defaultCompany = active.find(c => c.is_default);
+  if (defaultCompany && hasCapability(defaultCompany, docType)) return defaultCompany;
 
-  if (!row || !row.is_active) throw new CompanyDomainError('company_not_found', { companyId });
-  return row;
+  const candidates = active.filter(c => hasCapability(c, docType));
+  if (candidates.length === 0) throw new CompanyDomainError('no_company_for_doc_type', { docType });
+  if (candidates.length === 1) return candidates[0];
+  throw new CompanyDomainError('company_selection_required', { docType });
 }
 
 export async function createCompany(tenantId: string, input: CompanyInput, db: DrizzleDB = _db): Promise<Company> {

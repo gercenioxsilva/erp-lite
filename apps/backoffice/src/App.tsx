@@ -20,6 +20,7 @@ import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
+import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
@@ -58,6 +59,8 @@ import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
+import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
+import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
@@ -96,6 +99,10 @@ function GuardedRoutes() {
         <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
         <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
         <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
+        {/* TODO(follow-up RBAC): simples-remessa e sales-pipeline são módulos novos
+            de develop, sem chave no catálogo de permissões ainda — deixados sem
+            gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
+        <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
         <Route path="/proposals"       element={gate('proposals:view', <ProposalsPage />)} />
         <Route path="/reports"              element={gate('reports:view', <ReportsPage />)} />
         <Route path="/reports/cashflow"     element={gate('reports:view', <CashflowPage />)} />
@@ -130,6 +137,9 @@ function GuardedRoutes() {
         <Route path="/pos/terminals"   element={gate('pos:manage', <PosTerminalsPage />)} />
         <Route path="/pos/sessions"    element={gate('pos:view', <PosSessionsPage />)} />
         <Route path="/service-orders"  element={gate('service_orders:view', <ServiceOrdersPage />)} />
+        {/* TODO(follow-up RBAC): sales-pipeline é módulo novo de develop, sem chave
+            no catálogo ainda — ver nota acima em simples-remessa. */}
+        <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
         <Route path="/technicians"     element={gate('technicians:view', <TechniciansPage />)} />
         <Route path="/403"             element={<AccessDeniedPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
@@ -152,6 +162,7 @@ export function App() {
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
+              <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />

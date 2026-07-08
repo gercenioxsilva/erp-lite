@@ -22,6 +22,7 @@ interface Material {
   sku:              string;
   name:             string;
   description:      string | null;
+  notes:            string | null;
   type:             string;
   category:         string | null;
   brand:            string | null;
@@ -66,7 +67,7 @@ interface PriceHistoryEntry {
 }
 
 const EMPTY_FORM = {
-  sku: '', name: '', description: '', type: 'product', category: '',
+  sku: '', name: '', description: '', notes: '', type: 'product', category: '',
   brand: '', unit: 'UN', sale_price: '', cost_price: '', ncm_code: '',
   weight_kg: '', length_cm: '', width_cm: '', height_cm: '', tracks_inventory: true,
 };
@@ -79,7 +80,7 @@ interface ImportRow {
   sku: string; nome: string; tipo?: string; unidade?: string;
   preco_venda?: string; preco_custo?: string; ncm?: string;
   categoria?: string; marca?: string; peso_kg?: string;
-  controla_estoque?: string; descricao?: string;
+  controla_estoque?: string; descricao?: string; observacoes?: string;
   [key: string]: unknown;
 }
 
@@ -98,7 +99,7 @@ interface ImportResult {
 type ImportPhase = 'idle' | 'analyzing' | 'preview' | 'importing' | 'done';
 
 const XLSX_COLS = ['sku','nome','tipo','unidade','preco_venda','preco_custo',
-                   'ncm','categoria','marca','peso_kg','controla_estoque','descricao'] as const;
+                   'ncm','categoria','marca','peso_kg','controla_estoque','descricao','observacoes'] as const;
 
 const IMPORT_LAYOUT = [
   { col: 'sku',              req: true,  ex: 'PROD-001' },
@@ -113,6 +114,7 @@ const IMPORT_LAYOUT = [
   { col: 'peso_kg',          req: false, ex: '0.050' },
   { col: 'controla_estoque', req: false, ex: 'SIM / NAO' },
   { col: 'descricao',        req: false, ex: 'Parafuso sextavado galvanizado M6x20' },
+  { col: 'observacoes',      req: false, ex: 'Uso interno — só aplicável a partir do lote 220' },
 ];
 
 function downloadTemplate() {
@@ -122,12 +124,14 @@ function downloadTemplate() {
     preco_venda: '29.90', preco_custo: '15.00', ncm: '7318.15.00',
     categoria: 'Fixadores', marca: 'Fischer', peso_kg: '0.050',
     controla_estoque: 'SIM', descricao: 'Parafuso sextavado galvanizado M6x20',
+    observacoes: '',
   };
   const ex2: ImportRow = {
     sku: 'SRV-001', nome: 'Consultoria técnica', tipo: 'service', unidade: 'HR',
     preco_venda: '150.00', preco_custo: '', ncm: '',
     categoria: 'Serviços', marca: '', peso_kg: '',
     controla_estoque: 'NAO', descricao: 'Hora de consultoria especializada',
+    observacoes: 'Cobrar deslocamento à parte',
   };
   const ws = XLSX.utils.aoa_to_sheet([header, header.map(h => ex1[h] ?? ''), header.map(h => ex2[h] ?? '')]);
   const wb = XLSX.utils.book_new();
@@ -350,6 +354,7 @@ export function MaterialsPage() {
       sku:             m.sku,
       name:            m.name,
       description:     m.description  ?? '',   // ← bug fix: preenche descrição existente
+      notes:           m.notes        ?? '',
       type:            m.type,
       category:        m.category     ?? '',
       brand:           m.brand        ?? '',   // ← bug fix: preenche marca existente
@@ -715,6 +720,11 @@ export function MaterialsPage() {
                 <div className="field">
                   <label>{t('m.desc')}</label>
                   <textarea value={form.description} onChange={setF('description')} />
+                </div>
+
+                <div className="field">
+                  <label>{t('m.notes')}</label>
+                  <textarea value={form.notes} onChange={setF('notes')} placeholder={t('m.notesPH')} />
                 </div>
 
                 <div className="field-row">

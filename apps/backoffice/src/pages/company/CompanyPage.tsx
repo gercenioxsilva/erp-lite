@@ -35,6 +35,9 @@ interface NfeCfg {
   codigo_municipio_ibge: string | null;
   aliquota_iss_padrao: string | null;
   codigo_servico_padrao: string | null;
+  // Responsabilidade de emissão por empresa (regra 53)
+  emite_nfe: boolean;
+  emite_nfse: boolean;
 }
 
 // Empresa/CNPJ (regra 40) — mesmo shape de NfeCfg, com identidade própria.
@@ -61,7 +64,17 @@ const EMPTY_NFE_FORM = {
   focus_token_producao:    '',
   inscricao_municipal: '', codigo_municipio_ibge: '3550308',
   aliquota_iss_padrao: '5.00', codigo_servico_padrao: '',
+  emite_nfe: true, emite_nfse: true,
 };
+
+// "NF-e" | "NFS-e" | "NF-e + NFS-e" | "—" — etiqueta de resumo pra faixa de
+// seleção de empresa (regra 53), sem precisar abrir cada uma pra saber.
+function emissionBadge(c: { emite_nfe: boolean; emite_nfse: boolean }): string {
+  if (c.emite_nfe && c.emite_nfse) return 'NF-e + NFS-e';
+  if (c.emite_nfe) return 'NF-e';
+  if (c.emite_nfse) return 'NFS-e';
+  return '—';
+}
 
 const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
 const MAX_BANNER_SIZE = 5 * 1024 * 1024; // 5 MB — banner da proposta
@@ -216,6 +229,7 @@ export function CompanyPage() {
       inscricao_municipal: c.inscricao_municipal || '', codigo_municipio_ibge: c.codigo_municipio_ibge || '3550308',
       aliquota_iss_padrao: c.aliquota_iss_padrao != null ? String(c.aliquota_iss_padrao) : '5.00',
       codigo_servico_padrao: c.codigo_servico_padrao || '',
+      emite_nfe: c.emite_nfe ?? true, emite_nfse: c.emite_nfse ?? true,
     });
   }
 
@@ -305,6 +319,7 @@ export function CompanyPage() {
         codigo_municipio_ibge:  data.codigo_municipio_ibge || '3550308',
         aliquota_iss_padrao:    data.aliquota_iss_padrao != null ? String(data.aliquota_iss_padrao) : '5.00',
         codigo_servico_padrao:  data.codigo_servico_padrao || '',
+        emite_nfe:              data.emite_nfe ?? true, emite_nfse: data.emite_nfse ?? true,
       });
     } catch {
       // 404 is expected if no config yet; other errors are silent (user sees empty form)
@@ -389,6 +404,8 @@ export function CompanyPage() {
       codigo_municipio_ibge:  nfeForm.codigo_municipio_ibge || null,
       aliquota_iss_padrao:    nfeForm.aliquota_iss_padrao ? Number(nfeForm.aliquota_iss_padrao) : null,
       codigo_servico_padrao:  nfeForm.codigo_servico_padrao || null,
+      emite_nfe:              nfeForm.emite_nfe,
+      emite_nfse:             nfeForm.emite_nfse,
     };
 
     try {
@@ -916,6 +933,9 @@ export function CompanyPage() {
                 style={{ width: 'auto' }}
                 onClick={() => selectCompany(null)}>
                 {companies.find(c => c.is_default)?.razao_social || t('comp.companies.default')}
+                {companies.find(c => c.is_default) && (
+                  <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>· {emissionBadge(companies.find(c => c.is_default)!)}</span>
+                )}
               </button>
               {companies.filter(c => !c.is_default).map(c => (
                 <button key={c.id} type="button"
@@ -923,6 +943,7 @@ export function CompanyPage() {
                   style={{ width: 'auto' }}
                   onClick={() => selectCompany(c.id)}>
                   {c.razao_social}
+                  <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.8 }}>· {emissionBadge(c)}</span>
                 </button>
               ))}
               {multiEmpresaEnabled && (
@@ -946,6 +967,29 @@ export function CompanyPage() {
 
                 <h3 style={{ marginBottom: 8 }}>{t('comp.nfe.title')}</h3>
                 <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.nfe.hint')}</p>
+
+                {/* Responsabilidade de emissão por empresa (regra 53) */}
+                <div style={{ marginBottom: 20, padding: '14px 16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>{t('comp.emission.title')}</strong>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.emission.hint')}</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <Switch
+                      checked={nfeForm.emite_nfe}
+                      onChange={() => setNfeForm(f => ({ ...f, emite_nfe: !f.emite_nfe }))}
+                      label={t('comp.emission.emiteNfe')}
+                    />
+                    <Switch
+                      checked={nfeForm.emite_nfse}
+                      onChange={() => setNfeForm(f => ({ ...f, emite_nfse: !f.emite_nfse }))}
+                      label={t('comp.emission.emiteNfse')}
+                    />
+                  </div>
+                  {!nfeForm.emite_nfe && !nfeForm.emite_nfse && (
+                    <div className="alert alert-error" style={{ marginTop: 12, fontSize: 12 }}>
+                      {t('comp.emission.warnNone')}
+                    </div>
+                  )}
+                </div>
 
                 {/* Dados do emitente */}
                 <div className="field-row">
@@ -1074,24 +1118,26 @@ export function CompanyPage() {
                   </div>
                 </div>
 
-                {/* Configurações fiscais */}
-                <div className="field-row" style={{ marginTop: 8 }}>
-                  <div className="field">
-                    <label>{t('comp.nfe.cfopPadrao')}</label>
-                    <input type="text" value={nfeForm.cfop_padrao} maxLength={4}
-                      onChange={e => setNfeForm(f => ({ ...f, cfop_padrao: e.target.value }))} />
+                {/* Configurações fiscais — só relevante pra quem emite NF-e (regra 53) */}
+                {nfeForm.emite_nfe && (
+                  <div className="field-row" style={{ marginTop: 8 }}>
+                    <div className="field">
+                      <label>{t('comp.nfe.cfopPadrao')}</label>
+                      <input type="text" value={nfeForm.cfop_padrao} maxLength={4}
+                        onChange={e => setNfeForm(f => ({ ...f, cfop_padrao: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.nfe.cfopInterest')}</label>
+                      <input type="text" value={nfeForm.cfop_interestadual} maxLength={4}
+                        onChange={e => setNfeForm(f => ({ ...f, cfop_interestadual: e.target.value }))} />
+                    </div>
+                    <div className="field" style={{ flex: 2 }}>
+                      <label>{t('comp.nfe.natOp')}</label>
+                      <input type="text" value={nfeForm.natureza_operacao}
+                        onChange={e => setNfeForm(f => ({ ...f, natureza_operacao: e.target.value }))} />
+                    </div>
                   </div>
-                  <div className="field">
-                    <label>{t('comp.nfe.cfopInterest')}</label>
-                    <input type="text" value={nfeForm.cfop_interestadual} maxLength={4}
-                      onChange={e => setNfeForm(f => ({ ...f, cfop_interestadual: e.target.value }))} />
-                  </div>
-                  <div className="field" style={{ flex: 2 }}>
-                    <label>{t('comp.nfe.natOp')}</label>
-                    <input type="text" value={nfeForm.natureza_operacao}
-                      onChange={e => setNfeForm(f => ({ ...f, natureza_operacao: e.target.value }))} />
-                  </div>
-                </div>
+                )}
 
                 {/* Ambiente Focus NF-e — toggle HML/PRD */}
                 <div className="field" style={{ marginTop: 8 }}>
@@ -1147,38 +1193,40 @@ export function CompanyPage() {
                   </div>
                 </div>
 
-                {/* ── NFS-e (Nota Fiscal de Serviços) ── */}
-                <div style={{ marginTop: 16, padding: '16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                  <h4 style={{ marginBottom: 4 }}>{t('comp.nfse.title')}</h4>
-                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfse.hint')}</p>
+                {/* ── NFS-e (Nota Fiscal de Serviços) — só relevante pra quem emite NFS-e (regra 53) ── */}
+                {nfeForm.emite_nfse && (
+                  <div style={{ marginTop: 16, padding: '16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <h4 style={{ marginBottom: 4 }}>{t('comp.nfse.title')}</h4>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfse.hint')}</p>
 
-                  <div className="field-row">
-                    <div className="field">
-                      <label>{t('comp.nfse.inscricaoMunicipal')}</label>
-                      <input type="text" value={nfeForm.inscricao_municipal} maxLength={20}
-                        onChange={e => setNfeForm(f => ({ ...f, inscricao_municipal: e.target.value }))} />
+                    <div className="field-row">
+                      <div className="field">
+                        <label>{t('comp.nfse.inscricaoMunicipal')}</label>
+                        <input type="text" value={nfeForm.inscricao_municipal} maxLength={20}
+                          onChange={e => setNfeForm(f => ({ ...f, inscricao_municipal: e.target.value }))} />
+                      </div>
+                      <div className="field">
+                        <label>{t('comp.nfse.codigoMunicipioIbge')}</label>
+                        <input type="text" value={nfeForm.codigo_municipio_ibge} maxLength={10}
+                          onChange={e => setNfeForm(f => ({ ...f, codigo_municipio_ibge: e.target.value }))} />
+                      </div>
                     </div>
-                    <div className="field">
-                      <label>{t('comp.nfse.codigoMunicipioIbge')}</label>
-                      <input type="text" value={nfeForm.codigo_municipio_ibge} maxLength={10}
-                        onChange={e => setNfeForm(f => ({ ...f, codigo_municipio_ibge: e.target.value }))} />
+
+                    <div className="field-row">
+                      <div className="field">
+                        <label>{t('comp.nfse.aliquotaIss')}</label>
+                        <input type="number" step="0.01" min={0} value={nfeForm.aliquota_iss_padrao}
+                          onChange={e => setNfeForm(f => ({ ...f, aliquota_iss_padrao: e.target.value }))} />
+                      </div>
+                      <div className="field">
+                        <label>{t('comp.nfse.codigoServico')}</label>
+                        <input type="text" value={nfeForm.codigo_servico_padrao} maxLength={10}
+                          placeholder={t('comp.nfse.codigoServicoPH')}
+                          onChange={e => setNfeForm(f => ({ ...f, codigo_servico_padrao: e.target.value }))} />
+                      </div>
                     </div>
                   </div>
-
-                  <div className="field-row">
-                    <div className="field">
-                      <label>{t('comp.nfse.aliquotaIss')}</label>
-                      <input type="number" step="0.01" min={0} value={nfeForm.aliquota_iss_padrao}
-                        onChange={e => setNfeForm(f => ({ ...f, aliquota_iss_padrao: e.target.value }))} />
-                    </div>
-                    <div className="field">
-                      <label>{t('comp.nfse.codigoServico')}</label>
-                      <input type="text" value={nfeForm.codigo_servico_padrao} maxLength={10}
-                        placeholder={t('comp.nfse.codigoServicoPH')}
-                        onChange={e => setNfeForm(f => ({ ...f, codigo_servico_padrao: e.target.value }))} />
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 <div style={{ marginTop: 20 }}>
                   <Can permission="company:edit">
@@ -1370,6 +1418,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   multi_empresa:  { titleKey: 'comp.modules.multiEmpresa',  descKey: 'comp.modules.multiEmpresaDesc' },
   pos:            { titleKey: 'comp.modules.pos',           descKey: 'comp.modules.posDesc' },
   mercadolivre:   { titleKey: 'comp.modules.mercadolivre',   descKey: 'comp.modules.mercadolivreDesc' },
+  sales_pipeline: { titleKey: 'comp.modules.salesPipeline',  descKey: 'comp.modules.salesPipelineDesc' },
 };
 
 // Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o

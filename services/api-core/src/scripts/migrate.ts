@@ -84,6 +84,10 @@ const migrations = [
   '0052_service_order_billing.sql',
   '0053_stripe_price_ids_fix.sql',
   '0054_fix_subscription_status_check.sql',
+  '0055_simples_remessa.sql',
+  '0056_company_emission_scope.sql',
+  '0057_materials_notes.sql',
+  '0058_sales_pipeline.sql',
   '0059_rbac.sql',
 ];
 

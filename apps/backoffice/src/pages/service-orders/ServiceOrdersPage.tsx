@@ -29,6 +29,9 @@ interface ServiceOrderDetail extends ServiceOrder {
 }
 interface ClientOption { id: string; company_name: string | null; full_name: string | null; }
 interface TechnicianOption { id: string; name: string; is_active: boolean; }
+// Filtrado por emite_nfse=true (regra 53) — faturamento de OS só oferece
+// empresas responsáveis por NFS-e quando "Emitir NFS-e" está marcado.
+interface CompanyOption { id: string; razao_social: string; is_default: boolean; emite_nfse: boolean; }
 interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
 interface FormItem { _key: string; material_id: string; description: string; quantity: string; unit_price: string; }
 interface ListResp { data: ServiceOrder[]; total: number; page: number; per_page: number; }
@@ -77,6 +80,7 @@ export function ServiceOrdersPage() {
   const [clients, setClients]         = useState<ClientOption[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianOption[]>([]);
   const [materials, setMaterials]     = useState<MaterialOption[]>([]);
+  const [companies, setCompanies]     = useState<CompanyOption[]>([]);
 
   const [visitTechId, setVisitTechId] = useState('');
   const [visitAt, setVisitAt]         = useState('');
@@ -88,6 +92,7 @@ export function ServiceOrdersPage() {
     return d.toISOString().slice(0, 10);
   });
   const [billingEmitNfse, setBillingEmitNfse] = useState(true);
+  const [billingCompanyId, setBillingCompanyId] = useState('');
   const [billingLoading, setBillingLoading]   = useState(false);
 
   async function load() {
@@ -111,10 +116,14 @@ export function ServiceOrdersPage() {
       api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
       api.get<{ data: TechnicianOption[] }>(`/v1/technicians?per_page=100`),
       api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=500&tenant_id=${tenantId}`),
-    ]).then(([cl, tc, mt]) => {
+      api.get<{ data: CompanyOption[] }>('/v1/companies').catch(() => ({ data: [] })),
+    ]).then(([cl, tc, mt, comp]) => {
       setClients(cl.data ?? []);
       setTechnicians((tc.data ?? []).filter(x => x.is_active));
       setMaterials(mt.data ?? []);
+      const nfseCompanies = (comp.data ?? []).filter(c => c.emite_nfse);
+      setCompanies(nfseCompanies);
+      setBillingCompanyId(prev => prev || nfseCompanies.find(c => c.is_default)?.id || '');
     }).catch((err: unknown) => {
       setFormError(err instanceof Error ? err.message : t('cl.errSave'));
     });
@@ -223,6 +232,7 @@ export function ServiceOrdersPage() {
       await api.post(`/v1/service-orders/${editing.id}/billing`, {
         due_date: billingDueDate || undefined,
         emit_nfse: billingEmitNfse,
+        company_id: billingEmitNfse ? (billingCompanyId || undefined) : undefined,
       });
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
       setEditing(detail);
@@ -412,6 +422,17 @@ export function ServiceOrdersPage() {
                           </div>
                         </div>
                         <Can permission="service_orders:edit">
+                          {billingEmitNfse && companies.length > 1 && (
+                            <div className="field" style={{ marginBottom: 8 }}>
+                              <label>{t('comp.companies.emittingCompany')}</label>
+                              <select value={billingCompanyId} onChange={e => setBillingCompanyId(e.target.value)}>
+                                <option value="">{t('comp.companies.default')}</option>
+                                {companies.map(c => (
+                                  <option key={c.id} value={c.id}>{c.razao_social}{c.is_default ? ` (${t('comp.companies.default')})` : ''}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
                             disabled={billingLoading} onClick={() => void handleBillServiceOrder()}>
                             {billingLoading ? t('c.saving') : t('so.billingEmit')}
@@ -459,6 +480,10 @@ export function ServiceOrdersPage() {
 
                 <div className="drawer-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.close')}</button>
+                  <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                    onClick={() => window.open(`/service-orders/${editing.id}/print`, '_blank', 'noopener')}>
+                    {t('so.printView')}
+                  </button>
                   {editing.status !== 'cancelled' && editing.status !== 'completed' && (
                     <Can permission="service_orders:edit">
                       <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
