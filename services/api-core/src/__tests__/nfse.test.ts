@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
-import { db } from '../db';
+import { db, nfeConfigs } from '../db';
 
 vi.mock('../lib/sqsClient', () => ({
   getSqsClient: vi.fn().mockReturnValue({
@@ -10,16 +10,18 @@ vi.mock('../lib/sqsClient', () => ({
 }));
 
 // In-memory state the mocked db reads from
-const state: { nfseRows: any[] } = { nfseRows: [] };
+const state: { nfseRows: any[]; companyRows: any[] } = { nfseRows: [], companyRows: [] };
 
-function makeSelectChain(rows: any[]) {
-  // db.select().from().where() resolves to `rows`
-  const chain: any = {
-    from: () => chain,
-    where: () => Promise.resolve(rows),
-    orderBy: () => Promise.resolve(rows),
+function makeSelectChain() {
+  // db.select().from(table).where() resolves por tabela — discriminar por
+  // tabela (não por ordem de chamada) evita acoplamento frágil quando mais
+  // de um db.select() acontece na mesma requisição (ex.: nfse row + empresa).
+  return {
+    from: (table: unknown) => ({
+      where: () => Promise.resolve(table === nfeConfigs ? state.companyRows : state.nfseRows),
+      orderBy: () => Promise.resolve(table === nfeConfigs ? state.companyRows : state.nfseRows),
+    }),
   };
-  return chain;
 }
 
 vi.mock('../db', async () => {
@@ -34,7 +36,7 @@ vi.mock('../db', async () => {
         if (/COUNT/i.test(text)) return { rows: [{ total: state.nfseRows.length }] };
         return { rows: state.nfseRows };
       }),
-      select: vi.fn(() => makeSelectChain(state.nfseRows)),
+      select: vi.fn(() => makeSelectChain()),
       update: vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) })),
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([{ id: 'nfse-1' }]) }) })),
       transaction: vi.fn(),
@@ -47,6 +49,7 @@ describe('NFS-e routes', () => {
 
   beforeEach(async () => {
     state.nfseRows = [];
+    state.companyRows = [];
     process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue/nfe-requests';
     app = await buildApp();
   });
@@ -107,11 +110,9 @@ describe('NFS-e routes', () => {
         iss_rate: '5.00', iss_value: '5.00', service_code: '14.01',
         period_start: null, period_end: null, company_id: 'company-filial',
       }];
-      // resolveCompanyId (companyService) faz a próxima chamada de db.select —
-      // simula uma empresa SEM inscrição municipal configurada.
-      (db.select as any).mockReturnValueOnce({
-        from: () => ({ where: () => Promise.resolve([{ id: 'company-filial', is_active: true, inscricao_municipal: null }]) }),
-      });
+      // resolveCompanyId (companyService) lê nfe_configs — simula uma empresa
+      // responsável por NFS-e mas SEM inscrição municipal configurada.
+      state.companyRows = [{ id: 'company-filial', is_active: true, emite_nfse: true, inscricao_municipal: null }];
 
       const res = await app.inject({
         method: 'POST',

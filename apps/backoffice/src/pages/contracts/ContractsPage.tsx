@@ -106,7 +106,9 @@ export function ContractsPage() {
   const [clients,   setClients]   = useState<Client[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
-  const [companies, setCompanies] = useState<{ id: string; razao_social: string; is_default: boolean }[]>([]);
+  // Filtrado por emite_nfse=true (regra 53) — só oferece empresas responsáveis
+  // por NFS-e; contratos de serviço nunca emitem NF-e de venda.
+  const [companies, setCompanies] = useState<{ id: string; razao_social: string; is_default: boolean; emite_nfse: boolean }[]>([]);
 
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -153,9 +155,9 @@ export function ContractsPage() {
     setClients(cl.data.map(c => ({ id: c.id, name: c.company_name ?? c.full_name ?? c.id })));
     setMaterials(mt.data.map(m => ({ id: m.id, name: m.name, sku: m.sku, description: m.description })));
 
-    const comp = await api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies')
+    const comp = await api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfse: boolean }[] }>('/v1/companies')
       .catch(() => ({ data: [] }));
-    setCompanies(comp.data);
+    setCompanies(comp.data.filter(c => c.emite_nfse));
   }
 
   async function loadBillings(contractId: string) {

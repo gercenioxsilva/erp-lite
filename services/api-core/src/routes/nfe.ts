@@ -3,7 +3,7 @@ import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, sql } from 'drizzle-orm';
 import { db, invoices, nfeEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
-import { getDefaultCompany, upsertDefaultCompany, resolveCompanyId } from '../services/companyService';
+import { getDefaultCompany, upsertDefaultCompany, resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 
 export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -78,9 +78,10 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
     // de antes para tenants que nunca usaram multi-empresa).
     let cfg;
     try {
-      cfg = await resolveCompanyId(tenant_id, invoice.company_id);
-    } catch {
-      return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal antes de emitir');
+      cfg = await resolveCompanyId(tenant_id, invoice.company_id, db, 'nfe');
+    } catch (err) {
+      const msg = err instanceof CompanyDomainError ? companyResolutionErrorMessage(err, 'NF-e') : 'Configure os dados fiscais em Empresa → Fiscal antes de emitir';
+      return reply.badRequest(msg);
     }
     // Trava de segurança: produção exige o token do próprio tenant (não cair no fallback do env)
     if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)

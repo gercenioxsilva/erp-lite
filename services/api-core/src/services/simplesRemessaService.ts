@@ -45,12 +45,14 @@ export type SRCreate = {
   items:      SRItemInput[];
 };
 
+// Simples Remessa usa a capacidade 'nfe' (não uma terceira categoria) — é
+// NF-e modelo 55, mesmo endpoint Focus de venda (regra 53).
 async function resolveCfgOrThrow(tenantId: string, companyId: string | null | undefined, db: DrizzleDB) {
   try {
-    return await resolveCompanyId(tenantId, companyId ?? null, db);
+    return await resolveCompanyId(tenantId, companyId ?? null, db, 'nfe');
   } catch (err) {
     if (err instanceof CompanyDomainError) {
-      throw new SimplesRemessaDomainError('remessa_sem_empresa_configurada');
+      throw new SimplesRemessaDomainError('remessa_sem_empresa_configurada', { reason: err.code });
     }
     throw err;
   }

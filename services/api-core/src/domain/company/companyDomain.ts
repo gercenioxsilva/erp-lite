@@ -19,6 +19,24 @@ export interface CompanyLike {
   is_active:  boolean;
 }
 
+// ── Responsabilidade de emissão por empresa (regra 53) ──────────────────────
+// Cada empresa (CNPJ) declara se emite NF-e de venda (mercadoria), NFS-e
+// (serviço), ou ambos — nunca inferido a partir de outros campos (mesmo
+// espírito de "nunca inferir automaticamente" já aplicado a class_trib,
+// regra 44). Simples Remessa usa a mesma capacidade de 'nfe' — é NF-e modelo
+// 55, mesmo endpoint Focus de venda, não um terceiro tipo de documento.
+
+export type EmissionDocType = 'nfe' | 'nfse';
+
+export interface EmissionCapable {
+  emite_nfe:  boolean;
+  emite_nfse: boolean;
+}
+
+export function hasCapability(company: EmissionCapable, docType: EmissionDocType): boolean {
+  return docType === 'nfe' ? company.emite_nfe : company.emite_nfse;
+}
+
 /**
  * Uma empresa não pode ser desativada se for a padrão do tenant, ou se for a
  * última empresa ativa (o tenant sempre precisa de ao menos uma identidade

@@ -28,7 +28,9 @@ interface SRDetail extends SR {
 }
 interface ClientOption { id: string; company_name: string | null; full_name: string | null; }
 interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; ncm_code: string | null; description?: string | null; type?: string | null; }
-interface CompanyOption { id: string; razao_social: string; is_default: boolean; }
+// Filtrado por emite_nfe=true (regra 53) — Simples Remessa é NF-e modelo 55,
+// mesma capacidade de venda, nunca uma terceira categoria.
+interface CompanyOption { id: string; razao_social: string; is_default: boolean; emite_nfe: boolean; }
 interface ListResp { data: SR[]; total: number; page: number; per_page: number; }
 
 const STATUS_TABS = ['all', 'draft', 'processing', 'authorized', 'rejected', 'cancelled'] as const;
@@ -103,7 +105,7 @@ export function SimplesRemessaPage() {
     ]).then(([cl, mat, co]) => {
       setClients(cl.data ?? []);
       setMaterials(mat.data ?? []);
-      setCompanies(co.data ?? []);
+      setCompanies((co.data ?? []).filter(c => c.emite_nfe));
     }).catch(() => {});
   }, [drawerOpen, tenantId]);
 

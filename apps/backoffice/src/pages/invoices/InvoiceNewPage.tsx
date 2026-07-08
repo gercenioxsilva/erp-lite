@@ -97,7 +97,9 @@ export function InvoiceNewPage() {
   const [sellers,          setSellers]          = useState<SellerOption[]>([]);
   const [formSellerId,     setFormSellerId]     = useState('');
   // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
-  const [companies,        setCompanies]        = useState<{ id: string; razao_social: string; is_default: boolean }[]>([]);
+  // Filtrado por emite_nfe=true (regra 53) — só oferece empresas responsáveis
+  // por NF-e de venda; NFC-e (POS) e outros documentos não entram aqui.
+  const [companies,        setCompanies]        = useState<{ id: string; razao_social: string; is_default: boolean; emite_nfe: boolean }[]>([]);
   const [formCompanyId,    setFormCompanyId]    = useState('');
 
   const hasClient = !!formClientId;
@@ -119,7 +121,7 @@ export function InvoiceNewPage() {
         .catch(() => ({ focus_ambiente: null, uf: undefined, regime_tributario: undefined })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
-      api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
+      api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfe: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
     ]).then(([cl, mt, or, cfg, cc, sl, comp]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
@@ -128,7 +130,7 @@ export function InvoiceNewPage() {
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
       setSellers(Array.isArray(sl) ? sl : []);
-      const companyRows = comp.data ?? [];
+      const companyRows = (comp.data ?? []).filter(c => c.emite_nfe);
       setCompanies(companyRows);
       setFormCompanyId(prev => prev || companyRows.find(c => c.is_default)?.id || '');
       // Origem e regime tributário herdam o cadastro fiscal do tenant — só

@@ -677,6 +677,13 @@ const ptBR = {
   'comp.nfse.codigoServico':      'Código de Serviço LC 116 (Padrão)',
   'comp.nfse.codigoServicoPH':    'Ex.: 14.01',
 
+  // ── Responsabilidade de emissão por empresa (regra 53) ─────────────────
+  'comp.emission.title':     'Responsabilidade de emissão',
+  'comp.emission.hint':      'Escolha quais tipos de documento fiscal esta empresa está autorizada a emitir. Em tenants com mais de um CNPJ, cada empresa pode ficar responsável por um tipo, pelos dois, ou nenhum.',
+  'comp.emission.emiteNfe':  'Emite NF-e de venda (mercadoria)',
+  'comp.emission.emiteNfse': 'Emite NFS-e (prestação de serviço)',
+  'comp.emission.warnNone':  'Nenhuma responsabilidade marcada — esta empresa não poderá ser usada para emitir NF-e nem NFS-e.',
+
   // ── Cobrança (Boleto) ─────────────────────────────────────────────────
   'bill.emitBoleto':     'Emitir Boleto',
   'bill.bankAccount':    'Conta bancária',

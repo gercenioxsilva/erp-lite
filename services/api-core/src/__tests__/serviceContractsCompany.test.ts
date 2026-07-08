@@ -107,7 +107,7 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
   });
 
   it('[multi-empresa] resolve via contract.company_id — bloqueia com mensagem clara quando a empresa não tem Inscrição Municipal', async () => {
-    companyRows = [{ id: COMPANY_ID, is_active: true, inscricao_municipal: null, codigo_servico_padrao: null, aliquota_iss_padrao: '0' }];
+    companyRows = [{ id: COMPANY_ID, is_active: true, emite_nfse: true, inscricao_municipal: null, codigo_servico_padrao: null, aliquota_iss_padrao: '0' }];
 
     const res = await app.inject({
       method: 'POST', url: '/v1/service-contracts/contract-1/billings',

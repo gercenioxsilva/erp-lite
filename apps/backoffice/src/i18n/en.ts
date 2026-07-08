@@ -621,6 +621,13 @@ const en: Record<TKey, string> = {
   'comp.nfse.codigoServico':      'Service Code LC 116 (Default)',
   'comp.nfse.codigoServicoPH':    'e.g. 14.01',
 
+  // ── Emission responsibility per company (regra 53) ─────────────────────
+  'comp.emission.title':     'Emission responsibility',
+  'comp.emission.hint':      'Choose which fiscal document types this company is authorized to issue. In tenants with more than one CNPJ, each company can be responsible for one type, both, or neither.',
+  'comp.emission.emiteNfe':  'Issues NF-e (goods sale)',
+  'comp.emission.emiteNfse': 'Issues NFS-e (service)',
+  'comp.emission.warnNone':  'No responsibility selected — this company cannot be used to issue NF-e or NFS-e.',
+
   // ── Billing (Boleto) ──────────────────────────────────────────────────
   'bill.emitBoleto':     'Emit Boleto',
   'bill.bankAccount':    'Bank account',

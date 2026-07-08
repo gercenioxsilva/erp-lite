@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canDeactivate, validateNewCompanyCnpj, type CompanyLike } from '../domain/company/companyDomain';
+import { canDeactivate, validateNewCompanyCnpj, hasCapability, type CompanyLike } from '../domain/company/companyDomain';
 
 // CNPJs válidos de referência (regra 36 do README — computados, não estruturais)
 const CNPJ_A = 'AAAAAA00000171';
@@ -67,5 +67,33 @@ describe('validateNewCompanyCnpj', () => {
   it('accepts the first company for a tenant with no existing CNPJs', () => {
     const result = validateNewCompanyCnpj([], CNPJ_C);
     expect(result).toEqual({ ok: true });
+  });
+});
+
+// ── hasCapability (regra 53 — responsabilidade de emissão por empresa) ────────
+
+describe('hasCapability', () => {
+  it('reconhece uma empresa que só emite NF-e', () => {
+    const c = { emite_nfe: true, emite_nfse: false };
+    expect(hasCapability(c, 'nfe')).toBe(true);
+    expect(hasCapability(c, 'nfse')).toBe(false);
+  });
+
+  it('reconhece uma empresa que só emite NFS-e', () => {
+    const c = { emite_nfe: false, emite_nfse: true };
+    expect(hasCapability(c, 'nfe')).toBe(false);
+    expect(hasCapability(c, 'nfse')).toBe(true);
+  });
+
+  it('reconhece uma empresa que emite os dois (default de todo tenant existente)', () => {
+    const c = { emite_nfe: true, emite_nfse: true };
+    expect(hasCapability(c, 'nfe')).toBe(true);
+    expect(hasCapability(c, 'nfse')).toBe(true);
+  });
+
+  it('reconhece uma empresa sem nenhuma responsabilidade', () => {
+    const c = { emite_nfe: false, emite_nfse: false };
+    expect(hasCapability(c, 'nfe')).toBe(false);
+    expect(hasCapability(c, 'nfse')).toBe(false);
   });
 });
