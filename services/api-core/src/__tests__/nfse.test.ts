@@ -44,11 +44,15 @@ vi.mock('../db', async () => {
 
 describe('NFS-e routes', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     state.nfseRows = [];
     process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue/nfe-requests';
     app = await buildApp();
+    // Sign a fake JWT so authenticate passes — tenantId matches the value the
+    // mocked data/queries below expect ('tenant-1').
+    token = app.jwt.sign({ tenantId: 'tenant-1', userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => {
@@ -58,7 +62,11 @@ describe('NFS-e routes', () => {
 
   describe('GET /v1/nfse', () => {
     it('returns empty array initially', async () => {
-      const res = await app.inject({ method: 'GET', url: '/v1/nfse?tenant_id=tenant-1' });
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/nfse?tenant_id=tenant-1',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.data).toEqual([]);
@@ -77,6 +85,7 @@ describe('NFS-e routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/nfse/unknown/emit?tenant_id=tenant-1',
+        headers: { Authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(404);
     });
@@ -91,12 +100,17 @@ describe('NFS-e routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/nfse/nfse-1/emit?tenant_id=tenant-1',
+        headers: { Authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(400);
     });
 
     it('requires tenant_id', async () => {
-      const res = await app.inject({ method: 'POST', url: '/v1/nfse/nfse-1/emit' });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/nfse/nfse-1/emit',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       expect(res.statusCode).toBeGreaterThanOrEqual(400);
     });
 
@@ -116,6 +130,7 @@ describe('NFS-e routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/nfse/nfse-1/emit?tenant_id=tenant-1',
+        headers: { Authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().message).toMatch(/Inscrição Municipal/);

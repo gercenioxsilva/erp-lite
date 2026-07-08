@@ -32,11 +32,13 @@ function valuesChain(returningRows: unknown[] = []) {
 
 describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mockDb.transaction.mockImplementation(async (cb: any) => cb(mockDb));
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
   afterEach(async () => { await app.close(); });
 
@@ -47,6 +49,7 @@ describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
 
     const res = await app.inject({
       method: 'PATCH', url: `/v1/materials/${MATERIAL_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { sale_price: 32.9 },
     });
 
@@ -60,6 +63,7 @@ describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
 
     const res = await app.inject({
       method: 'PATCH', url: `/v1/materials/${MATERIAL_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { name: 'Novo nome' },
     });
 
@@ -73,6 +77,7 @@ describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
 
     const res = await app.inject({
       method: 'PATCH', url: `/v1/materials/${MATERIAL_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { sale_price: 29.9 },
     });
 
@@ -85,6 +90,7 @@ describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
 
     const res = await app.inject({
       method: 'PATCH', url: `/v1/materials/${MATERIAL_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { sale_price: 32.9 },
     });
 
@@ -96,10 +102,12 @@ describe('PATCH /v1/materials/:id — grava histórico de preço', () => {
 
 describe('GET /v1/materials/:id/price-history', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
   afterEach(async () => { await app.close(); });
 
@@ -115,7 +123,10 @@ describe('GET /v1/materials/:id/price-history', () => {
       from: () => ({ where: () => ({ orderBy: () => ({ limit: () => ({ offset: () => Promise.resolve(historyRows) }) }) }) }),
     });
 
-    const res = await app.inject({ method: 'GET', url: `/v1/materials/${MATERIAL_ID}/price-history` });
+    const res = await app.inject({
+      method: 'GET', url: `/v1/materials/${MATERIAL_ID}/price-history`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     expect(res.statusCode).toBe(200);
     const body = res.json();

@@ -66,11 +66,11 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // POST /v1/materials
   app.post('/materials', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:create')],
     schema: { body: { ...materialBody, required: ['sku', 'name'] } },
   }, async (request, reply) => {
     const b = request.body as Record<string, unknown>;
-    const tenantId = (b.tenant_id as string) ?? null;
-    if (!tenantId) return reply.badRequest('tenant_id is required');
+    const tenantId = (request as any).user.tenantId;
 
     // Um kit não controla estoque próprio — quem controla são as peças.
     const tracksInventory = b.tracks_inventory !== undefined
@@ -120,6 +120,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // POST /v1/materials/import
   app.post('/materials/import', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:import')],
     schema: {
       body: {
         type: 'object', required: ['tenant_id', 'materials'],
@@ -135,7 +136,8 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
       },
     },
   }, async (request) => {
-    const { tenant_id, materials: rows, update_existing = false, dry_run = false } =
+    const tenant_id = (request as any).user.tenantId;
+    const { materials: rows, update_existing = false, dry_run = false } =
       request.body as {
         tenant_id: string; materials: Record<string, unknown>[];
         update_existing?: boolean; dry_run?: boolean;
@@ -265,6 +267,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // GET /v1/materials
   app.get('/materials', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:view')],
     schema: {
       querystring: {
         type: 'object',
@@ -279,10 +282,11 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
       },
     },
   }, async (request, reply) => {
-    const { tenant_id, page = 1, per_page = 20, type, category, active, search } =
+    const tenantId = (request as any).user.tenantId;
+    const { page = 1, per_page = 20, type, category, active, search } =
       request.query as Record<string, unknown>;
 
-    const conditions: any[] = [eq(materials.tenant_id, tenant_id as string)];
+    const conditions: any[] = [eq(materials.tenant_id, tenantId)];
     if (type)     conditions.push(eq(materials.type, type as string));
     if (category) conditions.push(eq(materials.category, category as string));
     if (active !== undefined) conditions.push(eq(materials.is_active, active as boolean));
@@ -308,16 +312,25 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   });
 
   // GET /v1/materials/:id
-  app.get('/materials/:id', { schema: { params: idParam } }, async (request, reply) => {
+  app.get('/materials/:id', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:view')],
+    schema: { params: idParam },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [row] = await db.select().from(materials).where(eq(materials.id, id));
+    const tenantId = (request as any).user.tenantId;
+    const [row] = await db.select().from(materials)
+      .where(and(eq(materials.id, id), eq(materials.tenant_id, tenantId)));
     if (!row) return reply.notFound('Material not found');
     return reply.send(row);
   });
 
   // GET /v1/materials/:id/components — peças que compõem um kit
-  app.get('/materials/:id/components', { schema: { params: idParam } }, async (request, reply) => {
+  app.get('/materials/:id/components', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:view')],
+    schema: { params: idParam },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const rows = await db
       .select({
         id:           materialComponents.id,
@@ -332,13 +345,14 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
       })
       .from(materialComponents)
       .innerJoin(materials, eq(materials.id, materialComponents.component_id))
-      .where(eq(materialComponents.kit_id, id))
+      .where(and(eq(materialComponents.kit_id, id), eq(materialComponents.tenant_id, tenantId)))
       .orderBy(asc(materialComponents.sort_order));
     return reply.send({ data: rows });
   });
 
   // GET /v1/materials/:id/price-history — histórico de preço (append-only)
   app.get('/materials/:id/price-history', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:view')],
     schema: {
       params: idParam,
       querystring: {
@@ -351,9 +365,10 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     },
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const { page = 1, per_page = 20 } = request.query as Record<string, unknown>;
     const offset = (Number(page) - 1) * Number(per_page);
-    const where = eq(materialPriceHistory.material_id, id);
+    const where = and(eq(materialPriceHistory.material_id, id), eq(materialPriceHistory.tenant_id, tenantId));
 
     const [[{ count }], data] = await Promise.all([
       db.select({ count: sql<number>`COUNT(*)::int` }).from(materialPriceHistory).where(where),
@@ -369,8 +384,12 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   });
 
   // PATCH /v1/materials/:id
-  app.patch('/materials/:id', { schema: { params: idParam, body: materialBody } }, async (request, reply) => {
+  app.patch('/materials/:id', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:edit')],
+    schema: { params: idParam, body: materialBody },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, unknown>;
     const allowed = ['sku','name','description','type','category','brand','unit',
                      'sale_price','cost_price','ncm_code','tax_group','weight_kg',
@@ -384,12 +403,12 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     const row = await db.transaction(async (tx) => {
       const [before] = await tx.select({
         tenant_id: materials.tenant_id, sale_price: materials.sale_price, cost_price: materials.cost_price,
-      }).from(materials).where(eq(materials.id, id));
+      }).from(materials).where(and(eq(materials.id, id), eq(materials.tenant_id, tenantId)));
       if (!before) return null;
 
       const [after] = await tx.update(materials)
         .set({ ...updateData as any, updated_at: new Date() })
-        .where(eq(materials.id, id))
+        .where(and(eq(materials.id, id), eq(materials.tenant_id, tenantId)))
         .returning();
 
       const incoming: MaterialPriceInput = {};
@@ -416,19 +435,27 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   });
 
   // DELETE /v1/materials/:id
-  app.delete('/materials/:id', { schema: { params: idParam } }, async (request, reply) => {
+  app.delete('/materials/:id', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:delete')],
+    schema: { params: idParam },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const [row] = await db.update(materials)
       .set({ is_active: false, updated_at: new Date() })
-      .where(eq(materials.id, id))
+      .where(and(eq(materials.id, id), eq(materials.tenant_id, tenantId)))
       .returning();
     if (!row) return reply.notFound('Material not found');
     return reply.send(row);
   });
 
   // GET /v1/materials/:id/stock
-  app.get('/materials/:id/stock', { schema: { params: idParam } }, async (request, reply) => {
+  app.get('/materials/:id/stock', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')],
+    schema: { params: idParam },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const rows = await db.execute<{
       material_id: string; quantity: string; min_qty: string; max_qty: string | null;
       is_low_stock: boolean; updated_at: string;
@@ -437,7 +464,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
              (i.quantity <= i.min_qty) AS is_low_stock, i.updated_at
       FROM inventory i
       JOIN materials m ON m.id = i.material_id
-      WHERE i.material_id = ${id}
+      WHERE i.material_id = ${id} AND i.tenant_id = ${tenantId}
     `);
     if (!rows.rows[0]) return reply.notFound('Inventory record not found — material may not track stock');
     return reply.send(rows.rows[0]);
@@ -445,6 +472,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // POST /v1/materials/:id/stock/movements
   app.post('/materials/:id/stock/movements', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:adjust')],
     schema: {
       params: idParam,
       body: {
@@ -459,20 +487,25 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     },
   }, async (request, reply) => {
     const { id: materialId } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const b = request.body as {
       movement_type: string; quantity: number; reason?: string;
       reference_id?: string; reference_type?: string; created_by?: string;
     };
     const delta = b.movement_type === 'out' ? -Math.abs(b.quantity) : Math.abs(b.quantity);
 
-    const [existing] = await db.select({ id: inventory.id }).from(inventory).where(eq(inventory.material_id, materialId));
+    // Confere que o material pertence ao tenant do chamador ANTES de processar
+    // o movimento — esta é uma ação destrutiva (altera quantidade em estoque).
+    const [existing] = await db.select({ id: inventory.id }).from(inventory)
+      .where(and(eq(inventory.material_id, materialId), eq(inventory.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Inventory record not found — material may not track stock');
 
     let movement: any;
     try {
       await db.transaction(async (tx) => {
         const { rows: [inv] } = await tx.execute<{ id: string; quantity: string; tenant_id: string }>(sql`
-          SELECT id, quantity, tenant_id FROM inventory WHERE material_id = ${materialId} FOR UPDATE
+          SELECT id, quantity, tenant_id FROM inventory
+          WHERE material_id = ${materialId} AND tenant_id = ${tenantId} FOR UPDATE
         `);
 
         const before = Number(inv.quantity);
@@ -491,7 +524,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
              reason, reference_id, reference_type, created_by)
           SELECT tenant_id, ${materialId}, ${b.movement_type}, ${delta}, ${before}, ${after},
                  ${b.reason ?? null}, ${b.reference_id ?? null}, ${b.reference_type ?? null}, ${b.created_by ?? null}
-          FROM inventory WHERE material_id = ${materialId}
+          FROM inventory WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
           RETURNING *
         `);
         movement = mov;
@@ -505,6 +538,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // GET /v1/materials/:id/stock/movements
   app.get('/materials/:id/stock/movements', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')],
     schema: {
       params: idParam,
       querystring: {
@@ -518,9 +552,10 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     },
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const tenantId = (request as any).user.tenantId;
     const { page = 1, per_page = 20, type } = request.query as Record<string, unknown>;
 
-    const conditions: any[] = [eq(inventoryMovements.material_id, id)];
+    const conditions: any[] = [eq(inventoryMovements.material_id, id), eq(inventoryMovements.tenant_id, tenantId)];
     if (type) conditions.push(eq(inventoryMovements.movement_type, type as string));
     const where = and(...conditions as [any, ...any[]]);
     const offset = (Number(page) - 1) * Number(per_page);
@@ -540,16 +575,17 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
 
   // GET /v1/stock/alerts
   app.get('/stock/alerts', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')],
     schema: { querystring: { type: 'object', required: ['tenant_id'], properties: { tenant_id: { type: 'string', format: 'uuid' } } } },
   }, async (request, reply) => {
-    const { tenant_id } = request.query as { tenant_id: string };
+    const tenantId = (request as any).user.tenantId;
     const { rows: data } = await db.execute<any>(sql`
       SELECT m.id, m.sku, m.name, m.unit, m.category,
              i.quantity, i.min_qty, i.max_qty,
              (i.min_qty - i.quantity) AS shortage
       FROM inventory i
       JOIN materials m ON m.id = i.material_id
-      WHERE i.tenant_id = ${tenant_id}
+      WHERE i.tenant_id = ${tenantId}
         AND i.quantity <= i.min_qty
         AND m.is_active = true
       ORDER BY shortage DESC, m.name

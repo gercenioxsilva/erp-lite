@@ -1,20 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db, notificationConfigs } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 export const notificationConfigRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/notification-config ────────────────────────────────────── */
-  fastify.get('/notification-config', async (request, reply) => {
-    const { tenant_id } = request.query as { tenant_id?: string };
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
+  fastify.get('/notification-config', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('company:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
 
     const [cfg] = await db.select().from(notificationConfigs)
-      .where(eq(notificationConfigs.tenant_id, tenant_id));
+      .where(eq(notificationConfigs.tenant_id, tenantId));
 
     if (!cfg) {
       return {
-        tenant_id,
+        tenant_id: tenantId,
         email_enabled:          true,
         email_from_name:        'GAX ERP',
         email_reply_to:         null,
@@ -27,15 +30,18 @@ export const notificationConfigRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/notification-config ────────────────────────────────────── */
-  fastify.put('/notification-config', async (request, reply) => {
+  fastify.put('/notification-config', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('company:edit')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const body = request.body as any;
-    const { tenant_id, email_enabled, email_from_name, email_reply_to,
+    const { email_enabled, email_from_name, email_reply_to,
             notify_nfe_authorized, notify_nfe_rejected, notify_order_confirmed,
             notify_receivable_due_days } = body;
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const [cfg] = await db.insert(notificationConfigs).values({
-      tenant_id,
+      tenant_id: tenantId,
       email_enabled:                email_enabled                ?? true,
       email_from_name:              email_from_name              ?? 'GAX ERP',
       email_reply_to:               email_reply_to               ?? null,

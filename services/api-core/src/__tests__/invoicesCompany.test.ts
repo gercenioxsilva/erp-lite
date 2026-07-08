@@ -29,6 +29,7 @@ const validItems = [{ name: 'Item 1', quantity: 1, unit_price: 100 }];
 
 describe('POST /v1/invoices — company_id (regra 40)', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -43,6 +44,7 @@ describe('POST /v1/invoices — company_id (regra 40)', () => {
       return fn(tx as any);
     });
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -51,6 +53,7 @@ describe('POST /v1/invoices — company_id (regra 40)', () => {
     const res = await app.inject({
       method: 'POST', url: '/v1/invoices',
       payload: { tenant_id: TENANT_ID, client_id: CLIENT_ID, items: validItems },
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -60,6 +63,7 @@ describe('POST /v1/invoices — company_id (regra 40)', () => {
     const res = await app.inject({
       method: 'POST', url: '/v1/invoices',
       payload: { tenant_id: TENANT_ID, client_id: CLIENT_ID, items: validItems, company_id: COMPANY_ID },
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -69,6 +73,7 @@ describe('POST /v1/invoices — company_id (regra 40)', () => {
     const res = await app.inject({
       method: 'POST', url: '/v1/invoices',
       payload: { tenant_id: TENANT_ID, client_id: CLIENT_ID, items: validItems, company_id: 'foreign-company' },
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(400);
   });

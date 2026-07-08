@@ -2,7 +2,8 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import jwt from '@fastify/jwt';
-import { customersRoutes } from './routes/customers';
+// customersRoutes: import removida junto com o registro abaixo (hotfix de
+// segurança 2026-07-08) — ver comentário na chamada de app.register comentada.
 import { materialsRoutes } from './routes/materials';
 import { authRoutes }      from './routes/auth';
 import { clientsRoutes }   from './routes/clients';
@@ -81,7 +82,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
   await app.register(authRoutes,      { prefix: '/v1' });
-  await app.register(customersRoutes, { prefix: '/v1' });
+  // customersRoutes DESREGISTRADO (hotfix de segurança, 2026-07-08): CRUD direto
+  // na tabela `tenants` sem authenticate e sem NENHUM filtro de tenant — qualquer
+  // um sem login podia listar/editar/cancelar qualquer empresa do SaaS. Sem
+  // caller conhecido no repo (frontend/scripts/testes) — parece resíduo de
+  // bootstrap nunca protegido. Cross-tenant por natureza (opera sobre `tenants`,
+  // não sobre dados de UM tenant), então não faz sentido virar RBAC tenant-scoped
+  // como as demais rotas — nenhum papel hoje deveria ter esse poder. Reversível:
+  // descomentar a linha abaixo se surgir um uso legítimo (ex.: backoffice interno
+  // de sucesso do cliente), mas aí precisa de um conceito de permissão de
+  // plataforma separado do RBAC por tenant, não authenticate+requirePermission comum.
+  // await app.register(customersRoutes, { prefix: '/v1' });
   await app.register(materialsRoutes, { prefix: '/v1' });
   await app.register(clientsRoutes,   { prefix: '/v1' });
   await app.register(usersRoutes,     { prefix: '/v1' });

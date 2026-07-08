@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, invoices, nfeEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { getDefaultCompany, upsertDefaultCompany, resolveCompanyId } from '../services/companyService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -14,10 +15,11 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
   // Multi-empresa de verdade é exposto em /v1/companies — esta rota continua
   // existindo para não quebrar clientes (web antigo, app mobile) que ainda
   // não sabem de multi-empresa.
-  fastify.get('/nfe-config', async (request, reply) => {
-    const { tenant_id } = request.query as { tenant_id: string };
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
-    const cfg = await getDefaultCompany(tenant_id);
+  fastify.get('/nfe-config', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    // tenant_id ainda é aceito na query por retrocompatibilidade de contrato,
+    // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
+    const cfg = await getDefaultCompany(tenantId);
     if (!cfg) return reply.notFound('Configuração NF-e não encontrada');
 
     return {
@@ -28,12 +30,17 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/nfe-config ─────────────────────────────────────────────── */
-  fastify.put('/nfe-config', async (request, reply) => {
+  fastify.put('/nfe-config', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const body = request.body as any;
-    const { tenant_id, cnpj, razao_social, logradouro, numero, bairro, cep } = body;
+    // tenant_id ainda é aceito no body por retrocompatibilidade de contrato,
+    // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
+    // upsertDefaultCompany só lê os campos declarados em CompanyInput, então um
+    // eventual tenant_id no body é ignorado por construção (não precisa ser removido).
+    const { cnpj, razao_social, logradouro, numero, bairro, cep } = body;
 
-    if (!tenant_id || !cnpj || !razao_social || !logradouro || !numero || !bairro || !cep)
-      return reply.badRequest('Campos obrigatórios: tenant_id, cnpj, razao_social, logradouro, numero, bairro, cep');
+    if (!cnpj || !razao_social || !logradouro || !numero || !bairro || !cep)
+      return reply.badRequest('Campos obrigatórios: cnpj, razao_social, logradouro, numero, bairro, cep');
 
     // Tokens mascarados ('****...') nunca sobrescrevem o valor existente —
     // mesmo comportamento de antes, agora dentro de companyService.
@@ -41,7 +48,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
     if (typeof clean.focus_token_homologacao === 'string' && clean.focus_token_homologacao.startsWith('****')) delete clean.focus_token_homologacao;
     if (typeof clean.focus_token_producao === 'string' && clean.focus_token_producao.startsWith('****')) delete clean.focus_token_producao;
 
-    const cfg = await upsertDefaultCompany(tenant_id, clean);
+    const cfg = await upsertDefaultCompany(tenantId, clean);
 
     return {
       ...cfg,
@@ -51,9 +58,11 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/invoices/:id/emit ─────────────────────────────────────── */
-  fastify.post('/invoices/:id/emit', async (request, reply) => {
-    const { id }        = request.params as { id: string };
-    const { tenant_id } = request.query as { tenant_id: string };
+  fastify.post('/invoices/:id/emit', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:emit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id } = request.params as { id: string };
+    // tenant_id ainda é aceito na query por retrocompatibilidade de contrato,
+    // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
 
     const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
     if (!queueUrl) return reply.badRequest('Emissão de NF-e não configurada neste ambiente');
@@ -66,7 +75,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
                c.neighborhood, c.city, c.state AS client_state,
                c.phone, c.email AS client_email
         FROM invoices i JOIN clients c ON c.id = i.client_id
-        WHERE i.id = ${id} AND i.tenant_id = ${tenant_id}
+        WHERE i.id = ${id} AND i.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`SELECT * FROM invoice_items WHERE invoice_id = ${id} ORDER BY created_at`),
     ]);
@@ -78,7 +87,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
     // de antes para tenants que nunca usaram multi-empresa).
     let cfg;
     try {
-      cfg = await resolveCompanyId(tenant_id, invoice.company_id);
+      cfg = await resolveCompanyId(tenantId, invoice.company_id);
     } catch {
       return reply.badRequest('Configure os dados fiscais em Empresa → Fiscal antes de emitir');
     }
@@ -108,7 +117,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
       : (cfg.focus_token_homologacao ?? undefined);
 
     const message = {
-      invoice_id: invoice.id, tenant_id,
+      invoice_id: invoice.id, tenant_id: tenantId,
       focus_ref:  invoice.id,
       ambiente:   cfg.focus_ambiente as 1 | 2,
       focus_token: focusToken,
@@ -159,16 +168,16 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
     await db.update(invoices)
       .set({ nfe_status: 'pending', nfe_attempts: sql`nfe_attempts + 1` })
-      .where(eq(invoices.id, id));
+      .where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
 
     try {
       await getSqsClient().send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message) }));
     } catch (err) {
-      await db.update(invoices).set({ nfe_status: null }).where(eq(invoices.id, id));
+      await db.update(invoices).set({ nfe_status: null }).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
       throw err;
     }
 
-    await db.update(invoices).set({ nfe_status: 'processing' }).where(eq(invoices.id, id));
+    await db.update(invoices).set({ nfe_status: 'processing' }).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
 
     return reply.code(202).send({
       ok: true, nfe_status: 'processing',
@@ -177,7 +186,8 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/invoices/:id/nfe ───────────────────────────────────────── */
-  fastify.get('/invoices/:id/nfe', async (request, reply) => {
+  fastify.get('/invoices/:id/nfe', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [row] = await db.select({
       id: invoices.id, number: invoices.number, nfe_status: invoices.nfe_status,
@@ -185,18 +195,22 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
       nfe_auth_date: invoices.nfe_auth_date, nfe_reject_reason: invoices.nfe_reject_reason,
       nfe_attempts: invoices.nfe_attempts, nfe_danfe_url: invoices.nfe_danfe_url,
       nfe_xml_s3_key: invoices.nfe_xml_s3_key,
-    }).from(invoices).where(eq(invoices.id, id));
+    }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
     if (!row) return reply.notFound('Nota fiscal não encontrada');
     return row;
   });
 
   /* ── GET /v1/invoices/:id/nfe-events ────────────────────────────────── */
-  fastify.get('/invoices/:id/nfe-events', async (request, reply) => {
+  fastify.get('/invoices/:id/nfe-events', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
+    // nfe_events tem tenant_id próprio (não é apenas uma FK para invoices),
+    // então filtramos direto na tabela — mesmo efeito de validar que o invoice
+    // pertence ao tenant, sem precisar de JOIN.
     const rows = await db.select({
       event_type: nfeEvents.event_type, status_code: nfeEvents.status_code,
       protocol: nfeEvents.protocol, payload: nfeEvents.payload, created_at: nfeEvents.created_at,
-    }).from(nfeEvents).where(eq(nfeEvents.invoice_id, id))
+    }).from(nfeEvents).where(and(eq(nfeEvents.invoice_id, id), eq(nfeEvents.tenant_id, tenantId)))
       .orderBy(sql`${nfeEvents.created_at} DESC`);
     return rows;
   });

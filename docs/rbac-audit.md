@@ -37,12 +37,43 @@ Diversas rotas **sem autenticação** confiavam em `tenant_id` do cliente.
 - `routes/users.ts` era totalmente aberto — qualquer chamador criava/editava/
   excluía usuários (inclusive `owner`) sem login. **Corrigido** (authenticate +
   RBAC + tenant do JWT + escopo por tenant no PATCH/DELETE).
-- Rotas sem `authenticate` que confiam em `tenant_id` do cliente: `orders`,
-  `invoices`, `customers`, `nfe`, `nfse`, `clientContacts`, `serviceContracts`,
+- Rotas sem `authenticate` que confiavam em `tenant_id` do cliente: `orders`,
+  `invoices`, `nfe`, `nfse`, `clientContacts`, `serviceContracts`,
   `materialImages`, `notificationConfig`, e o CRUD de `materials`/`clients`.
-  **Follow-up** (PR de hardening) — hoje só têm gating no frontend.
+  **Corrigido (hotfix de segurança, 2026-07-08)** — ver seção 3.1. Estava ativo
+  em produção com clientes reais; a maioria não filtrava por tenant algum (não
+  era "precisa adivinhar `tenant_id`" — um UUID de recurso já bastava).
+- `routes/customers.ts` fazia CRUD direto na tabela `tenants` (lista/edita/
+  cancela qualquer empresa do SaaS), sem autenticação e sem nenhum caller
+  conhecido no repo. **Corrigido** — plugin desregistrado em `app.ts` em vez de
+  virar RBAC tenant-scoped (é cross-tenant por natureza; nenhum papel deveria
+  ter esse poder). Reversível — ver comentário em `app.ts`.
 - Bug latente: `routes/proposals.ts` lê `user.id`/`user.email` (undefined; o token
-  só tem `userId`). **Follow-up**.
+  só tem `userId`). **Follow-up** (não fazia parte do escopo do hotfix).
+
+### 3.1 Hotfix de segurança (2026-07-08) — detalhe
+
+Auditoria dedicada (11 sub-agentes, um por arquivo) confirmou severidade
+CRITICAL em 9 dos 11 arquivos e HIGH nos 2 restantes — a maioria das rotas não
+tinha filtro de tenant NENHUM nas queries (não apenas ausência de `authenticate`).
+Exemplos de exploração encontrados: `PUT /nfe-config` permitia injetar o token
+Focus NFe do atacante na config fiscal de outro tenant; `POST /nfse/:id/emit` e
+`POST /invoices/:id/issue` disparavam emissão fiscal real sem qualquer controle;
+`orders.ts`/`materials.ts` permitiam cancelar pedidos e mexer em estoque de
+qualquer tenant.
+
+Correção aplicada em todos os endpoints (exceto `customers.ts`, tratado à parte):
+`onRequest:[authenticate]` + `preHandler:[requirePermission(...)]` + `tenantId`
+sempre de `(request as any).user.tenantId` (nunca de body/query/params) +
+filtro de tenant adicionado em toda query que não tinha nenhum. Decisão de
+compatibilidade: `tenant_id` **não foi removido** dos JSON schemas de
+body/query (fica aceito-mas-ignorado) — o backend passou a ignorar o valor
+enviado pelo cliente e usar o do JWT, então nenhuma mudança de frontend foi
+necessária para o hotfix entrar em vigor. Nenhum endpoint foi removido
+(inclusive candidatos a código morto como `GET /materials/:id/stock`) —
+decisão foi proteger tudo, não remover, sob pressão de incidente; limpeza
+fica para depois. Nenhuma chave de permissão nova foi criada — o catálogo já
+cobria todos os casos.
 
 ## 4. Enforcement no backend
 
@@ -102,13 +133,29 @@ Diversas rotas **sem autenticação** confiavam em `tenant_id` do cliente.
 
 ## 8. Follow-up (não incluído neste entregável)
 
-1. **Hardening** das rotas sem `authenticate` (orders, invoices, nfe, nfse,
-   customers, clientContacts, serviceContracts, materialImages, notificationConfig,
-   CRUD de materials/clients) — adicionar `authenticate` + `requirePermission` +
-   tenant do JWT.
-2. Corrigir `user.id`/`user.email` em `routes/proposals.ts`.
-3. Gating fino de UX na aba "Módulos"/"Integrações" da página Empresa
+1. Corrigir `user.id`/`user.email` em `routes/proposals.ts`.
+2. Gating fino de UX na aba "Módulos"/"Integrações" da página Empresa
    (Switches → `tenant_modules:manage` / connect → `marketplace:manage`).
+3. `PATCH /orders/:id` não revalida que um `client_id` novo enviado no body
+   pertence ao tenant do chamador (a checagem de posse só foi adicionada em
+   `POST /orders`, criação — ver hotfix seção 3.1).
+4. Se surgir um uso legítimo de `routes/customers.ts` (ex.: backoffice interno
+   de sucesso do cliente), precisa de um conceito de permissão de plataforma
+   separado do RBAC por tenant — não é um caso de `authenticate`+`requirePermission`
+   comum, já que a rota opera cross-tenant por natureza.
+5. Ruído de teste pré-existente (não causado pelo hotfix): `syncRbacCatalog`/
+   `ContractBillingWorker` logam erro (`tx.execute is not a function`) quando
+   `buildApp()` roda contra o `db` mockado dos testes de rota — não falha
+   nenhum teste, só polui stderr. Considerar mockar `db.execute` no setup
+   global ou não iniciar os workers em modo de teste.
+6. `nfse.test.ts` — o teste "GET /v1/nfse requires tenant_id" ficou
+   deliberadamente sem JWT no hotfix (a rota agora deriva o tenant do JWT, não
+   da querystring, então autenticar quebraria a asserção original). O teste
+   hoje só verifica "requisição sem auth → ≥400" por acidente; revisar o que
+   ele deveria testar de fato ou removê-lo.
+7. Limpeza de possível código morto identificado na auditoria (protegido, não
+   removido, no hotfix): `GET /materials/:id`, `GET /materials/:id/stock`,
+   `GET /materials/:id/stock/movements` — nenhum caller encontrado no repo.
 
 ## 9. Antes de deploy
 
