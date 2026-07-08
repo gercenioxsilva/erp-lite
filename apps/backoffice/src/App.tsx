@@ -59,6 +59,7 @@ import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
+import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
@@ -142,6 +143,7 @@ export function App() {
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
+              <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />

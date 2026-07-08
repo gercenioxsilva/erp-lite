@@ -58,6 +58,8 @@ const ptBR = {
   'm.sku':         'SKU',
   'm.name':        'Nome',
   'm.desc':        'Descrição',
+  'm.notes':       'Observações',
+  'm.notesPH':     'Anotação interna — não aparece em propostas nem para o cliente',
   'm.type':        'Tipo',
   'm.cat':         'Categoria',
   'm.brand':       'Marca',
@@ -676,6 +678,13 @@ const ptBR = {
   'comp.nfse.aliquotaIss':        'Alíquota ISS Padrão (%)',
   'comp.nfse.codigoServico':      'Código de Serviço LC 116 (Padrão)',
   'comp.nfse.codigoServicoPH':    'Ex.: 14.01',
+
+  // ── Responsabilidade de emissão por empresa (regra 53) ─────────────────
+  'comp.emission.title':     'Responsabilidade de emissão',
+  'comp.emission.hint':      'Escolha quais tipos de documento fiscal esta empresa está autorizada a emitir. Em tenants com mais de um CNPJ, cada empresa pode ficar responsável por um tipo, pelos dois, ou nenhum.',
+  'comp.emission.emiteNfe':  'Emite NF-e de venda (mercadoria)',
+  'comp.emission.emiteNfse': 'Emite NFS-e (prestação de serviço)',
+  'comp.emission.warnNone':  'Nenhuma responsabilidade marcada — esta empresa não poderá ser usada para emitir NF-e nem NFS-e.',
 
   // ── Cobrança (Boleto) ─────────────────────────────────────────────────
   'bill.emitBoleto':     'Emitir Boleto',
@@ -1369,6 +1378,12 @@ const ptBR = {
   'so.cancelConfirm':  'Cancelar esta ordem de serviço?',
   'so.viewVisit':      'Ver visita',
   'so.empty':          'Nenhuma ordem de serviço cadastrada.',
+  'so.printView':      'Imprimir / Visualizar',
+  'so.print':          'Imprimir',
+  'so.printClientTitle': 'Dados do cliente (o que o técnico vê)',
+  'so.printNoClient':  'Nenhum dado de cliente disponível.',
+  'so.printNoVisits':  'Nenhuma visita registrada ainda.',
+  'so.printNotFound':  'Ordem de serviço não encontrada.',
   'so.errNoTitle':     'Título é obrigatório',
   'so.billingTitle':        'Faturamento',
   'so.billingDueDate':      'Vencimento',
@@ -1385,6 +1400,7 @@ const ptBR = {
   // ── Técnicos ──────────────────────────────────────────────────────────────
   'tech.title':        'Técnicos',
   'tech.new':          'Novo Técnico',
+  'tech.edit':         'Editar Técnico',
   'tech.name':         'Nome',
   'tech.email':        'E-mail',
   'tech.phone':        'Telefone',
@@ -1399,6 +1415,11 @@ const ptBR = {
   'tech.errEmail':     'E-mail já cadastrado',
   'tech.created':      'Técnico cadastrado! Um e-mail foi enviado para definir a senha de acesso.',
   'tech.empty':        'Nenhum técnico cadastrado.',
+  'tech.accessTitle':  'Acesso do técnico',
+  'tech.accessHint':   'A senha nunca é definida por aqui — o técnico sempre cria a própria senha pelo link de e-mail. Use o botão abaixo se ele digitou o e-mail errado no cadastro ou perdeu o link.',
+  'tech.resendInvite': 'Reenviar convite / redefinir senha',
+  'tech.resendInviteConfirm': 'Enviar um novo link de definição de senha para este técnico? O link anterior deixa de funcionar.',
+  'tech.resendInviteSent': 'Convite reenviado! O técnico vai receber um novo link por e-mail.',
 
   // ── Portal do técnico ─────────────────────────────────────────────────────
   'tp.loginTitle':     'Portal do Técnico',

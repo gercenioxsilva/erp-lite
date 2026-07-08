@@ -149,6 +149,10 @@ export const materials = pgTable('materials', {
   // Reforma Tributária (migration 0049) — cClassTrib não deriva de NCM/CFOP,
   // exige override manual por produto (mesmo padrão de cfop/cst_csosn acima).
   class_trib: varchar('class_trib', { length: 6 }),
+  // Observações internas (migration 0057) — distinto de `description`
+  // (descrição do produto, buscável/usada em propostas); nunca aparece fora
+  // do cadastro/importação de materiais.
+  notes:     text('notes'),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -384,6 +388,13 @@ export const nfeConfigs = pgTable('nfe_configs', {
   codigo_municipio_ibge: varchar('codigo_municipio_ibge', { length: 10 }).default('3550308'),
   aliquota_iss_padrao:   decimal('aliquota_iss_padrao', { precision: 5, scale: 2 }).default('5.00'),
   codigo_servico_padrao: varchar('codigo_servico_padrao', { length: 10 }),
+  // Responsabilidade de emissão por empresa (migration 0056, regra 53) —
+  // default true/true preserva o comportamento de hoje pra tenants com 1
+  // empresa só; nunca inferido, sempre decisão explícita do usuário na tela
+  // "Minha Empresa" (mesmo espírito de "nunca inferir automaticamente" da
+  // regra 44 pra class_trib).
+  emite_nfe:  boolean('emite_nfe').notNull().default(true),
+  emite_nfse: boolean('emite_nfse').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
