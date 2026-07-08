@@ -11,11 +11,12 @@ import {
 import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
 import { consultarNFeRecebida, fetchNFeRecebidaDocument } from '../services/fiscal/focusNfe';
+import { requirePermission } from '../lib/requirePermission';
 
 export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/supplier-invoices ────────────────────────────────────────────── */
-  fastify.get('/supplier-invoices', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/supplier-invoices', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, supplier_id, search, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
@@ -51,7 +52,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/supplier-invoices ───────────────────────────────────────────── */
-  fastify.post('/supplier-invoices', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/supplier-invoices', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const b = request.body as any;
@@ -105,7 +106,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/supplier-invoices/:id ───────────────────────────────────────── */
-  fastify.get('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -135,7 +136,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   // Só permitido enquanto a nota está em 'draft' (regra 49) — depois de
   // confirmada (mesmo em divergência), ela já gerou estoque/payable e vira
   // imutável, por construção.
-  fastify.patch('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/supplier-invoices/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const b = request.body as any;
@@ -186,7 +187,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   // Busca o PDF ou XML da nota de terceiro pela chave de acesso (mesma
   // dependência de MDe do lookup-by-key). Sempre 200 mesmo quando não
   // encontrado — resultado esperado, nunca erro de requisição.
-  fastify.get('/supplier-invoices/:id/document', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/supplier-invoices/:id/document', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const { format, company_id } = request.query as { format?: string; company_id?: string };
@@ -212,7 +213,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/supplier-invoices/:id/confirm ───────────────────────────────── */
-  fastify.post('/supplier-invoices/:id/confirm', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/supplier-invoices/:id/confirm', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
@@ -234,7 +235,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   // acesso, para pré-preencher o formulário. Rota é só leitura: nunca cria
   // fornecedor nem grava a NF-e de entrada — quem decide isso é o usuário,
   // via POST /v1/suppliers e POST /v1/supplier-invoices já existentes.
-  fastify.post('/supplier-invoices/lookup-by-key', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/supplier-invoices/lookup-by-key', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { chave_acesso, company_id } = request.body as { chave_acesso?: string; company_id?: string };
 
@@ -279,7 +280,7 @@ export const supplierInvoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/supplier-invoices/:id/cancel ────────────────────────────────── */
-  fastify.post('/supplier-invoices/:id/cancel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/supplier-invoices/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('supplier_invoices:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 

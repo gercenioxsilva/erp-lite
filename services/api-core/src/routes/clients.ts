@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq, ilike, or, and, sql } from 'drizzle-orm';
 import { db, clients } from '../db';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { requirePermission } from '../lib/requirePermission';
 
 const clientBody = {
   type: 'object',
@@ -214,7 +215,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/clients/:id/history — 360° view: orders, invoices, receivables
-  fastify.get<{ Params: { id: string } }>('/clients/:id/history', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/clients/:id/history', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
 

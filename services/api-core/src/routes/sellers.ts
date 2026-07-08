@@ -1,13 +1,14 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, sellers } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 const VALID_COMMISSION_BASE = ['subtotal', 'total'] as const;
 
 export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/sellers ────────────────────────────────────────────────────── */
-  fastify.get('/sellers', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/sellers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { search, is_active, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -44,7 +45,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/sellers/active ─────────────────────────────────────────────── */
-  fastify.get('/sellers/active', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/sellers/active', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const { rows } = await db.execute<any>(sql`
@@ -58,7 +59,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/sellers ───────────────────────────────────────────────────── */
-  fastify.post('/sellers', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/sellers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, any>;
 
@@ -89,7 +90,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/sellers/:id ────────────────────────────────────────────────── */
-  fastify.get('/sellers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/sellers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -101,7 +102,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/sellers/:id ──────────────────────────────────────────────── */
-  fastify.patch('/sellers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/sellers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const b        = request.body as Record<string, any>;
@@ -141,7 +142,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/sellers/:id (soft delete) ───────────────────────────────── */
-  fastify.delete('/sellers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/sellers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:delete')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -154,7 +155,7 @@ export const sellersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/sellers/:id/commissions — extrato de comissões ────────────── */
-  fastify.get('/sellers/:id/commissions', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/sellers/:id/commissions', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('sellers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const { status, from, to, page = '1', per_page = '20' } = request.query as Record<string, string>;

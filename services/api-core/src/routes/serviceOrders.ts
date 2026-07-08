@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 import {
   createServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
 } from '../services/serviceOrderService';
@@ -14,7 +15,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('service_orders')] };
 
   // ── GET /v1/service-orders ───────────────────────────────────────────────
-  fastify.get('/service-orders', auth, async (request) => {
+  fastify.get('/service-orders', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:view') ] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, search, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -46,7 +47,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/service-orders ──────────────────────────────────────────────
-  fastify.post('/service-orders', auth, async (request, reply) => {
+  fastify.post('/service-orders', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:create') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const b = request.body as any;
@@ -66,7 +67,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── GET /v1/service-orders/:id ───────────────────────────────────────────
-  fastify.get('/service-orders/:id', auth, async (request, reply) => {
+  fastify.get('/service-orders/:id', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:view') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -123,7 +124,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/service-orders/:id/visits ───────────────────────────────────
-  fastify.post('/service-orders/:id/visits', auth, async (request, reply) => {
+  fastify.post('/service-orders/:id/visits', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const { technician_id, scheduled_at } = request.body as { technician_id: string; scheduled_at: string };
@@ -145,7 +146,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /v1/service-orders/:id/visits/:visitId ───────────────────────────
   // Visão do backoffice (não do técnico) — fotos e assinatura via URL assinada
   // de leitura, gerada sob demanda, nunca um link fixo.
-  fastify.get('/service-orders/:id/visits/:visitId', auth, async (request, reply) => {
+  fastify.get('/service-orders/:id/visits/:visitId', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:view') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { visitId } = request.params as { visitId: string };
 
@@ -173,7 +174,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/service-orders/:id/cancel ───────────────────────────────────
-  fastify.post('/service-orders/:id/cancel', auth, async (request, reply) => {
+  fastify.post('/service-orders/:id/cancel', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:edit') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     try {
@@ -189,7 +190,7 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   // Faturamento manual de uma OS concluída (regra 47): gera o receivable e,
   // opcionalmente, a NFS-e — a cobrança em si (boleto/Pix) segue pelo fluxo
   // que já existe, POST /v1/receivables/:id/emit-boleto, sem mudança nenhuma.
-  fastify.post('/service-orders/:id/billing', auth, async (request, reply) => {
+  fastify.post('/service-orders/:id/billing', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:edit') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };

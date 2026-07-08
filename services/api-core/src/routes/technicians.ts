@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 import {
   createTechnician, listTechnicians, setTechnicianActive, TechnicianServiceError,
 } from '../services/technicianService';
@@ -8,7 +9,7 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('service_orders')] };
 
   // ── GET /v1/technicians ─────────────────────────────────────────────────
-  fastify.get('/technicians', auth, async (request) => {
+  fastify.get('/technicians', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('technicians:view') ] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { search, page = '1', per_page = '20' } = request.query as Record<string, string>;
     return listTechnicians({
@@ -19,7 +20,7 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/technicians ────────────────────────────────────────────────
-  fastify.post('/technicians', auth, async (request, reply) => {
+  fastify.post('/technicians', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('technicians:create') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { name, email, phone, cpf, specialty } = request.body as {
       name: string; email: string; phone?: string; cpf: string; specialty?: string;
@@ -43,7 +44,7 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── PATCH /v1/technicians/:id/active ────────────────────────────────────
-  fastify.patch('/technicians/:id/active', auth, async (request, reply) => {
+  fastify.patch('/technicians/:id/active', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('technicians:edit') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const { is_active } = request.body as { is_active: boolean };

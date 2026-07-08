@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db';
 import { getDefaultBankAccount, upsertDefaultBankAccount, BankAccountDomainError } from '../services/bankAccountService';
+import { requirePermission } from '../lib/requirePermission';
 
 const BANKING_FIELDS = [
   'bank_code', 'agency', 'account', 'account_digit',
@@ -30,7 +31,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   // bankAccountService, não mais das colunas de tenants — retrocompatível no
   // shape da resposta, mas agora o segredo do Itaú vem mascarado (correção de
   // uma inconsistência: nfe_configs já mascarava tokens, tenants nunca mascarou).
-  fastify.get('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/tenant', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
@@ -53,7 +54,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/tenant ───────────────────────────────────────────────────── */
-  fastify.patch('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/tenant', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const body     = request.body as any;
 
@@ -106,7 +107,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/tenant/logo ────────────────────────────────────────────────── */
-  fastify.put('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.put('/tenant/logo', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { logo_url } = request.body as any;
 
@@ -125,7 +126,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/tenant/logo ─────────────────────────────────────────────── */
-  fastify.delete('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/tenant/logo', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ logo_url: null }).where(eq(tenants.id, tenantId));
@@ -133,7 +134,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/tenant/proposal-banner ─────────────────────────────────────── */
-  fastify.put('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.put('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { banner_url } = request.body as any;
 
@@ -152,7 +153,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/tenant/proposal-banner ──────────────────────────────────── */
-  fastify.delete('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ proposal_banner_url: null }).where(eq(tenants.id, tenantId));

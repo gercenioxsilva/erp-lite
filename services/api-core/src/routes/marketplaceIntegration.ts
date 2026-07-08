@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 import {
   getAuthorizationUrl, handleOAuthCallback, getConnectionStatus, disconnectConnection, listConnections,
   MarketplaceDomainError,
@@ -14,14 +15,14 @@ export const marketplaceIntegrationRoutes: FastifyPluginAsync = async (fastify) 
   // Sem gate de módulo — listar conexões já existentes é leitura inofensiva,
   // usada por outras telas (ex.: vincular material) para montar o seletor de
   // "qual loja ML" sem precisar de N chamadas por empresa.
-  fastify.get('/integrations/mercadolivre/connections', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/integrations/mercadolivre/connections', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('marketplace:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const rows = await listConnections(tenantId);
     return { data: rows.map(r => ({ ...r, access_token: mask(r.access_token), refresh_token: mask(r.refresh_token) })) };
   });
 
   /* ── GET /v1/integrations/mercadolivre/connect ──────────────────────── */
-  fastify.get('/integrations/mercadolivre/connect', auth, async (request, reply) => {
+  fastify.get('/integrations/mercadolivre/connect', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { company_id } = request.query as { company_id?: string };
     if (!company_id) return reply.badRequest('company_id é obrigatório');
@@ -39,7 +40,7 @@ export const marketplaceIntegrationRoutes: FastifyPluginAsync = async (fastify) 
   });
 
   /* ── GET /v1/integrations/mercadolivre/status ───────────────────────── */
-  fastify.get('/integrations/mercadolivre/status', auth, async (request, reply) => {
+  fastify.get('/integrations/mercadolivre/status', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:view') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { company_id } = request.query as { company_id?: string };
     if (!company_id) return reply.badRequest('company_id é obrigatório');
@@ -62,7 +63,7 @@ export const marketplaceIntegrationRoutes: FastifyPluginAsync = async (fastify) 
   });
 
   /* ── DELETE /v1/integrations/mercadolivre ───────────────────────────── */
-  fastify.delete('/integrations/mercadolivre', auth, async (request, reply) => {
+  fastify.delete('/integrations/mercadolivre', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { company_id } = request.query as { company_id?: string };
     if (!company_id) return reply.badRequest('company_id é obrigatório');

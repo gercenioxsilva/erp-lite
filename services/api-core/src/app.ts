@@ -41,8 +41,10 @@ import { tenantModulesRoutes }     from './routes/tenantModules';
 import { techniciansRoutes }       from './routes/technicians';
 import { serviceOrdersRoutes }     from './routes/serviceOrders';
 import { technicianPortalRoutes }  from './routes/technicianPortal';
+import { rbacRoutes }            from './routes/rbac';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
+import { syncRbacCatalog } from './rbac/syncRbacCatalog';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
@@ -118,11 +120,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(techniciansRoutes,        { prefix: '/v1' });
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
   await app.register(technicianPortalRoutes,   { prefix: '/v1' });
+  await app.register(rbacRoutes,               { prefix: '/v1' });
 
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
 
   app.addHook('onReady', async () => {
+    // Semeia o catálogo RBAC + papéis de sistema (idempotente). Não derruba o
+    // boot em caso de falha — owner segue com acesso pleno por código.
+    syncRbacCatalog().catch((err) =>
+      app.log.error({ event: 'rbac_sync_failed', error: String(err) }, 'rbac_sync_failed'));
     startNfeResultsWorker();
     startBoletoResultsWorker();
     startContractBillingWorker();

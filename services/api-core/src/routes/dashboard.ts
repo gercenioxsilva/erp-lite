@@ -1,11 +1,12 @@
 import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /v1/dashboard/cashflow — Projected cash flow (next 12 weeks, grouped by week)
-  fastify.get('/dashboard/cashflow', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/dashboard/cashflow', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('dashboard:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const result = await db.execute<any>(sql`
@@ -60,7 +61,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get('/dashboard', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/dashboard', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('dashboard:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const [recvResult, payResult, invoiceResult, ordersResult, revenueResult] = await Promise.all([

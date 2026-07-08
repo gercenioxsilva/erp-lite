@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, payables, payablePayments, suppliers } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 const VALID_CATEGORIES = ['rent', 'utilities', 'payroll', 'supplies', 'services', 'taxes', 'other'] as const;
 const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -8,7 +9,7 @@ const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_
 export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/payables ───────────────────────────────────────────────────── */
-  fastify.get('/payables', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/payables', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, category, due_date_from, due_date_to, search,
             page = '1', per_page = '20' } = request.query as Record<string, string>;
@@ -49,7 +50,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables ──────────────────────────────────────────────────── */
-  fastify.post('/payables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/payables', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { supplier_name, supplier_id, category = 'other', description, document_number,
@@ -103,7 +104,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/payables/:id ───────────────────────────────────────────────── */
-  fastify.get('/payables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/payables/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -129,7 +130,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/payables/:id ─────────────────────────────────────────────── */
-  fastify.patch('/payables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/payables/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const body     = request.body as any;
@@ -164,7 +165,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables/:id/cancel ──────────────────────────────────────── */
-  fastify.post('/payables/:id/cancel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/payables/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -182,7 +183,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/payables/:id/payments ────────────────────────────────────── */
-  fastify.post('/payables/:id/payments', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/payables/:id/payments', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
@@ -224,7 +225,7 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/payables/:id/payments/:paymentId ───────────────────────── */
-  fastify.delete('/payables/:id/payments/:paymentId', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/payables/:id/payments/:paymentId', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('payables:edit')] }, async (request, reply) => {
     const tenantId          = (request as any).user.tenantId;
     const { id, paymentId } = request.params as { id: string; paymentId: string };
 

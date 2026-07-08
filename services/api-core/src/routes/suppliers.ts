@@ -2,13 +2,14 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, suppliers, payables } from '../db';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { requirePermission } from '../lib/requirePermission';
 
 const VALID_CATEGORIES = ['services', 'supplies', 'utilities', 'rent', 'payroll', 'taxes', 'other'] as const;
 
 export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/suppliers ──────────────────────────────────────────────────── */
-  fastify.get('/suppliers', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/suppliers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { search, is_active, category, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -57,7 +58,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/suppliers ─────────────────────────────────────────────────── */
-  fastify.post('/suppliers', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/suppliers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, any>;
 
@@ -104,7 +105,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/suppliers/:id ──────────────────────────────────────────────── */
-  fastify.get('/suppliers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/suppliers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -122,7 +123,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/suppliers/:id ────────────────────────────────────────────── */
-  fastify.patch('/suppliers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/suppliers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const b        = request.body as Record<string, any>;
@@ -159,7 +160,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/suppliers/:id (soft delete) ─────────────────────────────── */
-  fastify.delete('/suppliers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/suppliers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:delete')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -175,7 +176,7 @@ export const suppliersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/suppliers/:id/payables ─────────────────────────────────────── */
-  fastify.get('/suppliers/:id/payables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/suppliers/:id/payables', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('suppliers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const { page = '1', per_page = '10' } = request.query as Record<string, string>;

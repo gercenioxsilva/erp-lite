@@ -5,13 +5,14 @@ import { db, receivables, boletos, boletoEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { BillingEmitMessage } from '../lib/billing-types';
 import { resolveBankAccount, BankAccountDomainError } from '../services/bankAccountService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const billingRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── POST /v1/receivables/:id/emit-boleto ───────────────────────────────── */
   fastify.post(
     '/receivables/:id/emit-boleto',
-    { onRequest: [(fastify as any).authenticate] },
+    { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] },
     async (request, reply) => {
       const tenantId = (request as any).user.tenantId;
       const { id } = request.params as { id: string };
@@ -109,7 +110,7 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── GET /v1/receivables/:id/boleto ─────────────────────────────────────── */
   fastify.get(
     '/receivables/:id/boleto',
-    { onRequest: [(fastify as any).authenticate] },
+    { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:view')] },
     async (request, reply) => {
       const tenantId = (request as any).user.tenantId;
       const { id } = request.params as { id: string };
@@ -152,7 +153,7 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── PUT /v1/receivables/:id/boleto/expire ──────────────────────────────── */
   fastify.put(
     '/receivables/:id/boleto/expire',
-    { onRequest: [(fastify as any).authenticate] },
+    { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] },
     async (request, reply) => {
       const tenantId = (request as any).user.tenantId;
       const { id } = request.params as { id: string };
@@ -187,7 +188,7 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── GET /v1/receivables/:id/boleto-events ──────────────────────────────── */
   fastify.get(
     '/receivables/:id/boleto-events',
-    { onRequest: [(fastify as any).authenticate] },
+    { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:view')] },
     async (request, reply) => {
       const tenantId = (request as any).user.tenantId;
       const { id } = request.params as { id: string };

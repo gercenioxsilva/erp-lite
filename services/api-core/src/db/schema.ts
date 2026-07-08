@@ -1250,6 +1250,37 @@ export const tenantModules = pgTable('tenant_modules', {
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── RBAC: catálogo de permissões + papéis (system + custom por tenant) ──────
+// permissions é global (semeado do catálogo em código). roles.tenant_id NULL =
+// papel de sistema (owner/admin/...); não-NULL = papel custom do tenant.
+// Índices únicos parciais (system: key; custom: tenant_id+key) ficam na migração
+// 0055 — Drizzle 0.36 não expressa UNIQUE parcial, e as migrações são a
+// autoridade do DDL aqui.
+export const permissions = pgTable('permissions', {
+  key:         varchar('key',    { length: 60 }).primaryKey(),
+  module:      varchar('module', { length: 40 }).notNull(),
+  action:      varchar('action', { length: 30 }).notNull(),
+  description: varchar('description', { length: 200 }),
+});
+
+export const roles = pgTable('roles', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+  key:         varchar('key',  { length: 40 }).notNull(),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 200 }),
+  is_system:   boolean('is_system').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const rolePermissions = pgTable('role_permissions', {
+  role_id:        uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
+  permission_key: varchar('permission_key', { length: 60 }).notNull().references(() => permissions.key, { onDelete: 'cascade' }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.role_id, t.permission_key] }),
+}));
+
 // Perfil do técnico — 1:1 obrigatório com users (login é o próprio requisito
 // de segurança, diferente de sellers onde user_id é opcional).
 export const technicians = pgTable('technicians', {

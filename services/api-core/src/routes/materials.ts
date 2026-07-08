@@ -3,6 +3,7 @@ import { eq, ilike, or, and, sql, asc, desc } from 'drizzle-orm';
 import { db, materials, inventory, inventoryMovements, materialComponents, materialPriceHistory } from '../db';
 import { diffMaterialPrice, type MaterialPriceInput } from '../domain/materials/materialPriceHistoryDomain';
 import { recordPriceChangeIfNeeded } from '../services/materials/materialPriceHistoryService';
+import { requirePermission } from '../lib/requirePermission';
 
 const materialBody = {
   type: 'object',
@@ -557,7 +558,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   });
 
   // GET /v1/stock — visão consolidada de estoque de todos os materiais (usa JWT)
-  app.get('/stock', { onRequest: [(app as any).authenticate] }, async (request, reply) => {
+  app.get('/stock', { onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { search, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -594,7 +595,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
   });
 
   // GET /v1/stock/movements — histórico global de movimentos (usa JWT)
-  app.get('/stock/movements', { onRequest: [(app as any).authenticate] }, async (request, reply) => {
+  app.get('/stock/movements', { onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { material_id, movement_type, date_from, date_to,
             page = '1', per_page = '20' } = request.query as Record<string, string>;

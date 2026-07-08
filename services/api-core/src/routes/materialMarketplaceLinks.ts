@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 import {
   listLinks, createLink, updateLink, closeLink, requestSync,
   MarketplaceDomainError,
@@ -9,7 +10,7 @@ export const materialMarketplaceLinksRoutes: FastifyPluginAsync = async (fastify
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('mercadolivre')] };
 
   /* ── GET /v1/materials/:id/marketplace-links ────────────────────────── */
-  fastify.get('/materials/:id/marketplace-links', auth, async (request) => {
+  fastify.get('/materials/:id/marketplace-links', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:view') ] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const rows = await listLinks(tenantId, { materialId: id });
@@ -17,7 +18,7 @@ export const materialMarketplaceLinksRoutes: FastifyPluginAsync = async (fastify
   });
 
   /* ── POST /v1/materials/:id/marketplace-links ───────────────────────── */
-  fastify.post('/materials/:id/marketplace-links', auth, async (request, reply) => {
+  fastify.post('/materials/:id/marketplace-links', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const body = request.body as any;
@@ -37,7 +38,7 @@ export const materialMarketplaceLinksRoutes: FastifyPluginAsync = async (fastify
   });
 
   /* ── PATCH /v1/materials/:id/marketplace-links/:linkId ──────────────── */
-  fastify.patch('/materials/:id/marketplace-links/:linkId', auth, async (request, reply) => {
+  fastify.patch('/materials/:id/marketplace-links/:linkId', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { linkId } = request.params as { linkId: string };
 
@@ -54,7 +55,7 @@ export const materialMarketplaceLinksRoutes: FastifyPluginAsync = async (fastify
   });
 
   /* ── DELETE /v1/materials/:id/marketplace-links/:linkId ─────────────── */
-  fastify.delete('/materials/:id/marketplace-links/:linkId', auth, async (request, reply) => {
+  fastify.delete('/materials/:id/marketplace-links/:linkId', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { linkId } = request.params as { linkId: string };
 
@@ -71,7 +72,7 @@ export const materialMarketplaceLinksRoutes: FastifyPluginAsync = async (fastify
   });
 
   /* ── POST /v1/materials/:id/marketplace-links/:linkId/sync ──────────── */
-  fastify.post('/materials/:id/marketplace-links/:linkId/sync', auth, async (request, reply) => {
+  fastify.post('/materials/:id/marketplace-links/:linkId/sync', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('marketplace:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { linkId } = request.params as { linkId: string };
 
