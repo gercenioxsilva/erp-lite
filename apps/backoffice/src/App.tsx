@@ -59,6 +59,7 @@ import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
+import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
@@ -122,6 +123,7 @@ function GuardedRoutes() {
         <Route path="/pos/terminals"   element={<PosTerminalsPage />} />
         <Route path="/pos/sessions"    element={<PosSessionsPage />} />
         <Route path="/service-orders"  element={<ServiceOrdersPage />} />
+        <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
         <Route path="/technicians"     element={<TechniciansPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>

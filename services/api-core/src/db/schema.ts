@@ -929,6 +929,60 @@ export const proposalItems = pgTable('proposal_items', {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Funil de Vendas / CRM (migration 0058) — módulo opcional, desligado por
+// padrão. Etapas configuráveis por tenant; status (aberto/ganho/perdido) é um
+// eixo separado da etapa — Ganho/Perdido nunca são linhas de
+// sales_pipeline_stages, são colunas fixas no Kanban do frontend.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const salesPipelineStages = pgTable('sales_pipeline_stages', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:       varchar('name', { length: 80 }).notNull(),
+  sort_order: integer('sort_order').notNull().default(0),
+  is_active:  boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const salesOpportunities = pgTable('sales_opportunities', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  stage_id:            uuid('stage_id').notNull().references(() => salesPipelineStages.id, { onDelete: 'restrict' }),
+  client_id:           uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  seller_id:           uuid('seller_id').references(() => sellers.id, { onDelete: 'set null' }),
+  proposal_id:         uuid('proposal_id').references(() => proposals.id, { onDelete: 'set null' }),
+  title:               varchar('title', { length: 255 }).notNull(),
+  contact_name:        varchar('contact_name',  { length: 255 }),
+  contact_email:       varchar('contact_email', { length: 255 }),
+  contact_phone:       varchar('contact_phone', { length: 30 }),
+  value:               decimal('value', { precision: 15, scale: 2 }).notNull().default('0'),
+  source:              varchar('source', { length: 60 }),
+  status:              varchar('status', { length: 20 }).notNull().default('open'),
+  lost_reason:         text('lost_reason'),
+  expected_close_date: date('expected_close_date'),
+  notes:               text('notes'),
+  won_at:              timestamp('won_at',  { withTimezone: true }),
+  lost_at:             timestamp('lost_at', { withTimezone: true }),
+  created_by:          uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Timeline append-only — nunca UPDATE/DELETE, mesmo padrão de nfe_events.
+// stage_change/won/lost são logados automaticamente pelo service, nunca
+// manualmente pela rota.
+export const salesOpportunityActivities = pgTable('sales_opportunity_activities', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  opportunity_id: uuid('opportunity_id').notNull().references(() => salesOpportunities.id, { onDelete: 'cascade' }),
+  type:           varchar('type', { length: 20 }).notNull(),
+  description:    text('description'),
+  created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Centro de Custo  (migrations 0027 + 0028)
 // ──────────────────────────────────────────────────────────────────────────────
 

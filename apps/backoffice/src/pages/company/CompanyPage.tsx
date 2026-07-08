@@ -1399,6 +1399,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   multi_empresa:  { titleKey: 'comp.modules.multiEmpresa',  descKey: 'comp.modules.multiEmpresaDesc' },
   pos:            { titleKey: 'comp.modules.pos',           descKey: 'comp.modules.posDesc' },
   mercadolivre:   { titleKey: 'comp.modules.mercadolivre',   descKey: 'comp.modules.mercadolivreDesc' },
+  sales_pipeline: { titleKey: 'comp.modules.salesPipeline',  descKey: 'comp.modules.salesPipelineDesc' },
 };
 
 // Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o
