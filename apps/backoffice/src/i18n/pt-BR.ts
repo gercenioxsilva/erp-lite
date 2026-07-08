@@ -955,6 +955,11 @@ const ptBR = {
   'po.discount':             'Desconto',
   'po.shipping':             'Frete',
   'po.subtotal':             'Subtotal',
+  'po.edit':                 'Editar Pedido de Compra',
+  'po.saveChanges':          'Salvar alterações',
+  'po.createdBy':            'Criado por',
+  'po.approvedBy':           'Aprovado por',
+  'po.approvedAt':           'Aprovado em',
 
   // ── NF-e de Entrada (P1) ────────────────────────────────────────────────
   'nav.supplierInvoices':    'NF-e de Entrada',

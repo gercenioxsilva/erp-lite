@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import {
   createPurchaseOrder,
+  updatePurchaseOrder,
   transitionPurchaseOrder,
   PurchaseOrderDomainError,
 } from '../services/purchaseOrderService';
@@ -70,9 +71,12 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [{ rows: [po] }, { rows: items }] = await Promise.all([
       db.execute<any>(sql`
-        SELECT po.*, s.company_name AS supplier_company_name
+        SELECT po.*, s.company_name AS supplier_company_name,
+               creator.name AS created_by_name, approver.name AS approved_by_name
         FROM purchase_orders po
         LEFT JOIN suppliers s ON s.id = po.supplier_id
+        LEFT JOIN users creator  ON creator.id  = po.created_by
+        LEFT JOIN users approver ON approver.id = po.approved_by
         WHERE po.id = ${id} AND po.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`
@@ -89,28 +93,45 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/purchase-orders/:id ───────────────────────────────────────── */
+  // Reaproveita o mesmo padrão de updateSupplierInvoice(): substitui
+  // header + itens por completo (delete + reinsert), só permitido em
+  // 'draft'. Antes desta versão, o PATCH montava UPDATE via sql.raw() com
+  // interpolação direta de string — vulnerável a SQL injection em
+  // qualquer campo de texto (ex.: notes/supplier_name); corrigido usando
+  // o Drizzle parametrizado (mesmo caminho de createPurchaseOrder).
   fastify.patch('/purchase-orders/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const b        = request.body as any;
 
-    const { rows: [po] } = await db.execute<{ status: string }>(
-      sql`SELECT status FROM purchase_orders WHERE id = ${id} AND tenant_id = ${tenantId}`,
-    );
-    if (!po) return reply.notFound('Pedido de compra não encontrado');
-    if (po.status !== 'draft') return reply.badRequest('Apenas pedidos em rascunho podem ser editados');
+    if (!b.items?.length) return reply.badRequest('Ao menos um item é obrigatório');
 
-    const patch: Record<string, unknown> = {};
-    for (const f of ['supplier_id', 'supplier_name', 'expected_date', 'notes', 'cost_center_id']) {
-      if (b[f] !== undefined) patch[f] = b[f] || null;
+    try {
+      const po = await updatePurchaseOrder(id, tenantId, {
+        supplierId:    b.supplier_id,
+        supplierName:  b.supplier_name,
+        expectedDate:  b.expected_date,
+        discount:      b.discount,
+        shipping:      b.shipping,
+        notes:         b.notes,
+        costCenterId:  b.cost_center_id,
+        items: (b.items as any[]).map(it => ({
+          materialId: it.material_id,
+          name:       it.name,
+          sku:        it.sku,
+          unit:       it.unit,
+          quantity:   it.quantity,
+          unit_price: it.unit_price,
+          notes:      it.notes,
+        })),
+      }, db);
+      return po;
+    } catch (err) {
+      if (err instanceof PurchaseOrderDomainError) {
+        return reply.code(err.code === 'po_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
     }
-    if (Object.keys(patch).length) {
-      await db.execute(sql`UPDATE purchase_orders SET ${sql.raw(
-        Object.entries(patch).map(([k]) => `${k} = '${String(patch[k])}'`).join(', '),
-      )}, updated_at = now() WHERE id = ${id} AND tenant_id = ${tenantId}`);
-    }
-
-    return { ok: true };
   });
 
   /* ── POST /v1/purchase-orders/:id/approve ─────────────────────────────────── */
