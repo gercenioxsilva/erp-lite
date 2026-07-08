@@ -1429,6 +1429,11 @@ const en: Record<TKey, string> = {
   'tp.order':          'Service order',
   'tp.scheduledFor':   'Scheduled for',
   'tp.client':         'Client',
+  'tp.clientAddress':  'Address',
+  'tp.clientPhone':    'Phone',
+  'tp.clientMobile':   'Mobile',
+  'tp.clientEmail':    'Email',
+  'tp.openInMaps':     'Open in maps',
 
   // ── Service Order / Field Visit flow diagram (My Company → Modules) ───────
   'comp.modules.howItWorks': 'How it works',

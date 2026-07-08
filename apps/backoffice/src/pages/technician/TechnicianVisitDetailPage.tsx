@@ -11,8 +11,21 @@ interface VisitDetail {
   signature_s3_key: string | null; signed_by_name: string | null;
 }
 interface OrderInfo { id: string; number: string; title: string; description: string | null; type: string; }
-interface ClientInfo { id: string; company_name: string | null; full_name: string | null; street: string | null; city: string | null; state: string | null; }
+interface ClientInfo {
+  id: string; company_name: string | null; full_name: string | null;
+  phone: string | null; mobile: string | null; email: string | null;
+  street: string | null; street_number: string | null; complement: string | null;
+  neighborhood: string | null; city: string | null; state: string | null; zip_code: string | null;
+}
 interface VisitResponse { visit: VisitDetail; order: OrderInfo | null; client: ClientInfo | null; }
+
+// Monta o endereço completo pra exibição e pra query do link de mapa —
+// omite partes ausentes em vez de deixar buracos tipo "Rua X,  - Bairro".
+function formatAddress(c: ClientInfo): string {
+  const line1 = [c.street, c.street_number].filter(Boolean).join(', ');
+  const parts = [line1, c.complement, c.neighborhood, c.city && c.state ? `${c.city}/${c.state}` : c.city, c.zip_code].filter(Boolean);
+  return parts.join(' — ');
+}
 
 export function TechnicianVisitDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -148,7 +161,8 @@ export function TechnicianVisitDetailPage() {
   );
 
   const { visit, order, client } = data;
-  const clientName = client ? (client.company_name ?? client.full_name) : null;
+  const clientName    = client ? (client.company_name ?? client.full_name) : null;
+  const clientAddress = client ? formatAddress(client) : '';
 
   return (
     <TechnicianLayout>
@@ -161,8 +175,30 @@ export function TechnicianVisitDetailPage() {
         <h1 style={{ fontSize: 19, margin: '0 0 8px' }}>{order?.title ?? '—'}</h1>
         {order?.description && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 10px' }}>{order.description}</p>}
         {clientName && (
-          <div style={{ fontSize: 13, marginBottom: 4 }}><strong>{t('tp.client')}:</strong> {clientName}
-            {client?.city && ` — ${client.city}/${client.state}`}
+          <div style={{ fontSize: 13, marginBottom: 4 }}><strong>{t('tp.client')}:</strong> {clientName}</div>
+        )}
+        {clientAddress && (
+          <div style={{ fontSize: 13, marginBottom: 4, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span><strong>{t('tp.clientAddress')}:</strong> {clientAddress}</span>
+            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clientAddress)}`}
+              target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+              {t('tp.openInMaps')} ↗
+            </a>
+          </div>
+        )}
+        {client?.phone && (
+          <div style={{ fontSize: 13, marginBottom: 4 }}>
+            <strong>{t('tp.clientPhone')}:</strong> <a href={`tel:${client.phone}`}>{client.phone}</a>
+          </div>
+        )}
+        {client?.mobile && (
+          <div style={{ fontSize: 13, marginBottom: 4 }}>
+            <strong>{t('tp.clientMobile')}:</strong> <a href={`tel:${client.mobile}`}>{client.mobile}</a>
+          </div>
+        )}
+        {client?.email && (
+          <div style={{ fontSize: 13, marginBottom: 4 }}>
+            <strong>{t('tp.clientEmail')}:</strong> <a href={`mailto:${client.email}`}>{client.email}</a>
           </div>
         )}
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>
