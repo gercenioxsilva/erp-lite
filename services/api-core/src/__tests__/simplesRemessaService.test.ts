@@ -4,6 +4,7 @@ import {
   SimplesRemessaDomainError,
 } from '../services/simplesRemessaService';
 import type { DrizzleDB } from '../services/simplesRemessaService';
+import { clearTaxRulesCache } from '../lib/taxRulesResolver';
 
 // simplesRemessaService.ts é o coração da regra 51: cria a remessa (CFOP
 // resolvido a partir do motivo + UF do cliente vs empresa), emite via Focus
@@ -39,6 +40,7 @@ function makeMockDb(opts: {
   stockRow?: Record<string, unknown>;
   remessaItemsForStock?: Record<string, unknown>[];
   inventoryRow?: Record<string, unknown>;
+  ibsCbsRow?: Record<string, unknown>;
 }) {
   const insertedRemessas: Record<string, unknown>[] = [];
   const insertedItems: Record<string, unknown>[] = [];
@@ -73,6 +75,9 @@ function makeMockDb(opts: {
       }
       if (/SELECT state FROM clients/i.test(text)) {
         return { rows: opts.clientRows ?? [] };
+      }
+      if (/tax_ibs_cbs_rates/i.test(text)) {
+        return { rows: opts.ibsCbsRow ? [opts.ibsCbsRow] : [] };
       }
       if (/FROM inventory WHERE tenant_id/i.test(text)) {
         return { rows: opts.inventoryRow ? [opts.inventoryRow] : [] };
@@ -162,7 +167,11 @@ describe('createSimplesRemessa', () => {
 
 describe('emitSimplesRemessa', () => {
   const originalQueueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
-  beforeEach(() => { getSqsClientMock.mockReset(); process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue'; });
+  beforeEach(() => {
+    getSqsClientMock.mockReset();
+    clearTaxRulesCache();
+    process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue';
+  });
   afterEach(() => {
     if (originalQueueUrl === undefined) delete process.env.NFE_REQUESTS_QUEUE_URL;
     else process.env.NFE_REQUESTS_QUEUE_URL = originalQueueUrl;
@@ -196,7 +205,7 @@ describe('emitSimplesRemessa', () => {
     await expect(emitSimplesRemessa(SR_ID, TENANT_ID, db)).rejects.toMatchObject({ code: 'remessa_item_sem_ncm' });
   });
 
-  it('emite com sucesso: usa CSOSN 400 para Simples Nacional e zera IBS/CBS', async () => {
+  it('emite com sucesso: usa CSOSN 400 para Simples Nacional, alíquota real do IBS/CBS e base zerada', async () => {
     const sendMock = vi.fn().mockResolvedValue({});
     getSqsClientMock.mockReturnValue({ send: sendMock });
 
@@ -204,6 +213,7 @@ describe('emitSimplesRemessa', () => {
       srRow: srRow(),
       itemsRows: [{ material_id: null, name: 'Item 1', ncm_code: '12345678', cfop: '5915', quantity: '1', unit_price: '100', total: '100' }],
       companyRows: [baseCompanyRow({ regime_tributario: 1 })],
+      ibsCbsRow: { ibs_rate: '0.10', cbs_rate: '0.90' },
     });
 
     const result = await emitSimplesRemessa(SR_ID, TENANT_ID, db);
@@ -215,8 +225,29 @@ describe('emitSimplesRemessa', () => {
     expect(sentMessage.remessa_id).toBe(SR_ID);
     expect(sentMessage.itens[0].icms_csosn).toBe('400');
     expect(sentMessage.itens[0].icms_cst).toBeUndefined();
-    expect(sentMessage.itens[0].ibs_aliquota).toBe(0);
-    expect(sentMessage.itens[0].cbs_aliquota).toBe(0);
+    // Alíquota SEMPRE a real da UF (nunca zero — SEFAZ rejeita); a operação
+    // não onerosa fica fora do fato gerador via base de cálculo zerada.
+    expect(sentMessage.itens[0].ibs_aliquota).toBe(0.1);
+    expect(sentMessage.itens[0].cbs_aliquota).toBe(0.9);
+    expect(sentMessage.itens[0].ibs_base_calculo).toBe(0);
+  });
+
+  it('usa as alíquotas de teste 2026 como default quando a UF não tem linha em tax_ibs_cbs_rates', async () => {
+    const sendMock = vi.fn().mockResolvedValue({});
+    getSqsClientMock.mockReturnValue({ send: sendMock });
+
+    const { db } = makeMockDb({
+      srRow: srRow(),
+      itemsRows: [{ material_id: null, name: 'Item 1', ncm_code: '12345678', cfop: '5915', quantity: '1', unit_price: '100', total: '100' }],
+      companyRows: [baseCompanyRow({ regime_tributario: 1 })],
+      ibsCbsRow: undefined,
+    });
+
+    await emitSimplesRemessa(SR_ID, TENANT_ID, db);
+
+    const sentMessage = JSON.parse(sendMock.mock.calls[0][0].input.MessageBody);
+    expect(sentMessage.itens[0].ibs_aliquota).toBe(0.1);
+    expect(sentMessage.itens[0].cbs_aliquota).toBe(0.9);
   });
 
   it('bloqueia emissão em produção sem token configurado', async () => {

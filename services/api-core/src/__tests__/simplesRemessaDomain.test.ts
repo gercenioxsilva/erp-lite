@@ -98,10 +98,9 @@ describe('resolveTaxSituation', () => {
     expect(resolveTaxSituation(2).icms_cst).toBe('41');
     expect(resolveTaxSituation(3).icms_cst).toBe('41');
   });
-  it('IBS/CBS ficam zerados — operação não onerosa fora do fato gerador da reforma', () => {
+  it('base de cálculo do IBS/CBS fica zerada — operação não onerosa fora do fato gerador da reforma', () => {
     const s = resolveTaxSituation(1);
-    expect(s.ibs_rate).toBe(0);
-    expect(s.cbs_rate).toBe(0);
+    expect(s.ibs_cbs_base_calculo).toBe(0);
   });
 });
 
