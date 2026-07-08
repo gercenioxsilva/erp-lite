@@ -1,5 +1,9 @@
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
+// Emitido quando um request autenticado recebe 401 (sessão expirada/revogada).
+// O AuthProvider ouve e zera o estado → redireciona para /login.
+export const AUTH_SIGNOUT_EVENT = 'auth:signout';
+
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
     super(message);
@@ -34,6 +38,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
+    // 401 com token presente = sessão expirada/revogada → auto-logout.
+    // (Login inválido também retorna 401, mas ali não há token, então cai fora.)
+    if (res.status === 401 && token) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event(AUTH_SIGNOUT_EVENT));
+    }
     throw new ApiError(err.message || `HTTP ${res.status}`, res.status);
   }
 

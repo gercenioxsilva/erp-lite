@@ -1423,6 +1423,31 @@ const ptBR = {
   'pdv.flow.step5Desc':  'Ao finalizar, a venda baixa o estoque e emite o cupom fiscal eletrônico (NFC-e).',
   'pdv.flow.step6Title': 'Feche o caixa',
   'pdv.flow.step6Desc':  'Em PDV → Sessões, confira os valores e feche o caixa. O resumo fica no Histórico.',
+
+  // ── RBAC / Perfis de acesso ────────────────────────────────────────────
+  'nav.roles':            'Perfis de Acesso',
+  'rbac.403.title':       'Acesso não permitido',
+  'rbac.403.message':     'Você não possui permissão para acessar esta página. Se acha que isso é um engano, fale com um administrador da sua empresa.',
+  'rbac.403.back':        'Voltar ao início',
+  'roles.title':          'Perfis de Acesso',
+  'roles.subtitle':       'Defina o que cada perfil pode ver e fazer.',
+  'roles.new':            'Novo perfil',
+  'roles.system':         'Sistema',
+  'roles.custom':         'Personalizado',
+  'roles.name':           'Nome',
+  'roles.key':            'Chave',
+  'roles.description':    'Descrição',
+  'roles.permissions':    'Permissões',
+  'roles.savePerms':      'Salvar permissões',
+  'roles.create':         'Criar perfil',
+  'roles.delete':         'Excluir',
+  'roles.deleteConfirm':  'Excluir este perfil? Reatribua os usuários com este perfil antes de excluir.',
+  'roles.systemReadonly': 'Perfil de sistema — somente leitura.',
+  'roles.selectHint':     'Selecione um perfil à esquerda para ver e editar as permissões.',
+  'roles.empty':          'Nenhum perfil personalizado ainda.',
+  'roles.saved':          'Permissões atualizadas.',
+  'roles.created':        'Perfil criado.',
+  'roles.usersCount':     'usuário(s)',
 } as const;
 
 export type TKey = keyof typeof ptBR;

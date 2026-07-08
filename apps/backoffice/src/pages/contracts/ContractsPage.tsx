@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 import { ProductPicker } from '../../ds/components/ProductPicker';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -321,9 +322,11 @@ export function ContractsPage() {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('sc.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('sc.new')}
-        </button>
+        <Can permission="contracts:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('sc.new')}
+          </button>
+        </Can>
       </div>
 
       {/* ── Filters ─────────────────────────────────────────────────── */}
@@ -377,7 +380,9 @@ export function ContractsPage() {
                     <span className={`badge ${statusBadgeClass(c.status)}`}>{statusLabel(c.status)}</span>
                   </td>
                   <td>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>{t('c.edit')}</button>
+                    <Can permission="contracts:edit">
+                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>{t('c.edit')}</button>
+                    </Can>
                   </td>
                 </tr>
               ))}
@@ -621,11 +626,13 @@ export function ContractsPage() {
 
               <div className="drawer-footer">
                 {editing && editing.status === 'active' && (
-                  <button type="button" className="btn btn-danger"
-                    style={{ marginRight: 'auto' }}
-                    onClick={() => void handleCancel(editing.id)}>
-                    Cancelar contrato
-                  </button>
+                  <Can permission="contracts:edit">
+                    <button type="button" className="btn btn-danger"
+                      style={{ marginRight: 'auto' }}
+                      onClick={() => void handleCancel(editing.id)}>
+                      Cancelar contrato
+                    </button>
+                  </Can>
                 )}
                 <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
                   {t('c.cancel')}

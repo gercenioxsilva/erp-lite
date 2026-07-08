@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Granularity, PeriodShortcut, UseReportPeriod } from './hooks';
+import { Can } from '../../../rbac';
 
 // Scaffolding compartilhado das páginas de relatório: cabeçalho, barra de filtros
 // de período, cartões, KPIs e estados. Tudo com as classes do DS (index.css) e
@@ -151,9 +152,12 @@ export function StateBlock({ loading, error, empty, emptyLabel = 'Nenhum dado en
 }
 
 export function ExportButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  // Exportar exige reports:export — some para quem só tem reports:view.
   return (
-    <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={onClick} disabled={disabled}>
-      ↓ Exportar XLSX
-    </button>
+    <Can permission="reports:export">
+      <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={onClick} disabled={disabled}>
+        ↓ Exportar XLSX
+      </button>
+    </Can>
   );
 }

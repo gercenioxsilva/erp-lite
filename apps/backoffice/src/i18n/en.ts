@@ -1425,6 +1425,31 @@ const en: Record<TKey, string> = {
   'pdv.flow.step5Desc':  'On finalize, the sale deducts stock and issues the electronic receipt (NFC-e).',
   'pdv.flow.step6Title': 'Close the cash session',
   'pdv.flow.step6Desc':  'In POS → Sessions, review the amounts and close the register. The summary lands in History.',
+
+  // ── RBAC / Access profiles ────────────────────────────────────────────
+  'nav.roles':            'Access Profiles',
+  'rbac.403.title':       'Access denied',
+  'rbac.403.message':     'You do not have permission to access this page. If you think this is a mistake, contact an administrator at your company.',
+  'rbac.403.back':        'Back to home',
+  'roles.title':          'Access Profiles',
+  'roles.subtitle':       'Define what each profile can see and do.',
+  'roles.new':            'New profile',
+  'roles.system':         'System',
+  'roles.custom':         'Custom',
+  'roles.name':           'Name',
+  'roles.key':            'Key',
+  'roles.description':    'Description',
+  'roles.permissions':    'Permissions',
+  'roles.savePerms':      'Save permissions',
+  'roles.create':         'Create profile',
+  'roles.delete':         'Delete',
+  'roles.deleteConfirm':  'Delete this profile? Reassign users with this profile before deleting.',
+  'roles.systemReadonly': 'System profile — read-only.',
+  'roles.selectHint':     'Select a profile on the left to view and edit its permissions.',
+  'roles.empty':          'No custom profiles yet.',
+  'roles.saved':          'Permissions updated.',
+  'roles.created':        'Profile created.',
+  'roles.usersCount':     'user(s)',
 };
 
 export default en;

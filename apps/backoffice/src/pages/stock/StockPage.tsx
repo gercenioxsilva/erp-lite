@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can } from '../../rbac';
 
 interface StockItem {
   id: string; sku: string; name: string; type: string; category: string | null;
@@ -156,8 +157,10 @@ const [mvType, setMvType]   = useState('');
                           : <span className="badge badge-active">{t('stk.ok')}</span>}
                       </td>
                       <td>
-                        <button className="btn btn-secondary btn-sm"
-                          onClick={() => openAdjust(item)}>{t('stk.adjust')}</button>
+                        <Can permission="stock:adjust">
+                          <button className="btn btn-secondary btn-sm"
+                            onClick={() => openAdjust(item)}>{t('stk.adjust')}</button>
+                        </Can>
                       </td>
                     </tr>
                   ))}

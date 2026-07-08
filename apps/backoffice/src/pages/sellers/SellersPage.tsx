@@ -4,6 +4,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -151,9 +152,11 @@ export function SellersPage() {
       {/* ── Page header ──────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('sel.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('sel.new')}
-        </button>
+        <Can permission="sellers:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('sel.new')}
+          </button>
+        </Can>
       </div>
 
       {/* ── Search ───────────────────────────────────────────────────── */}
@@ -173,9 +176,11 @@ export function SellersPage() {
         ) : items.length === 0 ? (
           <div className="empty-state">
             {t('c.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>
-              {t('sel.new')}
-            </button>
+            <Can permission="sellers:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>
+                {t('sel.new')}
+              </button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -205,12 +210,16 @@ export function SellersPage() {
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)}>
-                        {t('c.edit')}
-                      </button>
-                      <button className="btn btn-danger btn-sm" onClick={() => void handleDelete(s.id)}>
-                        {t('c.del')}
-                      </button>
+                      <Can permission="sellers:edit">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)}>
+                          {t('c.edit')}
+                        </button>
+                      </Can>
+                      <Can permission="sellers:delete">
+                        <button className="btn btn-danger btn-sm" onClick={() => void handleDelete(s.id)}>
+                          {t('c.del')}
+                        </button>
+                      </Can>
                     </div>
                   </td>
                 </tr>

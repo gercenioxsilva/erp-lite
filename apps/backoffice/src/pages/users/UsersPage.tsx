@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can } from '../../rbac';
 
 interface User {
   id:         string;
@@ -31,8 +32,25 @@ export function UsersPage() {
   const [form,       setForm]       = useState({ ...EMPTY_FORM });
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
+  // Papéis atribuíveis: carregados da API (inclui perfis custom); com fallback
+  // para os papéis de sistema caso o usuário não tenha roles:view.
+  const [roleOptions, setRoleOptions] = useState<{ key: string; name: string }[]>([
+    { key: 'owner',   name: t('u.role.owner')   },
+    { key: 'admin',   name: t('u.role.admin')   },
+    { key: 'manager', name: t('u.role.manager') },
+    { key: 'user',    name: t('u.role.user')    },
+  ]);
 
   const perPage = 20;
+
+  useEffect(() => {
+    api.get<{ data: { key: string; name: string }[] }>('/v1/rbac/roles')
+      .then(r => {
+        const opts = r.data.filter(x => x.key !== 'technician').map(x => ({ key: x.key, name: x.name }));
+        if (opts.length) setRoleOptions(opts);
+      })
+      .catch(() => { /* mantém os defaults do sistema */ });
+  }, []);
 
   async function load() {
     if (!tenantId) return;
@@ -105,18 +123,17 @@ export function UsersPage() {
 
   const totalPages = Math.ceil(total / perPage);
 
-  const roleLabel = (role: string) => ({
-    owner: t('u.role.owner'), admin: t('u.role.admin'),
-    manager: t('u.role.manager'), user: t('u.role.user'),
-  }[role] ?? role);
+  const roleLabel = (role: string) => roleOptions.find(r => r.key === role)?.name ?? role;
 
   return (
     <div>
       <div className="page-header">
         <h1>{t('u.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('u.new')}
-        </button>
+        <Can permission="users:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('u.new')}
+          </button>
+        </Can>
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -134,7 +151,9 @@ export function UsersPage() {
         ) : items.length === 0 ? (
           <div className="empty-state">
             {t('u.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('u.new')}</button>
+            <Can permission="users:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('u.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -164,13 +183,17 @@ export function UsersPage() {
                   </td>
                   <td>
                     <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>
-                        {t('c.edit')}
-                      </button>
-                      {u.status === 'active' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDisable(u)}>
-                          {t('c.del')}
+                      <Can permission="users:edit">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>
+                          {t('c.edit')}
                         </button>
+                      </Can>
+                      {u.status === 'active' && (
+                        <Can permission="users:delete">
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDisable(u)}>
+                            {t('c.del')}
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>
@@ -228,10 +251,7 @@ export function UsersPage() {
                   <div className="field">
                     <label>{t('u.role')}</label>
                     <select value={form.role} onChange={setF('role')}>
-                      <option value="owner">{t('u.role.owner')}</option>
-                      <option value="admin">{t('u.role.admin')}</option>
-                      <option value="manager">{t('u.role.manager')}</option>
-                      <option value="user">{t('u.role.user')}</option>
+                      {roleOptions.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
                     </select>
                   </div>
                   {editing && (

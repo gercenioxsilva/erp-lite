@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can }     from '../../rbac';
 import { EditDrawer, EntryDrawer, AdjustDrawer } from './CostCenterDrawers';
 import type { MaterialOption } from './CostCenterDrawers';
 import { ProductPicker } from '../../ds/components/ProductPicker';
@@ -389,9 +390,11 @@ export function CostCenterDetailPage() {
             {cc.is_active ? t('c.active') : t('c.inactive')}
           </span>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={openEdit}>
-          {t('c.edit')}
-        </button>
+        <Can permission="cost_centers:edit">
+          <button className="btn btn-secondary btn-sm" onClick={openEdit}>
+            {t('c.edit')}
+          </button>
+        </Can>
       </div>
 
       {/* ── Description ──────────────────────────────────────────────── */}
@@ -465,12 +468,16 @@ export function CostCenterDetailPage() {
 
           {/* Action buttons */}
           <div className="flex-gap mt-16">
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openEntry}>
-              + {t('cc.entry')}
-            </button>
-            <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={openAdjust}>
-              {t('cc.adjustment')}
-            </button>
+            <Can permission="cost_centers:edit">
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openEntry}>
+                + {t('cc.entry')}
+              </button>
+            </Can>
+            <Can permission="cost_centers:edit">
+              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={openAdjust}>
+                {t('cc.adjustment')}
+              </button>
+            </Can>
           </div>
         </div>
       )}

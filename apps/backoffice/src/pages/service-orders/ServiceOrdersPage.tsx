@@ -5,6 +5,7 @@ import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
+import { Can } from '../../rbac';
 
 interface ServiceOrder {
   id: string; number: string; title: string; type: string; status: string;
@@ -245,9 +246,11 @@ export function ServiceOrdersPage() {
     <div>
       <div className="page-header">
         <h1>{t('so.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('so.new')}
-        </button>
+        <Can permission="service_orders:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('so.new')}
+          </button>
+        </Can>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -382,10 +385,12 @@ export function ServiceOrdersPage() {
                         <input type="datetime-local" value={visitAt} onChange={e => setVisitAt(e.target.value)} />
                       </div>
                     </div>
-                    <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                      disabled={schedulingVisit} onClick={scheduleVisit}>
-                      {schedulingVisit ? t('c.saving') : t('so.scheduleVisit')}
-                    </button>
+                    <Can permission="service_orders:assign">
+                      <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                        disabled={schedulingVisit} onClick={scheduleVisit}>
+                        {schedulingVisit ? t('c.saving') : t('so.scheduleVisit')}
+                      </button>
+                    </Can>
                   </div>
                 )}
 
@@ -406,10 +411,12 @@ export function ServiceOrdersPage() {
                             </label>
                           </div>
                         </div>
-                        <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                          disabled={billingLoading} onClick={() => void handleBillServiceOrder()}>
-                          {billingLoading ? t('c.saving') : t('so.billingEmit')}
-                        </button>
+                        <Can permission="service_orders:edit">
+                          <button type="button" className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                            disabled={billingLoading} onClick={() => void handleBillServiceOrder()}>
+                            {billingLoading ? t('c.saving') : t('so.billingEmit')}
+                          </button>
+                        </Can>
                       </>
                     ) : (
                       <div style={{ fontSize: 13 }}>
@@ -424,10 +431,12 @@ export function ServiceOrdersPage() {
                           <div style={{ marginTop: 4 }}>NFS-e: {editing.nfse_status ?? t('so.billingNfsePending')}</div>
                         )}
                         {!editing.boleto_status ? (
-                          <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', marginTop: 10 }}
-                            disabled={billingLoading} onClick={() => void handleEmitBoleto()}>
-                            {billingLoading ? t('c.saving') : t('so.billingEmitBoleto')}
-                          </button>
+                          <Can permission="service_orders:edit">
+                            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', marginTop: 10 }}
+                              disabled={billingLoading} onClick={() => void handleEmitBoleto()}>
+                              {billingLoading ? t('c.saving') : t('so.billingEmitBoleto')}
+                            </button>
+                          </Can>
                         ) : (
                           <div style={{ marginTop: 10 }}>
                             <div>{t('so.billingBoletoStatus')}: {editing.boleto_status}</div>
@@ -451,7 +460,9 @@ export function ServiceOrdersPage() {
                 <div className="drawer-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.close')}</button>
                   {editing.status !== 'cancelled' && editing.status !== 'completed' && (
-                    <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
+                    <Can permission="service_orders:edit">
+                      <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
+                    </Can>
                   )}
                 </div>
               </div>
