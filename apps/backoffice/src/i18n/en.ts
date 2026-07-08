@@ -1037,6 +1037,7 @@ const en: Record<TKey, string> = {
   'sr.emit':        'Issue',
   'sr.emitConfirm': 'Issue this Simple Consignment? It will be sent to SEFAZ via Focus NF-e.',
   'sr.retry':       'Retry',
+  'sr.client':       'Client / Recipient',
   'sr.selectClient': 'Select client/recipient',
   'sr.notes':   'Notes',
   'sr.errNoClient': 'Select the client/recipient.',
