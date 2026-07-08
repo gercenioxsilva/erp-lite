@@ -164,6 +164,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const NAV: NavEntry[] = [
     { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard },
     { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
+      ...(enabledModules.includes('sales_pipeline') ? [{ to: '/sales-pipeline', label: t('nav.salesPipeline') }] : []),
       { to: '/proposals', label: t('nav.proposals') },
       { to: '/orders',    label: t('nav.orders')    },
       { to: '/invoices',  label: t('nav.invoices')  },
