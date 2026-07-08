@@ -27,7 +27,7 @@ interface SRDetail extends SR {
   items: SRItemDetail[]; retornos: SRRetorno[];
 }
 interface ClientOption { id: string; company_name: string | null; full_name: string | null; }
-interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
+interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; ncm_code: string | null; description?: string | null; type?: string | null; }
 interface CompanyOption { id: string; razao_social: string; is_default: boolean; }
 interface ListResp { data: SR[]; total: number; page: number; per_page: number; }
 
@@ -136,7 +136,11 @@ export function SimplesRemessaPage() {
       if (i !== idx) return it;
       if (field === 'material_id') {
         const mat = materials.find(m => m.id === val);
-        return { ...it, material_id: val, name: mat?.name ?? it.name };
+        return {
+          ...it, material_id: val, name: mat?.name ?? it.name,
+          ncm_code: mat?.ncm_code ?? it.ncm_code,
+          unit_price: mat?.sale_price != null ? String(mat.sale_price) : it.unit_price,
+        };
       }
       return { ...it, [field]: val };
     }));
@@ -242,7 +246,7 @@ export function SimplesRemessaPage() {
             <thead>
               <tr>
                 <th>{t('sr.motivo')}</th>
-                <th>{t('po.supplier')}</th>
+                <th>{t('sr.client')}</th>
                 <th style={{ width: 80 }}>{t('sr.cfop')}</th>
                 <th className="text-right" style={{ width: 120 }}>{t('si.total')}</th>
                 <th style={{ width: 110 }}>{t('si.status')}</th>
@@ -321,7 +325,7 @@ export function SimplesRemessaPage() {
                       )}
 
                       <div className="field-row">
-                        <div className="field"><label>{t('po.supplier')}</label><div>{viewingDetail.client_name ?? '—'}</div></div>
+                        <div className="field"><label>{t('sr.client')}</label><div>{viewingDetail.client_name ?? '—'}</div></div>
                         <div className="field"><label>{t('sr.cfop')}</label><div style={{ fontFamily: 'monospace' }}>{viewingDetail.cfop} — {viewingDetail.natureza_operacao}</div></div>
                       </div>
                       <div className="field-row">
@@ -425,7 +429,7 @@ export function SimplesRemessaPage() {
 
                   <div className="field-row">
                     <div className="field">
-                      <label>{t('po.supplier')} *</label>
+                      <label>{t('sr.client')} *</label>
                       <select value={formClient} onChange={e => setFormClient(e.target.value)} required>
                         <option value="">{t('sr.selectClient')}</option>
                         {clients.map(c => <option key={c.id} value={c.id}>{c.company_name ?? c.full_name}</option>)}

@@ -1035,6 +1035,7 @@ const ptBR = {
   'sr.emit':        'Emitir',
   'sr.emitConfirm': 'Emitir esta Simples Remessa? Ela será enviada à SEFAZ via Focus NF-e.',
   'sr.retry':       'Tentar novamente',
+  'sr.client':       'Cliente / Destinatário',
   'sr.selectClient': 'Selecionar cliente/destinatário',
   'sr.notes':   'Observações',
   'sr.errNoClient': 'Selecione o cliente/destinatário.',
