@@ -85,6 +85,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
       cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
       focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
       uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
     }];
 
     const res = await app.inject({
@@ -104,6 +105,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
       cnpj: 'B2C3D4E5F6G185', razao_social: 'Filial RJ Ltda',
       focus_ambiente: 2, focus_token_homologacao: 'hml-token-filial', focus_token_producao: null,
       uf: 'RJ', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
     }];
 
     const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
@@ -132,6 +134,27 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     expect(res.json().message).toMatch(/Configure os dados fiscais/);
   });
 
+  it('[regra 53] company_id aponta pra uma empresa que existe mas não emite NF-e (só NFS-e) → bloqueia com mensagem específica', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: COMPANY_OTHER }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_OTHER, is_default: false, is_active: true,
+      cnpj: 'B2C3D4E5F6G185', razao_social: 'Filial de Serviços Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token-filial', focus_token_producao: null,
+      uf: 'RJ', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: false, emite_nfse: true, // só presta serviço — não pode emitir NF-e de venda
+    }];
+
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/não está configurada para emitir NF-e/);
+  });
+
   it('[Reforma Tributária] inclui class_trib e IBS/CBS por item na mensagem SQS, com default quando ausente (regra 44)', async () => {
     mockExecuteByQuery(
       baseInvoiceRow({ company_id: null }),
@@ -146,6 +169,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
       cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
       focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
       uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
     }];
 
     const sqsMock = (await import('../lib/sqsClient')).getSqsClient();

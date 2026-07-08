@@ -68,9 +68,16 @@ export async function billServiceOrder(
 
   if (args.emitNfse) {
     try {
-      cfg = await resolveCompanyId(args.tenantId, args.companyId ?? null, db);
+      cfg = await resolveCompanyId(args.tenantId, args.companyId ?? null, db, 'nfse');
     } catch (err) {
       if (err instanceof CompanyDomainError) {
+        // 'company_selection_required' é um caso distinto dos demais: existe
+        // mais de uma empresa capaz de emitir NFS-e, então a ação correta do
+        // frontend é mostrar o seletor de empresa (regra 53), não mandar o
+        // usuário pra tela de configuração fiscal.
+        if (err.code === 'company_selection_required') {
+          throw new ServiceOrderBillingDomainError('service_order_billing_company_selection_required');
+        }
         throw new ServiceOrderBillingDomainError('service_order_billing_no_company');
       }
       throw err;

@@ -4,7 +4,7 @@ import { eq, and, ilike, or, sql } from 'drizzle-orm';
 import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
-import { resolveCompanyId } from '../services/companyService';
+import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 
 const FREQUENCIES = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
 const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
@@ -224,10 +224,15 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
       if (!queueUrl) return reply.badRequest('Emissão de NFS-e não configurada neste ambiente');
 
-      // Resolve qual empresa/CNPJ fatura este contrato (regra 40) —
-      // contract.company_id quando definido, senão a empresa padrão do tenant.
-      cfg = await resolveCompanyId(contract.tenant_id, contract.company_id).catch(() => null);
-      if (!cfg) return reply.badRequest('Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir');
+      // Resolve qual empresa/CNPJ fatura este contrato (regra 40/53) —
+      // contract.company_id quando definido, senão a empresa padrão do
+      // tenant, restrito a empresas com emite_nfse=true.
+      try {
+        cfg = await resolveCompanyId(contract.tenant_id, contract.company_id, db, 'nfse');
+      } catch (err) {
+        const msg = err instanceof CompanyDomainError ? companyResolutionErrorMessage(err, 'NFS-e') : 'Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir';
+        return reply.badRequest(msg);
+      }
       if (!cfg.inscricao_municipal)
         return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e (Empresa → NFS-e)');
 

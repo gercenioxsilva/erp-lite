@@ -24,6 +24,7 @@ function baseSoRow(overrides: Record<string, unknown> = {}) {
 function baseCompanyRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'company-1', tenant_id: TENANT_ID, is_default: true, is_active: true,
+    emite_nfe: true, emite_nfse: true,
     inscricao_municipal: '12345', codigo_servico_padrao: '101', aliquota_iss_padrao: '5.00',
     ...overrides,
   };
@@ -146,6 +147,27 @@ describe('billServiceOrder', () => {
     });
     await expect(billServiceOrder({ tenantId: TENANT_ID, serviceOrderId: SO_ID, emitNfse: true }, db))
       .rejects.toMatchObject({ code: 'service_order_billing_missing_service_code' });
+  });
+
+  it('[regra 53] bloqueia quando a empresa vinculada não emite NFS-e (só NF-e de venda)', async () => {
+    const { db } = makeMockDb({
+      soRow: baseSoRow(), receivableCount: 0,
+      companyRows: [baseCompanyRow({ emite_nfe: true, emite_nfse: false })],
+    });
+    await expect(billServiceOrder({ tenantId: TENANT_ID, serviceOrderId: SO_ID, emitNfse: true }, db))
+      .rejects.toMatchObject({ code: 'service_order_billing_no_company' });
+  });
+
+  it('[regra 53] duas empresas emitem NFS-e e nenhuma é a padrão — pede seleção explícita em vez de adivinhar', async () => {
+    const { db } = makeMockDb({
+      soRow: baseSoRow(), receivableCount: 0,
+      companyRows: [
+        baseCompanyRow({ id: 'company-a', is_default: false, emite_nfe: true, emite_nfse: true }),
+        baseCompanyRow({ id: 'company-b', is_default: false, emite_nfe: false, emite_nfse: true }),
+      ],
+    });
+    await expect(billServiceOrder({ tenantId: TENANT_ID, serviceOrderId: SO_ID, emitNfse: true }, db))
+      .rejects.toMatchObject({ code: 'service_order_billing_company_selection_required' });
   });
 
   it('gera receivable + NFS-e e enfileira emissão quando emitNfse=true e a fila está configurada', async () => {

@@ -117,6 +117,98 @@ export async function listTechnicians(args: ListTechniciansArgs, db: DrizzleDB =
   return { data: rows, total: cnt.count, page: args.page ?? 1, per_page: limit };
 }
 
+export interface UpdateTechnicianArgs {
+  name?:      string;
+  email?:     string;
+  phone?:     string | null;
+  cpf?:       string;
+  specialty?: string | null;
+}
+
+/**
+ * Edita os dados cadastrais do técnico — nunca a senha (essa segue exclusivamente
+ * pelo fluxo de convite/reset, ver resendTechnicianInvite() abaixo). name/email
+ * também são espelhados em users, já que technicians.user_id é o login real.
+ */
+export async function updateTechnician(
+  id: string, tenantId: string, args: UpdateTechnicianArgs, db: DrizzleDB = _db,
+) {
+  const [technician] = await db.select().from(technicians)
+    .where(and(eq(technicians.id, id), eq(technicians.tenant_id, tenantId)));
+  if (!technician) throw new TechnicianServiceError('technician_not_found');
+
+  const patch: Record<string, unknown> = {};
+  if (args.name !== undefined) {
+    if (!args.name.trim()) throw new TechnicianServiceError('name_required');
+    patch.name = args.name.trim();
+  }
+  if (args.cpf !== undefined) {
+    const cpf = digitsOnly(args.cpf);
+    if (!isValidCPF(cpf)) throw new TechnicianServiceError('invalid_cpf');
+    patch.cpf = cpf;
+  }
+  if (args.phone     !== undefined) patch.phone     = args.phone     || null;
+  if (args.specialty !== undefined) patch.specialty = args.specialty || null;
+
+  const email = args.email !== undefined ? args.email.toLowerCase().trim() : undefined;
+  if (email !== undefined) patch.email = email;
+
+  if (!Object.keys(patch).length) return technician;
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.update(technicians).set({ ...patch, updated_at: new Date() }).where(eq(technicians.id, id));
+      // users.email/name são o login real — mantidos em sincronia com o
+      // cadastro do técnico, nunca divergentes.
+      const userPatch: Record<string, unknown> = {};
+      if (email !== undefined)      userPatch.email = email;
+      if (patch.name !== undefined) userPatch.name  = patch.name;
+      if (Object.keys(userPatch).length) {
+        await tx.update(users).set(userPatch).where(eq(users.id, technician.user_id));
+      }
+    });
+  } catch (err: any) {
+    if (err.code === '23505') throw new TechnicianServiceError('email_already_registered');
+    throw err;
+  }
+
+  const [updated] = await db.select().from(technicians).where(eq(technicians.id, id));
+  return updated;
+}
+
+/**
+ * Reenvia o convite de definição de senha — mesmo mecanismo de
+ * password_reset_token usado na criação, só que sob demanda (ex.: tenant
+ * digitou o e-mail errado na hora do cadastro e o técnico nunca recebeu o
+ * link, ou o link expirou). Nunca expõe/define uma senha diretamente — o
+ * técnico sempre define a própria senha pelo link.
+ */
+export async function resendTechnicianInvite(id: string, tenantId: string, db: DrizzleDB = _db) {
+  const [technician] = await db.select().from(technicians)
+    .where(and(eq(technicians.id, id), eq(technicians.tenant_id, tenantId)));
+  if (!technician) throw new TechnicianServiceError('technician_not_found');
+
+  const inviteToken   = crypto.randomUUID().replace(/-/g, '');
+  const inviteExpires = new Date(Date.now() + INVITE_EXPIRES_HOURS * 60 * 60 * 1000);
+
+  await db.update(users).set({
+    password_reset_token:   inviteToken,
+    password_reset_expires: inviteExpires,
+  }).where(eq(users.id, technician.user_id));
+
+  const appUrl = process.env.APP_URL || 'https://orquestraerp.com.br';
+  sendSystemNotification({
+    tenant_id: tenantId,
+    type:      'technician_welcome', // mesmo template do convite inicial
+    recipient: { email: technician.email, name: technician.name },
+    data: {
+      name:               technician.name,
+      set_password_link:  `${appUrl}/reset-password?token=${inviteToken}`,
+      expires_hours:       String(INVITE_EXPIRES_HOURS),
+    },
+  }).catch(() => { /* falha de e-mail nunca derruba a operação */ });
+}
+
 export async function setTechnicianActive(id: string, tenantId: string, isActive: boolean, db: DrizzleDB = _db) {
   const [technician] = await db.select().from(technicians)
     .where(and(eq(technicians.id, id), eq(technicians.tenant_id, tenantId)));

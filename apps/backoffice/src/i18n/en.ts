@@ -60,6 +60,8 @@ const en: Record<TKey, string> = {
   'm.sku':         'SKU',
   'm.name':        'Name',
   'm.desc':        'Description',
+  'm.notes':       'Notes',
+  'm.notesPH':     'Internal note — never shown on proposals or to the client',
   'm.type':        'Type',
   'm.cat':         'Category',
   'm.brand':       'Brand',
@@ -620,6 +622,13 @@ const en: Record<TKey, string> = {
   'comp.nfse.aliquotaIss':        'Default ISS Rate (%)',
   'comp.nfse.codigoServico':      'Service Code LC 116 (Default)',
   'comp.nfse.codigoServicoPH':    'e.g. 14.01',
+
+  // ── Emission responsibility per company (regra 53) ─────────────────────
+  'comp.emission.title':     'Emission responsibility',
+  'comp.emission.hint':      'Choose which fiscal document types this company is authorized to issue. In tenants with more than one CNPJ, each company can be responsible for one type, both, or neither.',
+  'comp.emission.emiteNfe':  'Issues NF-e (goods sale)',
+  'comp.emission.emiteNfse': 'Issues NFS-e (service)',
+  'comp.emission.warnNone':  'No responsibility selected — this company cannot be used to issue NF-e or NFS-e.',
 
   // ── Billing (Boleto) ──────────────────────────────────────────────────
   'bill.emitBoleto':     'Emit Boleto',
@@ -1371,6 +1380,12 @@ const en: Record<TKey, string> = {
   'so.cancelConfirm':  'Cancel this service order?',
   'so.viewVisit':      'View visit',
   'so.empty':          'No service orders registered.',
+  'so.printView':      'Print / View',
+  'so.print':          'Print',
+  'so.printClientTitle': 'Client data (what the technician sees)',
+  'so.printNoClient':  'No client data available.',
+  'so.printNoVisits':  'No visits recorded yet.',
+  'so.printNotFound':  'Service order not found.',
   'so.errNoTitle':     'Title is required',
   'so.billingTitle':        'Billing',
   'so.billingDueDate':      'Due date',
@@ -1387,6 +1402,7 @@ const en: Record<TKey, string> = {
   // ── Technicians ───────────────────────────────────────────────────────────
   'tech.title':        'Technicians',
   'tech.new':          'New Technician',
+  'tech.edit':         'Edit Technician',
   'tech.name':         'Name',
   'tech.email':        'Email',
   'tech.phone':        'Phone',
@@ -1401,6 +1417,11 @@ const en: Record<TKey, string> = {
   'tech.errEmail':     'Email already registered',
   'tech.created':      'Technician created! An email was sent to set their access password.',
   'tech.empty':        'No technicians registered.',
+  'tech.accessTitle':  'Technician access',
+  'tech.accessHint':   'The password is never set here — the technician always creates their own password via the email link. Use the button below if they typed the wrong email during signup or lost the link.',
+  'tech.resendInvite': 'Resend invite / reset password',
+  'tech.resendInviteConfirm': 'Send a new password-setup link to this technician? The previous link stops working.',
+  'tech.resendInviteSent': 'Invite resent! The technician will receive a new link by email.',
 
   // ── Technician portal ─────────────────────────────────────────────────────
   'tp.loginTitle':     'Technician Portal',

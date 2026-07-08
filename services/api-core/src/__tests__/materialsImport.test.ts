@@ -128,6 +128,26 @@ describe('POST /v1/materials/import', () => {
     expect(body.rows[0].action).toBe('created');
   });
 
+  it('SKU novo grava notes a partir da coluna "observacoes" da planilha', async () => {
+    mockDb.select.mockReturnValue(selectOnce([])); // não existe
+    // dois inserts acontecem nessa transação (materials + inventory) — captura
+    // todas as chamadas e filtra pela que tem "sku" (a de materials).
+    const insertCalls: any[] = [];
+    mockDb.insert.mockReturnValue({
+      values: (v: unknown) => { insertCalls.push(v); return valuesChain([{ id: 'mat-new' }]); },
+    });
+
+    const res = await app.inject({
+      method: 'POST', url: '/v1/materials/import',
+      payload: { tenant_id: TENANT_ID, materials: [baseRow({ sku: 'PROD-OBS', observacoes: 'Uso interno — lote 220' })] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().created).toBe(1);
+    const materialInsert = insertCalls.find(v => 'sku' in v);
+    expect(materialInsert.notes).toBe('Uso interno — lote 220');
+  });
+
   it('dry_run=true nunca escreve no banco, mesmo classificando como "updated"', async () => {
     mockDb.select.mockReturnValue(selectOnce([{ id: 'mat-1', sale_price: '29.90', cost_price: '15.00' }]));
 

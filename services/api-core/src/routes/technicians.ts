@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
 import {
-  createTechnician, listTechnicians, setTechnicianActive, TechnicianServiceError,
+  createTechnician, listTechnicians, setTechnicianActive, updateTechnician,
+  resendTechnicianInvite, TechnicianServiceError,
 } from '../services/technicianService';
 
 export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
@@ -37,6 +38,48 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
         if (err.code === 'invalid_cpf') return reply.badRequest('CPF inválido');
         if (err.code === 'email_already_registered') return reply.conflict('E-mail já cadastrado');
         return reply.badRequest(err.code);
+      }
+      throw err;
+    }
+  });
+
+  // ── PATCH /v1/technicians/:id ───────────────────────────────────────────
+  // Edita dados cadastrais (nunca senha) — corrige erros de digitação do
+  // onboarding sem precisar recriar o técnico.
+  fastify.patch('/technicians/:id', auth, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const { name, email, phone, cpf, specialty } = request.body as {
+      name?: string; email?: string; phone?: string | null; cpf?: string; specialty?: string | null;
+    };
+
+    try {
+      const technician = await updateTechnician(id, tenantId, { name, email, phone, cpf, specialty });
+      return technician;
+    } catch (err) {
+      if (err instanceof TechnicianServiceError) {
+        if (err.code === 'technician_not_found') return reply.notFound('Técnico não encontrado');
+        if (err.code === 'invalid_cpf') return reply.badRequest('CPF inválido');
+        if (err.code === 'email_already_registered') return reply.conflict('E-mail já cadastrado');
+        return reply.badRequest(err.code);
+      }
+      throw err;
+    }
+  });
+
+  // ── POST /v1/technicians/:id/resend-invite ──────────────────────────────
+  // Reenvia o link de definição de senha — mesmo mecanismo do convite
+  // inicial, útil quando o e-mail foi digitado errado ou o link expirou.
+  fastify.post('/technicians/:id/resend-invite', auth, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+
+    try {
+      await resendTechnicianInvite(id, tenantId);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof TechnicianServiceError && err.code === 'technician_not_found') {
+        return reply.notFound('Técnico não encontrado');
       }
       throw err;
     }

@@ -26,6 +26,7 @@ function baseCompanyRow(overrides: Record<string, unknown> = {}) {
     logradouro: 'Rua A', numero: '1', complemento: null, bairro: 'Centro',
     municipio: 'SAO PAULO', uf: 'SP', cep: '01000000', telefone: null, email: null,
     regime_tributario: 1, focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+    emite_nfe: true, emite_nfse: true,
     ...overrides,
   };
 }
