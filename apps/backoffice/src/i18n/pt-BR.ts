@@ -1427,6 +1427,11 @@ const ptBR = {
   'tp.order':          'Ordem de serviço',
   'tp.scheduledFor':   'Agendada para',
   'tp.client':         'Cliente',
+  'tp.clientAddress':  'Endereço',
+  'tp.clientPhone':    'Telefone',
+  'tp.clientMobile':   'Celular',
+  'tp.clientEmail':    'E-mail',
+  'tp.openInMaps':     'Abrir no mapa',
 
   // ── Diagrama do fluxo de OS / Visita Técnica (Minha Empresa → Módulos) ────
   'comp.modules.howItWorks': 'Como funciona',
