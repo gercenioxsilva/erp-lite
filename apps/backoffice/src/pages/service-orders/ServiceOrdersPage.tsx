@@ -471,6 +471,10 @@ export function ServiceOrdersPage() {
 
                 <div className="drawer-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.close')}</button>
+                  <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                    onClick={() => window.open(`/service-orders/${editing.id}/print`, '_blank', 'noopener')}>
+                    {t('so.printView')}
+                  </button>
                   {editing.status !== 'cancelled' && editing.status !== 'completed' && (
                     <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
                   )}

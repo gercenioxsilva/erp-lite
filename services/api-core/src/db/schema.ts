@@ -149,6 +149,10 @@ export const materials = pgTable('materials', {
   // Reforma Tributária (migration 0049) — cClassTrib não deriva de NCM/CFOP,
   // exige override manual por produto (mesmo padrão de cfop/cst_csosn acima).
   class_trib: varchar('class_trib', { length: 6 }),
+  // Observações internas (migration 0057) — distinto de `description`
+  // (descrição do produto, buscável/usada em propostas); nunca aparece fora
+  // do cadastro/importação de materiais.
+  notes:     text('notes'),
   is_active:        boolean('is_active').notNull().default(true),
   tracks_inventory: boolean('tracks_inventory').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

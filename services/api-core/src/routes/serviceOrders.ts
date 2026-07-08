@@ -122,6 +122,59 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     return { ...so, items, visits: visitsWithLink };
   });
 
+  // ── GET /v1/service-orders/:id/print ─────────────────────────────────────
+  // "Espelho do técnico" — mesmos dados que o técnico vê no portal (cliente
+  // completo com endereço/contato, visitas com foto/assinatura), autenticado
+  // por tenantId. Usado pra o tenant conferir o que o técnico vai ver antes
+  // de agendar, e pra imprimir a OS. Deliberadamente NÃO inclui a tabela de
+  // itens — o técnico também não vê itens no portal dele, só o título e a
+  // descrição da OS, então essa visão espelha exatamente isso.
+  fastify.get('/service-orders/:id/print', auth, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+
+    const { rows: [so] } = await db.execute<any>(sql`
+      SELECT so.id, so.number, so.title, so.description, so.type, so.status, so.created_at,
+             COALESCE(c.company_name, c.full_name) AS client_name,
+             c.phone AS client_phone, c.mobile AS client_mobile, c.email AS client_email,
+             c.street AS client_street, c.street_number AS client_street_number,
+             c.complement AS client_complement, c.neighborhood AS client_neighborhood,
+             c.city AS client_city, c.state AS client_state, c.zip_code AS client_zip_code
+      FROM service_orders so
+      LEFT JOIN clients c ON c.id = so.client_id
+      WHERE so.id = ${id} AND so.tenant_id = ${tenantId}
+    `);
+    if (!so) return reply.notFound('Ordem de serviço não encontrada');
+
+    const { rows: visits } = await db.execute<any>(sql`
+      SELECT sv.id, sv.status, sv.scheduled_at, sv.checked_in_at, sv.checked_out_at,
+             sv.report_notes, sv.signed_by_name, sv.signed_at, sv.signature_s3_key,
+             COALESCE(t.name, sv.technician_name) AS technician_name
+      FROM service_visits sv
+      LEFT JOIN technicians t ON t.id = sv.technician_id
+      WHERE sv.service_order_id = ${id} AND sv.tenant_id = ${tenantId}
+      ORDER BY sv.scheduled_at
+    `);
+
+    const visitsWithMedia = await Promise.all(visits.map(async (v: any) => {
+      const { signature_s3_key, ...rest } = v;
+      const { rows: photoRows } = await db.execute<any>(sql`
+        SELECT id, caption, created_at, s3_key FROM service_visit_photos
+        WHERE service_visit_id = ${v.id} ORDER BY created_at
+      `);
+      const photos = await Promise.all(photoRows.map(async (p: any) => ({
+        id: p.id, caption: p.caption, created_at: p.created_at,
+        url: await getPresignedReadUrl(p.s3_key),
+      })));
+      return {
+        ...rest, photos,
+        signature_url: signature_s3_key ? await getPresignedReadUrl(signature_s3_key) : null,
+      };
+    }));
+
+    return { ...so, visits: visitsWithMedia };
+  });
+
   // ── POST /v1/service-orders/:id/visits ───────────────────────────────────
   fastify.post('/service-orders/:id/visits', auth, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
