@@ -1,10 +1,15 @@
 // Application Service — DRE Gerencial (P3)
-// Lê dados existentes (invoices para receita, payables para despesas) e aplica
-// a fórmula do domínio. Abordagem Caminho A — sem contabilidade de dupla entrada.
+// Lê dados existentes (invoices + nfse_invoices para receita, payables para
+// despesas) e aplica a fórmula do domínio. Abordagem Caminho A — sem
+// contabilidade de dupla entrada.
 //
-// A receita vem automaticamente das NF-e autorizadas (status='issued').
-// As despesas vêm dos payables classificados via dre_category_id.
-// Payables sem categoria aparecem em 'outras_despesas' por default.
+// A receita vem automaticamente das NF-e autorizadas (status='issued') E das
+// NFS-e autorizadas (nfse_status='authorized') — Contratos de Serviço e
+// Faturamento de Ordem de Serviço (regra 48) emitem NFS-e, não NF-e, então
+// ignorar essa tabela subestimava a receita de qualquer tenant que fatura
+// serviço (gap documentado na regra 48, corrigido aqui). As despesas vêm dos
+// payables classificados via dre_category_id. Payables sem categoria
+// aparecem em 'outras_despesas' por default.
 
 import { sql } from 'drizzle-orm';
 import { db as _db } from '../db';
@@ -21,7 +26,7 @@ interface DREQueryArgs {
 export async function computeDRE(args: DREQueryArgs, db: DrizzleDB) {
   const { tenantId, from, to } = args;
 
-  // 1. Busca receita bruta das notas fiscais emitidas no período
+  // 1. Busca receita bruta das notas fiscais de venda emitidas no período
   const { rows: [revenueRow] } = await db.execute<{ total: string }>(sql`
     SELECT COALESCE(SUM(total), 0) AS total
     FROM invoices
@@ -30,7 +35,25 @@ export async function computeDRE(args: DREQueryArgs, db: DrizzleDB) {
       AND issue_date >= ${from}::date
       AND issue_date <= ${to}::date
   `);
-  const receita_bruta = Number(revenueRow?.total ?? 0);
+
+  // 1b. Busca receita de serviços das NFS-e autorizadas no período (Contratos
+  // de Serviço e Faturamento de Ordem de Serviço, regra 48) — sem essa soma,
+  // a receita bruta ficava restrita a NF-e de venda, subestimando qualquer
+  // tenant que fatura serviço. Não há status "cancelled" nem fluxo de
+  // cancelamento pra NFS-e hoje (só null/pending/processing/authorized/
+  // rejected), então, diferente de invoices, não há dedução a somar aqui.
+  // `COALESCE(nfse_auth_date, created_at)` cobre o caso raro do resultado da
+  // Focus não trazer a data de autorização.
+  const { rows: [nfseRevenueRow] } = await db.execute<{ total: string }>(sql`
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM nfse_invoices
+    WHERE tenant_id   = ${tenantId}
+      AND nfse_status = 'authorized'
+      AND COALESCE(nfse_auth_date, created_at)::date >= ${from}::date
+      AND COALESCE(nfse_auth_date, created_at)::date <= ${to}::date
+  `);
+
+  const receita_bruta = Number(revenueRow?.total ?? 0) + Number(nfseRevenueRow?.total ?? 0);
 
   // 2. Busca cancelamentos de notas no período (deduções da receita)
   const { rows: [cancelRow] } = await db.execute<{ total: string }>(sql`
