@@ -1,4 +1,4 @@
--- 0055_rbac.sql — RBAC dirigido por banco (permissions / roles / role_permissions)
+-- 0059_rbac.sql — RBAC dirigido por banco (permissions / roles / role_permissions)
 --
 -- DDL apenas. O SEED (catálogo de permissões + 5 papéis de sistema + seus
 -- vínculos) é aplicado de forma idempotente no boot da API por
