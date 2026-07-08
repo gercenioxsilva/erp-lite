@@ -103,17 +103,22 @@ export function resolveRetornoOperation(
 
 // ── Situação tributária de operação não onerosa ────────────────────────────────
 // Diferente de venda: aqui NÃO existe ICMS a destacar (operação suspensa/não
-// tributada), e IBS/CBS ficam ZERADOS — LC 214/2025 tributa "operações
-// onerosas"; uma remessa sem contraprestação financeira fica fora do fato
-// gerador. Isso é uma exceção deliberada ao comportamento de venda (regra 44,
-// onde IBS/CBS nunca são zerados nem para Simples/MEI) — aqui o zeramento é
-// correto porque a natureza da operação é outra, não porque o regime mudou.
+// tributada). Para IBS/CBS, a LC 214/2025 tributa "operações onerosas" — uma
+// remessa sem contraprestação financeira fica fora do fato gerador — mas isso
+// se expressa zerando a BASE DE CÁLCULO (ibs_cbs_base_calculo), nunca a
+// ALÍQUOTA. Bug real de produção corrigido aqui: a versão anterior zerava
+// `ibs_rate`/`cbs_rate` diretamente, e esse valor ia parar no campo
+// `ibs_uf_aliquota`/`cbs_aliquota` do payload da Focus — a SEFAZ rejeita
+// alíquota 0 como inválida ("Alíquota do IBS da UF inválida"), porque o
+// campo de alíquota sempre precisa ser o percentual real cadastrado pra UF
+// (regra 44, mesmo valor usado em venda via getIbsCbsRates()), independente
+// da operação ser tributada ou não. A camada de serviço (I/O) é quem resolve
+// a alíquota real; este domínio só decide QUE a base de cálculo é zero.
 
 export interface RemessaTaxSituation {
   icms_cst:   string; // CST (regime normal) ou CSOSN (Simples) — mesmo campo, mesmo padrão de invoice_items.icms_cst
   class_trib: string;
-  ibs_rate:   number;
-  cbs_rate:   number;
+  ibs_cbs_base_calculo: number;
 }
 
 export function resolveTaxSituation(regimeTributario: number): RemessaTaxSituation {
@@ -124,8 +129,7 @@ export function resolveTaxSituation(regimeTributario: number): RemessaTaxSituati
     // (conceito legal diferente; venda usa 40 hoje, remessa usa 41 aqui).
     icms_cst:   isSimples ? '400' : '41',
     class_trib: '000001',
-    ibs_rate:   0,
-    cbs_rate:   0,
+    ibs_cbs_base_calculo: 0,
   };
 }
 

@@ -21,6 +21,7 @@ import {
   type SimplesRemessaMotivo,
 } from '../domain/simplesRemessa/simplesRemessaDomain';
 import { resolveCompanyId, CompanyDomainError } from './companyService';
+import { getIbsCbsRates } from '../lib/taxRulesResolver';
 import { getSqsClient } from '../lib/sqsClient';
 
 export type DrizzleDB = typeof _db;
@@ -136,6 +137,10 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
 
   const isSimples     = cfg.regime_tributario === 1;
   const taxSituation  = resolveTaxSituation(cfg.regime_tributario);
+  // IBS é do destino, mesmo racional já usado em taxCalculationService.ts
+  // (regra 44) — a alíquota reportada à Focus é sempre a real cadastrada
+  // pra UF, nunca zero (ver comentário em simplesRemessaDomain.ts).
+  const ibsCbs        = await getIbsCbsRates(sr.client_state ?? cfg.uf, db);
   const focusToken    = cfg.focus_ambiente === 1 ? (cfg.focus_token_producao ?? undefined) : (cfg.focus_token_homologacao ?? undefined);
 
   const message = {
@@ -177,8 +182,9 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
       icms_cst:   isSimples ? undefined : taxSituation.icms_cst,
       icms_csosn: isSimples ? taxSituation.icms_cst : undefined,
       class_trib: taxSituation.class_trib,
-      ibs_aliquota: taxSituation.ibs_rate,
-      cbs_aliquota: taxSituation.cbs_rate,
+      ibs_aliquota: ibsCbs.ibsRate,
+      cbs_aliquota: ibsCbs.cbsRate,
+      ibs_base_calculo: taxSituation.ibs_cbs_base_calculo,
     })),
     pagamentos: [{ forma_pagamento: '99', valor_pagamento: 0 }],
   };
