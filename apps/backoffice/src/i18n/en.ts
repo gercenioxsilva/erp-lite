@@ -957,6 +957,11 @@ const en: Record<TKey, string> = {
   'po.discount':             'Discount',
   'po.shipping':             'Shipping',
   'po.subtotal':             'Subtotal',
+  'po.edit':                 'Edit Purchase Order',
+  'po.saveChanges':          'Save changes',
+  'po.createdBy':            'Created by',
+  'po.approvedBy':           'Approved by',
+  'po.approvedAt':           'Approved on',
 
   // ── Supplier Invoices (P1) ─────────────────────────────────────────────────
   'nav.supplierInvoices':    'Supplier Invoices (In)',
