@@ -86,8 +86,13 @@ function IcoMenu() {
 type IconFC = () => JSX.Element;
 
 /* ── Modelo de navegação: folha (link) OU grupo colapsável ──────────────── */
-interface NavChild { to: string; label: string; end?: boolean }
-interface NavLeaf  { to: string; label: string; icon: IconFC; end?: boolean }
+// `resource` é opcional — quando presente, o item só aparece se
+// can(resource, 'view') for true (Perfil de Acesso/RBAC). Item sem
+// `resource` sempre aparece pra qualquer usuário autenticado (mesmo
+// espírito de enabledModules: isto é só UX, o controle de verdade é sempre
+// requirePermission() no backend).
+interface NavChild { to: string; label: string; end?: boolean; resource?: string }
+interface NavLeaf  { to: string; label: string; icon: IconFC; end?: boolean; resource?: string }
 interface NavGroupDef { id: string; label: string; icon: IconFC; children: NavChild[] }
 type NavEntry = NavLeaf | NavGroupDef;
 const isGroup = (e: NavEntry): e is NavGroupDef => 'children' in e;
@@ -148,7 +153,7 @@ function TrialBanner({ daysLeft }: { daysLeft: number }) {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
@@ -161,74 +166,83 @@ export function Layout({ children }: { children: ReactNode }) {
       ? subscription.days_left
       : null;
 
+  // Item com `resource` só aparece se can(resource, 'view'). owner sempre
+  // tem can()===true pra tudo (bypass já resolvido no backend) — este
+  // filtro nunca restringe o próprio owner.
+  const visible = (item: NavChild) => !item.resource || can(item.resource, 'view');
+
+  // Devolve 0 ou 1 grupo já filtrado — grupo sem nenhum filho visível some
+  // inteiro do menu (nunca aparece uma seta que abre uma lista vazia).
+  function group(id: string, label: string, icon: IconFC, children: NavChild[]): NavGroupDef[] {
+    const filtered = children.filter(visible);
+    return filtered.length ? [{ id, label, icon, children: filtered }] : [];
+  }
+
   const NAV: NavEntry[] = [
     { to: '/dashboard', label: t('nav.dashboard'), icon: IcoDashboard },
-    { id: 'commercial', label: t('nav.group.commercial'), icon: IcoProposals, children: [
-      ...(enabledModules.includes('sales_pipeline') ? [{ to: '/sales-pipeline', label: t('nav.salesPipeline') }] : []),
-      { to: '/proposals', label: t('nav.proposals') },
-      { to: '/orders',    label: t('nav.orders')    },
-      { to: '/invoices',  label: t('nav.invoices')  },
-      { to: '/nfse',      label: t('nav.nfse')      },
-      { to: '/simples-remessa', label: t('nav.simplesRemessa') },
-    ] },
-    ...(enabledModules.includes('service_orders') ? [{
-      id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [
-        { to: '/service-orders', label: t('nav.serviceOrders') },
-        { to: '/technicians',    label: t('nav.technicians')  },
-      ],
-    } as NavGroupDef] : []),
-    ...(enabledModules.includes('pos') ? [{
-      id: 'pos', label: t('nav.pos'), icon: IcoPDV, children: [
-        { to: '/pos/caixa',     label: 'Caixa'           },
-        { to: '/pos',           label: 'Venda', end: true },
-        { to: '/pos/sales',     label: 'Histórico'       },
-        { to: '/pos/terminals', label: 'Terminais'       },
-        { to: '/pos/sessions',  label: 'Sessões'         },
-      ],
-    } as NavGroupDef] : []),
-    { id: 'inventory', label: t('nav.group.inventory'), icon: IcoStock, children: [
-      { to: '/materials',         label: t('nav.materials')        },
-      { to: '/stock',             label: t('nav.stock')            },
-      { to: '/suppliers',         label: t('nav.suppliers')        },
-      { to: '/purchase-orders',   label: t('nav.purchaseOrders')   },
-      { to: '/supplier-invoices', label: t('nav.supplierInvoices') },
-    ] },
-    { id: 'finance', label: t('nav.group.finance'), icon: IcoReceivables, children: [
-      { to: '/receivables',  label: t('nav.receivables') },
-      { to: '/payables',     label: t('nav.payables')    },
-      { to: '/cost-centers', label: t('nav.costCenters') },
-      { to: '/sellers',      label: t('nav.sellers')     },
-    ] },
-    { id: 'reports', label: t('nav.reports'), icon: IcoReports, children: [
-      { to: '/reports',              label: 'Visão geral', end: true },
-      { to: '/reports/cashflow',     label: 'Fluxo de Caixa' },
-      { to: '/reports/aging',        label: 'Aging' },
-      { to: '/reports/expenses',     label: 'Despesas' },
-      { to: '/dre',                  label: t('nav.dre') },
-      { to: '/reports/overdue',      label: 'Inadimplência' },
-      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-cash', label: 'Caixa PDV' }] : []),
-      { to: '/reports/sales',              label: 'Faturamento' },
-      { to: '/reports/top-products',       label: 'Ranking de Produtos' },
-      { to: '/reports/proposals-funnel',   label: 'Funil de Propostas' },
-      { to: '/reports/commissions',        label: 'Comissões' },
-      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-payments', label: 'Formas de Pagamento (PDV)' }] : []),
-      { to: '/reports/stock-position',     label: 'Posição de Estoque' },
-      { to: '/reports/abc',                label: 'Curva ABC' },
-      { to: '/reports/kardex',             label: 'Kardex' },
-      ...(enabledModules.includes('service_orders') ? [{ to: '/reports/technician-productivity', label: 'Produtividade Técnicos' }] : []),
-      { to: '/reports/recurring-revenue',  label: 'Receita Recorrente' },
-      { to: '/reports/supplier-spend',     label: 'Gasto por Fornecedor' },
-      { to: '/reports/tax-summary',        label: 'Apuração de Impostos' },
-    ] },
-    { id: 'registrations', label: t('nav.group.registrations'), icon: IcoClients, children: [
-      { to: '/clients',   label: t('nav.clients')   },
-      { to: '/contracts', label: t('nav.contracts') },
-    ] },
-    { id: 'admin', label: t('nav.group.admin'), icon: IcoCompany, children: [
-      { to: '/users',   label: t('nav.users')   },
-      { to: '/company', label: t('nav.company') },
-      { to: '/billing', label: t('nav.billing') },
-    ] },
+    ...group('commercial', t('nav.group.commercial'), IcoProposals, [
+      ...(enabledModules.includes('sales_pipeline') ? [{ to: '/sales-pipeline', label: t('nav.salesPipeline'), resource: 'sales_pipeline' }] : []),
+      { to: '/proposals', label: t('nav.proposals'), resource: 'proposals' },
+      { to: '/orders',    label: t('nav.orders'),    resource: 'orders'    },
+      { to: '/invoices',  label: t('nav.invoices'),  resource: 'invoices'  },
+      { to: '/nfse',      label: t('nav.nfse'),      resource: 'nfse'      },
+      { to: '/simples-remessa', label: t('nav.simplesRemessa'), resource: 'simples_remessa' },
+    ]),
+    ...(enabledModules.includes('service_orders') ? group('fieldService', t('nav.group.fieldService'), IcoField, [
+      { to: '/service-orders', label: t('nav.serviceOrders'), resource: 'service_orders' },
+      { to: '/technicians',    label: t('nav.technicians'),   resource: 'technicians'    },
+    ]) : []),
+    ...(enabledModules.includes('pos') ? group('pos', t('nav.pos'), IcoPDV, [
+      { to: '/pos/caixa',     label: 'Caixa',           resource: 'pos' },
+      { to: '/pos',           label: 'Venda', end: true, resource: 'pos' },
+      { to: '/pos/sales',     label: 'Histórico',       resource: 'pos' },
+      { to: '/pos/terminals', label: 'Terminais',       resource: 'pos' },
+      { to: '/pos/sessions',  label: 'Sessões',         resource: 'pos' },
+    ]) : []),
+    ...group('inventory', t('nav.group.inventory'), IcoStock, [
+      { to: '/materials',         label: t('nav.materials'),        resource: 'materials'        },
+      { to: '/stock',             label: t('nav.stock'),            resource: 'stock'             },
+      { to: '/suppliers',         label: t('nav.suppliers'),        resource: 'suppliers'        },
+      { to: '/purchase-orders',   label: t('nav.purchaseOrders'),   resource: 'purchase_orders'   },
+      { to: '/supplier-invoices', label: t('nav.supplierInvoices'), resource: 'supplier_invoices' },
+    ]),
+    ...group('finance', t('nav.group.finance'), IcoReceivables, [
+      { to: '/receivables',  label: t('nav.receivables'), resource: 'receivables'  },
+      { to: '/payables',     label: t('nav.payables'),    resource: 'payables'     },
+      { to: '/cost-centers', label: t('nav.costCenters'), resource: 'cost_centers' },
+      { to: '/sellers',      label: t('nav.sellers'),     resource: 'sellers'      },
+    ]),
+    ...group('reports', t('nav.reports'), IcoReports, [
+      { to: '/reports',              label: 'Visão geral', end: true, resource: 'reports' },
+      { to: '/reports/cashflow',     label: 'Fluxo de Caixa', resource: 'reports' },
+      { to: '/reports/aging',        label: 'Aging',          resource: 'reports' },
+      { to: '/reports/expenses',     label: 'Despesas',       resource: 'reports' },
+      { to: '/dre',                  label: t('nav.dre'),     resource: 'dre'     },
+      { to: '/reports/overdue',      label: 'Inadimplência',  resource: 'reports' },
+      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-cash', label: 'Caixa PDV', resource: 'reports' }] : []),
+      { to: '/reports/sales',              label: 'Faturamento',          resource: 'reports' },
+      { to: '/reports/top-products',       label: 'Ranking de Produtos',  resource: 'reports' },
+      { to: '/reports/proposals-funnel',   label: 'Funil de Propostas',   resource: 'reports' },
+      { to: '/reports/commissions',        label: 'Comissões',            resource: 'reports' },
+      ...(enabledModules.includes('pos') ? [{ to: '/reports/pos-payments', label: 'Formas de Pagamento (PDV)', resource: 'reports' }] : []),
+      { to: '/reports/stock-position',     label: 'Posição de Estoque',   resource: 'reports' },
+      { to: '/reports/abc',                label: 'Curva ABC',            resource: 'reports' },
+      { to: '/reports/kardex',             label: 'Kardex',               resource: 'reports' },
+      ...(enabledModules.includes('service_orders') ? [{ to: '/reports/technician-productivity', label: 'Produtividade Técnicos', resource: 'reports' }] : []),
+      { to: '/reports/recurring-revenue',  label: 'Receita Recorrente',   resource: 'reports' },
+      { to: '/reports/supplier-spend',     label: 'Gasto por Fornecedor', resource: 'reports' },
+      { to: '/reports/tax-summary',        label: 'Apuração de Impostos', resource: 'reports' },
+    ]),
+    ...group('registrations', t('nav.group.registrations'), IcoClients, [
+      { to: '/clients',   label: t('nav.clients'),   resource: 'clients'   },
+      { to: '/contracts', label: t('nav.contracts'), resource: 'contracts' },
+    ]),
+    ...group('admin', t('nav.group.admin'), IcoCompany, [
+      { to: '/users',   label: t('nav.users'),   resource: 'users'   },
+      ...(user?.role === 'owner' ? [{ to: '/access-profiles', label: t('nav.accessProfiles') }] : []),
+      { to: '/company', label: t('nav.company'), resource: 'company' },
+      { to: '/billing', label: t('nav.billing'), resource: 'billing' },
+    ]),
   ];
 
   const isChildActive = (c: NavChild) =>

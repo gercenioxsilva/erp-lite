@@ -1,8 +1,13 @@
 import { FastifyPluginAsync } from 'fastify';
 import { listEnabledModules, setModuleEnabled, MODULE_KEYS, type ModuleKey } from '../services/tenantModuleService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const tenantModulesRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
+  // Ligar/desligar um módulo é uma mutação sensível de "Minha Empresa" — a
+  // primeira rota existente a usar requirePermission() de fato (RBAC), além
+  // do requireRole('owner') já aplicado a routes/users.ts/accessProfiles.ts.
+  const manageCompany = { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company', 'manage')] };
 
   // ── GET /v1/tenant/modules ──────────────────────────────────────────────
   fastify.get('/tenant/modules', auth, async (request) => {
@@ -12,7 +17,7 @@ export const tenantModulesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── PATCH /v1/tenant/modules/:key ───────────────────────────────────────
-  fastify.patch('/tenant/modules/:key', auth, async (request, reply) => {
+  fastify.patch('/tenant/modules/:key', manageCompany, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { key }  = request.params as { key: string };

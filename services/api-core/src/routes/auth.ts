@@ -5,6 +5,8 @@ import { eq, sql } from 'drizzle-orm';
 import { db, tenants, users } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
 import { getStripe } from '../lib/stripeClient';
+import { getEffectivePermissions } from '../services/accessControlService';
+import { permissionsToMap } from '../domain/accessControl/accessControlDomain';
 
 const registerBody = {
   type: 'object',
@@ -142,6 +144,18 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       role: users.role, tenant_id: users.tenant_id, status: users.status,
     }).from(users).where(eq(users.id, userId));
     return user ?? null;
+  });
+
+  // GET /v1/auth/permissions — bootstrap de permissões efetivas do usuário
+  // logado (RBAC), mesmo papel de GET /v1/tenant/modules pro frontend: só
+  // exibe/esconde menu, nunca é o controle de acesso de verdade (isso é
+  // sempre requirePermission() no backend).
+  fastify.get('/auth/permissions', {
+    preHandler: [(fastify as any).authenticate],
+  }, async (request) => {
+    const { userId, tenantId } = (request as any).user;
+    const effective = await getEffectivePermissions(userId, tenantId);
+    return { permissions: permissionsToMap(effective) };
   });
 
   // POST /v1/auth/forgot-password (sem autenticação)

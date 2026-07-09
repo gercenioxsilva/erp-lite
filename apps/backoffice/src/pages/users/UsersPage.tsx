@@ -5,23 +5,28 @@ import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 
 interface User {
-  id:         string;
-  email:      string;
-  name:       string;
-  role:       string;
-  status:     string;
-  created_at: string;
+  id:                 string;
+  email:              string;
+  name:               string;
+  role:               string;
+  status:             string;
+  access_profile_id:  string | null;
+  created_at:         string;
 }
+
+interface AccessProfile { id: string; name: string; description: string | null; }
 
 interface ListResp { data: User[]; total: number; page: number; per_page: number; }
 
-const EMPTY_FORM = { name: '', email: '', role: 'user', password: '', status: 'active' };
+const EMPTY_FORM = { name: '', email: '', password: '', status: 'active', access_profile_id: '' };
 
 export function UsersPage() {
-  const { tenantId } = useAuth();
+  const { tenantId, user: me } = useAuth();
   const { t }        = useI18n();
   const modal        = useModal();
+  const isOwner       = me?.role === 'owner';
   const [items,      setItems]      = useState<User[]>([]);
+  const [profiles,   setProfiles]   = useState<AccessProfile[]>([]);
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
   const [search,     setSearch]     = useState('');
@@ -39,7 +44,7 @@ export function UsersPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        tenant_id: tenantId, page: String(page), per_page: String(perPage),
+        page: String(page), per_page: String(perPage),
         ...(search ? { search } : {}),
       });
       const resp = await api.get<ListResp>(`/v1/users?${params}`);
@@ -48,7 +53,24 @@ export function UsersPage() {
     } catch { /**/ } finally { setLoading(false); }
   }
 
+  // Perfis de acesso alimentam o seletor do drawer e a coluna da lista — só
+  // o owner realmente usa o seletor, mas qualquer usuário pode VER a coluna
+  // (leitura é aberta, mutação é que é owner-only — mesmo espírito de
+  // GET /v1/users hoje).
+  async function loadProfiles() {
+    try {
+      const resp = await api.get<{ data: AccessProfile[] }>('/v1/access-profiles');
+      setProfiles(resp.data);
+    } catch { /**/ }
+  }
+
   useEffect(() => { void load(); }, [tenantId, page, search]);
+  useEffect(() => { void loadProfiles(); }, [tenantId]);
+
+  function profileName(id: string | null): string {
+    if (!id) return t('u.noProfile');
+    return profiles.find(p => p.id === id)?.name ?? t('u.noProfile');
+  }
 
   function openCreate() {
     setEditing(null);
@@ -59,7 +81,7 @@ export function UsersPage() {
 
   function openEdit(u: User) {
     setEditing(u);
-    setForm({ name: u.name, email: u.email, role: u.role, password: '', status: u.status });
+    setForm({ name: u.name, email: u.email, password: '', status: u.status, access_profile_id: u.access_profile_id ?? '' });
     setFormError('');
     setDrawerOpen(true);
   }
@@ -77,16 +99,17 @@ export function UsersPage() {
     setSaving(true);
     try {
       if (editing) {
-        const payload: Record<string, string> = { name: form.name, role: form.role, status: form.status };
+        const payload: Record<string, unknown> = { name: form.name, status: form.status };
         if (form.password) payload.password = form.password;
+        // owner não usa perfil — o campo nem aparece no drawer nesse caso.
+        if (editing.role !== 'owner') payload.access_profile_id = form.access_profile_id || null;
         await api.patch(`/v1/users/${editing.id}`, payload);
       } else {
         await api.post('/v1/users', {
-          tenant_id: tenantId,
-          email:     form.email,
-          name:      form.name,
-          role:      form.role,
-          password:  form.password,
+          email:    form.email,
+          name:     form.name,
+          password: form.password,
+          access_profile_id: form.access_profile_id || undefined,
         });
       }
       setDrawerOpen(false);
@@ -106,17 +129,18 @@ export function UsersPage() {
   const totalPages = Math.ceil(total / perPage);
 
   const roleLabel = (role: string) => ({
-    owner: t('u.role.owner'), admin: t('u.role.admin'),
-    manager: t('u.role.manager'), user: t('u.role.user'),
+    owner: t('u.role.owner'), technician: t('u.role.technician'), user: t('u.role.user'),
   }[role] ?? role);
 
   return (
     <div>
       <div className="page-header">
         <h1>{t('u.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('u.new')}
-        </button>
+        {isOwner && (
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('u.new')}
+          </button>
+        )}
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -134,7 +158,7 @@ export function UsersPage() {
         ) : items.length === 0 ? (
           <div className="empty-state">
             {t('u.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('u.new')}</button>
+            {isOwner && <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('u.new')}</button>}
           </div>
         ) : (
           <table>
@@ -143,6 +167,7 @@ export function UsersPage() {
                 <th>{t('u.name')}</th>
                 <th>{t('u.email')}</th>
                 <th>{t('u.role')}</th>
+                <th>{t('u.accessProfile')}</th>
                 <th>{t('u.status')}</th>
                 <th></th>
               </tr>
@@ -153,9 +178,18 @@ export function UsersPage() {
                   <td style={{ fontWeight: 500 }}>{u.name}</td>
                   <td style={{ fontSize: 13, color: 'var(--muted)' }}>{u.email}</td>
                   <td>
-                    <span className={`badge badge-${u.role === 'owner' ? 'product' : u.role === 'admin' ? 'raw_material' : 'service'}`}>
+                    <span className={`badge badge-${u.role === 'owner' ? 'product' : u.role === 'technician' ? 'raw_material' : 'service'}`}>
                       {roleLabel(u.role)}
                     </span>
+                  </td>
+                  <td>
+                    {u.role === 'owner' ? (
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>—</span>
+                    ) : (
+                      <span className={`badge badge-${u.access_profile_id ? 'confirmed' : 'pending'}`}>
+                        {profileName(u.access_profile_id)}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span className={`badge badge-${u.status === 'active' ? 'active' : 'inactive'}`}>
@@ -163,16 +197,18 @@ export function UsersPage() {
                     </span>
                   </td>
                   <td>
-                    <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>
-                        {t('c.edit')}
-                      </button>
-                      {u.status === 'active' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDisable(u)}>
-                          {t('c.del')}
+                    {isOwner && (
+                      <div className="flex-gap">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(u)}>
+                          {t('c.edit')}
                         </button>
-                      )}
-                    </div>
+                        {u.status === 'active' && u.role !== 'owner' && (
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDisable(u)}>
+                            {t('c.del')}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -225,19 +261,19 @@ export function UsersPage() {
                 </div>
 
                 <div className="field-row">
-                  <div className="field">
-                    <label>{t('u.role')}</label>
-                    <select value={form.role} onChange={setF('role')}>
-                      <option value="owner">{t('u.role.owner')}</option>
-                      <option value="admin">{t('u.role.admin')}</option>
-                      <option value="manager">{t('u.role.manager')}</option>
-                      <option value="user">{t('u.role.user')}</option>
-                    </select>
-                  </div>
+                  {(!editing || editing.role !== 'owner') && (
+                    <div className="field">
+                      <label>{t('u.accessProfile')}</label>
+                      <select value={form.access_profile_id} onChange={setF('access_profile_id')}>
+                        <option value="">{t('u.noProfile')}</option>
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {editing && (
                     <div className="field">
                       <label>{t('u.status')}</label>
-                      <select value={form.status} onChange={setF('status')}>
+                      <select value={form.status} onChange={setF('status')} disabled={editing.role === 'owner'}>
                         <option value="active">{t('c.active')}</option>
                         <option value="disabled">{t('c.disabled')}</option>
                       </select>
