@@ -45,6 +45,7 @@ import { techniciansRoutes }       from './routes/technicians';
 import { serviceOrdersRoutes }     from './routes/serviceOrders';
 import { technicianPortalRoutes }  from './routes/technicianPortal';
 import { rbacRoutes }            from './routes/rbac';
+import { schedulingRoutes }      from './routes/scheduling';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
 import { clientRoleGuard } from './middleware/clientRoleGuard';
@@ -137,6 +138,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
   await app.register(technicianPortalRoutes,   { prefix: '/v1' });
   await app.register(rbacRoutes,               { prefix: '/v1' });
+  await app.register(schedulingRoutes,         { prefix: '/v1' });
 
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
