@@ -7,6 +7,10 @@ interface AuthUser {
   name: string;
   role: string;
   tenant_id: string;
+  // Ativação de conta por e-mail — null = tenant ainda não confirmou o
+  // e-mail do owner. Só controla UX (tela de bloqueio); o controle de
+  // acesso de verdade é sempre tenantActivationGuard.ts no backend.
+  tenant_activated_at: string | null;
 }
 
 // Perfil de Acesso (RBAC) — mapa de permissões efetivas do usuário logado,
@@ -23,6 +27,8 @@ interface AuthContextValue {
   register: (data: RegisterData) => Promise<void>;
   logout:   () => void;
   can: (resource: string, action?: 'view' | 'manage') => boolean;
+  tenantActivated: boolean;
+  refreshUser: () => Promise<void>;
 }
 
 interface RegisterData {
@@ -55,31 +61,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setPermissions({}));
   }
 
+  // Fonte única de verdade pro AuthUser — sempre busca o /auth/me completo
+  // (inclui tenant_activated_at), nunca reconstrói o objeto a partir da
+  // resposta parcial de login/register. Reaproveitada tanto no boot quanto
+  // depois de VerifyEmailPage.tsx confirmar o e-mail (o token de sessão já
+  // existe desde o registro — só o status de ativação muda).
+  async function loadMe(): Promise<void> {
+    const u = await api.get<AuthUser>('/v1/auth/me');
+    setUser(u);
+    setTenantId(u.tenant_id);
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); return; }
 
-    api.get<AuthUser>('/v1/auth/me')
-      .then(u => { setUser(u); setTenantId(u.tenant_id); loadPermissions(); })
+    loadMe()
+      .then(loadPermissions)
       .catch(() => localStorage.removeItem('token'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function saveSession(res: AuthResponse) {
+  async function saveSession(res: AuthResponse): Promise<void> {
     localStorage.setItem('token', res.token);
-    setUser({ ...res.user, tenant_id: res.tenantId });
-    setTenantId(res.tenantId);
+    await loadMe();
     loadPermissions();
   }
 
   async function login(email: string, password: string) {
     const res = await api.post<AuthResponse>('/v1/auth/login', { email, password });
-    saveSession(res);
+    await saveSession(res);
   }
 
   async function register(data: RegisterData) {
     const res = await api.post<AuthResponse>('/v1/auth/register', data);
-    saveSession(res);
+    await saveSession(res);
   }
 
   function logout() {
@@ -93,8 +110,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return permissions[resource]?.[action] ?? false;
   }
 
+  const tenantActivated = user != null && user.tenant_activated_at != null;
+
   return (
-    <AuthContext.Provider value={{ user, tenantId, loading, login, register, logout, can }}>
+    <AuthContext.Provider value={{
+      user, tenantId, loading, login, register, logout, can, tenantActivated, refreshUser: loadMe,
+    }}>
       {children}
     </AuthContext.Provider>
   );

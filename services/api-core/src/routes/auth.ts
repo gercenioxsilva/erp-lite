@@ -7,6 +7,10 @@ import { sendSystemNotification } from '../lib/notificationsClient';
 import { getStripe } from '../lib/stripeClient';
 import { getEffectivePermissions } from '../services/accessControlService';
 import { permissionsToMap } from '../domain/accessControl/accessControlDomain';
+import {
+  issueVerificationToken, sendVerificationEmail, verifyEmail, resendVerification,
+  TenantActivationDomainError, type DrizzleDB,
+} from '../services/tenantActivationService';
 
 const registerBody = {
   type: 'object',
@@ -69,13 +73,31 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           status: 'active',
         }).returning({ id: users.id, email: users.email, name: users.name, role: users.role });
 
-        return { tenant, user };
+        // Ativação de conta por e-mail: token dedicado (48h) gerado na MESMA
+        // transação do tenant/usuário — atômico, nunca existe um tenant sem
+        // token pendente. tenants.activated_at nasce NULL (default da
+        // coluna), bloqueado por tenantActivationGuard.ts até o owner
+        // confirmar o e-mail.
+        const { token: verificationToken } = await issueVerificationToken(user.id, tx as unknown as DrizzleDB);
+
+        return { tenant, user, verificationToken };
       });
 
       const token = fastify.jwt.sign(
         { tenantId: result.tenant.id, userId: result.user.id, role: result.user.role },
         { expiresIn: '24h' },
       );
+
+      // Fire-and-forget — login (acima) já funciona normalmente; o que fica
+      // bloqueado é o USO, então uma falha de e-mail aqui nunca deve
+      // impedir o registro de completar. Cópia opcional pro dono do
+      // sistema via SYSTEM_OWNER_EMAIL, nunca hardcoded no template.
+      sendVerificationEmail({
+        tenantId: result.tenant.id, userName: result.user.name ?? result.user.email,
+        userEmail: result.user.email, token: result.verificationToken,
+      }).catch((err: unknown) => {
+        fastify.log.warn({ event: 'verification_email_warn', error: String(err) });
+      });
 
       // Non-blocking: create Stripe customer + set trial_ends_at (14 days)
       const stripe = getStripe();
@@ -134,16 +156,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // GET /v1/auth/me
+  // GET /v1/auth/me — inclui tenant_activated_at (ativação de conta por
+  // e-mail): o frontend usa isso, uma vez no boot, pra decidir se mostra o
+  // app normal ou a tela de "verifique seu e-mail" — nunca é o controle de
+  // acesso de verdade, isso é sempre tenantActivationGuard.ts no backend.
   fastify.get('/auth/me', {
     preHandler: [(fastify as any).authenticate],
   }, async (request) => {
     const { userId } = (request as any).user;
-    const [user] = await db.select({
+    const [row] = await db.select({
       id: users.id, email: users.email, name: users.name,
       role: users.role, tenant_id: users.tenant_id, status: users.status,
-    }).from(users).where(eq(users.id, userId));
-    return user ?? null;
+      tenant_activated_at: tenants.activated_at,
+    }).from(users).innerJoin(tenants, eq(users.tenant_id, tenants.id)).where(eq(users.id, userId));
+    return row ?? null;
   });
 
   // GET /v1/auth/permissions — bootstrap de permissões efetivas do usuário
@@ -224,5 +250,42 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     `);
 
     return reply.send({ ok: true });
+  });
+
+  // POST /v1/auth/verify-email (sem autenticação — mesma lógica de token de
+  // reset-password, mas em colunas dedicadas). Ativa o tenant inteiro, não
+  // só o usuário.
+  fastify.post('/auth/verify-email', async (request, reply) => {
+    const { token } = request.body as { token?: string };
+    if (!token) return reply.badRequest('token é obrigatório');
+
+    try {
+      await verifyEmail(token);
+      return reply.send({ ok: true });
+    } catch (err) {
+      if (err instanceof TenantActivationDomainError) {
+        return reply.badRequest('Link inválido ou expirado. Solicite um novo e-mail de verificação.');
+      }
+      throw err;
+    }
+  });
+
+  // POST /v1/auth/resend-verification (autenticado — o próprio usuário
+  // bloqueado pede reenvio pro PRÓPRIO e-mail; evita endpoint público de
+  // reenvio, que abriria brecha de spam/enumeração).
+  fastify.post('/auth/resend-verification', {
+    preHandler: [(fastify as any).authenticate],
+  }, async (request, reply) => {
+    const { userId, tenantId } = (request as any).user;
+    try {
+      await resendVerification(userId, tenantId);
+      return reply.send({ ok: true });
+    } catch (err) {
+      if (err instanceof TenantActivationDomainError) {
+        if (err.code === 'user_not_found') return reply.notFound(err.code);
+        return reply.code(429).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 };

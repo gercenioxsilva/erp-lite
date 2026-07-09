@@ -1111,6 +1111,18 @@ const en: Record<TKey, string> = {
   'rp.error':           'Invalid or expired token.',
   'rp.invalidLink':     'Invalid or expired link.',
 
+  // ── Tenant Email Activation ─────────────────────────────────────────────
+  've.loadingTitle':  'Confirming your email…',
+  've.doneTitle':     'Email confirmed! 🎉',
+  've.doneMsg':       'Your account is active. You will be redirected shortly.',
+  've.error':         'Could not confirm. The link may have expired.',
+  've.invalidLink':   'Invalid link — missing confirmation token.',
+  've.blockedTitle':  'Verify your email',
+  've.blockedMsg':    'We sent a confirmation link to {email}. Confirm your email to activate your account and keep using the system.',
+  've.resend':        'Resend confirmation email',
+  've.resendSent':    'Email resent! Check your inbox (and spam folder).',
+  've.resendError':   'Error resending. Please try again in a moment.',
+
   // Dashboard KPIs
   'd.revenueMonth':   'Revenue this month',
   'd.vsLastMonth':    'vs. last month',

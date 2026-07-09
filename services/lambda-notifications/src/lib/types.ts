@@ -9,7 +9,8 @@ export type NotificationType =
   | 'proposal_accepted'
   | 'proposal_rejected'
   | 'technician_welcome'
-  | 'service_visit_assigned';
+  | 'service_visit_assigned'
+  | 'tenant_email_verification';
 
 export type NotificationChannel = 'email';
 
@@ -26,6 +27,9 @@ export interface NotificationMessage {
   recipient:  NotificationRecipient;
   from_name:  string;
   reply_to?:  string;
+  // Cópia opcional — hoje só usada por 'tenant_email_verification' (cópia
+  // pro dono do sistema). Ver services/notificationService.ts#CcAddresses.
+  cc?:        string[];
   /** Template-specific values already resolved by api-core (no DB access in Lambda) */
   data:       Record<string, string | number>;
 }

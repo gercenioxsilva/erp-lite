@@ -63,6 +63,11 @@ export const tenants = pgTable('tenants', {
   // Simples Nacional — faturamento acumulado 12 meses (migration 0037), usado para
   // calcular a alíquota efetiva por faixa quando nfe_configs.regime_tributario = 1
   simples_rbt12: decimal('simples_rbt12', { precision: 15, scale: 2 }),
+  // Ativação de conta por e-mail (migration 0061) — NULL = tenant ainda não
+  // confirmou o e-mail do owner, bloqueado por tenantActivationGuard.ts.
+  // Backfill obrigatório: tenants existentes antes desta migration nascem
+  // com activated_at = created_at (ver 0061_tenant_activation.sql).
+  activated_at: timestamp('activated_at', { withTimezone: true }),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -78,6 +83,14 @@ export const users = pgTable('users', {
   status:        varchar('status', { length: 20 }).notNull().default('active'),
   password_reset_token:   varchar('password_reset_token',   { length: 255 }),
   password_reset_expires: timestamp('password_reset_expires', { withTimezone: true }),
+  // Ativação de conta por e-mail (migration 0061) — colunas DEDICADAS, nunca
+  // reaproveitam password_reset_token/expires (domínios de segurança
+  // diferentes: trocar senha vs. confirmar identidade). email_verified_at é
+  // um fato por usuário (auditoria), distinto de tenants.activated_at (o
+  // portão de acesso de verdade, no agregado Tenant).
+  email_verification_token:   varchar('email_verification_token',   { length: 255 }),
+  email_verification_expires: timestamp('email_verification_expires', { withTimezone: true }),
+  email_verified_at:          timestamp('email_verified_at', { withTimezone: true }),
   // Perfil de acesso (RBAC, migration 0059) — NULL para role='owner'/'technician',
   // que nunca usam perfil (seu acesso é 100% definido por role). Referência
   // adiantada segura: accessProfiles é definida mais abaixo neste arquivo, mas
