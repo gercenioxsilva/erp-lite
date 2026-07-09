@@ -1518,3 +1518,81 @@ export const accessProfileEvents = pgTable('access_profile_events', {
   payload:           jsonb('payload'),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RH Simplificado (migration 0060) — módulo opcional. Ferramenta de cálculo/
+// organização interna (cadastro + folha calculada) — nunca envia nada ao
+// eSocial, ver regra correspondente no README.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const employees = pgTable('employees', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  user_id:           uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  name:              varchar('name', { length: 255 }).notNull(),
+  cpf:               varchar('cpf', { length: 11 }).notNull(),
+  email:             varchar('email', { length: 255 }),
+  phone:             varchar('phone', { length: 30 }),
+  role_title:        varchar('role_title', { length: 120 }),
+  regime:            varchar('regime', { length: 20 }).notNull().default('clt'),
+  base_salary:       decimal('base_salary', { precision: 15, scale: 2 }).notNull().default('0'),
+  cost_center_id:    uuid('cost_center_id').references(() => costCenters.id, { onDelete: 'set null' }),
+  hire_date:         date('hire_date').notNull(),
+  termination_date:  date('termination_date'),
+  is_active:         boolean('is_active').notNull().default(true),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payrollRuns = pgTable('payroll_runs', {
+  id:                     uuid('id').primaryKey().defaultRandom(),
+  tenant_id:              uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:             uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  reference_month:        date('reference_month').notNull(),
+  status:                 varchar('status', { length: 20 }).notNull().default('draft'),
+  gross_total:            decimal('gross_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  deductions_total:       decimal('deductions_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  net_total:              decimal('net_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  employer_charges_total: decimal('employer_charges_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  closed_at:              timestamp('closed_at', { withTimezone: true }),
+  closed_by:              uuid('closed_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payrollEntries = pgTable('payroll_entries', {
+  id:                       uuid('id').primaryKey().defaultRandom(),
+  tenant_id:                uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  payroll_run_id:           uuid('payroll_run_id').notNull().references(() => payrollRuns.id, { onDelete: 'cascade' }),
+  employee_id:              uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
+  employee_name:            varchar('employee_name', { length: 255 }).notNull(),
+  regime:                   varchar('regime', { length: 20 }).notNull(),
+  base_salary:              decimal('base_salary', { precision: 15, scale: 2 }).notNull(),
+  extra_earnings:           jsonb('extra_earnings').notNull().default([]),
+  extra_deductions:         jsonb('extra_deductions').notNull().default([]),
+  inss_value:               decimal('inss_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  irrf_value:               decimal('irrf_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  fgts_value:               decimal('fgts_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  ferias_provisao:          decimal('ferias_provisao', { precision: 15, scale: 2 }).notNull().default('0'),
+  decimo_terceiro_provisao: decimal('decimo_terceiro_provisao', { precision: 15, scale: 2 }).notNull().default('0'),
+  gross_total:              decimal('gross_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  deductions_total:         decimal('deductions_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  net_total:                decimal('net_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  payable_id:               uuid('payable_id').references(() => payables.id, { onDelete: 'set null' }),
+  created_at:               timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:               timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Global (tenant_id ausente de propósito) — INSS/IRRF são faixas federais,
+// iguais pra todo tenant. Mesmo racional de tax_simples_nacional_brackets no
+// motor fiscal (regra 15) — precisa de atualização manual quando a lei muda.
+export const payrollTaxBrackets = pgTable('payroll_tax_brackets', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  type:            varchar('type', { length: 10 }).notNull(),
+  min_value:       decimal('min_value', { precision: 15, scale: 2 }).notNull(),
+  max_value:       decimal('max_value', { precision: 15, scale: 2 }),
+  rate:            decimal('rate', { precision: 6, scale: 4 }).notNull(),
+  deduction_value: decimal('deduction_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  valid_from:      date('valid_from').notNull(),
+});
