@@ -28,11 +28,13 @@ import { TimeRange, minutesToHm, hmToMinutes, isValidDateISO, weekdayOf } from '
 import {
   SessionStatus, findConflict, BLOCKING_STATUSES,
   assertCanApprove, assertCanDecline, assertCanComplete, assertCanCancel,
-  assertCanEdit, assertCanHardDelete,
+  assertCanEdit, assertCanHardDelete, assertClientCanCancel,
 } from '../domain/scheduling/sessionDomain';
 import { computeFreeSlots, EarliestBookable } from '../domain/scheduling/slotDomain';
 import { assertPackageUsableForBooking, applyDebit } from '../domain/scheduling/packageDomain';
-import { earliestBookableInstant, violatesMinAdvance, wallClockInTimezone } from '../domain/scheduling/advanceDomain';
+import {
+  earliestBookableInstant, violatesMinAdvance, wallClockInTimezone, withinCancelWindow,
+} from '../domain/scheduling/advanceDomain';
 import { getOrCreateSettings } from './schedulingSettingsService';
 import { getAreaOrThrow } from './schedulingAreaService';
 import { getProfessionalOrThrow } from './schedulingProfessionalService';
@@ -576,6 +578,39 @@ export async function cancelSession(
       canceled_by:   opts.byUserId,
       cancel_reason: opts.reason ?? null,
       updated_at:    new Date(),
+    })
+    .where(eq(schedulingSessions.id, id)).returning();
+  return updated;
+}
+
+/**
+ * Cancelamento pelo PRÓPRIO cliente no portal (regra nº 7 + decisão nº 9):
+ * só a própria solicitação, só pending, e só fora da janela de cancelamento.
+ * Sessão de outro cliente responde 'session_not_found' — não vaza existência.
+ */
+export async function cancelOwnPendingSession(
+  id: string, tenantId: string, clientId: string, clientUserId: string,
+  db: DrizzleDB = _db, now: Date = new Date(),
+) {
+  const session = await getSessionOrThrow(id, tenantId, db);
+  if (session.client_id !== clientId) {
+    throw new SchedulingDomainError('session_not_found', { id });
+  }
+  assertClientCanCancel(session.status as SessionStatus);
+
+  const settings = await getOrCreateSettings(tenantId, db);
+  if (withinCancelWindow(session.date, session.start_time, settings.cancel_window_hours, settings.timezone, now)) {
+    throw new SchedulingDomainError('cancel_window_violation', {
+      cancel_window_hours: settings.cancel_window_hours,
+    });
+  }
+
+  const [updated] = await db.update(schedulingSessions)
+    .set({
+      status:      'canceled',
+      canceled_at: new Date(),
+      canceled_by: clientUserId,
+      updated_at:  new Date(),
     })
     .where(eq(schedulingSessions.id, id)).returning();
   return updated;
