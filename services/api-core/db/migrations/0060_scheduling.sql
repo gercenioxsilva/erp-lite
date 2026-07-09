@@ -161,7 +161,7 @@ CREATE INDEX idx_scheduling_package_templates_active ON scheduling_package_templ
 CREATE TABLE scheduling_client_packages (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  client_id       uuid NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  client_id       uuid NOT NULL REFERENCES clients(id),
   template_id     uuid REFERENCES scheduling_package_templates(id) ON DELETE SET NULL,
   area_id         uuid REFERENCES scheduling_areas(id) ON DELETE SET NULL,
   name            varchar(120) NOT NULL,
@@ -187,16 +187,16 @@ CREATE INDEX idx_scheduling_client_packages_status ON scheduling_client_packages
 
 -- Sessão: intervalo meio-aberto [start_time, end_time) na data. Conflito =
 -- mesmo profissional + mesma área + overlap, apenas em status que seguram
--- horário ('pending' segura como 'confirmed'). area_id NOT NULL + RESTRICT:
+-- horário ('pending' segura como 'confirmed'). area_id NOT NULL + FK NO ACTION:
 -- área usada em sessão não pode ser hard-deletada (23503 → 409 area_in_use);
 -- desativar (is_active=false) é o caminho preferencial.
 CREATE TABLE scheduling_sessions (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id        uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  professional_id  uuid NOT NULL REFERENCES scheduling_professionals(id) ON DELETE RESTRICT,
-  client_id        uuid NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  professional_id  uuid NOT NULL REFERENCES scheduling_professionals(id),
+  client_id        uuid NOT NULL REFERENCES clients(id),
   client_name      varchar(255) NOT NULL,
-  area_id          uuid NOT NULL REFERENCES scheduling_areas(id) ON DELETE RESTRICT,
+  area_id          uuid NOT NULL REFERENCES scheduling_areas(id),
   package_id       uuid REFERENCES scheduling_client_packages(id) ON DELETE SET NULL,
   date             date NOT NULL,
   start_time       varchar(5) NOT NULL,
@@ -251,7 +251,7 @@ ALTER TABLE scheduling_sessions ADD CONSTRAINT scheduling_sessions_no_overlap
 CREATE TABLE scheduling_package_movements (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id        uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  package_id       uuid NOT NULL REFERENCES scheduling_client_packages(id) ON DELETE RESTRICT,
+  package_id       uuid NOT NULL REFERENCES scheduling_client_packages(id),
   session_id       uuid REFERENCES scheduling_sessions(id) ON DELETE SET NULL,
   direction        varchar(6) NOT NULL,
   quantity         integer NOT NULL DEFAULT 1,

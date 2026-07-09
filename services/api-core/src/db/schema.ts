@@ -512,7 +512,7 @@ export const simplesRemessas = pgTable('simples_remessas', {
   // Qual empresa/CNPJ emite esta remessa (regra 40) — nullable, resolvido
   // para a empresa padrão do tenant quando omitido, mesmo padrão de invoices.
   company_id: uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
-  client_id:  uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  client_id:  uuid('client_id').notNull().references(() => clients.id),
   // Retorno de remessa: quando não nulo, esta linha É o retorno da remessa
   // original apontada aqui — mesma tabela, sem entidade paralela (thunk evita
   // ciclo de definição, já que a tabela referencia a si mesma).
@@ -1620,7 +1620,7 @@ export const schedulingPackageTemplates = pgTable('scheduling_package_templates'
 export const schedulingClientPackages = pgTable('scheduling_client_packages', {
   id:             uuid('id').primaryKey().defaultRandom(),
   tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  client_id:      uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  client_id:      uuid('client_id').notNull().references(() => clients.id),
   template_id:    uuid('template_id').references(() => schedulingPackageTemplates.id, { onDelete: 'set null' }),
   area_id:        uuid('area_id').references(() => schedulingAreas.id, { onDelete: 'set null' }),
   name:           varchar('name', { length: 120 }).notNull(),
@@ -1642,10 +1642,10 @@ export const schedulingClientPackages = pgTable('scheduling_client_packages', {
 export const schedulingSessions = pgTable('scheduling_sessions', {
   id:              uuid('id').primaryKey().defaultRandom(),
   tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id, { onDelete: 'restrict' }),
-  client_id:       uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id),
+  client_id:       uuid('client_id').notNull().references(() => clients.id),
   client_name:     varchar('client_name', { length: 255 }).notNull(),
-  area_id:         uuid('area_id').notNull().references(() => schedulingAreas.id, { onDelete: 'restrict' }),
+  area_id:         uuid('area_id').notNull().references(() => schedulingAreas.id),
   package_id:      uuid('package_id').references(() => schedulingClientPackages.id, { onDelete: 'set null' }),
   date:            date('date').notNull(),
   start_time:      varchar('start_time', { length: 5 }).notNull(),
@@ -1669,7 +1669,7 @@ export const schedulingSessions = pgTable('scheduling_sessions', {
 export const schedulingPackageMovements = pgTable('scheduling_package_movements', {
   id:              uuid('id').primaryKey().defaultRandom(),
   tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  package_id:      uuid('package_id').notNull().references(() => schedulingClientPackages.id, { onDelete: 'restrict' }),
+  package_id:      uuid('package_id').notNull().references(() => schedulingClientPackages.id),
   session_id:      uuid('session_id').references(() => schedulingSessions.id, { onDelete: 'set null' }),
   direction:       varchar('direction', { length: 6 }).notNull(),
   quantity:        integer('quantity').notNull().default(1),
