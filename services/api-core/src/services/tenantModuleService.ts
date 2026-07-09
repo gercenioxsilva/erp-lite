@@ -10,7 +10,7 @@ import { tenantModules } from '../db/schema';
 
 export type DrizzleDB = typeof _db;
 
-export const MODULE_KEYS = ['service_orders', 'multi_empresa', 'pos', 'mercadolivre', 'sales_pipeline'] as const;
+export const MODULE_KEYS = ['service_orders', 'multi_empresa', 'pos', 'mercadolivre', 'sales_pipeline', 'scheduling'] as const;
 export type ModuleKey = typeof MODULE_KEYS[number];
 
 export async function isModuleEnabled(tenantId: string, moduleKey: ModuleKey, db: DrizzleDB = _db): Promise<boolean> {

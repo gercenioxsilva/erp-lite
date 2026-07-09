@@ -44,6 +44,14 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   marketplace:      { label: 'Marketplace',          actions: { view: 'Ver integração', manage: 'Gerenciar integração de marketplace' } },
   roles:            { label: 'Perfis de Acesso',     actions: { view: 'Ver perfis e permissões', manage: 'Criar/editar perfis e permissões' } },
   portal:           { label: 'Portal do Técnico',    actions: { access: 'Acessar o portal de visitas' } },
+  // Agendamento de Sessões com Pacotes (módulo opcional 'scheduling').
+  // 'manage_all' distingue dono/admin (todas as agendas) do papel
+  // 'professional' (só a própria agenda — escopo aplicado na camada de serviço).
+  scheduling:               { label: 'Agendamentos',        actions: { view: 'Ver agenda e sessões', manage: 'Criar/editar/cancelar sessões e disponibilidade', complete: 'Concluir sessão (debita pacote)', manage_all: 'Gerenciar agendas de todos os profissionais', settings: 'Configurações de agendamento' } },
+  scheduling_areas:         { label: 'Áreas de Atuação',    actions: { view: 'Ver áreas', create: 'Criar área', edit: 'Editar área', delete: 'Excluir área' } },
+  scheduling_professionals: { label: 'Profissionais',       actions: { view: 'Ver profissionais', create: 'Criar profissional', edit: 'Editar profissional', delete: 'Desativar profissional' } },
+  scheduling_packages:      { label: 'Pacotes de Sessões',  actions: { view: 'Ver pacotes e modelos', manage: 'Criar/editar modelos e pacotes', grant: 'Conceder pacote a cliente', payment: 'Alterar status de pagamento' } },
+  scheduling_portal:        { label: 'Portal do Cliente',   actions: { access: 'Acessar o portal de agendamentos' } },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

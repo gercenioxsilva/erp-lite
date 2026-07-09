@@ -47,6 +47,7 @@ import { technicianPortalRoutes }  from './routes/technicianPortal';
 import { rbacRoutes }            from './routes/rbac';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
+import { clientRoleGuard } from './middleware/clientRoleGuard';
 import { syncRbacCatalog } from './rbac/syncRbacCatalog';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
@@ -139,6 +140,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
+  app.addHook('preHandler', clientRoleGuard);
 
   app.addHook('onReady', async () => {
     // Semeia o catálogo RBAC + papéis de sistema (idempotente). Não derruba o

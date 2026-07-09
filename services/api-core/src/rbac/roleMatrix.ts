@@ -22,6 +22,8 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
   { key: 'manager',    name: 'Gestor',              description: 'Operação completa (comercial, estoque, financeiro, campo, relatórios). Sem administração.' },
   { key: 'user',       name: 'Operador',            description: 'Operação do dia a dia: ver, criar e editar. Sem exclusões nem administração.' },
   { key: 'technician', name: 'Técnico',             description: 'Somente o portal de visitas em campo.' },
+  { key: 'professional', name: 'Profissional',      description: 'Agenda própria, disponibilidade, clientes e conclusão de sessões.' },
+  { key: 'client',     name: 'Cliente',             description: 'Somente o portal de agendamentos.' },
 ];
 
 // Helpers de composição sobre o catálogo.
@@ -36,6 +38,7 @@ const OPERATIONAL = [
   'clients', 'materials', 'stock', 'suppliers', 'orders', 'invoices', 'nfse',
   'contracts', 'proposals', 'receivables', 'payables', 'cost_centers', 'sellers',
   'purchase_orders', 'supplier_invoices', 'pos', 'service_orders', 'technicians',
+  'scheduling', 'scheduling_areas', 'scheduling_professionals', 'scheduling_packages',
 ];
 
 // Subconjunto do dia a dia para o Operador (escrita leve, sem excluir).
@@ -57,7 +60,9 @@ const MANAGER = Array.from(new Set([
   'billing:view',
   'tax:view',
   'marketplace:view',
-]));
+// Configuração do agendamento (fuso, antecedência, auto-agendamento) é
+// decisão do dono/admin, não operação — gestor fica de fora.
+])).filter((k) => k !== 'scheduling:settings');
 
 const USER = Array.from(new Set([
   'dashboard:view',
@@ -73,10 +78,27 @@ const USER = Array.from(new Set([
 
 const TECHNICIAN = ['portal:access'];
 
+// Profissional agendável (módulo scheduling): opera a própria agenda —
+// o RBAC dá as ações; o recorte "só a própria agenda" (sem manage_all)
+// é aplicado na camada de serviço via scheduling_professionals.user_id.
+// company:view/billing:view são as mesmas leituras benignas do Operador.
+const PROFESSIONAL = [
+  'scheduling:view', 'scheduling:manage', 'scheduling:complete',
+  'scheduling_areas:view', 'scheduling_professionals:view', 'scheduling_packages:view',
+  'clients:view', 'clients:create', 'clients:edit',
+  'company:view', 'billing:view',
+];
+
+// Cliente/aluno: somente o portal (/v1/portal/*, reforçado pelo
+// clientRoleGuard global — mesma dupla proteção do papel technician).
+const CLIENT = ['scheduling_portal:access'];
+
 export const SYSTEM_ROLE_PERMISSIONS: Record<string, string[]> = {
-  owner:      OWNER,
-  admin:      ADMIN,
-  manager:    MANAGER,
-  user:       USER,
-  technician: TECHNICIAN,
+  owner:        OWNER,
+  admin:        ADMIN,
+  manager:      MANAGER,
+  user:         USER,
+  technician:   TECHNICIAN,
+  professional: PROFESSIONAL,
+  client:       CLIENT,
 };

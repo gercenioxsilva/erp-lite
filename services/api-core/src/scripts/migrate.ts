@@ -89,6 +89,7 @@ const migrations = [
   '0057_materials_notes.sql',
   '0058_sales_pipeline.sql',
   '0059_rbac.sql',
+  '0060_scheduling.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
