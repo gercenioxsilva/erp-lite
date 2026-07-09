@@ -61,6 +61,9 @@ import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
 import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
 import { AccessProfilesPage }  from './pages/access-profiles/AccessProfilesPage';
+import { EmployeesPage }       from './pages/employees/EmployeesPage';
+import { PayrollPage }         from './pages/payroll/PayrollPage';
+import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
@@ -126,6 +129,8 @@ function GuardedRoutes() {
         <Route path="/service-orders"  element={<ServiceOrdersPage />} />
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
         <Route path="/access-profiles" element={<AccessProfilesPage />} />
+        <Route path="/employees"       element={<EmployeesPage />} />
+        <Route path="/payroll"         element={<PayrollPage />} />
         <Route path="/technicians"     element={<TechniciansPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
@@ -148,6 +153,7 @@ export function App() {
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
+              <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />
