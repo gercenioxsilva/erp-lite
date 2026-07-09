@@ -23,6 +23,8 @@ import { NfsePage }        from './pages/nfse/NfsePage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
+import { VerifyEmailPage }    from './pages/auth/VerifyEmailPage';
+import { EmailNotVerifiedScreen } from './components/EmailNotVerifiedScreen';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
 import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 import { ProposalPrintPage }  from './pages/proposals/ProposalPrintPage';
@@ -71,9 +73,13 @@ import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPa
 import { TechnicianVisitDetailPage } from './pages/technician/TechnicianVisitDetailPage';
 
 function GuardedRoutes() {
-  const { user, loading } = useAuth();
+  const { user, loading, tenantActivated } = useAuth();
   if (loading) return <div className="spinner">Carregando…</div>;
   if (!user)   return <Navigate to="/login" replace />;
+  // Ativação de conta por e-mail — só UX (o controle de acesso de verdade é
+  // sempre tenantActivationGuard.ts no backend); evita renderizar um app
+  // cheio de erros 403 pra um tenant ainda não verificado.
+  if (!tenantActivated) return <EmailNotVerifiedScreen />;
   return (
     <Layout>
       <Routes>
@@ -150,6 +156,7 @@ export function App() {
               <Route path="/register"        element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
+              <Route path="/verify-email"    element={<VerifyEmailPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />

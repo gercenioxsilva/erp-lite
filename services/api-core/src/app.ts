@@ -48,6 +48,7 @@ import { serviceOrdersRoutes }     from './routes/serviceOrders';
 import { technicianPortalRoutes }  from './routes/technicianPortal';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
+import { tenantActivationGuard } from './middleware/tenantActivationGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
@@ -129,6 +130,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
   await app.register(technicianPortalRoutes,   { prefix: '/v1' });
 
+  // Ativação de conta roda antes de assinatura/papel — é o gate mais
+  // fundamental (identidade confirmada), faz sentido que ganhe prioridade
+  // se um tenant novo, ainda não verificado, também tiver algum outro
+  // problema de acesso simultâneo.
+  app.addHook('preHandler', tenantActivationGuard);
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
 

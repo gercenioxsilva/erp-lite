@@ -1109,6 +1109,18 @@ const ptBR = {
   'rp.error':           'Token inválido ou expirado.',
   'rp.invalidLink':     'Link inválido ou expirado.',
 
+  // ── Ativação de Conta por E-mail ────────────────────────────────────────
+  've.loadingTitle':  'Confirmando seu e-mail…',
+  've.doneTitle':     'E-mail confirmado! 🎉',
+  've.doneMsg':       'Sua conta está ativa. Você será redirecionado em instantes.',
+  've.error':         'Não foi possível confirmar. O link pode ter expirado.',
+  've.invalidLink':   'Link inválido — falta o token de confirmação.',
+  've.blockedTitle':  'Verifique seu e-mail',
+  've.blockedMsg':    'Enviamos um link de confirmação para {email}. Confirme seu e-mail para ativar sua conta e continuar usando o sistema.',
+  've.resend':        'Reenviar e-mail de confirmação',
+  've.resendSent':    'E-mail reenviado! Confira sua caixa de entrada (e o spam).',
+  've.resendError':   'Erro ao reenviar. Tente novamente em alguns instantes.',
+
   // Dashboard KPIs
   'd.revenueMonth':   'Faturamento este mês',
   'd.vsLastMonth':    'vs. mês anterior',
