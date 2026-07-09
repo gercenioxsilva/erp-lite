@@ -23,6 +23,7 @@ export const PERMISSION_RESOURCES = [
   'receivables', 'payables', 'cost_centers', 'sellers', 'purchase_orders',
   'supplier_invoices', 'dre', 'reports', 'contracts', 'suppliers', 'proposals',
   'sales_pipeline', 'service_orders', 'technicians', 'pos', 'users', 'company', 'billing',
+  'employees', 'payroll',
 ] as const;
 
 export type PermissionResource = typeof PERMISSION_RESOURCES[number];
@@ -133,8 +134,8 @@ export interface DefaultProfileTemplate {
 const ALL_VIEW: PermissionGrant[]   = PERMISSION_RESOURCES.map(resource => ({ resource, action: 'view' as const }));
 const ALL_MANAGE: PermissionGrant[] = PERMISSION_RESOURCES.map(resource => ({ resource, action: 'manage' as const }));
 
-const FINANCE_MANAGE_RESOURCES: PermissionResource[]     = ['receivables', 'payables', 'cost_centers', 'dre', 'reports'];
-const OPERATIONAL_MANAGE_RESOURCES: PermissionResource[] = ['orders', 'service_orders', 'technicians'];
+const FINANCE_MANAGE_RESOURCES: PermissionResource[]     = ['receivables', 'payables', 'cost_centers', 'dre', 'reports', 'payroll'];
+const OPERATIONAL_MANAGE_RESOURCES: PermissionResource[] = ['orders', 'service_orders', 'technicians', 'employees'];
 
 export const DEFAULT_PROFILES: DefaultProfileTemplate[] = [
   {

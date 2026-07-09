@@ -75,6 +75,14 @@ function IcoReports() {
   );
 }
 
+function IcoHr() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="5.5" r="2.5"/><path d="M3.5 15c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+    </svg>
+  );
+}
+
 function IcoMenu() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -198,6 +206,10 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/pos/sales',     label: 'Histórico',       resource: 'pos' },
       { to: '/pos/terminals', label: 'Terminais',       resource: 'pos' },
       { to: '/pos/sessions',  label: 'Sessões',         resource: 'pos' },
+    ]) : []),
+    ...(enabledModules.includes('hr') ? group('hr', t('nav.group.hr'), IcoHr, [
+      { to: '/employees', label: t('nav.employees'), resource: 'employees' },
+      { to: '/payroll',   label: t('nav.payroll'),   resource: 'payroll'   },
     ]) : []),
     ...group('inventory', t('nav.group.inventory'), IcoStock, [
       { to: '/materials',         label: t('nav.materials'),        resource: 'materials'        },
