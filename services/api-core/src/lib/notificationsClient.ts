@@ -10,7 +10,7 @@ type GatedNotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirme
 // All notification types — gated + system (always sent, no config check)
 export type NotificationType = GatedNotificationType | 'user_welcome' | 'password_reset' | 'receivable_due_soon'
   | 'proposal_sent' | 'proposal_accepted' | 'proposal_rejected'
-  | 'technician_welcome' | 'service_visit_assigned';
+  | 'technician_welcome' | 'service_visit_assigned' | 'tenant_email_verification';
 
 const typeToConfigKey: Record<GatedNotificationType, keyof typeof notificationConfigs.$inferSelect> = {
   nfe_authorized:   'notify_nfe_authorized',
@@ -61,6 +61,10 @@ export interface SystemNotificationPayload {
   recipient:  { email: string; name: string };
   data:       Record<string, string | number>;
   from_name?: string;
+  // Cópia opcional — hoje só usado por 'tenant_email_verification' (cópia
+  // pro dono do sistema via SYSTEM_OWNER_EMAIL). Não é um campo genérico
+  // habilitado em todo tipo de e-mail sem necessidade real.
+  cc?: string[];
 }
 
 /** Sends a system-generated email unconditionally (no notification_configs check). */
@@ -79,6 +83,7 @@ export async function sendSystemNotification(payload: SystemNotificationPayload)
       channel:   'email',
       recipient: payload.recipient,
       from_name: payload.from_name ?? 'Orquestra ERP',
+      cc:        payload.cc,
       data:      payload.data,
     }),
   }));
