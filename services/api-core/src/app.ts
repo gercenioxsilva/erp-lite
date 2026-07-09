@@ -14,6 +14,7 @@ import { nfeRoutes }                from './routes/nfe';
 import { nfseRoutes }               from './routes/nfse';
 import { simplesRemessaRoutes }     from './routes/simplesRemessa';
 import { salesPipelineRoutes }      from './routes/salesPipeline';
+import { accessProfilesRoutes }     from './routes/accessProfiles';
 import { notificationConfigRoutes } from './routes/notificationConfig';
 import { receivablesRoutes }        from './routes/receivables';
 import { suppliersRoutes }          from './routes/suppliers';
@@ -92,6 +93,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(nfseRoutes,               { prefix: '/v1' });
   await app.register(simplesRemessaRoutes,     { prefix: '/v1' });
   await app.register(salesPipelineRoutes,      { prefix: '/v1' });
+  await app.register(accessProfilesRoutes,     { prefix: '/v1' });
   await app.register(notificationConfigRoutes, { prefix: '/v1' });
   await app.register(receivablesRoutes,        { prefix: '/v1' });
   await app.register(suppliersRoutes,          { prefix: '/v1' });

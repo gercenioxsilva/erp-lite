@@ -78,6 +78,12 @@ export const users = pgTable('users', {
   status:        varchar('status', { length: 20 }).notNull().default('active'),
   password_reset_token:   varchar('password_reset_token',   { length: 255 }),
   password_reset_expires: timestamp('password_reset_expires', { withTimezone: true }),
+  // Perfil de acesso (RBAC, migration 0059) — NULL para role='owner'/'technician',
+  // que nunca usam perfil (seu acesso é 100% definido por role). Referência
+  // adiantada segura: accessProfiles é definida mais abaixo neste arquivo, mas
+  // o callback só é avaliado tardiamente (mesmo padrão já usado por
+  // salesOpportunities → sellers/proposals).
+  access_profile_id: uuid('access_profile_id').references((): AnyPgColumn => accessProfiles.id, { onDelete: 'set null' }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1474,4 +1480,41 @@ export const serviceVisitPhotos = pgTable('service_visit_photos', {
   caption:          varchar('caption', { length: 255 }),
   idempotency_key:  varchar('idempotency_key', { length: 80 }).notNull(),
   created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Controle de Perfil de Acesso por Tenant (RBAC) — migration 0059
+// ──────────────────────────────────────────────────────────────────────────────
+// role continua existindo, mas com semântica reduzida a 2 papéis de sistema
+// não-configuráveis (owner/technician) — todo o resto vira access_profile_id.
+// PERMISSION_RESOURCES/actions ficam em código (accessControlDomain.ts), não
+// numa tabela de catálogo — mesmo racional de MODULE_KEYS.
+
+export const accessProfiles = pgTable('access_profiles', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 255 }),
+  is_system:   boolean('is_system').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accessProfilePermissions = pgTable('access_profile_permissions', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  access_profile_id: uuid('access_profile_id').notNull().references(() => accessProfiles.id, { onDelete: 'cascade' }),
+  resource:          varchar('resource', { length: 40 }).notNull(),
+  action:            varchar('action', { length: 10 }).notNull(),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accessProfileEvents = pgTable('access_profile_events', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  access_profile_id: uuid('access_profile_id').references(() => accessProfiles.id, { onDelete: 'set null' }),
+  type:              varchar('type', { length: 30 }).notNull(),
+  changed_by:        uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
+  payload:           jsonb('payload'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

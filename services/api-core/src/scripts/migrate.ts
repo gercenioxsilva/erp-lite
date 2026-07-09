@@ -88,6 +88,7 @@ const migrations = [
   '0056_company_emission_scope.sql',
   '0057_materials_notes.sql',
   '0058_sales_pipeline.sql',
+  '0059_access_profiles.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
