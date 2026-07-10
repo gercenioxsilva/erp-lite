@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import ptBR, { TKey } from './pt-BR';
 import en from './en';
+import { useBranding } from '../branding/BrandingProvider';
 
 type Lang = 'pt-BR' | 'en';
 const TRANSLATIONS: Record<Lang, Record<string, string>> = { 'pt-BR': ptBR, en };
@@ -18,6 +19,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(
     () => (localStorage.getItem(LS_KEY) as Lang) ?? 'pt-BR',
   );
+  // Overrides de terminologia do segmento do tenant (ex.: Cliente→Aluno).
+  // Aplicados só em pt-BR: o catálogo de segmentos é em português (verticais BR).
+  const { preset } = useBranding();
 
   function setLang(l: Lang) {
     localStorage.setItem(LS_KEY, l);
@@ -25,6 +29,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }
 
   function t(key: TKey): string {
+    if (lang === 'pt-BR') {
+      const override = preset.labelOverrides[key];
+      if (override) return override;
+    }
     return TRANSLATIONS[lang][key] ?? TRANSLATIONS['pt-BR'][key] ?? key;
   }
 

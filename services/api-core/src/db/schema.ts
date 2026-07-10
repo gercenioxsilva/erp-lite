@@ -68,6 +68,13 @@ export const tenants = pgTable('tenants', {
   // Backfill obrigatório: tenants existentes antes desta migration nascem
   // com activated_at = created_at (ver 0061_tenant_activation.sql).
   activated_at: timestamp('activated_at', { withTimezone: true }),
+  // Perfil de Segmento + Branding (migration 0065). segment_key = qual preset
+  // (barbearia, autoescola…); labels e paleta-padrão vivem no catálogo em código
+  // (apps/backoffice/src/branding/segments.ts). brand_primary/accent são hex
+  // '#RRGGBB' de override manual — NULL = usar a cor do preset do segmento.
+  segment_key:   varchar('segment_key',   { length: 40 }),
+  brand_primary: varchar('brand_primary', { length: 9  }),
+  brand_accent:  varchar('brand_accent',  { length: 9  }),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

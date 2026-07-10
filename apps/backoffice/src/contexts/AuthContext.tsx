@@ -12,6 +12,12 @@ interface AuthUser {
   // e-mail do owner. Só controla UX (tela de bloqueio); o controle de
   // acesso de verdade é sempre tenantActivationGuard.ts no backend.
   tenant_activated_at: string | null;
+  // Branding do tenant (migration 0065) — entregue no boot para o
+  // BrandingProvider aplicar cores/labels sem flash. brand_* NULL = usar a
+  // cor do preset do segmento.
+  segment_key:   string | null;
+  brand_primary: string | null;
+  brand_accent:  string | null;
 }
 
 interface AuthContextValue {
@@ -36,6 +42,7 @@ interface RegisterData {
   name:         string;
   email:        string;
   password:     string;
+  segment_key?: string;
 }
 
 interface AuthResponse {
