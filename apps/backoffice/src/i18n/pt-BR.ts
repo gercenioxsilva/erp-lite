@@ -1357,6 +1357,8 @@ const ptBR = {
   'comp.modules.salesPipelineDesc': 'CRM com quadro Kanban configurável: acompanhe leads e oportunidades desde o primeiro contato até ganho/perdido, registre ligações/reuniões e converta em Proposta com um clique quando estiver maduro.',
   'comp.modules.hr':     'RH Simplificado',
   'comp.modules.hrDesc': 'Cadastro de funcionários e folha de pagamento calculada (INSS/IRRF/FGTS/férias/13º) — ferramenta interna de organização e custo, não substitui o envio ao eSocial nem o sistema do seu contador.',
+  'comp.modules.scheduling':     'Agendamentos',
+  'comp.modules.schedulingDesc': 'Agenda de sessões com pacotes: profissionais, áreas de atuação, disponibilidade, pacotes de sessões do cliente e portal de auto-agendamento.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',
