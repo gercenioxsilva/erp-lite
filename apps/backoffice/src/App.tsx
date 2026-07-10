@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BrandingProvider }      from './branding/BrandingProvider';
 import { I18nProvider }          from './i18n';
 import { ModalProvider }         from './contexts/ModalContext';
 import { Modal }         from './components/Modal';
@@ -193,13 +194,17 @@ function GuardedRoutes() {
 }
 
 export function App() {
+  // Ordem dos providers: AuthProvider primeiro (fonte de segment_key/branding),
+  // depois BrandingProvider (aplica cores + expõe o preset), depois I18nProvider
+  // (layer de override de label consome o preset) e ModalProvider por último.
   return (
     <BrowserRouter>
-      <I18nProvider>
-        <ModalProvider>
-          <AuthProvider>
-            <Modal />
-            <Routes>
+      <AuthProvider>
+        <BrandingProvider>
+          <I18nProvider>
+            <ModalProvider>
+              <Modal />
+              <Routes>
               <Route path="/login"           element={<LoginPage />} />
               <Route path="/register"        element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -224,9 +229,10 @@ export function App() {
               </Route>
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
-          </AuthProvider>
-        </ModalProvider>
-      </I18nProvider>
+            </ModalProvider>
+          </I18nProvider>
+        </BrandingProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

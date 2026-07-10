@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
-import { db, invoices, invoiceItems, receivables, orders } from '../db';
+import { db, invoices, invoiceItems, orders } from '../db';
 import { applyEntry } from '../services/costCenterStock';
 import { cancelCommission } from '../services/commissionService';
 import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
+import { createReceivableFromInvoice, type DrizzleDB } from '../services/receivableService';
 import { requirePermission } from '../lib/requirePermission';
 
 interface InvoiceItemPayload {
@@ -215,15 +216,19 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         .set({ status: 'issued', number, issue_date: issueDate })
         .where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
 
-      await tx.insert(receivables).values({
-        tenant_id:   invoice.tenant_id,
-        client_id:   invoice.client_id,
-        invoice_id:  invoice.id,
+      // Mesma função usada pelo nfeResultsWorker.ts na autorização real via
+      // SEFAZ (regra 60) — garante que os dois caminhos que podem "emitir"
+      // uma nota nunca divergem na criação do recebível, e que tentar duas
+      // vezes pra mesma nota (ex.: usuário clica os dois botões) nunca
+      // duplica (UNIQUE parcial em receivables.invoice_id, migration 0065).
+      await createReceivableFromInvoice({
+        tenantId:    invoice.tenant_id,
+        invoiceId:   invoice.id,
+        clientId:    invoice.client_id,
         description: `NF-e nº ${number} (série ${invoice.serie})`,
         amount:      String(invoice.total),
-        due_date:    dueDate,
-        status:      'pending',
-      });
+        dueDate,
+      }, tx as unknown as DrizzleDB);
     });
 
     return { ok: true, status: 'issued', number };

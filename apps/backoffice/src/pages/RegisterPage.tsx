@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n';
 import type { TKey } from '../i18n/pt-BR';
 import { maskCNPJ, digits, normalizeCNPJ } from '../lib/brazil';
+import { SEGMENTS } from '../branding/segments';
 import { api, actionErrorMessage } from '../lib/api';
 import { useSubscription } from '../hooks/useSubscription';
 import { PlanCard } from './billing/PlanCard';
@@ -46,6 +47,7 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
 const INIT = {
   company_name: '', trade_name: '', tax_id: '', tax_id_type: 'CNPJ',
   name: '', email: '', password: '', password2: '',
+  segment_key: 'generic',
 };
 
 interface CompanyStepProps {
@@ -98,6 +100,14 @@ function CompanyStep({ form, set, onNext, t }: CompanyStepProps) {
             <option value="OTHER">Other</option>
           </select>
         </div>
+      </div>
+
+      <div className="field">
+        <label htmlFor="segment_key">{t('r.segment')}</label>
+        <select id="segment_key" value={form.segment_key} onChange={set('segment_key')}>
+          {SEGMENTS.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{t('r.segmentHint')}</span>
       </div>
 
       <div style={{ marginTop: 24 }}>
@@ -276,6 +286,7 @@ export function RegisterPage() {
         name:         form.name,
         email:        form.email,
         password:     form.password,
+        segment_key:  form.segment_key,
       });
       setStep(3);
     } catch (err: unknown) {

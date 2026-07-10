@@ -6,6 +6,7 @@ import { db, tenants, users } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
 import { getStripe } from '../lib/stripeClient';
 import { getPermissionsList } from '../rbac/permissionService';
+import { isValidSegmentKey } from '../lib/segments';
 import {
   issueVerificationToken, sendVerificationEmail, verifyEmail, resendVerification,
   TenantActivationDomainError, type DrizzleDB,
@@ -22,6 +23,8 @@ const registerBody = {
     name:          { type: 'string', maxLength: 255 },
     email:         { type: 'string', format: 'email' },
     password:      { type: 'string', minLength: 8 },
+    // Segmento escolhido no onboarding — define o preset de branding do tenant.
+    segment_key:   { type: 'string', maxLength: 40 },
   },
   additionalProperties: false,
 };
@@ -51,6 +54,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     const email        = ((request.body as any).email as string).toLowerCase().trim();
     const passwordHash = await bcrypt.hash(password, 12);
     const displayName  = name || email.split('@')[0];
+    // Segmento inválido/ausente cai no 'generic' — nunca bloqueia o cadastro.
+    const rawSegment   = (request.body as any).segment_key as string | undefined;
+    const segmentKey   = rawSegment && isValidSegmentKey(rawSegment) ? rawSegment : 'generic';
 
     try {
       const result = await db.transaction(async (tx) => {
@@ -59,8 +65,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           trade_name: trade_name || company_name,
           tax_id,
           tax_id_type,
-          status: 'trial',
-          plan:   'starter',
+          status:      'trial',
+          plan:        'starter',
+          segment_key: segmentKey,
         }).returning({ id: tenants.id });
 
         const [user] = await tx.insert(users).values({
@@ -171,6 +178,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       id: users.id, email: users.email, name: users.name,
       role: users.role, tenant_id: users.tenant_id, status: users.status,
       tenant_activated_at: tenants.activated_at,
+      // Branding do tenant entregue no boot (strings pequenas) — o BrandingProvider
+      // do frontend aplica cores/labels sem "flash". Logo (base64 grande) fica de
+      // fora daqui: a sidebar o busca via GET /v1/tenant sob demanda.
+      segment_key:   tenants.segment_key,
+      brand_primary: tenants.brand_primary,
+      brand_accent:  tenants.brand_accent,
     }).from(users).innerJoin(tenants, eq(users.tenant_id, tenants.id)).where(eq(users.id, userId));
     if (!row) return null;
 
