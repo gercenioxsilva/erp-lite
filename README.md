@@ -2,522 +2,268 @@
 
 > **Este README é o prompt principal para geração de código por IA.**
 > Antes de implementar qualquer funcionalidade, leia este arquivo na íntegra.
-> Ele define a fonte da verdade sobre schema, rotas, componentes e convenções
-> — tanto para o backoffice **web** quanto para o **app mobile Flutter**.
+> Ele define a fonte da verdade sobre arquitetura, convenções e regras de negócio do backoffice **web** (`apps/backoffice`) e da API (`services/api-core` + `services/lambda-*`).
+> **Não existe app mobile neste repositório** — só `apps/backoffice`. Se alguma referência a Flutter/mobile aparecer em código antigo ou comentário, é resíduo a ignorar, nunca fonte de verdade.
 
 ---
 
 ## Protocolo Anti-alucinação (leia primeiro)
 
-Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código:
+Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. Fatos que mudam com frequência (schema exato, lista de rotas) **apontam para o código-fonte em vez de serem copiados aqui** — copiar gera drift (este README já teve isso corrigido uma vez; não repetir).
 
-1. **Nunca inventar tabelas ou colunas.** O schema de banco de dados está documentado neste README e nos arquivos `services/api-core/db/migrations/000N_*.sql`. Tabelas existentes: `tenants`, `users`, `materials`, `material_images`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `supplier_contacts`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events` (assinatura Stripe — regra 43), `tax_ibs_cbs_rates` (Reforma Tributária — regra 44), `material_price_history` (histórico de preço de materiais, append-only — regra 45), `simples_remessas`, `simples_remessa_items`, `simples_remessa_events` (NF-e de Simples Remessa — regra 51). Colunas adicionadas em v10.0: `users.password_reset_token`, `users.password_reset_expires`; `receivables.due_notification_sent`; `payables.recurrence`, `payables.recurrence_day`, `payables.recurrence_end_date`, `payables.recurrence_last_generated`, `payables.parent_payable_id`; `notification_configs.notify_receivable_due_days`. Colunas adicionadas em v11.0: `tenants.itau_client_id`, `tenants.itau_client_secret`. Colunas adicionadas em v13.0: `payables.cost_center_id`, `orders.cost_center_id`, `invoices.cost_center_id`, `receivables.cost_center_id`. Colunas adicionadas em v14.0: `orders.seller_id`, `invoices.seller_id`. Colunas adicionadas em v15.0: `tenants.simples_rbt12`; `invoices.fcp_total`, `invoices.icms_difal_total`; `invoice_items.fcp_rate`, `invoice_items.fcp_value`, `invoice_items.icms_difal_value`. Colunas adicionadas em v16.0: `payables.dre_category_id`. Colunas adicionadas em v17.0: `users.role` passa a aceitar `'technician'` (CHECK constraint atualizado). Colunas adicionadas em v19.0 (migration 0046): `nfe_configs.id` (nova PRIMARY KEY — `tenant_id` deixa de ser PK, vira FK comum), `nfe_configs.is_default`, `nfe_configs.is_active`; `invoices.company_id`, `nfse_invoices.company_id`, `service_contracts.company_id` (FK opcional para `nfe_configs.id` — regra 40). Colunas adicionadas em v20.0 (migration 0047): `boletos.bank_account_id` (FK opcional para `bank_accounts.id` — regra 41); `tenants.bank_code/agency/account/account_digit/billing_provider/billing_days_to_expire/itau_client_id/itau_client_secret` ficam deprecated-mas-presentes (não mais lidos/escritos diretamente — ver regra 41). Colunas adicionadas em v21.0 (migration 0048): `orders.marketplace_order_id`, `orders.origin` (`'erp'`|`'mercadolivre'` — regra 42). Colunas adicionadas em `tenants` pela migration 0026 (assinatura Stripe — regra 43): `stripe_customer_id`, `stripe_subscription_id`, `stripe_price_id`, `subscription_period_end`, `cancel_at_period_end`. Reaproveita `tenants.status`/`tenants.trial_ends_at`, já existentes desde a migration 0001. Colunas adicionadas pela migration 0049 (Reforma Tributária IBS/CBS — regra 44): `materials.class_trib`; `invoice_items.class_trib/ibs_base/ibs_rate/ibs_value/cbs_base/cbs_rate/cbs_value`; `invoices.ibs_total/cbs_total`; `pos_sale_items.class_trib`. Antes de usar qualquer tabela/coluna, confirme que ela existe. **`material_price_history`** (migration 0050 — regra 45): `id`, `tenant_id`, `material_id`, `sale_price_before/after`, `cost_price_before/after` (nullable, NULL = não mudou naquele evento), `source` (`'manual_edit'`|`'bulk_import'`), `import_batch_id`, `created_by`, `created_at` — append-only, nunca UPDATE/DELETE. Colunas adicionadas pela migration 0051 (parcelamento de NF-e de Entrada — regra 47): `supplier_invoices.installments`, `supplier_invoices.installment_group_id`; `payables.installment_number`, `payables.installment_total`, `payables.installment_group_id` (não são FK — só correlacionam as N parcelas de uma mesma nota). Colunas adicionadas pela migration 0052 (faturamento de Ordem de Serviço — regra 48): `receivables.service_order_id` (FK opcional pra `service_orders.id`, **UNIQUE parcial quando não nulo** — no máximo um receivable por OS). Migration 0053 (correção de price_id do Stripe — regra 50): nenhuma coluna nova, só `UPDATE plans.stripe_price_id`. Migration 0054: alinha os CHECK constraints de `tenants.status`/`tenants.plan` ao vocabulário do webhook do Stripe (regra 50). **`simples_remessas`, `simples_remessa_items`, `simples_remessa_events`** (migration 0055 — regra 51): NF-e de Simples Remessa — entidade própria, não reaproveita `invoices`. `simples_remessas`: `id`, `tenant_id`, `company_id` (nullable, regra 40), `client_id` (obrigatório), `parent_remessa_id` (self-FK nullable — preenchido quando esta linha É o retorno de outra remessa), `motivo`, `cfop`, `natureza_operacao`, `status` (`draft`/`pending`/`processing`/`authorized`/`rejected`/`cancelled` — único eixo, sem duplicar com um `nfe_status` separado), `subtotal`, `total`, `notes`, `nfe_chave/protocol/auth_date/reject_reason/attempts/xml_s3_key/danfe_url` (mesmo vocabulário de `invoices.*`), `stock_applied_at` (idempotência da baixa/devolução de estoque). `simples_remessa_items`: `icms_cst`/`class_trib`/`ibs_rate`/`ibs_value`/`cbs_rate`/`cbs_value` — situação tributária resolvida pelo domínio de remessa (nunca herdada do cadastro de venda do material), mas hoje só refletida na mensagem enviada à Focus na emissão; as colunas em si ficam no default `'0'` (não há UPDATE pós-cálculo — ver correção de causa raiz abaixo sobre `ibs_rate`/`cbs_rate` nunca poderem ser zero no payload da Focus, que é sobre a ALÍQUOTA enviada à SEFAZ, não sobre estas colunas de tabela). `simples_remessa_events`: append-only, mesmo padrão de `nfe_events`/`nfse_events`. Colunas adicionadas pela migration 0056 (responsabilidade de emissão por empresa — regra 53): `nfe_configs.emite_nfe` (boolean, default `true`), `nfe_configs.emite_nfse` (boolean, default `true`) — declaram se aquele CNPJ está autorizado a emitir NF-e de venda e/ou NFS-e de serviço; default `true`/`true` preserva o comportamento de todo tenant existente. Colunas adicionadas pela migration 0057 (regra 54): `materials.notes` (observações internas, distinto de `description`). **`sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`** (migration 0058 — regra 55): Funil de Vendas/CRM. `sales_pipeline_stages`: `id`, `tenant_id`, `name`, `sort_order`, `is_active` — etapas configuráveis pelo tenant, semeadas com um default (`DEFAULT_STAGES`) na primeira leitura. `sales_opportunities`: `id`, `tenant_id`, `stage_id` (FK RESTRICT), `client_id`/`seller_id`/`proposal_id` (nullable), `title`, `contact_name/email/phone`, `value`, `source`, `status` (`open`|`won`|`lost` — eixo separado de `stage_id`, mesmo padrão "status vs. etapa" da regra 51), `lost_reason`, `expected_close_date`, `notes`, `won_at`/`lost_at`, `created_by`. `sales_opportunity_activities`: append-only, mesmo padrão de `nfe_events`/`simples_remessa_events` — `type` (`note`|`call`|`meeting`|`stage_change`|`won`|`lost`|`proposal_linked`). **`access_profiles`, `access_profile_permissions`, `access_profile_events`** (migration 0059 — regra 56): Controle de Perfil de Acesso (RBAC). `access_profiles`: `id`, `tenant_id`, `name`, `description`, `is_system` (marca origem — perfil semeado é editável igual a um criado do zero). `access_profile_permissions`: `id`, `tenant_id`, `access_profile_id` (FK CASCADE), `resource`, `action` (`'view'|'manage'`, CHECK) — presença da linha é o grant, UNIQUE `(access_profile_id, resource, action)`. `access_profile_events`: append-only, mesmo padrão de `nfe_events` — `type` (`'created'|'renamed'|'permissions_changed'|'deleted'|'user_assigned'`). Coluna adicionada em `users` pela migration 0059: `access_profile_id` (FK nullable pra `access_profiles.id`, `ON DELETE SET NULL` — `NULL` para `role='owner'`/`'technician'`, que nunca usam perfil). **`employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`** (migration 0060 — regra 57): RH Simplificado. `employees`: `id`, `tenant_id`, `company_id`/`user_id` (nullable), `name`, `cpf` (UNIQUE por tenant), `email`, `phone`, `role_title`, `regime` (`'clt'|'pro_labore'`), `base_salary`, `cost_center_id` (nullable), `hire_date`, `termination_date` (nullable), `is_active`. `payroll_runs`: `id`, `tenant_id`, `company_id` (nullable), `reference_month`, `status` (`'draft'|'closed'`), totais em cache (`gross_total`/`deductions_total`/`net_total`/`employer_charges_total`), `closed_at`/`closed_by`, UNIQUE `(tenant_id, company_id, reference_month)`. `payroll_entries`: `id`, `tenant_id`, `payroll_run_id` (FK CASCADE), `employee_id` (FK RESTRICT), snapshot de `regime`/`base_salary`, `extra_earnings`/`extra_deductions` (jsonb, array de `{description, amount}`), `inss_value`/`irrf_value`/`fgts_value`/`ferias_provisao`/`decimo_terceiro_provisao`, totais, `payable_id` (nullable, preenchido só ao fechar a folha). `payroll_tax_brackets`: **global, sem `tenant_id`** — INSS/IRRF são faixas federais; `type` (`'inss'|'irrf'`), `min_value`/`max_value`/`rate`/`deduction_value`/`valid_from`, seed com as faixas 2026 (INSS confirmado por pesquisa; IRRF acima de R$5.000 é uma aproximação não-oficial, ver regra 57). Colunas adicionadas pela migration 0061 (Ativação de Conta por E-mail — regra 58): `tenants.activated_at` (nullable — `NULL` bloqueia o tenant, backfillado com `created_at` pra todo tenant pré-existente); `users.email_verification_token`, `users.email_verification_expires`, `users.email_verified_at` (colunas DEDICADAS, nunca reaproveitam `password_reset_token`/`password_reset_expires`). Coluna adicionada pela migration 0064 (Boleto C6 Bank — regra 59): `bank_accounts.credentials` (jsonb genérico por provedor — `{client_id, client_secret}` Itaú, `{client_id, client_secret, cert, key}` C6; `itau_client_id`/`itau_client_secret` viram deprecated-mas-presentes, mesmo tratamento das colunas de `tenants` na regra 41). Migration 0065 (correção de conta a receber ausente na autorização de NF-e — regra 60): nenhuma coluna nova, só `CREATE UNIQUE INDEX uq_receivables_invoice ON receivables(invoice_id) WHERE invoice_id IS NOT NULL` (mesmo padrão da UNIQUE parcial de `service_order_id`, migration 0052).
+1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`.
 
-2. **Nunca inventar rotas de API.** Todas as rotas autenticadas usam `onRequest: [(fastify as any).authenticate]` e extraem `tenantId` do JWT. Os fluxos de integração entre serviços estão detalhados na seção "Diagramas de Fluxo de Negócio". Rotas existentes:
-   - `POST /v1/auth/login` · `POST /v1/auth/register` — gera token de verificação de e-mail (48h) na mesma transação, dispara `tenant_email_verification` (regra 58) · `GET /v1/auth/me` — inclui `tenant_activated_at` (regra 58) · `GET /v1/auth/permissions` — permissões efetivas do usuário logado, RBAC (regra 56), mesmo papel de bootstrap que `GET /v1/tenant/modules` tem hoje
-   - `POST /v1/auth/forgot-password` · `POST /v1/auth/reset-password`
-   - `POST /v1/auth/verify-email` — sem autenticação, `{token}` no body · `POST /v1/auth/resend-verification` — autenticado, reenvia pro próprio e-mail do usuário logado, cooldown de 60s (Ativação de Conta por E-mail, regra 58)
-   - `GET|POST|PATCH|DELETE /v1/clients(/:id)?` · `POST /v1/clients/import`
-   - `GET /v1/clients/:id/contacts` · `POST|PATCH|DELETE /v1/clients/:id/contacts(/:cid)?`
-   - `GET /v1/clients/:id/history` — pedidos + notas + recebíveis do cliente (360°)
-   - `GET|POST|PATCH /v1/materials(/:id)?` · `POST /v1/materials/import` — aceita `update_existing`/`dry_run` opcionais (regra 45); `PATCH` grava histórico de preço quando `sale_price`/`cost_price` mudam. Campo `notes` (regra 54, observações internas) aceito em `POST`/`PATCH` e mapeado na importação pela coluna `observacoes` — só na criação de SKU novo, nunca sobrescrito em `update_existing` (mesma regra de `descricao`/`categoria`/`marca`).
-   - `GET /v1/materials/:id/price-history` — histórico append-only de preço (regra 45)
-   - `GET|POST|PATCH|DELETE /v1/materials/:id/images(/:iid)?`
-   - `GET /v1/stock` · `GET /v1/stock/movements` · `GET /v1/stock/alerts`
-   - `POST /v1/materials/:id/stock/movements`
-   - `GET|POST|PATCH /v1/orders(/:id)?` · `POST /v1/orders/:id/confirm` · `POST /v1/orders/:id/deliver` · `POST /v1/orders/:id/cancel`
-   - `GET|POST|PATCH /v1/invoices(/:id)?` · `POST /v1/invoices/:id/emit` · `POST /v1/invoices/:id/cancel`
-   - `GET /v1/invoices/:id/nfe-status` · `GET /v1/invoices/:id/events`
-   - `POST /v1/tax/calculate` — aceita `company_id` opcional (regra 40)
-   - `GET|PUT /v1/nfe-config` — sempre opera sobre a empresa PADRÃO do tenant (retrocompatível, regra 40)
-   - `GET|POST|PATCH|DELETE /v1/companies(/:id)?` · `PATCH /v1/companies/:id/set-default` — empresas/CNPJs do tenant (regra 40); `POST` (criar 2ª+ empresa) gated por `requireModule('multi_empresa')`, demais endpoints sempre disponíveis
-   - `GET|POST|PATCH|DELETE /v1/bank-accounts(/:id)?` · `PATCH /v1/bank-accounts/:id/set-default` — contas bancárias por empresa (regra 41), sem gate de módulo; `GET` aceita `?company_id=` opcional; aceita `billing_provider: 'c6'` + `credentials` genérico (regra 59), nenhuma rota nova
-   - `GET|POST|PATCH /v1/nfse(/:id)?` · `POST /v1/nfse/:id/emit`
-   - `GET|POST /v1/simples-remessas(/:id)?` · `POST /v1/simples-remessas/:id/emit` · `POST /v1/simples-remessas/:id/retorno` · `GET /v1/simples-remessas/:id/events` — NF-e de Simples Remessa (regra 51), entidade própria (não `invoices`), reaproveita a mesma fila/worker de emissão de NF-e discriminada por `type: 'remessa'`
-   - `GET|POST|PATCH|DELETE /v1/receivables(/:id)?` · `POST /v1/receivables/:id/payments` · `DELETE /v1/receivables/:id/payments/:pid`
-   - `POST /v1/receivables/:id/emit-boleto` — aceita `bank_account_id` opcional (regra 41), default a conta padrão do tenant · `POST /v1/receivables/:id/expire-boleto`
-   - `GET|POST|PATCH|DELETE /v1/payables(/:id)?` · `POST /v1/payables/:id/payments` · `DELETE /v1/payables/:id/payments/:pid`
-   - `GET|POST|PATCH|DELETE /v1/suppliers(/:id)?` · `GET /v1/suppliers/:id/payables`
-   - `GET /v1/suppliers/:id/contacts` · `POST /v1/suppliers/:id/contacts` · `PATCH|DELETE /v1/suppliers/:id/contacts/:cid` — autenticado por JWT (regra 39), diferente de `client_contacts`
-   - `GET|POST|PATCH /v1/service-contracts(/:id)?` · `POST /v1/service-contracts/:id/billings`
-   - `GET /v1/users(/:id)?` — aberto a qualquer autenticado do tenant · `POST|PATCH|DELETE /v1/users(/:id)?` — gated por `requireRole('owner')` (regra 56); `tenant_id` sempre de `request.user.tenantId`, nunca de query/body (correção de segurança, regra 56); `PATCH` aceita `access_profile_id` (atribuição de perfil de acesso), nunca `role`
-   - `GET /v1/access-profiles(/:id/permissions)?` — aberto a qualquer autenticado do tenant · `GET /v1/access-profiles/catalog` — `PERMISSION_RESOURCES`/ações conhecidas · `POST|PATCH|DELETE /v1/access-profiles(/:id)?` · `PUT /v1/access-profiles/:id/permissions` (replace-all dos grants) — todas as mutações gated por `requireRole('owner')` (regra 56)
-   - `GET|POST|PATCH|DELETE /v1/employees(/:id)?` — cadastro de funcionários (regra 57) — gated por `requireModule('hr')` + `requirePermission('employees', 'view'|'manage')`
-   - `GET|POST /v1/payroll(/:id)?` · `PATCH /v1/payroll/entries/:id` (ajustes extras, só em `draft`) · `POST /v1/payroll/:id/close` (irreversível, gera 1 `payables` por funcionário) · `GET /v1/payroll/entries/:id/print` (holerite) — RH Simplificado (regra 57), nunca envia nada ao eSocial — gated por `requireModule('hr')` + `requirePermission('payroll', 'view'|'manage')`
-   - `GET|PATCH /v1/tenant` — campos bancários no request/response mantidos por retrocompatibilidade, mas lidos/escritos via `bankAccountService` (regra 41), não mais colunas de `tenants` · `PUT|DELETE /v1/tenant/logo`
-   - `GET|POST|PATCH /v1/notification-config`
-   - `GET|POST|PATCH|DELETE /v1/proposals(/:id)?`
-   - `POST /v1/proposals/:id/send` · `POST /v1/proposals/:id/convert` · `POST /v1/proposals/:id/duplicate` · `POST /v1/proposals/:id/cancel`
-   - `GET /v1/proposals/:id/print` — mesmos dados do portal público (`/v1/public/proposals/:token`), porém autenticado por tenantId; funciona para qualquer status (inclusive `draft`) e nunca altera status/`public_viewed_at`
-   - `GET /v1/public/proposals/:token` · `POST /v1/public/proposals/:token/accept` · `POST /v1/public/proposals/:token/reject`
-   - `GET /v1/dashboard` · `GET /v1/dashboard/cashflow` — KPIs + fluxo de caixa projetado (próximas 12 semanas)
-   - `GET /v1/reports/overdue` — contas a receber vencidas com nome do cliente
-   - `GET /v1/reports/top-products?days=30` — ranking de produtos por faturamento
-   - `GET /v1/cost-centers` · `POST /v1/cost-centers` · `GET /v1/cost-centers/active`
-   - `GET /v1/cost-centers/:id` · `PATCH /v1/cost-centers/:id` · `DELETE /v1/cost-centers/:id`
-   - `GET /v1/cost-centers/:id/stock` · `GET /v1/cost-centers/:id/movements`
-   - `POST /v1/cost-centers/:id/entries` · `POST /v1/cost-centers/:id/adjustments`
-   - `GET|POST|PATCH|DELETE /v1/sellers(/:id)?` · `GET /v1/sellers/active`
-   - `GET /v1/sellers/:id/commissions` — extrato de comissões do vendedor (histórico por venda)
-   - `GET /v1/reports/commissions?from=&to=` — ranking de comissão por vendedor
-   - `GET /v1/tax/simples-effective-rate` — alíquota efetiva estimada do Simples Nacional (Anexo I) pelo RBT12 do tenant (informativo)
-   - `GET|POST|PATCH /v1/purchase-orders(/:id)?` (regra 52, `PATCH` só em `draft`, edita header + itens) · `POST /v1/purchase-orders/:id/approve` · `POST /v1/purchase-orders/:id/cancel`
-   - `GET|POST /v1/supplier-invoices(/:id)?` · `PATCH /v1/supplier-invoices/:id` (regra 49, só em `draft`) · `POST /v1/supplier-invoices/:id/confirm` · `POST /v1/supplier-invoices/:id/cancel` · `POST /v1/supplier-invoices/lookup-by-key` — autofill pela chave de acesso via Focus NF-e/MDe (regra 46), só leitura. Suporta parcelamento (`installments`, regra 47) — confirmar gera N `payables` com vencimento mensal. `GET /v1/supplier-invoices/:id/document?format=pdf|xml` (regra 49) — PDF/XML da nota de terceiro via Focus, em base64.
-   - `GET /v1/reports/dre?from=YYYY-MM-DD&to=YYYY-MM-DD` — DRE Gerencial (Caminho A — sem dupla entrada contábil)
-   - `GET /v1/dre/categories` — categorias DRE disponíveis para o tenant (globais + personalizadas)
-   - `GET /v1/tenant/modules` · `PATCH /v1/tenant/modules/:key` — módulos opcionais habilitados por tenant (regra 38; `MODULE_KEYS` atuais: `service_orders`, `multi_empresa`, `pos`, `mercadolivre`, `sales_pipeline`, `hr`); `PATCH` gated por `requirePermission('company', 'manage')` (regra 56)
-   - `GET|POST /v1/technicians(/:id)?` · `PATCH /v1/technicians/:id/active` · `PATCH /v1/technicians/:id` (regra 54, edita dados cadastrais, nunca senha) · `POST /v1/technicians/:id/resend-invite` (regra 54, reenvia o link de definição de senha) — gated por `requireModule('service_orders')`
-   - `GET|POST /v1/service-orders(/:id)?` · `POST /v1/service-orders/:id/visits` · `GET /v1/service-orders/:id/visits/:visitId` · `GET /v1/service-orders/:id/print` (regra 54, "espelho do técnico" — cliente completo + fotos/assinatura por visita, sem itens) · `POST /v1/service-orders/:id/cancel` · `POST /v1/service-orders/:id/billing` (regra 48, faturamento) — gated por `requireModule('service_orders')`. `GET /v1/service-orders/:id` retorna `visit_link` (URL pronta, montada por `buildVisitLink()` em `serviceVisitService.ts`) e `link_valid` (via `isRoutingTokenValid()`) por visita — nunca o `routing_token` bruto — para reenvio manual do link ao técnico (ex.: WhatsApp) pelo backoffice. Também retorna `receivable_id`/`receivable_status`/`boleto_status`/`nfse_id` quando a OS já foi faturada.
-   - `GET /v1/technician/visits(/:id)?` · `POST /v1/technician/visits/:id/check-in` · `POST /v1/technician/visits/:id/complete` — autenticado, role=`technician`, escopado ao próprio técnico
-   - `POST /v1/technician/visits/:id/photos/presign` · `POST /v1/technician/visits/:id/photos/confirm` · `POST /v1/technician/visits/:id/signature/presign` · `POST /v1/technician/visits/:id/signature/confirm` — upload direto ao S3 (presigned POST), nunca pela API
-   - `GET /v1/integrations/mercadolivre/connections` — lista todas as conexões do tenant (qualquer empresa), sem gate de módulo (leitura inofensiva) · `GET /v1/integrations/mercadolivre/connect` · `GET /v1/integrations/mercadolivre/status` · `DELETE /v1/integrations/mercadolivre` — todas com `?company_id=` obrigatório, gated por `requireModule('mercadolivre')` (regra 42)
-   - `GET /v1/public/integrations/mercadolivre/callback` — público, o Mercado Livre redireciona o navegador do usuário para cá; sempre termina em redirect de volta ao app (`?ml_status=connected|error`), nunca em JSON
-   - `GET|POST|PATCH|DELETE /v1/materials/:id/marketplace-links(/:linkId)?` · `POST /v1/materials/:id/marketplace-links/:linkId/sync` — gated por `requireModule('mercadolivre')`
-   - `POST /v1/public/marketplace/mercadolivre/webhook` — público, sempre responde 200 rápido; payload nunca é fonte de verdade, só um gatilho (regra 42)
-   - `GET /v1/subscription` — estado da assinatura + planos disponíveis, inclui `stripe_enabled` (regra 43) · `POST /v1/subscription/checkout-session` · `POST /v1/subscription/portal-session` — ambas `503`/erro se `STRIPE_SECRET_KEY` não configurada
-   - `POST /v1/subscription/webhook` — público, body raw (verificação de assinatura HMAC via `STRIPE_WEBHOOK_SECRET`); idempotente por `billing_events.stripe_event_id`, sempre responde 200
-   - `GET /v1/sales-pipeline/stages` · `POST /v1/sales-pipeline/stages` · `PATCH /v1/sales-pipeline/stages/:id` — etapas do funil, configuráveis pelo tenant (regra 55) — gated por `requireModule('sales_pipeline')`
-   - `GET|POST /v1/sales-pipeline/opportunities(/:id)?` · `PATCH /v1/sales-pipeline/opportunities/:id` · `POST /v1/sales-pipeline/opportunities/:id/move` · `POST /v1/sales-pipeline/opportunities/:id/won` · `POST /v1/sales-pipeline/opportunities/:id/lost` — Funil de Vendas/CRM (regra 55) — gated por `requireModule('sales_pipeline')`
-   - `GET /v1/sales-pipeline/opportunities/:id/activities` · `POST /v1/sales-pipeline/opportunities/:id/activities` — timeline de atividades, `stage_change`/`won`/`lost`/`proposal_linked` são logados automaticamente pelo service, nunca à mão (regra 55)
-   - `POST /v1/sales-pipeline/opportunities/:id/convert-to-proposal` — cria uma `proposals` em `draft` com 1 item-placeholder e vincula `proposal_id` de volta na oportunidade, reaproveitando 100% do schema/fluxo de Propostas já existente (regra 55)
-   - Se uma rota não está nesta lista, ela não existe — crie antes de usar.
+2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration).
 
-3. **Nunca inventar componentes, hooks ou classes CSS.** Os componentes React existentes estão em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. As classes CSS existem em `apps/backoffice/src/index.css` — leia o arquivo antes de usar qualquer classe. O padrão de abas nas páginas usa **inline styles** (não classes CSS): `borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent'` — ver `CompanyPage.tsx` como referência.
+3. **Nunca inventar componentes, hooks ou classes CSS.** Componentes React em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. Classes CSS em `apps/backoffice/src/index.css` — ler antes de usar. Padrão de abas usa **inline styles**, não classes CSS (ver `CompanyPage.tsx`).
 
-4. **Nunca usar `tenant_id` do body da requisição em código de produção.** O `tenant_id` vem sempre do JWT (`request.user.tenantId`). A exceção atual (tenant_id no body) é temporária enquanto o auth Lambda não está integrado.
+4. **Nunca usar `tenant_id` do body da requisição em código novo.** Vem sempre do JWT (`request.user.tenantId`). Exceção legada isolada: `client_contacts.ts` (histórica, documentada na regra 39 — nunca copiar esse padrão para código novo).
 
-5. **Nunca assumir que uma biblioteca está instalada** sem verificar `package.json`. O projeto usa exatamente o que está declarado em `services/api-core/package.json` e `apps/backoffice/package.json`.
+5. **Nunca assumir que uma biblioteca está instalada** sem checar `package.json` (`services/api-core/package.json`, `apps/backoffice/package.json`).
 
-6. **Sempre ler o arquivo antes de editá-lo.** Usar o conteúdo real como base — não o que você imagina que está lá.
+6. **Sempre ler o arquivo antes de editá-lo.** Usar o conteúdo real, nunca o que foi lembrado de sessões passadas.
 
-7. **Sempre adicionar chaves de i18n nos dois arquivos:** `apps/backoffice/src/i18n/pt-BR.ts` (source of truth para `TKey`) e `apps/backoffice/src/i18n/en.ts` (deve ter todas as mesmas chaves, ou o TypeScript dará erro de compilação).
+7. **Sempre adicionar chaves de i18n nos dois arquivos**: `apps/backoffice/src/i18n/pt-BR.ts` (source of truth de `TKey`) e `en.ts` (mesmas chaves, senão o TypeScript não compila).
 
-8. **Nunca deletar fisicamente registros.** Todos os soft-deletes estão documentados por módulo abaixo.
+8. **Nunca deletar fisicamente registros.** Ver tabela de soft-delete por módulo na seção "Adicionando um novo módulo".
 
-9. **Nunca concatenar strings em SQL.** As rotas usam Drizzle ORM (`db.select/insert/update/transaction`). Para SQL bruto, usar `sql\`... ${valor} ...\`` (tagged template literal do Drizzle — parametrização automática e segura). Nunca interpolar strings diretamente em queries.
+9. **Nunca concatenar strings em SQL.** Rotas usam Drizzle ORM (`db.select/insert/update/transaction`); SQL bruto usa `sql\`... ${valor} ...\`` (parametrização automática).
 
-10. **Ao adicionar um novo módulo**, seguir o checklist completo da seção "Adicionando um novo módulo".
+10. **Ao adicionar um novo módulo**, seguir o checklist da seção "Adicionando um novo módulo".
 
-11. **Nunca carregar dropdowns do drawer em event handlers.** O padrão correto é `useEffect([drawerOpen, tenantId])` com flag de cancelamento. Chamar `loadDropdowns()` de `openCreate()` cria stale-closure que não retenta quando `tenantId` resolve depois. Usar `noValidate` no `<form>` e `role="alert"` no div de erro.
+11. **Nunca carregar dropdowns do drawer em event handlers.** Padrão: `useEffect([drawerOpen, tenantId])` com flag de cancelamento (chamar de `openCreate()` cria stale-closure). `<form>` usa `noValidate`; erro usa `role="alert"`.
 
-12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em todas as rotas de listagem. Valores maiores são silenciosamente truncados para 100.
+12. **Nunca usar `per_page` acima de 100.** A API impõe `Math.min(per_page, 100)` em toda rota de listagem — valores maiores são truncados silenciosamente.
 
-13. **Importação em lote: parsear no frontend, enviar JSON.** O padrão do projeto é usar SheetJS (`xlsx`) no browser para converter `.xlsx` em array JSON e enviar para `POST /v1/clients/import` ou `POST /v1/materials/import`. Nunca fazer upload de arquivo binário para o servidor.
+13. **Importação em lote: parsear no frontend (SheetJS/`xlsx`), enviar JSON.** Nunca fazer upload de arquivo binário para o servidor.
 
-14. **Cálculo de impostos: usar a pilha fiscal multi-estado (v15.0) + Reforma Tributária IBS/CBS (v24.0).** Três camadas separadas, **nunca misturar responsabilidades**:
-    - `taxRulesResolver.ts` — lookup das tabelas centrais de alíquotas (ICMS interno/interestadual, FCP, ST, Simples, e `tax_ibs_cbs_rates` — regra 44). Cache em memória de 5 min. Nunca chamar diretamente de rotas — usar via `taxCalculationService.ts`.
-    - `taxEngine.ts` — aritmética pura/stateless: recebe alíquotas JÁ resolvidas, nunca faz I/O. Importar `calculateTaxes()` apenas a partir de `taxCalculationService.ts` ou testes unitários.
-    - `taxCalculationService.ts` — orquestração: resolve alíquotas, determina DIFAL (EC 87/2015) quando `icms_taxpayer='9'` + `consumer_type='1'` + interestadual, FCP da UF destino, e IBS/CBS da UF destino (regra 44).
-    - `POST /v1/tax/calculate` (autenticado via JWT) usa `nfe_configs.uf` como `origin_state` por padrão — nunca mais hardcode `'SP'`. O frontend envia `icms_taxpayer` e `consumer_type` do cliente para DIFAL correto. ICMS/PIS/COFINS/FCP são "por dentro". IPI é "por fora". IBS/CBS são calculados mas **nunca somados** — ver regra 44. Total NF-e = subtotal + ipi_total.
+14. **Cálculo de impostos: 3 camadas separadas, nunca misturar responsabilidades.** `taxRulesResolver.ts` (lookup de alíquotas — ICMS interno/interestadual, FCP, ST, Simples, IBS/CBS — cache 5 min, nunca chamado direto de rotas) → `taxEngine.ts` (aritmética pura/stateless, alíquotas já resolvidas, nunca faz I/O) → `taxCalculationService.ts` (orquestra: resolve alíquotas, determina DIFAL quando `icms_taxpayer='9'`+`consumer_type='1'`+interestadual, FCP/IBS/CBS da UF destino). `POST /v1/tax/calculate` usa `nfe_configs.uf` como origem (nunca hardcode `'SP'`). ICMS/PIS/COFINS/FCP são "por dentro"; IPI é "por fora"; IBS/CBS são calculados mas nunca somados ao total (regra 44).
 
-15. **Lambda container images: sempre usar `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD. Sem isso, Docker Buildx gera um manifest list que o AWS Lambda rejeita. Lambda exige Docker Image Manifest V2 Schema 2 single-platform.
+15. **Lambda container images: sempre `platforms: linux/amd64` + `provenance: false`** nos steps `docker/build-push-action` do CI/CD — sem isso o Buildx gera manifest list que o Lambda rejeita.
 
-16. **Nunca definir variáveis reservadas do Lambda runtime em `environment.variables` do Terraform.** O runtime injeta automaticamente: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, e outras variáveis `AWS_LAMBDA_*`. Tentar definir qualquer uma resulta em `InvalidParameterValueException`.
+16. **Nunca definir variáveis reservadas do Lambda runtime** (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, demais `AWS_LAMBDA_*`) em `environment.variables` do Terraform — o runtime já injeta, redefinir causa `InvalidParameterValueException`.
 
-17. **O arquivo `GaxLogo.tsx` é o logo Orquestra ERP.** O componente renderiza arco 270° com gradiente `#3B5CE4→#00B4D8`, nó central, dois braços com pontos, wordmark "Orquestra" + subtítulo "ERP". **Não recriar nem renomear o arquivo.** Tamanhos: `sm=28`, `md=36`, `lg=48`, `xl=64`, `xxl=88` (px de altura).
+17. **`GaxLogo.tsx` é o logo Orquestra ERP — não recriar nem renomear.** Arco 270° gradiente `#3B5CE4→#00B4D8`, wordmark "Orquestra" + "ERP". Tamanhos: `sm=28`, `md=36`, `lg=48`, `xl=64`, `xxl=88` (px).
 
-18. **Domínio público: `orquestraerp.com.br`.** A URL pública de produção é `https://orquestraerp.com.br`. Nunca usar o domínio `*.cloudfront.net` como URL pública para o usuário final.
+18. **Domínio público: `orquestraerp.com.br`.** Nunca usar `*.cloudfront.net` como URL pública pro usuário final.
 
-19. **Variáveis CSS foram atualizadas para o tema Orquestra ERP.** Paleta atual em `apps/backoffice/src/index.css`: `--primary: #3B5CE4` (azul Orquestra), `--primary-h: #2945C8`, `--accent: #00B4D8` (ciano). Nunca usar cores da identidade anterior.
+19. **Paleta atual em `apps/backoffice/src/index.css`**: `--primary: #3B5CE4`, `--primary-h: #2945C8`, `--accent: #00B4D8`. Nunca usar cores da identidade anterior.
 
-20. **PostgreSQL `ALTER TABLE` multi-coluna: nunca usar parênteses.** A sintaxe `ADD COLUMN (col1, col2)` é MySQL — o PostgreSQL rejeita com `syntax error at "("`. A forma correta é uma cláusula `ADD COLUMN` por coluna, separadas por vírgula, sem parênteses englobante.
+20. **PostgreSQL `ALTER TABLE` multi-coluna: nunca usar parênteses** (`ADD COLUMN (col1, col2)` é sintaxe MySQL). Uma cláusula `ADD COLUMN` por coluna, separadas por vírgula.
 
-21. **SSL do Pool pg: nunca usar `ssl: false` quando PGSSLMODE=require está no ambiente.** A forma correta: `ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false`.
+21. **SSL do Pool pg**: `ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false` — nunca `ssl: false` fixo com `PGSSLMODE=require` no ambiente.
 
-22. **Formulários aninhados (`<form>` dentro de `<form>`) são inválidos em HTML.** Sempre usar `<div>` para o container interno e `type="button" onClick={handler}` no botão de submit interno.
+22. **Formulários aninhados (`<form>` dentro de `<form>`) são inválidos em HTML.** Usar `<div>` + `type="button" onClick={handler}` para submit interno.
 
-23. **Notificações de sistema vs. notificações de tenant.** Dois helpers em `services/api-core/src/lib/notificationsClient.ts`: `sendNotificationIfEnabled(payload)` verifica `notification_configs` do tenant (eventos de negócio). `sendSystemNotification(payload)` envia direto sem verificar config (e-mails sistêmicos). Tipos: `user_welcome`, `password_reset`, `receivable_due_soon`, `proposal_sent`, `proposal_accepted`, `proposal_rejected`. Fire-and-forget; nunca bloqueia a resposta da API.
+23. **Notificações: `sendNotificationIfEnabled(payload)` (verifica `notification_configs` do tenant, eventos de negócio) vs. `sendSystemNotification(payload)` (envia direto, e-mails sistêmicos).** Fire-and-forget, nunca bloqueia a resposta da API.
 
-24. **NFS-e vs NF-e: nunca misturar os dois tipos.** NFS-e usa `/v2/nfse`, imposto ISS, requer `inscricao_municipal` + `codigo_servico`. NF-e usa `/v2/nfe`, ICMS federal/estadual, requer NCM/CFOP. Ambos usam a mesma fila SQS e a mesma Lambda, discriminados por `type: 'nfse'`.
+24. **NFS-e vs NF-e: nunca misturar.** NFS-e usa `/v2/nfse` (ISS, exige `inscricao_municipal`+`codigo_servico`); NF-e usa `/v2/nfe` (ICMS, exige NCM/CFOP). Mesma fila SQS e mesma Lambda, discriminados por `type`.
 
-25. **CEP automático via ViaCEP — nunca criar endpoint backend para isso.** A função `fetchAddressByCEP(cep)` existe em `apps/backoffice/src/lib/brazil.ts`. Ela chama `https://viacep.com.br/ws/{cep}/json/` direto do browser.
+25. **CEP via ViaCEP direto do browser — nunca criar endpoint backend.** `fetchAddressByCEP(cep)` em `apps/backoffice/src/lib/brazil.ts` chama `viacep.com.br` direto.
 
-26. **Workers ECS in-process — nunca criar nova infra AWS para workers.** Workers rodam dentro do container `api-core` no ECS, inicializados no hook `onReady` do Fastify.
+26. **Workers rodam in-process dentro do container `api-core` (ECS), hook `onReady` do Fastify — nunca criar infra AWS nova para worker.**
 
-27. **Modal de feedback: nunca usar `modal.error()` para exibir sucesso.** O `ModalContext` tem três métodos: `confirm()`, `error(err)`, `success(message, title?)`.
+27. **`ModalContext` tem `confirm()`, `error(err)`, `success(message, title?)` — nunca usar `error()` para sucesso.**
 
-28. **lambda-notifications: sempre reimplantar ao adicionar tipos de notificação.** O código é um container ECR. Sem rebuild + redeploy, a mensagem SQS vai ao DLQ.
+28. **`lambda-notifications` é ECR container — sempre reimplantar ao adicionar tipo de notificação**, senão a mensagem SQS vai ao DLQ.
 
-29. **Focus NF-e: `caminho_danfe` retorna path relativo, não URL absoluta.** Usar `toDanfeAbsoluteUrl` em `InvoicesPage.tsx` para converter. Nunca exibir o path relativo.
+29. **Focus NF-e `caminho_danfe` é path relativo, não URL absoluta.** Usar `toDanfeAbsoluteUrl` (`InvoicesPage.tsx`) para converter.
 
-30. **Centro de Custo: motor de estoque é server-authoritative.** O serviço `costCenterStock.ts` é a única fonte de verdade para saldo de materiais. Toda escrita usa `SELECT FOR UPDATE` dentro de `db.transaction()`. A chave de idempotência tem formato `${source}:${sourceId}:${materialId}` e é UNIQUE por `(tenant_id, idempotency_key)`. Custo médio ponderado usa `toFixed(4)`. Saldo negativo é bloqueado por padrão (HTTP 422) — override por `allow_negative = true` no centro de custo. O gatilho de saída (OUT) é ativado quando `nfe_status = 'authorized'` pelo `nfeResultsWorker`. O estorno é ativado no cancelamento de NF-e autorizada. Nunca chamar `applyEntry`/`applyExit`/`applyAdjustment` diretamente nas rotas — usar apenas via transação existente no serviço.
+30. **Centro de Custo: `costCenterStock.ts` é a única fonte de verdade de saldo de materiais.** Toda escrita usa `SELECT FOR UPDATE` dentro de `db.transaction()`. Idempotência via `${source}:${sourceId}:${materialId}` UNIQUE por `(tenant_id, idempotency_key)`. Custo médio ponderado usa `toFixed(4)`. Saldo negativo bloqueado por padrão (422), override via `allow_negative=true`. Gatilho de saída: `nfe_status='authorized'` no `nfeResultsWorker`; estorno: cancelamento de NF-e autorizada. Nunca chamar `applyEntry`/`applyExit`/`applyAdjustment` fora do serviço.
 
-31. **App mobile Flutter: nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2. O `tenant_id` vem do JWT Bearer injetado via interceptor Dio. Todas as convenções de negócio (soft-delete, status machines, paginação ≤ 100) se aplicam igualmente ao app.
+32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é entidade desacoplada de `users` (`user_id` opcional). `commissionService.ts` é a única fonte de verdade: `accrueCommission()` roda no `nfeResultsWorker.ts` quando `nfe_status` vira `'authorized'` e a nota tem `seller_id` — base de cálculo definida por `sellers.commission_base`. `cancelCommission()` roda em `POST /invoices/:id/cancel`, nunca deleta, marca `commission_entries.status='cancelled'`. Idempotente via UNIQUE `(tenant_id, idempotency_key='invoice:${invoiceId}')`. O mesmo bloco de autorização também cria a conta a receber (regra 60).
 
-33. **Motor fiscal multi-estado: tabelas centrais NUNCA editáveis por tenant.** As tabelas `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules` e `tax_simples_nacional_brackets` (migration 0037) são mantidas pela Orquestra (legislação tributária é igual para todos os tenants no mesmo estado). O que É configurável por tenant: `nfe_configs.uf` (UF de origem, obrigatório configurar antes de emitir), `nfe_configs.regime_tributario` (CRT 1/2/3), `tenants.simples_rbt12` (faturamento acumulado 12 meses para cálculo de alíquota efetiva do Simples). **Limitações documentadas desta versão (v15.0):** (a) ICMS-ST: tabela `tax_st_rules` criada, mas sem dados — recomendado integrar provedor de dados fiscais (IOB/TaxWeaver) para populá-la; (b) FCP: tabela criada sem dados — popular por demanda por UF; (c) DIFAL: cálculo simplificado por diferença direta (não usa gross-up do Anexo VI do Convênio 236/2021); (d) Versionamento temporal de alíquotas: não implementado (alíquota corrente no momento da consulta é sempre aplicada — sem lookups por data); (e) Conteúdo de importação (alíquota de 4% — Resolução Senado 13/2012): não implementado. Nunca afirmar que estas limitações não existem; documentar no código e nos changelogs.
+33. **Motor fiscal multi-estado: tabelas centrais nunca editáveis por tenant.** `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets` são mantidas pela Orquestra. Configurável por tenant: `nfe_configs.uf`, `nfe_configs.regime_tributario`, `tenants.simples_rbt12`. **Limitações conhecidas, documentar sempre, nunca afirmar que não existem**: ICMS-ST sem dados populados; FCP sem dados populados; DIFAL usa diferença direta (não o gross-up do Convênio 236/2021); sem versionamento temporal de alíquota (sempre a corrente); sem conteúdo de importação (Resolução Senado 13/2012).
 
-34. **Pedido de Compra e NF-e de Entrada: Clean Architecture com 3 camadas.** Domínio puro em `src/domain/purchaseOrder/purchaseOrderDomain.ts` (state machine, validação, cálculo) e `src/domain/supplierInvoice/supplierInvoiceDomain.ts` (state machine, 3-way matching). Serviços de aplicação em `src/services/purchaseOrderService.ts` e `src/services/supplierInvoiceService.ts` (orquestração, I/O). Nunca chamar lógica de domínio diretamente de rotas; nunca chamar I/O de banco dentro do domínio puro. `confirmSupplierInvoice()` cria o `payable` automaticamente E registra movimentação de entrada no inventário (`inventory_movements type='in'`) — nunca duplicar esse efeito. O 3-way matching (`matchAgainstPO`) retorna `'divergence'` quando quantidade ou preço do item difere do PO — o status da NF-e fica `'divergence'` em vez de `'confirmed'` mas o payable ainda é criado e o PO **não** avança para `'received'` nesse caso.
+34. **Pedido de Compra / NF-e de Entrada: Clean Architecture 3 camadas.** Domínio puro em `domain/purchaseOrder/` e `domain/supplierInvoice/` (state machine, 3-way matching); serviços em `services/purchaseOrderService.ts`/`supplierInvoiceService.ts` (orquestração/I-O); nunca chamar domínio de rota nem I-O de dentro do domínio. `confirmSupplierInvoice()` cria `payable` + movimenta estoque de entrada — nunca duplicar. 3-way matching (`matchAgainstPO`) devolve `'divergence'` quando qtd/preço diverge do PO — payable é criado mesmo assim, PO não avança pra `'received'`.
 
-35. **DRE Gerencial: Caminho A (sem dupla entrada contábil).** `src/domain/dre/dreDomain.ts` contém a fórmula pura do DRE (SOLID: puro, testável, sem I/O). `src/services/dreService.ts` lê invoices (receita) e payables (despesas por `dre_category_id`) e chama `buildDRE()`. `dre_categories` tem categorias globais (tenant_id NULL — mantidas pela Orquestra) e pode ter categorias customizadas por tenant. `payables.dre_category_id` é nullable — payables sem categoria aparecem em "Outras Despesas" na DRE. NUNCA afirmar que este DRE é um DRE contábil formal: ele é gerencial e não substitui SPED Contábil/ECD. A fórmula respeita: Receita Líquida = Receita Bruta − Deduções; Lucro Bruto = Rec. Líquida + CMV; EBITDA = Lucro Bruto + Despesas Opex; EBT = EBITDA + Result. Financeiro; Resultado Líquido = EBT + Impostos sobre Resultado. Despesas têm `sign = -1` (montante negativo) e receitas têm `sign = +1` — nunca inverter esse sinal.
+35. **DRE Gerencial é Caminho A (sem dupla entrada contábil) — nunca afirmar equivalência com SPED Contábil/ECD.** `domain/dre/dreDomain.ts` (fórmula pura) + `services/dreService.ts` (lê invoices/payables/nfse_invoices autorizada). `dre_categories` globais (`tenant_id NULL`) + customizadas por tenant; `payables.dre_category_id` nullable cai em "Outras Despesas". Despesas `sign=-1`, receitas `sign=+1` — nunca inverter.
 
-36. **CNPJ Alfanumérico (IN RFB nº 2.229/2024): nunca usar `digits()` ou `replace(/\D/g,'')` em campos CNPJ.** A partir de julho/2026 a Receita Federal emitirá CNPJs com letras A-Z nos 12 primeiros caracteres. O sistema foi preparado com a função `normalizeCNPJ()` que remove SOMENTE pontuação (`. - / espaços`) mas PRESERVA letras. CNPJs sempre gravados em maiúsculas. Algoritmo correto: Módulo 11, pesos `[5,4,3,2,9,8,7,6,5,4,3,2]` e `[6,5,4,3,2,9,8,7,6,5,4,3,2]` com conversão base-36 (`A=10…Z=35`, `0-9=0-9`) — mesmo algoritmo do CNPJ tradicional, retrocompatível com todos os CNPJs numéricos existentes. O domínio está em `services/api-core/src/domain/cnpj/cnpjDomain.ts` (backend puro, testável) e as funções `normalizeCNPJ()`, `maskCNPJ()`, `isValidCNPJ()` foram atualizadas em `apps/backoffice/src/lib/brazil.ts` (frontend). Pontos de escrita no banco SEMPRE chamam `normalizeCNPJ()` — nunca `digits()`. **O CNPJ "UKPVME1E8HI996" citado na documentação do CNPJ.ws é um CNPJ estrutural de demonstração (formato válido, dígitos verificadores errados) — não valida e não deve ser usado em testes automatizados.** CNPJs válidos computados para testes: `AAAAAA00000171`, `B2C3D4E5F6G185`, `ORQUESTRA01269`, `ZZTESTE0000198`.
+36. **CNPJ Alfanumérico (IN RFB 2.229/2024): nunca usar `digits()`/`replace(/\D/g,'')` em campo CNPJ.** A partir de jul/2026 CNPJs trazem letras A-Z nos 12 primeiros caracteres. `normalizeCNPJ()` remove só pontuação, preserva letras, grava maiúsculo. Domínio: `services/api-core/src/domain/cnpj/cnpjDomain.ts` (backend) + `apps/backoffice/src/lib/brazil.ts` (frontend) — sempre chamar `normalizeCNPJ()` nos pontos de escrita, nunca `digits()`. CNPJs válidos pra teste: `AAAAAA00000171`, `B2C3D4E5F6G185`, `ORQUESTRA01269`, `ZZTESTE0000198` (o CNPJ de exemplo da documentação do CNPJ.ws, `UKPVME1E8HI996`, tem dígito verificador inválido — não usar em testes).
 
-37. **Impressão de Proposta: reaproveitar `ProposalDocument.tsx`, nunca duplicar o layout.** O componente visual do documento (header com logo/banner, bloco "Para/Válida até", tabela de itens, totais, observações/termos e rodapé com dados do emissor) vive em `apps/backoffice/src/pages/proposals/ProposalDocument.tsx` — usado tanto pelo portal público (`ProposalPublicPage.tsx`, rota `/p/:token`, sem auth) quanto pela impressão interna (`ProposalPrintPage.tsx`, rota `/proposals/:id/print`, autenticada, botão "Imprimir" na lista `/proposals`). A impressão interna usa `GET /v1/proposals/:id/print` (autenticado por tenantId, qualquer status) — nunca abrir `/p/:token` para uso interno: essa rota exige `public_token` (só existe após `POST /proposals/:id/send`, ou seja, propostas em rascunho não têm token) e o próprio `GET /v1/public/proposals/:token` muda `status` para `'viewed'` e grava `public_viewed_at`, poluindo a métrica de "cliente visualizou a proposta". Formatação de CNPJ/CPF no documento sempre usa `fmtDoc()` de `ProposalDocument.tsx`, que delega para `maskCNPJ()`/`maskCPF()`/`normalizeCNPJ()` de `apps/backoffice/src/lib/brazil.ts` (regra 36) — nunca reimplementar a máscara localmente. Impressão usa `window.print()` nativo do navegador (CSS `@media print` + classe `print-hide`) — o projeto não tem `jsPDF`/`puppeteer`/`@react-pdf` instalado; não adicionar essas libs sem necessidade real.
+37. **Impressão de Proposta: reaproveitar `ProposalDocument.tsx`, nunca duplicar layout.** Usado tanto pelo portal público (`ProposalPublicPage.tsx`) quanto pela impressão interna (`ProposalPrintPage.tsx`, via `GET /v1/proposals/:id/print`, autenticado, qualquer status). Nunca abrir `/p/:token` para uso interno — muda `status` pra `'viewed'`. Formatação de CNPJ/CPF sempre via `fmtDoc()`. Impressão usa `window.print()` nativo — sem `jsPDF`/`puppeteer`/`@react-pdf`.
 
-38. **Ordens de Serviço / Visita Técnica: módulo opcional, Clean Architecture, técnico é usuário autenticado.** Domínio puro em `src/domain/serviceOrder/serviceOrderDomain.ts` e `src/domain/serviceVisit/serviceVisitDomain.ts` (state machines, `isValidCPF`). Serviços em `src/services/serviceOrderService.ts`, `src/services/serviceVisitService.ts`, `src/services/technicianService.ts`, `src/services/servicePhotoStorageService.ts`, `src/services/tenantModuleService.ts`.
-    - **Bug de UX corrigido (branch `fix-os-detalhe`): a tela do técnico (`TechnicianVisitDetailPage.tsx`) mostrava só nome do cliente + cidade/UF, mesmo o backend já devolvendo o registro completo de `clients`.** `getVisitForTechnician()` (`services/serviceVisitService.ts`) sempre fez `db.select().from(clients)` sem projeção — o gap era 100% frontend: a interface `ClientInfo` só declarava um subconjunto de campos e o JSX descartava o resto (`street` chegava a ser declarado no tipo e nunca renderizado). Corrigido pra exibir endereço completo (rua/número/complemento/bairro/cidade-UF/CEP, com link "Abrir no mapa" via Google Maps), telefone e celular (links `tel:`) e e-mail (link `mailto:`) — nenhuma mudança de backend foi necessária.
-    - **Módulo desligado por padrão.** `tenant_modules (tenant_id, module_key, enabled)` é uma flag genérica reaproveitável por qualquer módulo opcional futuro — não é específica de OS. Toda rota gated usa o `preHandler` `requireModule('service_orders')` (`src/lib/requireModule.ts`). Frontend consulta `GET /v1/tenant/modules` só para exibir/esconder o item de menu — nunca é o controle de acesso de verdade, isso é sempre backend.
-    - **Técnico é `users.role = 'technician'`, login obrigatório — nunca um link público anônimo.** `technicians.user_id` é `NOT NULL UNIQUE` (diferente de `sellers.user_id`, que é opcional). O e-mail de agendamento (`service_visit_assigned`) carrega um link de **roteamento** (`/tecnico/entrar?redirect=/tecnico/visitas/:id`) — o link em si nunca concede acesso; toda ação exige JWT autenticado + `technician_id` da visita batendo com o técnico logado (`assertTechnicianOwnsVisit` em `serviceVisitService.ts`). CPF é capturado uma única vez no cadastro do técnico (nunca redigitado por visita) e é "congelado" (snapshot) em `service_visits.technician_name`/`technician_cpf` no check-in — mesmo raciocínio de `order_items`/`invoice_items` congelarem nome/preço.
-    - **`technicianRoleGuard` (hook global em `app.ts`) restringe `role='technician'` ao prefixo `/v1/technician/*`.** Sem esse hook, um JWT de técnico teria acesso a qualquer rota existente (`authenticate` só confere `tenantId`, nunca `role`). Nunca remover esse guard nem adicionar rotas fora do prefixo `/v1/technician/*` que aceitem esse papel.
-    - **Onboarding do técnico reaproveita o fluxo de reset de senha que já existe** (`users.password_reset_token`/`password_reset_expires`, `POST /v1/auth/reset-password`) — nunca envia senha em texto puro por e-mail.
-    - **Fotos e assinatura: upload direto do navegador para o S3 via presigned POST** (`@aws-sdk/s3-presigned-post`), nunca proxiado pela API (custo de Fargate + mantém CPF/assinatura fora de log de aplicação). Bucket `service_visit_photos` é privado (Block Public Access, SSE-KMS, CORS restrito a `var.app_public_origins`) — leitura só via presigned GET de curta duração, gerada sob demanda (`getPresignedReadUrl`), nunca um link fixo. Chave do objeto é `{tenant_id}/{service_visit_id}/{uuid}.jpg` — isolamento por tenant E por visita.
-    - **Assinatura do cliente é artefato 1:1 com a visita** (`service_visits.signature_s3_key`/`signed_by_name`/`signed_at`), não uma linha em `service_visit_photos` (que é a galeria de N fotos por visita) — nunca confundir os dois. É assinatura eletrônica simples (Lei 14.063/2020), não ICP-Brasil — nunca afirmar equivalência com assinatura digital certificada.
-    - **Idempotência de foto:** `idempotency_key` gerado no navegador (UUID) antes do upload, `UNIQUE(tenant_id, idempotency_key)` em `service_visit_photos` — retry de rede não duplica a linha (mesmo padrão de `cost_center_movements`/`commission_entries`).
-    - **Compressão client-side obrigatória antes do upload** (`apps/backoffice/src/lib/visitUpload.ts`, Canvas API, ~1600px maior lado, JPEG 80%) — controle de custo de storage, não um Lambda de processamento de imagem.
+38. **Ordens de Serviço / Visita Técnica: módulo opcional (`requireModule('service_orders')`), Clean Architecture.** Domínio em `domain/serviceOrder/`, `domain/serviceVisit/`; serviços em `services/serviceOrderService.ts`, `serviceVisitService.ts`, `technicianService.ts`, `servicePhotoStorageService.ts`. Técnico é `users.role='technician'` com login obrigatório — nunca link público anônimo; `technicianRoleGuard` restringe esse papel ao prefixo `/v1/technician/*`. CPF/nome são "congelados" (snapshot) em `service_visits` no check-in. Fotos/assinatura sobem direto do browser pro S3 via presigned POST (`service_visit_photos`, bucket privado, SSE-KMS); leitura só via presigned GET de curta duração. Assinatura é eletrônica simples (Lei 14.063/2020) — nunca afirmar equivalência com ICP-Brasil.
 
-39. **Contatos de fornecedor (`supplier_contacts`) espelham `client_contacts` na estrutura, mas NÃO no padrão de autenticação.** `client_contacts.ts` recebe `tenant_id` do body/query da requisição — exceção legada documentada na regra 4, que antecede o auth Lambda estar totalmente integrado. `supplier_contacts.ts` (rotas em `src/routes/supplierContacts.ts`) foi implementado do zero já com o padrão correto: `onRequest: [(fastify as any).authenticate]` + `tenantId` extraído do JWT, mesmo padrão que `suppliers.ts` já usa. **Nunca copiar o padrão de `client_contacts.ts` para um módulo novo** — ele existe por motivo histórico, não é o padrão de referência. Tipos de contato são diferentes entre os dois: `client_contacts` usa `comercial|juridico|compras|manutencao|comprador|outro` (papéis de quem COMPRA de nós); `supplier_contacts` usa `comercial|financeiro|suporte|logistica|outro` (papéis do lado de quem VENDE para nós) — nunca reaproveitar "comprador"/"compras" para fornecedor, não faz sentido semântico. Frontend: aba "Contatos" em `SuppliersPage.tsx` (terceira aba do drawer, ao lado de `general`/`banking`, só aparece em modo edição) — diferente de `ClientsPage.tsx`, que não usa abas e mostra contatos inline na rolagem única do formulário; a escolha de UI segue o padrão que a própria página hospedeira já usa, não o de `ClientsPage.tsx`.
+39. **`supplier_contacts` espelha `client_contacts` na estrutura, mas usa o padrão de auth correto (JWT), não o legado do body.** `client_contacts.ts` é a exceção histórica da regra 4 — nunca copiar esse padrão pra módulo novo; `supplier_contacts.ts` é a referência correta. Tipos de contato diferem: `client_contacts` usa papéis de quem compra de nós; `supplier_contacts` usa papéis do lado de quem vende pra nós — nunca reaproveitar um vocabulário no outro.
 
-40. **Multi-Empresa (multi-CNPJ): `nfe_configs` é a entidade "Empresa", promovida de singleton (1 por tenant) para N por tenant.** Antes da migration 0046, `nfe_configs.tenant_id` era a PRIMARY KEY (1 CNPJ por tenant, sem exceção). Agora `nfe_configs.id` é a PK e `tenant_id` é uma FK comum — cada linha é uma empresa/CNPJ que o tenant opera, com `is_default` marcando qual delas é usada quando nenhuma empresa é escolhida explicitamente, e `is_active` para soft-delete (regra 8). **Criar uma 2ª+ empresa exige o módulo opcional `multi_empresa` habilitado** (`POST /v1/companies` é gated por `requireModule('multi_empresa')` — mesmo mecanismo genérico de `tenant_modules` da regra 38); listar/editar a empresa que já existe (`GET`/`PATCH /v1/companies(/:id)?`) nunca é gated, pois não é a capacidade nova. Backend é sempre a autoridade — o frontend só usa o módulo habilitado para decidir se mostra o botão "+ Nova Empresa".
-    - **Escopo desta versão (v19.0): só o que afeta emissão fiscal.** `company_id` (nullable, FK para `nfe_configs.id`, mesmo padrão aditivo de `seller_id`/`cost_center_id`) existe em `invoices`, `nfse_invoices` e `service_contracts` — os três pontos onde "qual CNPJ emite" importa de verdade. **Fora do escopo, documentado como limitação conhecida (mesmo espírito da regra 33):** `payables`, `purchase_orders`, `supplier_invoices`, `receivables`, `proposals` e `orders` continuam sem `company_id` — pedido é intenção comercial, a decisão de empresa emissora só é obrigatória no fato gerador fiscal (`POST /v1/invoices`, criação de `service_contracts`). POS/NFC-e (`services/fiscal/focusNfe.ts`) também continua usando sempre a empresa padrão do tenant — terminal físico já corresponde, na prática, a um único CNPJ/local. **Atualização (v20.0):** boleto/PIX (Itaú) deixou de ser 1:1 por tenant — ver regra 41 (`bank_accounts`, N contas por empresa).
-    - **`companyService.ts` (`src/services/companyService.ts`) é o único ponto de leitura/escrita de empresa — nenhuma rota consulta `nfeConfigs` diretamente para resolver "qual empresa emite".** `resolveCompanyId(tenantId, companyId?, db, docType?)` é a peça central: sem `companyId` explícito devolve a empresa padrão (`getDefaultCompany`); com `companyId`, valida posse do tenant + `is_active` antes de devolver (senão `CompanyDomainError('company_not_found')`) — mesmo idioma de guard de `assertTechnicianOwnsVisit` (regra 38). `docType` (`'nfe'`|`'nfse'`) é a extensão da regra 53 — ver detalhes lá. Usado hoje em: `routes/nfe.ts` (`POST /invoices/:id/emit`), `routes/nfse.ts` (`POST /nfse/:id/emit`), `routes/serviceContracts.ts` (`POST /:id/billings`), `services/serviceOrderBillingService.ts` (regra 48), `services/simplesRemessaService.ts` (regra 51) — esses 5 com `docType`; `routes/tax.ts` (`POST /tax/calculate`, default de `origin_state`), `services/bankAccountService.ts` (regra 41) e `services/marketplaceConnectionService.ts` (regra 42) — esses 3 sem `docType`, resolução de empresa genérica sem relação com tipo de documento fiscal. Domínio puro em `src/domain/company/companyDomain.ts`: `canDeactivate()` (bloqueia desativar a empresa padrão ou a última ativa), `validateNewCompanyCnpj()` (reaproveita `isValidCNPJ`/`normalizeCNPJ` da regra 36, rejeita CNPJ duplicado dentro do tenant) e `hasCapability()` (regra 53).
-    - **Retrocompatibilidade é o requisito central, não um detalhe.** `GET|PUT /v1/nfe-config` (rota legada, ainda usada por qualquer cliente que não saiba de multi-empresa) continua com o mesmo contrato de sempre — por trás dos panos, sempre lê/edita a empresa `is_default=true` via `companyService.getDefaultCompany`/`upsertDefaultCompany`. Para um tenant que nunca habilitou `multi_empresa`, o comportamento é byte-idêntico ao de antes da migration 0046: sempre existe exatamente 1 `nfe_configs` por tenant, então qualquer resolução por "empresa padrão" sempre bate na mesma linha de sempre. `company_id` é opcional em toda escrita nova (`POST /v1/invoices`, criação de `service_contracts`) — quando omitido, fica `null` e a emissão resolve para a padrão no momento de emitir, nunca bloqueia a criação de rascunho por falta de configuração fiscal (mesmo comportamento de antes).
-    - **Frontend: seletor de empresa com "progressive disclosure" — só aparece com mais de 1 CNPJ cadastrado.** `CompanyPage.tsx` (aba Fiscal) ganha uma faixa de seleção de empresa (renderizada apenas se `companies.length > 1 || multiEmpresaEnabled`) que reaproveita o MESMO formulário/handlers já existentes (`nfeForm`, `handleNfeSave`) — a única mudança é para onde o save é roteado: empresa padrão selecionada → `PUT /v1/nfe-config` (legado, inalterado); empresa não-padrão → `PATCH /v1/companies/:id`; `selectedCompanyId === 'new'` → `POST /v1/companies`. Zero duplicação de JSX. `InvoiceNewPage.tsx` e `ContractsPage.tsx` (este último só quando `nfse_enabled`) ganham um `<select>` de "Empresa emissora", também só renderizado com `companies.length > 1`.
+40. **Multi-Empresa: `nfe_configs` é a entidade "Empresa" (N por tenant, `id` é PK, `tenant_id` é FK comum).** `is_default` marca a usada por padrão; `is_active` é soft-delete. Criar 2ª+ empresa exige `requireModule('multi_empresa')`; listar/editar a existente nunca é gated. `company_id` (nullable, FK `nfe_configs.id`) existe em `invoices`, `nfse_invoices`, `service_contracts` — só onde "qual CNPJ emite" importa de fato. Fora de escopo (limitação conhecida): `payables`, `purchase_orders`, `supplier_invoices`, `receivables`, `proposals`, `orders`, POS/NFC-e continuam sem `company_id`. `companyService.ts::resolveCompanyId(tenantId, companyId?, db, docType?)` é o único ponto de resolução — `docType` (`'nfe'|'nfse'`) valida capacidade de emissão (regra 53). `GET|PUT /v1/nfe-config` (legado) sempre opera sobre a empresa padrão, retrocompatível byte-a-byte.
 
-41. **Múltiplas Contas Bancárias por Empresa: `bank_accounts` é N por `nfe_configs` (empresa), não por tenant.** Antes da migration 0047, um tenant tinha exatamente uma conta bancária/Itaú — colunas soltas em `tenants` (`bank_code`, `agency`, `account`, `account_digit`, `billing_provider`, `billing_days_to_expire`, `itau_client_id`, `itau_client_secret`). Essas colunas continuam em `tenants` (deprecated-mas-presentes, sem DROP destrutivo), mas não são mais lidas nem escritas diretamente por nenhuma rota. **Sem gate de módulo aqui** — diferente de `multi_empresa` (regra 40), qualquer tenant pode cadastrar mais de uma conta para o mesmo CNPJ, mesmo sem o módulo `multi_empresa` habilitado.
-    - **`bankAccountService.ts` (`src/services/bankAccountService.ts`) é o único ponto de leitura/escrita de conta bancária.** `resolveBankAccount(tenantId, bankAccountId?, db)` é a peça central, mesmo idioma de `companyService.resolveCompanyId`: sem id explícito, resolve a conta padrão (`is_default=true`) da empresa padrão do tenant; com id, valida posse do tenant + `is_active`. `getDefaultBankAccount(tenantId, companyId?, db)` encadeia dois defaults (empresa padrão → conta padrão dela) quando `companyId` é omitido. Domínio puro em `src/domain/bankAccount/bankAccountDomain.ts`: `canDeactivate()` bloqueia desativar a conta padrão de uma empresa ou a última conta ativa **daquela empresa** (o invariante é por empresa, não por tenant — cada CNPJ precisa de pelo menos uma conta ativa própria). Validação de formato dos dados bancários (`bank_code`/`agency`/`account`/`account_digit`/`billing_provider`) reaproveita `validateBankingData()`/`isValidBillingProvider()` de `lib/banking.ts`, já existente e testado — nunca duplicada.
-    - **Onde a conta bancária é resolvida de verdade:** `POST /v1/receivables/:id/emit-boleto` aceita `bank_account_id` opcional no body; resolve via `resolveBankAccount()` antes de montar o snapshot em `boletos` (`banco_code`/`agencia`/`conta`/`digito`, inalterado) e a mensagem SQS para o `lambda-billing` (mesmo formato de `BillingEmitMessage.banking` — nenhuma mudança no lambda). `boletos.bank_account_id` grava rastreabilidade extra (nullable) sem substituir o snapshot.
-    - **Retrocompatibilidade: `GET|PATCH /v1/tenant` continua com o mesmo contrato de request/response para os campos bancários**, mas por trás delega para `bankAccountService.getDefaultBankAccount`/`upsertDefaultBankAccount` (conta padrão da empresa padrão). `upsertDefaultBankAccount` faz merge com os dados já gravados em atualização parcial (ex.: só trocar `itau_client_secret` sem reenviar agência/conta) — mesmo comportamento que o `PATCH /v1/tenant` sempre teve. **Correção de uma inconsistência:** `GET /v1/tenant` retornava `itau_client_secret` em texto puro (diferente de `nfe_configs`, que já mascarava tokens Focus) — agora mascarado (`****xxxx`), só no novo caminho; o padrão antigo não foi retroativamente alterado em nenhum outro lugar.
-    - **Frontend: mesmo padrão de progressive disclosure de duas camadas** — seletor de empresa (reaproveita `companies` já carregado pela regra 40) aparece só com >1 empresa; dentro da empresa selecionada, seletor de conta aparece só com >1 conta cadastrada para ela. Tenant com 1 empresa e 1 conta não vê nenhuma mudança de UI, continua no `PATCH /v1/tenant` legado. `ReceivablesPage.tsx` ganha um `<select>` de conta bancária na emissão de boleto, só renderizado com mais de 1 conta ativa no tenant.
-    - **Atualização (migration 0064, regra 59 — Boleto C6): `itau_client_id`/`itau_client_secret` também viram deprecated-mas-presentes.** A credencial de QUALQUER provedor (Itaú incluso, retroativamente) passa a viver em `bank_accounts.credentials` (jsonb genérico) — ver regra 59 para o racional completo.
+41. **Múltiplas Contas Bancárias: `bank_accounts` é N por empresa (`nfe_configs`), não por tenant, sem gate de módulo.** Colunas bancárias antigas em `tenants` ficam deprecated-mas-presentes (nunca lidas/escritas diretamente). `bankAccountService.ts::resolveBankAccount(tenantId, bankAccountId?, db)` é o único ponto de resolução — sem id, resolve a conta padrão da empresa padrão. `canDeactivate()` bloqueia desativar a última conta ativa de uma empresa. Credenciais de qualquer provedor (Itaú incluso, retroativamente) vivem em `bank_accounts.credentials` (jsonb genérico, regra 59).
 
-42. **Integração Mercado Livre: uma conexão OAuth é por EMPRESA (`nfe_configs`), não por tenant.** Uma conta do Mercado Livre é vinculada a um CNPJ específico — um tenant com 2 empresas (regra 40) pode ter 2 lojas ML separadas. `marketplace_connections.company_id` é `NOT NULL` e único por `(company_id, provider)`. **Esta foi uma implementação em duas fases — ambas concluídas:**
-    - **Fase 1 (api-core apenas):** migration `0048_mercadolivre.sql`, domínio (`src/domain/marketplace/marketplaceDomain.ts`), serviços (`marketplaceConnectionService.ts`, `materialMarketplaceLinkService.ts`, `marketplaceWebhookService.ts`), rotas, worker in-process (`marketplaceSyncResultsWorker.ts`) e frontend (`CompanyPage.tsx` aba Integrações, `MaterialsPage.tsx` seção Mercado Livre). Tudo 100% testável sem AWS real.
-    - **Fase 2 (Lambda + Terraform + sync real):** `services/lambda-marketplace` (mesmo molde de `lambda-billing`: handler SQS + adapter OAuth2) + infraestrutura Terraform (`terraform/marketplace.tf`, filas `marketplace-sync-requests`/`marketplace-sync-results`/`marketplace-sync-dlq` em `sqs.tf`, ECR em `ecr.tf`) + CI/CD (`deploy.yml`). **Lambdas neste projeto nunca acessam o Postgres diretamente** (mesmo padrão de `BillingEmitMessage.banking`) — por isso `requestSync()` e `ingestWebhook()` embutem um snapshot dos tokens da conexão (`access_token`/`refresh_token`/`token_expires_at`) e, no caso do sync, do preço/estoque atuais do material, na própria mensagem SQS (`MarketplaceSyncRequestMessage` em `lib/marketplace-types.ts`).
-    - **Sync só manual nesta fase (decisão deliberada):** o botão "Sincronizar" já existente (`POST /v1/materials/:id/marketplace-links/:linkId/sync`) funciona de ponta a ponta; sync automático ao alterar preço/estoque no ERP fica para uma versão futura, para validar o fluxo básico com a conta real antes de automatizar.
-    - **Refresh do token OAuth: o `refresh_token` do Mercado Livre é de uso único** — a API invalida o anterior ao emitir um novo. `MercadoLivreAdapter.ensureFreshToken()` (`lambda-marketplace/src/adapters/mercadolivre.ts`) renova quando faltam menos de 5 min para expirar, e **sempre** devolve o par renovado no campo opcional `refreshed_tokens` da mensagem de resultado — nunca só em memória. `marketplaceSyncResultsWorker.ts` persiste esse campo em `marketplace_connections` independente do tipo da mensagem (`sync_material` ou `order_import`); ignorar esse campo derrubaria a conexão na próxima chamada (refresh_token já consumido).
-    - **`syncMaterial` limitação de v1 documentada:** quando `ml_variation_id` está presente no vínculo, o `PUT /items/:id` ainda mira o item base — variações ficam para uma iteração futura, não travam o sync manual.
-    - **`fetchResource` só processa tópicos de pedido** (`topic` iniciando com `orders`, ex.: `orders_v2`) — outros tópicos de webhook (perguntas, itens) são reconhecidos e ignorados em silêncio nesta fase (sem erro, sem mensagem de resultado).
-    - **Tokens (`access_token`/`refresh_token`) continuam em texto puro** — mesma limitação documentada de `itau_client_secret`/`focus_token_producao`: nenhum segredo deste projeto usa KMS hoje. Criar KMS só para o Mercado Livre seria inconsistente com o resto da base; migrar todos os segredos para KMS, se necessário, é um projeto à parte. Nunca afirmar que os tokens estão criptografados em repouso.
-    - **`signState`/`verifyState` (`marketplaceDomain.ts`) protegem o callback OAuth contra CSRF sem tabela nova** — o `state` da URL de autorização carrega o próprio `company_id` assinado com HMAC-SHA256 + timestamp (expira em 10 min), revalidado no callback antes de confiar nele. O callback é público (`GET /v1/public/integrations/mercadolivre/callback` — o Mercado Livre redireciona o navegador do usuário, não há JWT nesse ponto) e **sempre termina em redirect de volta ao app**, nunca em JSON.
-    - **Webhook nunca é fonte de verdade, só um gatilho** (mesmo raciocínio de segurança da regra 38 sobre o link de roteamento do técnico): `POST /v1/public/marketplace/mercadolivre/webhook` valida só a forma do payload (topic/resource/user_id), grava em `marketplace_webhook_events` (idempotência via `UNIQUE(idempotency_key)` = `provider:topic:resource` — reenvio do mesmo evento não duplica a linha) e **sempre responde 200 rápido**, mesmo em erro interno — nunca deixar o Mercado Livre nos marcar como endpoint instável.
-    - **Módulo opcional `mercadolivre`, desligado por padrão** (mesmo mecanismo genérico de `tenant_modules` da regra 38) — gated via `requireModule('mercadolivre')` em `routes/marketplaceIntegration.ts` e `routes/materialMarketplaceLinks.ts`. `GET /v1/integrations/mercadolivre/connections` (lista) nunca é gated — é leitura inofensiva usada por outras telas.
-    - **`mapMlOrderToErpOrder()` (domínio puro) nunca cria `order_item` órfão** — se um item vendido no ML não tem `material_marketplace_links` correspondente, lança erro explícito em vez de silenciosamente ignorar. Pedido importado entra direto em `orders.status='confirmed'` (pula `draft` — a venda no ML já está paga/comprometida), com `origin='mercadolivre'` e `marketplace_order_id` preenchidos.
-    - **Decisão de v1 documentada, não escondida:** pedidos importados do Mercado Livre são atribuídos a um cliente genérico único por tenant (`clients.full_name = 'Cliente Mercado Livre'`, criado sob demanda) — não criamos um cadastro de cliente por comprador anônimo do marketplace. Revisitar apenas se houver necessidade real de CRM por comprador.
+42. **Integração Mercado Livre: conexão OAuth é por EMPRESA (`nfe_configs`), não por tenant.** `marketplace_connections.company_id` NOT NULL, único por `(company_id, provider)`. Fase 1 (api-core: domínio, serviços, rotas, worker in-process) + Fase 2 (`services/lambda-marketplace`, Terraform, sync real) ambas concluídas. Lambdas nunca acessam Postgres direto — tokens/preço/estoque viajam via snapshot na própria mensagem SQS. `refresh_token` é uso único — `ensureFreshToken()` sempre devolve o par renovado em `refreshed_tokens`, e o worker de resultado sempre persiste esse campo, senão a conexão quebra na próxima chamada. Sync é só manual nesta fase (sem automação ao alterar preço/estoque no ERP). `signState`/`verifyState` protegem o callback OAuth contra CSRF via HMAC no próprio `state`, sem tabela nova. Webhook nunca é fonte de verdade, só gatilho — sempre responde 200 rápido. Módulo opcional `mercadolivre` (`requireModule`). Tokens em texto puro (mesma limitação de outros segredos do projeto — nenhum usa KMS hoje).
 
-43. **Assinatura SaaS via Stripe: opt-in por `STRIPE_SECRET_KEY` — sem a env var, o módulo inteiro é um no-op.** `stripeClient.ts` (`isStripeEnabled()` = `Boolean(process.env.STRIPE_SECRET_KEY)`) e `middleware/subscriptionGuard.ts` (preHandler global — retorna cedo se `!isStripeEnabled()`) são a única fonte de verdade. **Isto já foi uma armadilha real: a env var nunca foi adicionada ao Terraform/ECS depois que a feature foi implementada, deixando o billing "pronto mas nunca ligado" em produção** — corrigido adicionando `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` (variáveis `stripe_secret_key`/`stripe_webhook_secret`, sensitive) ao `environment` do ECS em `terraform/ecs.tf` e aos `TF_VAR_*` do `deploy.yml`. **Checklist para nunca repetir esse erro:** toda vez que uma env var nova for lida via `process.env.X` num serviço/adapter, ela só existe de verdade em produção se estiver (a) declarada como `variable` em `terraform/variables.tf`, (b) presente no bloco `environment` do recurso certo (ECS para api-core, `environment.variables` do Lambda para lambdas), e (c) passada como `TF_VAR_x` a partir de um GitHub Secret no `deploy.yml` — faltar qualquer um dos três é o mesmo bug do Stripe.
-    - **Tenants existentes nunca são afetados ao ligar o Stripe:** `subscriptionGuard` libera incondicionalmente quando `status='trial'` e `trial_ends_at IS NULL` (todo tenant criado antes desta feature) — o bloqueio (HTTP 402) só se aplica a tenants **novos**, que ganham `trial_ends_at` de 14 dias no registro (`auth.ts`, criação do Stripe customer é fire-and-forget, nunca bloqueia o cadastro).
-    - **`plans.stripe_price_id` precisa apontar para Prices reais do Stripe no MESMO modo (test/live) da `STRIPE_SECRET_KEY` configurada** — test e live são ambientes completamente separados no Stripe; um Price criado em test não existe para uma chave `sk_live_...`. Migration `0026_stripe_billing.sql` cria os planos com `'price_placeholder'`; `0029_stripe_price_ids.sql` já substitui pelos Price IDs reais — `POST /v1/subscription/checkout-session` bloqueia explicitamente (`400`) se o preço ainda for `price_placeholder*`.
-    - **Webhook (`POST /v1/subscription/webhook`) sem `STRIPE_WEBHOOK_SECRET` pula a verificação de assinatura HMAC** (loga aviso, mas aceita o evento) — nunca operar assim em produção; configurar o endpoint no Stripe Dashboard apontando para `https://orquestraerp.com.br/v1/subscription/webhook` e copiar o `whsec_...` para a env var. Idempotência via `billing_events.stripe_event_id UNIQUE` — reenvio do mesmo evento pelo Stripe não duplica processamento.
-    - **Tabelas:** `plans` (catálogo de planos, `stripe_price_id`, seed de 3 linhas: Starter/Profissional/Enterprise) e `billing_events` (append-only, auditoria de todo evento Stripe processado). Colunas em `tenants`: `stripe_customer_id`, `stripe_subscription_id`, `stripe_price_id`, `subscription_period_end`, `cancel_at_period_end`, `status`, `trial_ends_at`.
+43. **Assinatura SaaS via Stripe: opt-in por `STRIPE_SECRET_KEY` — sem a env var, o módulo inteiro é no-op.** `stripeClient.ts::isStripeEnabled()` + `middleware/subscriptionGuard.ts` são a única fonte de verdade. **Checklist obrigatório pra qualquer env var nova lida via `process.env.X`**: (a) declarada em `terraform/variables.tf`, (b) presente no `environment` do recurso certo (ECS pra api-core, Lambda `environment.variables` pros lambdas), (c) passada via `TF_VAR_x` a partir de GitHub Secret no `deploy.yml` — faltar qualquer um quebra em produção silenciosamente. Tenants existentes nunca são afetados ao ligar o Stripe (`subscriptionGuard` libera incondicionalmente quando `status='trial'` e `trial_ends_at IS NULL`). `plans.stripe_price_id` precisa apontar pro MESMO modo (test/live) da secret key configurada. Webhook idempotente via `billing_events.stripe_event_id UNIQUE`; sem `STRIPE_WEBHOOK_SECRET`, pula verificação HMAC — nunca operar assim em produção.
 
-44. **Reforma Tributária — campos IBS/CBS na NF-e e NFC-e (LC 214/2025, migration 0049).** Desde 1º/jan/2026 os documentos fiscais precisam trazer estes campos (mesmo em regime de teste); a Receita já iniciou validação ativa em 1º/abr/2026 e o preenchimento se torna mandatório em 3/ago/2026 — bloqueio de compliance, não feature de crescimento. **Escopo deliberado: só NF-e (modelo 55) e NFC-e (modelo 65) — NFS-e fica de fora, documentada como gap conhecido** (o layout nacional de IBS/CBS para NFS-e ainda está em piloto restrito, não obrigatório; revisitar quando isso mudar).
-    - **IBS/CBS em 2026 são só informativos — NUNCA somados ao total cobrado do cliente.** São compensáveis com PIS/COFINS este ano (sem carga tributária nova); mesmo padrão que `invoices.tax_total` já usa para o breakdown ICMS/FCP/DIFAL/PIS/COFINS. `taxEngine.ts` calcula `ibs_value`/`cbs_value` por linha mas eles nunca entram em `line_total`/`grand_total` — só em `totals.ibs_total`/`totals.cbs_total`. Nunca "corrigir" isso somando ao total sem antes confirmar com o usuário — é uma decisão de negócio, não um bug.
-    - **Alíquotas de teste fixas para 2026 (art. 343 LC 214/2025): CBS 0,9% + IBS 0,1%** — `getIbsCbsRates(uf, db)` em `taxRulesResolver.ts` (mesmo padrão de cache 5 min de `getFcpRate`), com fallback para esses valores quando a UF não tem linha em `tax_ibs_cbs_rates` (nunca bloqueia o cálculo). CBS é replicado por UF na tabela só para manter a mesma assinatura de resolver que ICMS/FCP já usam — não é normalização perfeita, é consistência de padrão.
-    - **Split IBS estado/município não publicado para a fase de teste 2026** — o valor cheio do IBS é lançado em `ibs_uf_valor` e `0` em `ibs_mun_valor` no payload do Focus (simplificação documentada, não esquecimento; revisar quando a Receita publicar a proporção oficial).
-    - **`cClassTrib` não deriva de NCM/CFOP** (depende de contexto/regime — nunca tentar inferir automaticamente). `materials.class_trib` é um override manual por produto, mesmo padrão de `cfop`/`cst_csosn`; default de sistema `'000001'` (tributação integral) quando ausente, aplicado em `taxEngine.ts` (constante `DEFAULT_CLASS_TRIB`) e no builder do Focus.
-    - **IBS/CBS NÃO são zerados para Simples Nacional/MEI** — diferente de ICMS/FCP/DIFAL/PIS/COFINS (que são zerados por serem unificados no DAS ou imunes por decisão do STF), IBS/CBS são tributos novos sem essa mesma base legal; o campo do XML é obrigatório independente do regime.
-    - **Campos reais esperados pelo Focus NF-e** (`services/lambda-fiscal/src/lib/focusNfe.ts::buildItem()`): `ibs_cbs_situacao_tributaria` (3 primeiros dígitos do `class_trib`), `ibs_cbs_classificacao_tributaria` (`class_trib` completo), `ibs_cbs_base_calculo`, `cbs_aliquota`, `cbs_valor`, `ibs_uf_aliquota`, `ibs_uf_valor`, `ibs_mun_aliquota`, `ibs_mun_valor`. NFC-e (`services/api-core/src/services/fiscal/focusNfe.ts::buildNfcePayload()`) usa os mesmos nomes de campo, resolvendo a alíquota fresh na hora da emissão (nunca persistida) — mesmo comportamento que o ICMS da NFC-e já tem hoje; só `class_trib` é persistido em `pos_sale_items` (copiado de `materials` no `addItem()`, mesmo padrão de `cst_csosn`/`cfop`/`ncm`).
-    - **`cbs_valor`/`ibs_uf_valor` SEMPRE derivados de `base_calculo × aliquota` dentro de `buildItem()` — nunca confiar num valor já persistido em `invoice_items`.** Bug real de produção (v25.0): como o frontend ainda não envia `ibs_rate`/`ibs_value` ao criar a nota, esses campos ficam `0` em `invoice_items`; `routes/nfe.ts` mapeia `0` para `undefined` (`Number(0) || undefined`), então a alíquota cai no default correto (0,1%/0,9%) mas o valor, sem esse mesmo tratamento, ficava fixo em `0` — SEFAZ rejeita com "Valor do IBS da UF difere do calculado" porque `base × aliquota ≠ valor enviado`. A correção recalcula o valor no Lambda, no último ponto antes do Focus, ignorando deliberadamente qualquer `ibs_valor`/`cbs_valor` recebido — única fonte de verdade da aritmética que efetivamente vai para a SEFAZ.
-    - **Tabelas/colunas:** `tax_ibs_cbs_rates` (uf PK, `ibs_rate`, `cbs_rate`); `materials.class_trib`; `invoice_items`/`pos_sale_items`: `class_trib` (+ `ibs_base/rate/value`, `cbs_base/rate/value` só em `invoice_items` — NFC-e não persiste, calcula fresh); `invoices`: `ibs_total`, `cbs_total` (agregados informativos).
+44. **Reforma Tributária — campos IBS/CBS na NF-e/NFC-e (LC 214/2025), só modelo 55/65, NFS-e fica de fora (gap conhecido).** IBS/CBS em 2026 são só informativos — **nunca somados ao total cobrado do cliente** (`totals.ibs_total`/`totals.cbs_total` separados, nunca em `grand_total`). Alíquotas de teste fixas 2026: CBS 0,9% + IBS 0,1% (`getIbsCbsRates(uf, db)`, cache 5 min, fallback nunca bloqueia). `materials.class_trib` é override manual (nunca inferido de NCM/CFOP), default `'000001'`. IBS/CBS não são zerados para Simples Nacional/MEI (diferente de ICMS/FCP/DIFAL/PIS/COFINS). **`cbs_valor`/`ibs_uf_valor` sempre recalculados dentro de `buildItem()` (lambda-fiscal) a partir de `base × alíquota` — nunca confiar num valor já persistido em `invoice_items`**, pois o frontend não envia esses campos na criação da nota (ficam `0` no banco); recalcular no último ponto antes do Focus é a única fonte de verdade da aritmética que vai pra SEFAZ.
 
-45. **Importação de materiais: SKU já cadastrado pode atualizar preço (opt-in) — e toda mudança de preço (manual ou em lote) gera histórico.** Motivado por um cliente real que não conseguia usar a planilha pra atualizar preço — `POST /v1/materials/import` sempre tratou SKU duplicado como erro, nunca como atualização (migration 0050).
-    - **`update_existing` (body, default `false`) — opt-in deliberado.** Sem marcar, o comportamento é idêntico ao de antes (SKU duplicado é ignorado, mensagem `"SKU 'X' já cadastrado"`, sem escrita nenhuma). Marcado, SKU já existente compara `preco_venda`/`preco_custo` da linha contra o material atual (`diffMaterialPrice()`, `domain/materials/materialPriceHistoryDomain.ts`, pura) e, se algo mudou, atualiza — **só esses dois campos, nunca nome/categoria/NCM/marca/etc.**, mesmo que a linha da planilha traga esses valores. Decisão deliberada: evita que uma planilha desatualizada sobrescreva um cadastro já curado.
-    - **`dry_run` (body, default `false`) — classifica sem escrever.** Mesma função de classificação dos dois modos; só um branch decide se comita. Usado pelo frontend pra mostrar o diff (criar/atualizar/sem-alteração/erro, com o de→para do preço) **antes** do usuário confirmar — a resposta (`rows: [{row, sku, action, changes?}]`) é a mesma em `dry_run=true` e `dry_run=false`, só a segunda escreve de fato.
-    - **`material_price_history` é append-only** (mesmo padrão de `cost_center_movements`/`commission_entries` — nunca UPDATE/DELETE depois do insert), uma linha por evento (venda e custo mudando juntos = uma linha só, com os dois pares antes/depois). Gravado dentro da MESMA transação do UPDATE em `materials`, nunca separado. `recordPriceChangeIfNeeded()` (`services/materials/materialPriceHistoryService.ts`) só insere quando algo de fato mudou — nunca grava "sem alteração". Chamado tanto pela importação (`source: 'bulk_import'`, com `import_batch_id` agrupando as linhas da mesma chamada) quanto por `PATCH /v1/materials/:id` (`source: 'manual_edit'`) — o histórico é completo independente de onde a mudança veio.
-    - **Preço de custo em `materials.cost_price` não afeta a valoração de estoque do Centro de Custo** — `cost_center_stock.avg_unit_cost` é um snapshot próprio, alimentado por `unitCost` explícito em cada movimento (`costCenterStock.ts`), nunca por leitura direta de `materials.cost_price`. Mudar preço em massa via importação é seguro — não corrompe custo médio já lançado.
-    - **`GET /v1/materials/:id/price-history`** — paginado (`page`/`per_page` ≤ 100, regra 12), `created_at DESC`. Alimenta a seção somente-leitura "Histórico de Preços" no drawer do material.
-    - **Resposta de `POST /v1/materials/import` estendida, retrocompatível:** `imported` (alias de `created`, mantido) + `created`/`updated`/`unchanged`/`skipped`/`errors`/`rows`.
-    - **Gap conhecido, documentado, não esquecimento:** `POST /v1/clients/import` tem a mesma limitação (skip-only em CNPJ/CPF duplicado) e fica de fora deste escopo — mesmo padrão de solução, se necessário, num follow-up futuro.
+45. **Importação de materiais: SKU duplicado pode atualizar preço (opt-in via `update_existing`), toda mudança de preço gera histórico.** `dry_run` classifica sem escrever (mesmo shape de resposta que a escrita real). `update_existing` só atualiza `sale_price`/`cost_price` — nunca nome/categoria/NCM/marca, mesmo que a planilha traga. `material_price_history` é append-only (nunca UPDATE/DELETE), gravado na MESMA transação do update em `materials`, alimentado tanto pela importação (`source:'bulk_import'`) quanto por `PATCH /v1/materials/:id` (`source:'manual_edit'`). `cost_center_stock.avg_unit_cost` é snapshot próprio — mudar preço em massa não corrompe custo médio já lançado. `POST /v1/clients/import` continua skip-only em CNPJ/CPF duplicado (gap conhecido, mesmo padrão de solução se necessário no futuro).
 
-46. **NF-e de Entrada: autofill pela chave de acesso via Focus NF-e (produto MDe).** `POST /v1/supplier-invoices/lookup-by-key` (`services/fiscal/focusNfe.ts#consultarNFeRecebida`) consulta `GET /v2/nfes_recebidas/{chave}.json` do Focus — o endpoint funciona porque, numa NF-e de Entrada, o CNPJ do nosso tenant é o **destinatário** da nota (distribuição SEFAZ NFeDistribuicaoDFe), não um terceiro qualquer.
-    - **Dependência externa não coberta por código: produto "Manifestação do Destinatário (MDe)" precisa estar ativo na conta Focus de cada empresa/CNPJ.** Sem isso — ou se a nota ainda não foi distribuída pela SEFAZ (pode haver atraso) — o Focus responde 404, tratado aqui como resultado válido (`found: false, reason`), nunca como erro. O formulário continua 100% preenchível manualmente em qualquer cenário de falha.
-    - **Resolução de empresa/token segue o padrão multi-empresa (regra 40):** `resolveCompanyId()`, token/ambiente por empresa (`focus_token_producao`/`focus_token_homologacao` conforme `focus_ambiente`), nunca um token global fixo.
-    - **Rota é só leitura — nunca cria fornecedor nem grava a NF-e de entrada.** Fornecedor é casado por `(tenant_id, cnpj)`; se não existir, a rota devolve os dados crus do emitente (`matched: false`) e é o frontend que pergunta ao usuário antes de chamar `POST /v1/suppliers` de fato — nunca cadastro automático e silencioso.
-    - **Limite de 20 consultas/hora por CNPJ (regra da SEFAZ)** — ok para clique manual pontual; nunca usar em polling/lote.
+46. **NF-e de Entrada: autofill pela chave de acesso via Focus NF-e/MDe.** `POST /v1/supplier-invoices/lookup-by-key` funciona porque, numa nota de entrada, o tenant é o destinatário (distribuição SEFAZ NFeDistribuicaoDFe). Depende do produto "Manifestação do Destinatário" ativo na conta Focus — sem isso, 404 tratado como resultado válido (`found:false`), nunca erro; formulário sempre preenchível manualmente. Rota é só leitura — nunca cria fornecedor nem grava a nota automaticamente. Limite de 20 consultas/hora por CNPJ (regra SEFAZ) — nunca usar em polling/lote.
 
-47. **NF-e de Entrada: parcelamento de contas a pagar, item vinculado a material e estoque alimentado uma única vez (migration 0051).** Motivado por gaps reais de uso: cliente comprando parcelado não tinha como registrar isso; itens da nota eram texto livre e nunca alimentavam estoque; Pedido de Compra em rascunho não aparecia pra vincular.
-    - **Parcelamento — modo automático mensal.** `supplier_invoices.installments` (default 1) é definido na criação. `confirmSupplierInvoice()` (`services/supplierInvoiceService.ts`) gera N `payables` quando `installments > 1`: vencimento mensal a partir do `due_date` da nota (`addMonthsToDateStr`, domínio puro) e valor dividido igualmente, com o resto de centavos absorvido pela última parcela (`splitInstallmentAmounts`, domínio puro). `installments <= 1` mantém o comportamento de sempre — um payable, sem campos de parcela, zero regressão. `payables.installment_group_id` **não é FK**, só correlaciona as N parcelas de uma mesma nota (mesmo padrão de `material_price_history.import_batch_id`, regra 45) — deliberadamente distinto de `payables.parent_payable_id`, que já é usado para recorrência.
-    - **Estoque só é alimentado UMA única vez por nota, mesmo que "confirmar" seja chamado mais de uma vez.** A única forma de chamar `confirmSupplierInvoice()` duas vezes hoje é resolver uma nota em `divergence` pra `confirmed` (`divergence → confirmed` é uma transição válida do estado, pensada pra revisão manual). Sem essa proteção, essa segunda chamada duplicaria o(s) payable(s) **e** a movimentação de estoque. A partir desta migration, quando `si.status === 'divergence'`, o confirm só troca o status — nunca refaz payable nem estoque. Não existe rota de edição de NF-e de Entrada (só criar/confirmar/cancelar) — uma nota confirmada já é, por construção, imutável.
-    - **Item vinculado a material (`ProductPicker`) — alimenta estoque de verdade.** O drawer de "Registrar NF-e de Entrada" (`SupplierInvoicesPage.tsx`) trocou o campo de texto livre por `ProductPicker` (mesmo componente/padrão já usado em Pedido de Compra), com fallback de nome livre só quando nenhum material é selecionado (item avulso, ex.: frete — não alimenta estoque, como já era o comportamento pra item sem `material_id`).
-    - **Bug corrigido: `POST /v1/supplier-invoices` nunca persistia `supplier_id`/`purchase_order_id`/`nfe_key`/`items[].material_id`.** A rota repassava o body HTTP (snake_case) direto pro service (`{ ...b, tenantId, createdBy }`), mas o service só lê campos camelCase (`supplierId`, `purchaseOrderId`, `materialId`...) — o `{...b}` nunca renomeia chaves, então esses campos sempre chegavam `undefined`. Essa é a causa raiz real de "não consigo vincular o Pedido de Compra" e de itens nunca ficarem de fato vinculados a um material. Corrigido com mapeamento explícito na rota.
-    - **Dropdown de Pedido de Compra: mostra `draft` e `approved`, não só `approved`.** Um PO nasce em `draft` e só vira `approved` após ação explícita — filtrar só `approved` escondia qualquer PO recém-criado do dropdown de vínculo. `received`/`cancelled` continuam ocultos (não fazem sentido linkar).
+47. **NF-e de Entrada: parcelamento automático mensal, estoque alimentado uma única vez por nota.** `installments > 1` gera N `payables` com vencimento mensal, resto de centavos na última parcela; `installment_group_id` não é FK, só correlaciona. Estoque só é alimentado uma vez mesmo se `confirmSupplierInvoice()` rodar duas vezes (transição `divergence → confirmed` só troca status, nunca refaz payable/estoque). Item vinculado a material via `ProductPicker` alimenta estoque de verdade; item sem `material_id` (avulso, ex. frete) não alimenta.
 
-48. **Faturamento de Ordem de Serviço: gatilho manual, gera receivable + NFS-e opt-in, cobrança reaproveita boleto/Pix já existente (migration 0052).** Ordens de Serviço e Visitas Técnicas funcionavam bem operacionalmente, mas terminavam num beco sem saída financeiro — nada acontecia quando uma OS completava. `POST /v1/service-orders/:id/billing` fecha esse ciclo.
-    - **Gatilho é sempre uma ação manual do backoffice na tela da OS, nunca automático.** Uma OS `completed` fica "pronta para faturar"; o faturamento só acontece quando alguém confirma explicitamente (mesmo racional de revisão-antes-de-imutabilizar da regra 47). `assertCanBillServiceOrder()` (`domain/serviceOrderBilling/serviceOrderBillingDomain.ts`, puro) exige `status = 'completed'` e bloqueia refaturar — a trava real de idempotência é o **UNIQUE parcial em `receivables.service_order_id`** (só quando não nulo): no máximo um receivable por OS, sempre.
-    - **NFS-e é opt-in por faturamento, não uma preferência persistida.** Ao contrário de Contratos de Serviço (`service_contracts.nfse_enabled`, uma coluna), aqui o usuário decide na hora — um checkbox no confirm de faturamento, repassado como `emit_nfse` no body. Quando pedida, `billServiceOrder()` (`services/serviceOrderBillingService.ts`) reaproveita a mesma validação e o mesmo shape de `routes/serviceContracts.ts` (`POST /:id/billings`): resolve a empresa via `resolveCompanyId` (regra 40), exige `inscricao_municipal` e `codigo_servico_padrao` configurados, calcula ISS pela alíquota padrão da empresa, e envia pro Focus via a mesma fila (`NFE_REQUESTS_QUEUE_URL`, `buildNfseEmitMessage()`). Falha ao enfileirar nunca desfaz o receivable já criado — a NFS-e só fica sem emitir (`nfse_status: null`), a cobrança segue normalmente.
-    - **A cobrança (boleto + Pix) é 100% o fluxo que já existe — zero código novo.** Uma vez criado o receivable, o backoffice aciona `POST /v1/receivables/:id/emit-boleto` (já usado por Contas a Receber/Contratos/PDV), que já gera boleto e Pix juntos no mesmo registro. A tela da OS mostra o status da cobrança direto ali (`GET /v1/service-orders/:id` traz `receivable_*`/`boleto_*`/`nfse_*` via LEFT JOIN), sem forçar navegação até Contas a Receber.
-    - **Gap corrigido (branch `fix-dre-nfse`): a DRE Gerencial agora também soma NFS-e autorizada na receita bruta.** Ficou documentado aqui como gap conhecido até esta correção — `computeDRE()` (`services/dreService.ts`) somava receita só a partir de `invoices.status = 'issued'`, então NFS-e (o documento emitido tanto por este fluxo quanto por Contratos de Serviço) nunca entrava na receita, mesmo a linha já se chamando "Receita Bruta de Vendas **e Serviços**". Corrigido somando `SUM(nfse_invoices.amount) WHERE nfse_status = 'authorized'` no período (usando `COALESCE(nfse_auth_date, created_at)` como data de referência) ao total de `invoices` — mesma linha `revenue-auto`, sem criar categoria nova. NFS-e não tem hoje um fluxo de cancelamento (só `null/pending/processing/authorized/rejected`), então, diferente de `invoices`, não há dedução equivalente a somar.
-    - **Fora de escopo deliberado:** faturamento parcial/sinal antes da OS completar; faturar por visita individual em vez de pela OS inteira (o modelo de dados precifica no nível da OS — itens/total —, não da visita).
+48. **Faturamento de Ordem de Serviço: gatilho sempre manual, nunca automático.** `POST /v1/service-orders/:id/billing` exige `status='completed'`; idempotência real é o UNIQUE parcial em `receivables.service_order_id` (no máximo um receivable por OS). NFS-e é opt-in por faturamento (checkbox `emit_nfse` no body), não uma preferência persistida — falha ao enfileirar nunca desfaz o receivable já criado. Cobrança (boleto+Pix) reaproveita 100% o fluxo já existente de `POST /v1/receivables/:id/emit-boleto`. DRE Gerencial soma NFS-e autorizada (`nfse_status='authorized'`) na receita bruta junto com `invoices`.
 
-49. **NF-e de Entrada: editar antes de confirmar, ver detalhes/PDF/XML depois.** A lista não tinha nenhuma forma de abrir uma nota — só os botões "Confirmar"/"Excluir". Clicar numa linha agora abre um drawer que se comporta de dois jeitos, dependendo do status (mesmo padrão de "editar vs. visualizar" já usado em Ordens de Serviço).
-    - **`status = 'draft'` → editável.** Abre o mesmo formulário de criação, pré-preenchido, e salva via `PATCH /v1/supplier-invoices/:id` → `updateSupplierInvoice()` (`services/supplierInvoiceService.ts`). Substitui todos os itens (delete + reinsert, mesma simplicidade da criação — sem diff parcial). **Bloqueado para qualquer outro status** (`si_not_editable`, 422) — inclusive `divergence`, que já gerou estoque/payable na primeira tentativa de confirmação (regra 47); editar depois disso corromperia esse rastro. Não existe (nem deveria existir) edição de nota confirmada — imutabilidade por construção, mesmo princípio já documentado na regra 47.
-    - **Qualquer outro status → somente leitura.** Mostra fornecedor, PO vinculado, chave, itens, valores e status — sem campos editáveis.
-    - **PDF/XML do documento — só quando há chave de acesso.** `GET /v1/supplier-invoices/:id/document?format=pdf|xml` chama `fetchNFeRecebidaDocument()` (`services/fiscal/focusNfe.ts`), que busca `GET /v2/nfes_recebidas/{chave}.pdf|.xml` no Focus com o mesmo token/ambiente da empresa (regra 40) — mesma dependência de ativação do produto MDe já documentada na regra 46. **Diferente do DANFE de uma nota emitida por nós** (cujo `caminho_danfe` já vem público na resposta do Focus e é linkado direto do frontend), este documento de terceiro exige o mesmo Basic Auth da consulta a cada acesso — por isso o backend busca e devolve em base64 (`{ found, content_type, base64 }`), nunca um link direto pro Focus; o frontend monta um `Blob` e abre numa nova aba. Indisponibilidade (MDe inativo, nota não distribuída) é resultado esperado (`found: false, reason`), sempre `200`, nunca erro.
+49. **NF-e de Entrada: editável em `draft` (via `PATCH`, delete+reinsert de itens), somente leitura em qualquer outro status — nunca editar nota já confirmada.** PDF/XML de nota de terceiro (`GET /:id/document?format=pdf|xml`) vai em base64 (nunca link direto ao Focus, por causa do Basic Auth) — indisponibilidade é resultado esperado (`found:false`), sempre 200.
 
-50. **Assinatura Stripe: status desconhecido/de problema nunca vira `'trial'` (migration 0053).** Causa raiz de um bug real em produção — todo tenant nasce com `tenants.status = 'trial'` (default do schema); se o webhook do Stripe não consegue mapear o `status` real da assinatura, ela ficava presa nesse default, aparecendo como "trial" mesmo quando na verdade tinha um problema de pagamento.
-    - **`mapStripeStatus()` (`routes/subscription.ts`) agora cobre todos os status reais do Stripe** — `incomplete`/`paused` viram `'past_due'` (precisam de atenção, mas não são trial nem canceladas), `incomplete_expired` vira `'canceled'` (nunca chegou a ativar e expirou). Qualquer status realmente inesperado no futuro cai em `'past_due'` e loga um aviso — nunca mais em `'trial'` silenciosamente.
-    - **`plans.stripe_price_id` do plano `starter` estava desatualizado** em relação ao price_id real de produção no Stripe (`0029_stripe_price_ids.sql` tinha um valor stale) — checkouts usando esse price_id podiam terminar em `incomplete` no Stripe, que o bug acima escondia como `'trial'`. Corrigido via `UPDATE plans SET stripe_price_id = ...` (mesmo padrão de `0029_stripe_price_ids.sql`, migration 0053).
-    - **Gap conhecido, não resolvido nesta correção:** `middleware/subscriptionGuard.ts` só reconhece `trial`/`active`/`past_due`/`canceled` — qualquer status fora desses passa despercebido (fail-open, sem bloquear nem avisar). Como `mapStripeStatus()` agora só produz esses 4 valores, isso não reintroduz o bug original, mas vale endurecer o guard no futuro caso novos status apareçam.
+50. **Assinatura Stripe: status desconhecido nunca vira `'trial'` silenciosamente.** `mapStripeStatus()` cobre todos os status reais do Stripe (`incomplete`/`paused`→`'past_due'`, `incomplete_expired`→`'canceled'`); qualquer status inesperado cai em `'past_due'` com log de aviso, nunca em `'trial'`. `subscriptionGuard` só reconhece `trial`/`active`/`past_due`/`canceled` — gap conhecido se o Stripe introduzir um 5º status.
 
-51. **NF-e de Simples Remessa: operação não onerosa, entidade própria, situação tributária nunca herdada do cadastro de venda (migration 0055).** Cobre a jornada completa — criar, emitir via Focus, acompanhar status, ver DANFE, registrar retorno — para conserto, demonstração, comodato, industrialização, amostra grátis e devolução. Multi-empresa (regra 40) e multi-tenant funcionam do mesmo jeito que em qualquer outro documento fiscal — nada novo aí.
-    - **Entidade própria (`simples_remessas`), não um flag em `invoices`.** `invoices.client_id` é `NOT NULL` e o fluxo gera `receivables`/comissão de vendedor — nenhum dos dois cabe numa remessa não onerosa. Mesmo princípio já usado pra separar NFS-e de NF-e de venda (regra 19): um conceito de negócio diferente ganha sua própria tabela, não um `if` espalhado pela tabela de venda.
-    - **Reaproveita a infraestrutura de fila/Focus, não a duplica.** `POST /v1/simples-remessas/:id/emit` publica na MESMA fila `NFE_REQUESTS_QUEUE_URL`, discriminada por `type: 'remessa'` — mesmo padrão já usado por NFS-e (`type: 'nfse'`). `services/lambda-fiscal/src/services/nfeService.ts#processRemessaRecord()` reaproveita `buildFocusPayload()` e `FocusNfeClient` tal como estão (mesmo modelo 55, mesmo endpoint Focus de uma NF-e de venda comum) — só o CFOP/natureza/situação tributária dos itens mudam, resolvidos pelo domínio de remessa antes de a mensagem sair de api-core.
-    - **CFOP e situação tributária são função do `motivo`, nunca inferidos de NCM/CFOP** (mesma restrição já documentada pra `class_trib` de venda, regra 44) — `domain/simplesRemessa/simplesRemessaDomain.ts` mapeia cada motivo pro CFOP de ida (`resolveRemessaOperation`) e, quando aplicável, pro CFOP de retorno (`resolveRetornoOperation` — `null` pra amostra grátis/devolução, que não têm retorno fiscal). A situação tributária (`resolveTaxSituation`) é CSOSN `400`/CST `41` ("não tributada" — distinto de CST `40` "isenta", usado hoje só em venda). Esses defaults **precisam de validação de um contador/fiscal antes do primeiro uso em produção** — documentado no próprio arquivo de domínio, mesmo espírito das ressalvas já feitas pra Focus MDe (regra 46) e pro gap DRE/NFS-e (regra 42).
-    - **Bug de produção corrigido (branch `fix-nf-remessa`): IBS/CBS nunca podem ter a ALÍQUOTA zerada — a SEFAZ rejeita ("Alíquota do IBS da UF inválida").** A v1 desta regra zerava `ibs_rate`/`cbs_rate` diretamente no domínio pra representar a não incidência da LC 214/2025 sobre operação não onerosa; esse valor ia parar cru no campo `ibs_uf_aliquota`/`cbs_aliquota` do payload da Focus (`services/lambda-fiscal/src/lib/focusNfe.ts`), e a SEFAZ exige que esse campo seja sempre o percentual real cadastrado pra UF (mesmo valor de venda, regra 44), independente da operação ser tributada ou não — a não incidência se expressa zerando a BASE de cálculo, nunca a alíquota. Correção: `resolveTaxSituation()` não resolve mais alíquota nenhuma (é I/O, não cabe no domínio puro) — devolve só `ibs_cbs_base_calculo: 0`; `simplesRemessaService.ts#emitSimplesRemessa()` busca a alíquota real via `getIbsCbsRates()` (mesma função usada por venda) pela UF de destino (cliente) e manda pro Focus `ibs_aliquota`/`cbs_aliquota` reais + `ibs_base_calculo: 0` — o resultado (`vIBS`/`vCBS` = base × alíquota = 0) é o mesmo de antes, mas sem violar a validação de schema da SEFAZ.
-    - **Estoque baixa na autorização da remessa e devolve na autorização do retorno**, via `inventory`/`inventory_movements` (mesma tabela genérica de NF-e de Entrada/Ordens de Serviço — não a valoração por Centro de Custo, que é específica de venda/COGS). `applyRemessaStockMovement()` é idempotente via `simples_remessas.stock_applied_at` — nunca baixa/devolve duas vezes, mesmo em retry do SQS.
-    - **Retorno é a mesma entidade, com `parent_remessa_id` apontando pra remessa original** — evita uma tabela paralela. Só pode ser registrado com a remessa original `authorized` e um motivo que admita retorno; sem alertas/dashboard de pendência nesta v1 (fora de escopo deliberado, decisão do usuário).
+51. **NF-e de Simples Remessa: entidade própria (`simples_remessas`), nunca um flag em `invoices` — operação não onerosa não gera receivable nem comissão.** Reaproveita a mesma fila/Lambda de NF-e comum, discriminada por `type:'remessa'`. CFOP e situação tributária são função do `motivo` (conserto/demonstração/comodato/industrialização/amostra grátis/devolução), nunca inferidos de NCM/CFOP — defaults precisam de validação contábil antes do primeiro uso real. **IBS/CBS: a alíquota enviada à SEFAZ nunca pode ser zero, mesmo em operação não onerosa** — a não incidência se expressa zerando a BASE de cálculo (`ibs_cbs_base_calculo:0`), nunca a alíquota (`resolveTaxSituation()` não resolve alíquota, é I/O; `getIbsCbsRates()` busca a real pela UF de destino). Estoque baixa na autorização e devolve no retorno, idempotente via `stock_applied_at`. Retorno é a mesma entidade com `parent_remessa_id` apontando pra original.
 
-52. **Pedido de Compra: tela de detalhes, seguindo o mesmo padrão "editar em draft / visualizar depois" já usado em NF-e de Entrada (regra 49).** `PurchaseOrdersPage.tsx` não tinha nenhuma forma de abrir um pedido — só os botões de linha "Aprovar pedido"/"Excluir". Clicar numa linha agora abre o mesmo drawer, que se comporta de dois jeitos dependendo do `status`: `draft` reabre o formulário de edição (agora com suporte a editar itens/desconto/frete também, não só os campos de cabeçalho); qualquer outro status (`approved`/`received`/`cancelled`) abre uma visão somente leitura com status, fornecedor, itens, desconto/frete/subtotal/total, quem criou e (quando aplicável) quem aprovou e quando — reforçando visualmente o processo de aprovação. `GET /v1/purchase-orders/:id` já existia e já retornava o header+itens completos (não era consumido pelo frontend); só ganhou dois `LEFT JOIN users` a mais (`created_by`/`approved_by`) pra resolver os nomes.
-    - **Bug de segurança corrigido nesta mesma mudança: SQL injection em `PATCH /v1/purchase-orders/:id`.** A versão anterior montava o `UPDATE` concatenando `sql.raw()` com `${k} = '${String(patch[k])}'` — qualquer campo de texto do body (ex.: `notes`, `supplier_name`) ia direto pro SQL sem escaping, então uma aspa simples no valor já quebrava a query, e um payload malicioso conseguiria alterar a instrução executada. Corrigido reaproveitando o Drizzle parametrizado: `updatePurchaseOrder()` em `purchaseOrderService.ts`, mesmo padrão de `update().set().where()` já usado em `updateSupplierInvoice()` — zero SQL montado à mão nesse caminho agora.
-    - **Edição de rascunho ganhou suporte a itens (delete + reinsert), mesmo padrão de `updateSupplierInvoice()`.** Antes, `PATCH /v1/purchase-orders/:id` só aceitava campos de cabeçalho (`supplier_id`, `expected_date`, `notes`, `cost_center_id`) — reaproveitar o formulário de criação como formulário de edição sem isso teria criado uma UI enganosa (campos de item editáveis que não persistiam). Sem isso resolvido, a tela de detalhes ficaria pela metade — por isso o service ganhou paridade completa com o de NF-e de Entrada, não só leitura.
+52. **Pedido de Compra: editável em `draft` (itens inclusos), somente leitura depois — mesmo padrão de NF-e de Entrada (regra 49).** **Nunca montar SQL de update concatenando string** (`sql.raw()` com interpolação direta já foi uma vulnerabilidade real de SQL injection aqui) — sempre usar Drizzle parametrizado (`update().set().where()`).
 
-53. **Responsabilidade de emissão por empresa: cada CNPJ declara se emite NF-e de venda, NFS-e de serviço, ou ambos (migration 0056).** Multi-empresa (regra 40) já existia, mas nenhuma empresa declarava qual tipo de documento fiscal era responsável por emitir — `nfe_configs` tinha os campos de NF-e (`cfop_padrao`...) e de NFS-e (`inscricao_municipal`...) em toda linha, sem distinção, e o único freio existente era reativo (`if (!cfg.inscricao_municipal) throw` no momento de emitir, uma checagem de campo preenchido, não de responsabilidade declarada). `POST /v1/service-orders/:id/billing` nem mandava `company_id` do frontend — sempre caía na empresa padrão, então "uma empresa vende, outra presta serviço" já quebrava nesse fluxo mesmo sem essa regra existir.
-    - **Dois booleans independentes (`emite_nfe`, `emite_nfse`), não um enum.** Não são estados mutuamente exclusivos — uma empresa pode fazer as duas coisas, uma só, ou nenhuma. Default `true`/`true` em ambos: todo tenant existente hoje tem 1 empresa que já emite tudo, e o default garante que nada muda até alguém desmarcar uma capacidade explicitamente na aba Fiscal de "Minha Empresa".
-    - **`resolveCompanyId(tenantId, companyId, db, docType?)` — `docType` é opcional e retrocompatível por design.** Omitido (`tax.ts`, `bankAccountService.ts`, `marketplaceConnectionService.ts` — resolução de empresa sem relação com tipo de documento fiscal), o comportamento é idêntico a antes desta regra existir. Informado (`'nfe'` | `'nfse'`), a resolução respeita a capacidade em 4 ramos, nessa ordem: (1) `companyId` explícito sem a capacidade → `company_missing_capability`; (2) `companyId` omitido e a empresa padrão tem a capacidade → usa ela; (3) `companyId` omitido, a padrão não tem, mas só UMA outra empresa ativa tem → resolve sozinho (sem ambiguidade real, mesma conveniência do `is_default` de hoje); (4) `companyId` omitido, nenhuma empresa tem a capacidade → `no_company_for_doc_type`; (5) `companyId` omitido, mais de uma empresa tem e nenhuma é a padrão → `company_selection_required` — nunca escolhe arbitrariamente por trás do usuário, o chamador devolve 422 e o frontend mostra o seletor de empresa.
-    - **5 pontos de emissão passam a informar `docType`** — `routes/nfe.ts` (`POST /invoices/:id/emit`, `'nfe'`), `routes/nfse.ts` (`POST /nfse/:id/emit`, `'nfse'`), `routes/serviceContracts.ts` (`POST /:id/billings`, `'nfse'`), `services/serviceOrderBillingService.ts` (só quando `emitNfse`, `'nfse'`) e `services/simplesRemessaService.ts` (`resolveCfgOrThrow`, `'nfe'` — Simples Remessa é NF-e modelo 55, mesmo endpoint Focus de venda, nunca uma terceira categoria). Mensagens de erro centralizadas em `companyResolutionErrorMessage()` (`services/companyService.ts`) — só os 3 códigos novos ganham mensagem própria; os códigos que já existiam antes desta regra (`company_not_found`, `no_default_company`) mantêm a mesma mensagem genérica de sempre, pra não mudar nenhum contrato de erro que telas/testes já dependiam.
-    - **Gap real fechado: `POST /v1/service-orders/:id/billing` agora tem seletor de empresa.** O modal de faturamento de OS (`ServiceOrdersPage.tsx`) nunca mandava `company_id` (a rota já aceitava, só o frontend não usava) — ganhou um `<select>` de "Empresa emissora", igual ao já usado em Contratos de Serviço, exibido só quando "Emitir NFS-e" está marcado e há mais de uma empresa com `emite_nfse=true`.
-    - **Tela "Minha Empresa" (aba Fiscal): dois `Switch` por empresa + campos condicionais.** Os campos de NF-e (`cfopPadrao`/`cfopInterestadual`/`natOp`) só aparecem quando `emite_nfe` está marcado; o bloco de NFS-e só aparece quando `emite_nfse` está marcado — antes ambos apareciam sempre, em toda empresa, mesmo numa cadastrada só pra um dos dois tipos. A faixa de seleção de empresa ganhou uma etiqueta por empresa ("NF-e" / "NFS-e" / "NF-e + NFS-e"), e um aviso não bloqueante aparece se as duas capacidades ficarem desmarcadas.
-    - **Seletores de empresa existentes (Nova Venda, Contratos, Simples Remessa) passam a filtrar por capacidade** — só listam empresas com `emite_nfe`/`emite_nfse` conforme o tipo de documento daquela tela, em vez de listar toda empresa ativa do tenant indiscriminadamente.
+53. **Cada empresa (`nfe_configs`) declara se emite NF-e (`emite_nfe`), NFS-e (`emite_nfse`), ou ambos — dois booleans independentes, default `true`/`true`.** `resolveCompanyId(tenantId, companyId, db, docType?)`: `docType` omitido é retrocompatível (resolução sem relação com tipo fiscal); informado, resolve pela empresa certa ou devolve erro explícito (`company_missing_capability`, `no_company_for_doc_type`, `company_selection_required`) — nunca escolhe arbitrariamente por trás do usuário. 5 pontos de emissão informam `docType`: `routes/nfe.ts`, `routes/nfse.ts`, `routes/serviceContracts.ts`, `serviceOrderBillingService.ts`, `simplesRemessaService.ts`.
 
-54. **Três ajustes de operação do dia a dia: editar técnico, observações em materiais, e "espelho do técnico" na OS (migrations 0057).** Motivados por dores reais de uso — tenant com baixa maturidade digital erra e-mail/CPF no cadastro do técnico e não tem como corrigir; falta um campo de nota interna em materiais; e o tenant não tem como conferir o que o técnico de campo vai ver antes de mandar ele pra rua.
-    - **Editar técnico, nunca senha.** `TechniciansPage.tsx` só tinha criar + ativar/desativar. `updateTechnician()` (`services/technicianService.ts`) edita nome/e-mail/telefone/CPF/especialidade — e propaga nome/e-mail pra `users` (é o login real, `technicians.user_id`), nunca deixando as duas tabelas divergirem. Senha **nunca** é definida por aqui, por design: `resendTechnicianInvite()` reaproveita o MESMO mecanismo de `password_reset_token`/e-mail `technician_welcome` já usado na criação (`createTechnician()`) — gera um novo token, reenvia o link, o técnico sempre define a própria senha. Novas rotas `PATCH /v1/technicians/:id` e `POST /v1/technicians/:id/resend-invite`.
-    - **`materials.notes` (migration 0057) — observações internas, distinto de `description`.** `description` já é um campo de primeira classe (buscável, usado em propostas); `notes` é anotação livre do tenant, sem uso fora do cadastro/importação. Disponível no formulário de cadastro/edição (`MaterialsPage.tsx`) e na importação de planilha via coluna `observacoes` (mapeada só na criação de SKU novo — mesma regra já aplicada a `descricao`/`categoria`/`marca`: importação em massa nunca sobrescreve campo descritivo de material já cadastrado, só preço).
-    - **`GET /v1/service-orders/:id/print` — "espelho do técnico".** Endpoint dedicado (mesmo padrão de `GET /v1/proposals/:id/print`, regra correspondente), autenticado por tenantId, que devolve exatamente os mesmos dados que o técnico vê no portal dele: cliente completo (endereço/telefone/e-mail — o `GET /v1/service-orders/:id` normal só tem `client_name`), e por visita, foto (`service_visit_photos`) e assinatura (`service_visits.signature_s3_key`) como URL assinada de leitura via `getPresignedReadUrl()` (já existia, usada só por `GET /:id/visits/:visitId`, nunca consumida pelo frontend até agora). **Deliberadamente não inclui a tabela de itens** — o técnico também não vê itens no portal dele (`getVisitForTechnician()` nunca seleciona `service_order_items`), então essa visão espelha isso fielmente, não é uma tela de detalhe genérica. Nova página `ServiceOrderPrintPage.tsx` (rota `/service-orders/:id/print`, fora do `<Layout>` administrativo — mesmo padrão de `ProposalPrintPage.tsx`), com botão "🖨 Imprimir" (`window.print()`) e `.print-hide` no toolbar (mesmo CSS global já usado pela impressão de proposta). Acessível pelo botão "Imprimir / Visualizar" no rodapé do drawer de detalhe da OS.
+54. **Técnico é editável (nome/e-mail/telefone/CPF/especialidade), senha nunca é definida por edição — só reenvio de convite via o mesmo mecanismo de `password_reset_token`.** `materials.notes` é observação interna, distinta de `description` (buscável/usada em propostas). `GET /v1/service-orders/:id/print` ("espelho do técnico") devolve exatamente o que o técnico vê no portal — deliberadamente sem itens, pois o portal também não mostra itens.
 
-55. **Funil de Vendas (CRM/pipeline): módulo opcional, Kanban nativo sem dependência nova, etapas configuráveis pelo tenant (migration 0058).** Motivado por um gap real identificado em análise de mercado — concorrentes de perfil parecido (ex.: Omie) têm CRM/funil de vendas nativo, o Orquestra ERP não tinha. Domínio puro em `src/domain/salesPipeline/salesPipelineDomain.ts` (`assertCanMarkWon`/`assertCanMarkLost`, `validateOpportunityValue`, `validateOpportunityTitle`, `DEFAULT_STAGES`, `isManualActivityType`). Serviço em `src/services/salesPipelineService.ts`. Rotas em `src/routes/salesPipeline.ts` — todas gated por `requireModule('sales_pipeline')` (mesmo mecanismo genérico de `tenant_modules` das regras 38/42, único ponto tocado em `tenantModuleService.ts` foi adicionar a chave em `MODULE_KEYS`; desligado por padrão, zero mudança de comportamento pra quem não habilitar).
-    - **Não confundir com `ProposalsFunnelPage.tsx` (`/reports/proposals-funnel`).** Aquela é um relatório estático de conversão (contagem de propostas por status final, sem histórico de transição, sem Kanban) — não tem código nem modelo de dados em comum com este módulo. Por isso o menu usa o rótulo "Funil de Vendas" (não "Funil de Conversão de Propostas"), evitando confundir o tenant entre as duas telas.
-    - **Oportunidade é entidade anterior e opcionalmente ligada a Proposta — não duplica `proposals`.** O fluxo completo de ponta a ponta é **Lead → Oportunidade (este módulo) → Proposta (já existe) → Pedido (já existe)**, reaproveitando 100% do que já existia a partir do momento em que vira proposta. `convertToProposal()` cria uma `proposals` em `status: 'draft'` com 1 item-placeholder (nome = título da oportunidade, quantidade 1, preço unitário = valor estimado) — necessário porque `POST /v1/proposals` já exige pelo menos um item; o tenant refina os itens de verdade depois, dentro do fluxo de Propostas normal, sem nenhuma mudança nesse fluxo. Vincula `proposal_id` de volta na oportunidade e bloqueia uma segunda conversão (`opportunity_already_converted`).
-    - **`status` (aberto/ganho/perdido) é um eixo separado de `stage_id` (etapa configurável)** — mesmo padrão "status vs. etapa" já usado em Simples Remessa (regra 51) e Ordens de Serviço. Ganho/Perdido **não são linhas de `sales_pipeline_stages`** — são o campo `status` da oportunidade; no Kanban viram 2 colunas fixas depois das etapas configuráveis do tenant. `assertCanMarkWon`/`assertCanMarkLost` só permitem a transição a partir de `status: 'open'` — um estado terminal (`won`/`lost`) nunca reabre.
-    - **Etapas semeadas de forma preguiçosa (lazy-seed), sem hook especial no módulo genérico.** `listStages()` semeia `DEFAULT_STAGES` (`Novo Lead`, `Qualificação`, `Proposta Enviada`, `Negociação`) automaticamente na primeira leitura de um tenant sem nenhuma etapa própria — idempotente, e `tenantModuleService.ts` continua sem saber nada sobre Funil de Vendas além da chave em `MODULE_KEYS`.
-    - **Timeline de atividades é append-only e a mudança de etapa/resultado é logada automaticamente pelo service, nunca à mão.** `sales_opportunity_activities.type` distingue `note`/`call`/`meeting` (só esses 3 são aceitos em `POST .../activities`, via `isManualActivityType()`) de `stage_change`/`won`/`lost`/`proposal_linked` (inseridos internamente por `moveStage()`/`markWon()`/`markLost()`/`convertToProposal()` — tentar logar um tipo automático via rota devolve `activity_type_not_manual`).
-    - **Kanban com drag-and-drop nativo HTML5, zero biblioteca nova.** Não existia (nem existe hoje) nenhuma lib de Kanban/DnD no projeto — `SalesPipelinePage.tsx` usa `draggable`/`onDragStart`/`onDragOver`/`onDrop` puros, mesmo racional de custo já aplicado antes pra recusar libs de PDF (impressão via `window.print()`). Reaproveita componentes de design system já existentes e nunca usados em nenhuma outra tela até agora: `Drawer` (`.Body`/`.Footer`) para criar/editar/detalhar oportunidade, além de `Switch`/`KPICard` já usados em outros módulos.
-    - **Decisão de custo deliberada: sem notificação por e-mail nesta v1.** Adicionar um tipo novo em `notificationsClient.ts` (ex.: "oportunidade atribuída a você") exigiria rebuild/redeploy do container `lambda-notifications` (regra 28) — um custo real, não hipotético. Visibilidade de "oportunidade atribuída" fica só na tela (Kanban) por enquanto; não é esquecimento, é corte de escopo documentado, mesmo espírito das ressalvas já registradas nas regras 46/51.
+55. **Funil de Vendas (CRM): módulo opcional (`requireModule('sales_pipeline')`), Kanban nativo sem dependência nova.** `status` (`open|won|lost`) é eixo separado de `stage_id` (etapa configurável pelo tenant, seed em `DEFAULT_STAGES`). Não confundir com `ProposalsFunnelPage.tsx` (relatório estático de conversão, sem código em comum). `convert-to-proposal` reaproveita 100% o schema/fluxo de Propostas já existente.
 
-56. **Controle de Perfil de Acesso por Tenant (RBAC): `role` reduzido a 2 papéis de sistema, o resto vira Perfil de Acesso configurável pelo próprio tenant (migration 0059).** O criador da conta (`role='owner'`) passa a gerenciar quem vê/gerencia o quê dentro do próprio tenant — pedido direto do usuário, motivado pelo fato de que `users.role` nunca teve imposição real nenhuma além do técnico (ver achado de segurança abaixo).
-    - **Achado de segurança corrigido nesta mesma entrega: `routes/users.ts` tinha 3 falhas reais de isolamento multi-tenant.** `GET /v1/users` confiava em `tenant_id` vindo da **query string**, não do JWT — um usuário autenticado de QUALQUER tenant listava usuários de outro tenant só passando `?tenant_id=<outro>`. `PATCH`/`DELETE /v1/users/:id` não filtravam `tenant_id` nenhum — dava pra editar (inclusive promover a `role='owner'`!) ou desativar um usuário de outro tenant só sabendo o UUID. Mesmo espírito da regra 52 (SQL injection no Pedido de Compra): achado durante trabalho relacionado, corrigido na mesma entrega por ser o mesmo arquivo — `tenant_id` agora vem sempre de `request.user.tenantId` em toda rota deste arquivo, nunca de query/body. Testes de regressão em `usersRoute.test.ts` provam especificamente os 3 cenários.
-    - **`role` passa a ter só 2 valores de sistema, não-configuráveis: `owner` (acesso total, nunca bloqueável) e `technician` (portal separado, já isolado por `technicianRoleGuard` desde a regra 38 — fora do escopo desta regra).** Todo o resto é `role='user'` + `access_profile_id` — o antigo enum fixo `admin`/`manager`/`user` (decorativo, zero imposição real) deixa de existir; usuários existentes são migrados para os perfis padrão semeados (ver abaixo). `POST/PATCH/DELETE /v1/users` passam a exigir `requireRole('owner')` — só o dono do tenant cria, edita ou desativa usuários; `GET` continua aberto a qualquer autenticado do tenant (não muda).
-    - **Dois eixos ortogonais, nunca fundidos: `requireModule()` (a funcionalidade existe pro tenant?) e o novo `requirePermission(resource, action)` (este usuário específico pode usá-la?).** `requirePermission()` segue o mesmo desenho de `requireModule.ts` — sempre uma consulta viva ao banco via `accessControlService#getEffectivePermissions()`, nunca cacheada no JWT (revogar tem efeito imediato, sem logout) — mas com bypass total pra `role='owner'` (nunca pode ficar trancado fora do próprio tenant por má configuração de perfil). Granularidade por recurso: `view`/`manage` (`manage` sempre implica `view` — não é preciso conceder os dois). `PATCH /v1/tenant/modules/:key` é a primeira rota existente a usar `requirePermission('company', 'manage')` de fato; as demais rotas do sistema ganham o gate progressivamente depois, módulo por módulo — mesmo ritmo incremental já usado pra `requireModule()` (decisão de escopo confirmada com o usuário, não é esquecimento).
-    - **`requireRole(...roles)` (`src/lib/requireRole.ts`) generaliza o padrão ad-hoc do `technicianRoleGuard`** (hook global fixo pra um único papel) num preHandler reutilizável por rota — usado hoje pelas mutações de `routes/users.ts` e por toda `routes/accessProfiles.ts`.
-    - **`access_profiles`/`access_profile_permissions` (grants) são tenant-scoped; `PERMISSION_RESOURCES`/ações ficam em código (`accessControlDomain.ts`), não em tabela de catálogo** — mesmo racional de `MODULE_KEYS`: adicionar um recurso novo nunca deveria exigir migration. `access_profile_events` é append-only (auditoria de criação/renomeação/mudança de permissão/exclusão/atribuição), mesmo padrão de `nfe_events`/`sales_opportunity_activities`.
-    - **3 perfis padrão semeados de forma preguiçosa (lazy-seed), mesmo idioma de `DEFAULT_STAGES` do Funil de Vendas (regra 55).** `listProfiles()` semeia "Administrador" (gerencia tudo), "Financeiro" (gerencia receivables/payables/cost_centers/dre/reports, visualiza o resto) e "Operacional" (visualiza tudo, gerencia orders/service_orders/technicians) na primeira leitura de um tenant sem nenhum perfil — só um ponto de partida editável, o owner pode renomear/reconfigurar/excluir livremente (excluir só é permitido sem usuário vinculado, `assertProfileDeletable`).
-    - **Defesa em profundidade no serviço, não só na rota:** toda mutação de `accessControlService.ts` recebe `actorRole` e chama `assertActorIsOwner()` internamente — nunca confia só no `requireRole('owner')` da rota como único ponto de controle, mesmo racional já usado pra validações de domínio em outros módulos desta sessão.
-    - **Telas: `AccessProfilesPage.tsx` (`/access-profiles`, só visível ao owner) gerencia os perfis com uma matriz de permissões (recursos × visualizar/gerenciar), reaproveitando os componentes de design system do Funil de Vendas (`Drawer`, `Switch`) — primeira tela a usar de fato o componente `DataTable` do design system.** `UsersPage.tsx` ganha a coluna "Perfil de Acesso" na lista e o seletor de perfil no drawer de edição — é ali que o owner atribui/troca o perfil de cada usuário (nenhuma tela nova só para essa atribuição). `Layout.tsx` estende o mesmo padrão de spread condicional já usado por `enabledModules.includes(...)` — cada item de menu ganha um `resource` opcional, filtrado por `can(resource, 'view')` (novo helper em `AuthContext.tsx`, alimentado por `GET /v1/auth/permissions`, buscado no mesmo momento que `GET /v1/auth/me`).
+56. **RBAC: `users.role` reduzido a 2 papéis de sistema (`owner`, `technician`); o resto vira Perfil de Acesso configurável pelo tenant.** `access_profiles`/`access_profile_permissions` (grant = presença da linha, `resource`+`action` em `'view'|'manage'`) via `requireRole('owner')`/`requirePermission()`. `users.access_profile_id` é FK nullable — `NULL` pra `owner`/`technician`, que nunca usam perfil. **Achado de segurança corrigido nesta mesma migration**: `users.ts` lia `tenant_id` de query/body em vez do JWT, e faltavam checagens de posse em `PATCH`/`DELETE` — corrigido pra sempre usar `request.user.tenantId`.
 
-57. **RH Simplificado: cadastro de funcionários + folha de pagamento calculada, módulo opcional (migration 0060) — ferramenta de cálculo/organização interna, nunca um sistema de folha certificado.** Pedido direto do usuário, embasado em pesquisa de mercado sobre o básico de um módulo de RH simplificado pra PME brasileira.
-    - **Achado crítico de escopo, confirmado com o usuário: eSocial é obrigatório para qualquer empresa com 2+ funcionários** (certificado digital, envio mensal de eventos até dia 15 do mês seguinte) — construir essa integração é um projeto à parte, incompatível com "simplificado". Este módulo **nunca envia nada ao eSocial** — mesmo racional já usado pro Focus NF-e como gateway pra SEFAZ (nunca comunicação direta com a SEFAZ) e pro DRE Gerencial ("Caminho A — sem dupla entrada contábil"). O contador do tenant continua responsável pela submissão oficial; o módulo só calcula e organiza os números — o holerite impresso (`PayslipPrintPage.tsx`) carrega esse aviso explícito na própria tela.
-    - **Modelo: `employees` (cadastro) → `payroll_runs` (a folha do mês, `status` `draft`→`closed` irreversível — fechar é definitivo, mesmo espírito de `invoices.status='issued'` nunca voltar a `draft`) → `payroll_entries` (1 holerite calculado por funcionário, com snapshot de `regime`/`base_salary` no momento do cálculo — mesmo racional de `order_items` congelarem preço/nome).** `employees` é uma entidade **nova e independente** de `sellers`/`technicians` (não estende nem reaproveita essas tabelas, evita risco de refatorar dois módulos já em produção) — limitação conhecida e documentada: um técnico/vendedor que também seja funcionário CLT precisa ser cadastrado duas vezes hoje; ponto de extensão futuro (FK opcional `employee_id`), fora de escopo desta entrega.
-    - **Dois regimes calculados na v1: CLT completo (INSS/IRRF progressivos + provisão de férias/13º/FGTS) e Pró-labore (INSS fixo de 11% + IRRF, sem FGTS/férias/13º — juridicamente não gera vínculo empregatício).** Sem dedução de IRRF por dependente nesta v1 (simplificação documentada, nenhuma tabela de dependentes) e sem workflow de solicitar/agendar/aprovar férias (só a provisão financeira é calculada, pra custo/DRE).
-    - **`payroll_tax_brackets` é uma tabela GLOBAL (não tenant-scoped) — INSS/IRRF são faixas federais, iguais pra todo tenant, mesmo racional de `tax_simples_nacional_brackets` no motor fiscal (regra 15).** INSS é progressivo/marginal (cada faixa tributa só a parte do salário que cai nela); IRRF usa o mecanismo tradicional de faixa única + parcela a deduzir — mecanismos DIFERENTES, nunca confundir um pelo outro (`calculateInss` vs. `calculateIrrf` em `payrollDomain.ts`). **Os valores de INSS 2026 seedados são confirmados por pesquisa (7,5%/9%/12%/14%, teto R$8.475,55); os valores de IRRF acima de R$5.000/mês são uma APROXIMAÇÃO não-oficial** (a faixa de transição real R$5.000,01–R$7.350,00 tem um redutor decrescente cuja fórmula exata não foi confirmada) — precisa de validação de um contador antes do primeiro uso em produção, mesma ressalva já registrada pros defaults fiscais de Simples Remessa (regra 51).
-    - **Fechar a folha gera 1 `payables` por funcionário — reaproveita 100% a infraestrutura já existente, zero tabela nova de "pagamento".** `category: 'payroll'` (já era um valor aceito no CHECK constraint de `payables` desde a migration 0013 — nada novo ali), `dre_category_id` aponta pra categoria global já existente "Despesas com Pessoal" (`code='pessoal'`, seed da migration 0042/regra do DRE — nenhuma categoria nova é criada), `cost_center_id` herdado do funcionário. O DRE Gerencial já enxerga a despesa automaticamente, sem nenhuma mudança em `dreService.ts`.
-    - **RBAC com 2 recursos separados: `employees` (cadastro, menos sensível) e `payroll` (valores de salário, mais sensível)** — permite um perfil que vê/gerencia cadastro sem enxergar valores de folha, cenário realista numa PME (mesmo racional de granularidade já usado pela regra 56). Perfil padrão "Financeiro" ganha `manage` em `payroll`; "Operacional" ganha `manage` em `employees`.
-    - **Decisão de custo deliberada: sem notificação por e-mail do holerite nesta v1** (evita rebuild/redeploy do `lambda-notifications`, regra 28) — mesmo corte de escopo já feito no Funil de Vendas (regra 55). Holerite disponível só na tela/impressão (`window.print()`, mesmo padrão de Proposta/OS — zero lib de PDF nova).
+57. **RH Simplificado: cadastro de funcionários + folha calculada, módulo opcional (`requireModule('hr')`) — ferramenta de cálculo/organização interna, nunca um sistema de folha certificado (nada envia ao eSocial).** `payroll_runs` fecha com `POST /payroll/:id/close` (irreversível, gera 1 `payable` por funcionário). `payroll_tax_brackets` é **global, sem `tenant_id`** — INSS/IRRF são faixas federais; faixa de IRRF acima de R$5.000 é aproximação não-oficial, documentar sempre.
 
-32. **Comissão de vendedor: sempre lançada na autorização da NF-e, nunca antes.** `sellers` é uma entidade desacoplada de `users` (login via `user_id` é opcional — representante externo não precisa de acesso ao sistema). `orders.seller_id` e `invoices.seller_id` são nullable — não preencher não quebra nenhum fluxo existente. O serviço `services/api-core/src/services/commissionService.ts` é a única fonte de verdade: `accrueCommission()` é chamado pelo `nfeResultsWorker.ts` no mesmo bloco que já faz a baixa de estoque do centro de custo, somente quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`. A base de cálculo (`subtotal` ou `total` da NF-e) é definida por `sellers.commission_base`. `cancelCommission()` é chamado por `POST /v1/invoices/:id/cancel` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `commission_entries.status = 'cancelled'` (regra 8). Idempotência via UNIQUE `(tenant_id, idempotency_key)` com `idempotency_key = 'invoice:${invoiceId}'` — uma NF-e gera no máximo uma comissão. Nunca chamar `accrueCommission`/`cancelCommission` diretamente nas rotas fora desses dois pontos de gatilho. **A partir da regra 60, o mesmo bloco de autorização (`nfeResultsWorker.ts::processResult()`) também cria a conta a receber** (`createReceivableFromInvoice()`, `receivableService.ts`) — o gatilho de negócio é idêntico (SEFAZ autoriza → efeitos financeiros disparam), só que faltava a conta a receber até essa correção.
+58. **Ativação de Conta por E-mail: todo tenant novo nasce bloqueado até o owner confirmar o e-mail.** `tenants.activated_at` (nullable, `NULL` bloqueia) — backfillado com `created_at` pra tenant pré-existente, nunca afeta quem já usava o sistema. `users.email_verification_token/expires/verified_at` são colunas DEDICADAS, nunca reaproveitam `password_reset_token`.
 
-58. **Ativação de Conta por E-mail: todo novo tenant nasce bloqueado até o owner confirmar o e-mail de cadastro (migration 0061).** Pedido direto do usuário: `POST /v1/auth/register` nunca confirmava que o e-mail informado existia de fato. Continua devolvendo um JWT válido imediatamente (login sempre funciona) — o que fica bloqueado é o USO, mesma filosofia já usada pelo `subscriptionGuard` para trial expirado.
-    - **`tenantActivationGuard.ts` é um hook global irmão de `subscriptionGuard.ts`** — mesma allowlist de prefixos (`/health`, `/v1/auth/`, `/v1/subscription/`, `/v1/public/`, nenhum prefixo novo precisou ser adicionado, já que as rotas de verificação vivem sob `/v1/auth/*`), mesma filosofia de consulta viva ao banco por request (nunca cacheada no JWT). Registrado **antes** de `subscriptionGuard`/`technicianRoleGuard` na cadeia de hooks — é o gate mais fundamental (identidade confirmada). Separado por SRP do `subscriptionGuard` (billing vs. identidade são preocupações diferentes), mesmo racional que já mantém `technicianRoleGuard` isolado.
-    - **Dois eixos ortogonais, nunca fundidos: `tenants.activated_at` (o portão real, no agregado Tenant — é uma decisão sobre a CONTA) e `users.email_verified_at` (fato por usuário, auditoria).** Escopo desta v1: só a conta criada em `POST /v1/auth/register` (o owner) passa por essa ativação — usuários criados depois via `POST /v1/users` (RBAC, regra 56) continuam com acesso imediato, são vouched for por um owner já autenticado/verificado, contexto de confiança diferente de um cadastro público anônimo (decisão de escopo confirmada com o usuário, não esquecimento). A separação das duas colunas já deixa o caminho livre pra, no futuro, exigir verificação de e-mail de qualquer usuário convidado, sem redesenho.
-    - **Token de verificação em colunas DEDICADAS (`users.email_verification_token`/`email_verification_expires`), nunca reaproveita `password_reset_token`/`password_reset_expires`** — são domínios de segurança diferentes (trocar senha vs. confirmar identidade), reaproveitar a mesma coluna criaria risco de colisão entre os dois fluxos. Mesmo mecanismo de geração já usado por reset de senha e convite de técnico (`crypto.randomUUID().replace(/-/g, '')`, 32 hex, single-use — anulado após consumo). Expiração de 48h (mesma janela do convite de técnico).
-    - **Backfill obrigatório na própria migration: `UPDATE tenants SET activated_at = created_at WHERE activated_at IS NULL`.** Todo tenant que já existia antes desta feature nasce ativado automaticamente — sem isso, o deploy trancaria todo cliente pagante já em produção. Testado como regressão explícita em `tenantActivationGuard.test.ts`.
-    - **`POST /v1/auth/verify-email` é público (token no body, `POST` — não `GET`, mesmo padrão de `POST /v1/auth/reset-password`, nunca um verbo idempotente com efeito colateral de mutação). `POST /v1/auth/resend-verification` é autenticado** — o próprio usuário bloqueado pede reenvio pro PRÓPRIO e-mail; endpoint público de reenvio abriria brecha de spam/enumeração. Cooldown de 60s derivado do próprio `email_verification_expires` existente (`lastSentAt = expires - 48h`), sem coluna nova só pra isso.
-    - **Achado durante a implementação, corrigido na mesma entrega: um hook global síncrono a cada request quebrava ~140 testes pré-existentes de rotas não relacionadas**, cujos mocks de `db` não previam essa consulta nova (unicamente porque `subscriptionGuard` só consulta o banco quando Stripe está configurado — nunca acontecia em teste — e `technicianRoleGuard` nunca toca o banco). Corrigido com duas camadas defensivas no próprio guard, não nos ~30 arquivos de teste alheios: (1) fail-open em erro de infraestrutura na própria query (não é o mecanismo de isolamento multi-tenant — esse é sempre o filtro `tenant_id` em cada query de cada rota, intacto); (2) comparação estrita `activated_at !== null` em vez de checagem de falsy — no Postgres real uma coluna `timestamptz` NULL sempre desserializa pra `null`, nunca `undefined`; `undefined` só ocorre quando um mock genérico de outra rota devolve uma linha de formato diferente pro mesmo `db.execute`, e nesse caso de ambiguidade o guard nunca bloqueia.
-    - **`cc?: string[]` novo em `NotificationMessage`/`SystemNotificationPayload`** (`notificationsClient.ts` → SQS → `lambda-notifications`) — SES já suportava `CcAddresses` nativamente, só não estava exposto no payload; usado só por este tipo de notificação por enquanto, não é um campo genérico habilitado em todo e-mail. Cópia pro dono do sistema via env var `SYSTEM_OWNER_EMAIL` (nunca hardcoded no template), lida na hora de montar o payload.
-    - **Novo tipo `tenant_email_verification` exige rebuild/redeploy do `lambda-notifications` (regra 28) — custo aceito e inevitável desta vez**, diferente das regras 55/57 que deliberadamente evitaram esse custo: o propósito inteiro desta feature é literalmente enviar esse e-mail.
-    - **Frontend: uma única checagem, no boot do `AuthContext` (`GET /v1/auth/me` agora inclui `tenant_activated_at`), em vez de um interceptor genérico de resposta 403** (não existia nenhum até então, e não valeria a pena criar um só pra isso). `GuardedRoutes` (`App.tsx`) renderiza `EmailNotVerifiedScreen.tsx` (tela cheia, botão "Reenviar e-mail") no lugar do `<Layout>` normal quando `tenantActivated` é falso. `AuthContext` ganha `refreshUser()` — chamado por `VerifyEmailPage.tsx` logo após confirmar, pra nunca mostrar a tela de bloqueio com dado velho antes do redirecionamento pro dashboard. `RegisterPage.tsx` não muda: continua indo pro `/dashboard` normalmente, é o próprio `GuardedRoutes` que decide mostrar a tela de bloqueio.
-    - **Limitação conhecida:** o avatar do e-mail (`apps/backoffice/public/email/welcome-avatar.png`) precisa ser fornecido manualmente pelo usuário — a ferramenta usada nesta implementação não tem como persistir a imagem colada/enviada na conversa em disco. O template já referencia a URL final (`https://orquestraerp.com.br/email/welcome-avatar.png`), só falta o arquivo.
+59. **Boleto C6 Bank: 2º provedor de cobrança, credenciais genéricas por provedor (`bank_accounts.credentials`, jsonb) em vez de colunas nomeadas por banco.** C6 exige, além de `client_id`/`client_secret`, certificado com chave privada (mTLS via `https.Agent` nativo do Node, sem dependência nova). Diferente do Itaú (app compartilhado da plataforma), credenciais C6 são genuinamente por tenant — lidas fresh a cada mensagem SQS, nunca cacheadas.
 
-59. **Boleto C6 Bank (FEBRABAN 336): 2º provedor de cobrança, com credenciais genéricas por provedor (migration 0064) em vez de colunas nomeadas por banco.** Pedido direto do usuário: até aqui só existia Itaú; C6 (`bank_accounts.billing_provider = 'c6'`) exige, além de `client_id`/`client_secret`, um certificado com chave privada (par `.crt`/`.key`, mTLS) — não cabia no modelo anterior (`itau_client_id`/`itau_client_secret` como colunas soltas) sem repetir a mesma cirurgia pro 3º banco (`santander`/`bradesco`, já cogitados no enum `billing_provider` mas sem adapter nenhum ainda).
-    - **`bank_accounts.credentials` (jsonb, migration 0064) é a fonte de verdade de credencial pra QUALQUER provedor daqui em diante** — `{client_id, client_secret}` pro Itaú, `{client_id, client_secret, cert, key}` pro C6. Migration faz backfill de `itau_client_id`/`itau_client_secret` pra dentro do jsonb; as colunas antigas continuam existindo (deprecated-mas-presentes, sem DROP destrutivo, mesmo espírito da regra 41) mas nenhuma rota escreve mais nelas diretamente. `bankAccountService.ts` aceita `itau_client_id`/`itau_client_secret` no payload só por compatibilidade (dobra em `credentials` internamente) — o frontend já manda `credentials` direto.
-    - **Validação de credencial só roda quando algo é efetivamente enviado** (`assertItauCredentials`/`assertC6Credentials`/`assertProviderCredentials` em `bankAccountDomain.ts`, puro) — uma conta continua podendo ser cadastrada sem credencial ainda (mesmo comportamento leniente de sempre, a credencial só é indispensável na hora de emitir). Quando enviada, porém, precisa estar completa pro provedor escolhido (`invalid_credentials`, 422, com a lista exata de chaves faltando) — evita descobrir um campo esquecido só quando o Lambda falhar na emissão.
-    - **Credenciais C6 são genuinamente POR TENANT — cada tenant cadastra as próprias (geradas no PJ Internet Banking do próprio tenant: Meu perfil > Integrações via API > Nova chave), e o `lambda-billing` lê exatamente essas credenciais da mensagem SQS (`banking.credentials`), nunca um app compartilhado da plataforma.** Achado colateral durante a implementação: o `ItauAdapter` de produção hoje usa um único app OAuth via env var do Lambda pra todos os tenants — as credenciais por tenant que já existiam no schema/mensagem nunca chegavam a ser lidas. Corrigido **só para C6** (decisão de escopo confirmada com o usuário); o Itaú não foi tocado nesta entrega.
-    - **`C6Adapter implements BoletoAdapter` (`services/lambda-billing/src/adapters/c6.ts`) — mesma interface do `ItauAdapter`, já desenhada pra isso (`emit(payload): Promise<BoletoResult>`), nenhuma mudança na interface.** Diferença estrutural real: como as credenciais são por tenant, o adapter é construído por REQUEST (a partir de `payload.banking.credentials`), nunca cacheado entre invocações — ao contrário do `ItauAdapter`, que continua cacheado por `bank_code` (um único app pra todos). `plugins/banks.ts` despacha por `bank_code` (`case '336'`), mesmo padrão de registry já existente, mínima mudança de assinatura (`getAdapter(bankCode, banking)`).
-    - **mTLS via `https.Agent({cert, key})` do Node, passado como `httpsAgent` do axios — nenhuma dependência nova.** Aplicado na sessão inteira (inclusive na troca de token OAuth2), diferente do Itaú (OAuth2 client_credentials puro, sem certificado nenhum). Certificado tem validade de 12 meses e não exige ICP-Brasil (autogerado pelo próprio C6).
-    - **Dependência externa real, não hipotética: o payload/endpoint exatos de `C6Adapter.emit()` estão marcados como PENDENTES DE CONFIRMAÇÃO no próprio código** (comentário no topo de `adapters/c6.ts`). O portal `developers.c6bank.com.br` exige cadastro da empresa + homologação pra liberar a especificação técnica completa — a pesquisa pública confirma o mecanismo de autenticação (OAuth2 client_credentials + mTLS) mas não o contrato exato do endpoint de registro de boleto. O fluxo de autenticação está implementado de verdade; o payload de emissão segue a convenção mais comum entre boleto registrado no Brasil (mesmo vocabulário do `ItauAdapter`) até ser validado contra o OpenAPI real do C6.
-    - **Achado em produção: `C6_BASE_URL`/`C6_AUTH_URL` nunca chegaram a ser configuradas no Terraform** (`terraform/billing.tf`) — a guarda deliberada em `adapters/c6.ts` (falha alto e claro, nunca uma URL inventada) disparou exatamente como projetado: `boleto_emit_failed` no CloudWatch. Corrigido com as URLs de **sandbox** do C6 (`https://baas-api-sandbox.c6bank.info`, obtidas no mesmo cadastro de onde vieram as credenciais de teste), hardcoded no bloco `environment.variables` da Lambda — mesmo padrão já usado pras URLs do Itaú ali (não são segredo, não precisam de `var.` nem passar por Secrets Manager). **Precisa trocar pra URL de produção quando a homologação em `developers.c6bank.com.br` for concluída** — comentário deixado no próprio Terraform pra não passar despercebido.
-    - **Mesmo escopo do Itaú, deliberadamente: emissão, consulta de status, cancelamento/expiração — sem webhook de confirmação de pagamento.** Não existe webhook pra nenhum banco hoje (`boletos.status` nunca chega a `'paid'` por nenhum código atual, `tenants.billing_webhook_token` é uma coluna morta desde a migration 0014) — lacuna pré-existente nos dois bancos, não introduzida por esta entrega (escopo confirmado com o usuário).
-    - **`lambda-billing` não tem nenhuma suíte de testes automatizada (nem tinha antes, mesma situação do `lambda-notifications`)** — verificado só por `tsc --noEmit`, consistente com o precedente já estabelecido pros dois pacotes Lambda. A cobertura de teste de verdade fica nas camadas de domínio/serviço/rota do `api-core` (`bankAccountDomain.test.ts`, `bankAccounts.test.ts`, `billingBankAccount.test.ts`, `tenantBankAccount.test.ts`).
-    - **Frontend:** `PROVIDERS`/`BANKS` ganham C6; bloco condicional (`billing_provider === 'c6'`) com Client ID/Client Secret/Certificado/Chave privada, escrevendo no objeto `credentials` genérico — mesmo padrão do bloco Itaú já existente, campos de certificado como `<textarea>` (conteúdo PEM multi-linha). Certificado/secret nunca pré-preenchidos na edição (mascarados no backend), mesmo comportamento que o Itaú já tinha pro `client_secret`.
-    - **Onboarding do certificado/chave: upload de arquivo como caminho principal, textarea como fallback editável (achado de UX ao testar com credenciais reais de sandbox — colar manualmente o conteúdo de um `.crt`/`.key` é barreira alta pra usuário financeiro/contábil, não técnico).** Reaproveita ponto a ponto o padrão já existente na mesma tela pro upload de logo/banner (`fileRef`/`bannerRef`, `<input type="file" hidden>` acionado por botão, `FileReader`) — única adaptação real: `readAsText()` em vez de `readAsDataURL()`, porque certificado/chave já são texto PEM, não imagem binária que precisa de base64. **Nenhuma mudança de backend, rota, domínio, schema ou Lambda** — prova que a abstração de `credentials` como string genérica já estava corretamente desacoplada da forma de entrada. `.crt`/`.key` não têm `file.type` (MIME) confiável no browser (ao contrário de imagem) — o guard de tamanho (64 KB, arquivo real tem poucos KB) é a única checagem no `<input>`, nunca `file.type`. Validação de formato PEM (cabeçalho `-----BEGIN CERTIFICATE-----`/`-----BEGIN (RSA |EC )?PRIVATE KEY-----`) roda no frontend só como aviso não-bloqueante assim que o arquivo é lido — pega o erro mais comum (usuário troca certificado por chave) sem duplicar a validação real, que continua só no backend (`assertC6Credentials`). Nova classe CSS `.alert-warning` (reaproveita o token `--warning` já existente no design system, só faltava o combinador). 3 testes de componente novos em `CompanyPage.test.tsx` (`@testing-library/react`, mesmo padrão de `OrdersPage.test.tsx`/`RegisterPage.test.tsx`) — cobrem upload válido, aviso de formato (usando um arquivo `.pem` com conteúdo trocado, já que `userEvent.upload()` filtra pelo atributo `accept` do input e um `.crt` de verdade nunca chegaria ao campo de chave) e ausência de aviso com chave válida.
-    - **Auditoria de isolamento por tenant, feita a pedido do usuário: confirmado que credenciais (incluindo certificado/chave do C6) são genuinamente por tenant em toda a cadeia** — `bank_accounts.tenant_id` é FK NOT NULL (assim como `boletos.tenant_id`/`boleto_events.tenant_id`, independentes do `bank_account_id` nullable); toda rota deriva `tenantId` só de `request.user.tenantId` (JWT), nunca de query/body/params; `C6Adapter` é construído do zero por mensagem SQS a partir de `banking.credentials`, nunca cacheado entre invocações (ao contrário do `ItauAdapter`, cacheado de propósito — um único app da plataforma, não credencial por tenant); segredos sempre mascarados antes de sair da API. **Endurecimento aplicado como resultado da auditoria** (nenhuma das lacunas era explorável como o código estava, mas eliminam a dependência implícita de uma consulta tenant-scoped anterior na mesma função): `updateBankAccount`/`deactivateBankAccount`/`setDefaultBankAccount`/`upsertDefaultBankAccount` (`bankAccountService.ts`) e as consultas de `boletos`/`boleto_events` por id em `routes/billing.ts` passam a repetir `tenant_id` explicitamente na cláusula `WHERE` da mutação/leitura final, em vez de confiar só na resolução tenant-scoped feita momentos antes na mesma função.
-    - **Correção real, achada pelo usuário testando com credenciais de sandbox de verdade: reabrir uma conta C6 já cadastrada não mostrava nenhuma indicação de que client_secret/certificado/chave já estavam salvos.** `client_secret`/`cert`/`key` nunca são pré-preenchidos de volta no formulário — o backend só devolve mascarado (`****xxxx`) e reenviar isso como se fosse um valor novo corromperia o segredo real — mas antes disso não havia NENHUM indicador visual, o campo em branco parecia "nunca foi salvo". Dois problemas de fato, corrigidos juntos:
-      - **Bug real de corrupção de dado, não só de UX: `loadTenant()` (fluxo legado `GET /v1/tenant`) pré-preenchia `itau_client_secret` com o valor MASCARADO retornado pela API** (`fillBankFormFromAccount`, o caminho multi-conta, já fazia certo — nunca preenchia). Se o usuário salvasse sem tocar nesse campo, o literal `"****xxxx"` seria gravado como se fosse o secret de verdade. Corrigido: os dois caminhos agora sempre deixam `client_secret`/`cert`/`key` em branco na leitura.
-      - **`bankAccountService.ts` fazia um replace ingênuo do jsonb `credentials` inteiro em toda atualização** — como o formulário sempre manda os 4 campos de credencial (mesmo os não tocados, em branco), um PATCH "só trocar o certificado" apagaria `client_secret`/`key` já gravados. Nova função `mergeCredentials()`: string vazia (ou chave ausente) numa credencial recebida NUNCA apaga o que já estava gravado naquela chave específica — só um valor não-vazio de fato sobrescreve. Aplicado em `updateBankAccount` e `upsertDefaultBankAccount` (a criação, `createBankAccount`, não precisa — não há "existente" pra mesclar).
-      - **Indicador "✓ Já configurado"** (`credentialsConfigured` no estado do componente, populado a partir de `Boolean(a.credentials?.client_secret)` etc. na leitura) mostrado junto de cada campo sensível vazio que já tem valor salvo — resolve a confusão de UX sem reintroduzir o bug de reenviar o mascarado.
-    - **"Definir como conta padrão": ação nova, não existia NENHUMA forma de promover uma conta (nova ou já cadastrada) a padrão pela tela** — só a 1ª conta de cada empresa nascia padrão automaticamente (`createBankAccount`), e o endpoint `PATCH /v1/bank-accounts/:id/set-default` (já existente desde a regra 41) nunca tinha um botão/checkbox correspondente no frontend. Checkbox "Definir como conta padrão" no formulário (escondido pra conta que já é a padrão, e pro fluxo legado `id=null`, que já É a padrão por definição) — ao salvar, se marcado, chama `set-default` logo depois do create/update, tanto pra conta nova quanto já existente.
+60. **NF-e de venda autorizada pelo SEFAZ sempre gera conta a receber — a nota É o fato gerador.** `createReceivableFromInvoice()` (`services/receivableService.ts`) é o único ponto de criação, chamado por `nfeResultsWorker.ts::processResult()` na autorização real. Idempotente via UNIQUE parcial `receivables.invoice_id` — reprocessamento de SQS (at-least-once) nunca duplica.
 
-60. **Correção de bug real: NF-e de venda autorizada pelo SEFAZ não gerava conta a receber — o fluxo correto de qualquer ERP é toda nota autorizada gerar o recebível correspondente, a nota É o fato gerador.** Achado do usuário em produção: um pedido de venda faturado em NF-e não aparecia em Contas a Receber. Causa raiz: existem DOIS caminhos que "emitem" uma nota — `POST /v1/invoices/:id/emit` (o real, assíncrono, via fila SQS → `lambda-fiscal` → Focus NF-e → SEFAZ → `nfeResultsWorker.ts`) e `POST /v1/invoices/:id/issue` (um caminho legado, síncrono, que precede a integração fiscal assíncrona — nunca fala com o SEFAZ, só marca `status='issued'` localmente com numeração sequencial própria). **Só o caminho legado criava a conta a receber** (`routes/invoices.ts`, dentro da própria transação) — `nfeResultsWorker.ts::processResult()` (o handler que roda de verdade quando o SEFAZ autoriza) já disparava baixa de estoque e comissão de vendedor no mesmo bloco (regra 32), mas nunca criava o recebível. Os dois botões (`InvoicesPage.tsx`: "Emitir" abre o painel de NF-e real; "Issue"/`t('inv.issue')` aparece como ação de linha) coexistem na tela pro mesmo rascunho, o que mascarou o problema — quem usa o painel de NF-e (o único jeito de emitir uma nota fiscal legalmente válida) nunca passava pelo código que criava o recebível.
-    - **`createReceivableFromInvoice()` (`services/api-core/src/services/receivableService.ts`, novo) é o único ponto de criação de conta a receber a partir de uma nota** — reaproveitado tanto por `nfeResultsWorker.ts` (autorização real) quanto por `routes/invoices.ts` (`/issue`, legado, refatorado pra não duplicar a lógica) — nunca diverge entre os dois caminhos.
-    - **Idempotente por `invoice_id`, mesmo padrão exato já usado por `accrueCommission()` (`commissionService.ts`, `idempotency_key`) e pela regra 48 (`service_order_id`)**: UNIQUE parcial `uq_receivables_invoice ON receivables(invoice_id) WHERE invoice_id IS NOT NULL` (migration 0065) é a trava de verdade no banco; a função tenta inserir, e se colidir (`23505`), busca e devolve o recebível que já existia em vez de lançar erro — protege contra reprocessamento da mesma mensagem SQS (at-least-once) e contra o cenário (raro, mas agora seguro) de alguém usar os dois botões pro mesmo rascunho.
-    - **`POST /v1/receivables` (criação manual/avulsa) ganha tratamento amigável pra esse mesmo conflito** — se o `invoice_id` informado já tiver um recebível vinculado, devolve `409 Conflict` com mensagem clara em vez do erro cru do Postgres.
-    - **Escopo desta correção: só NF-e de venda (`invoices`/`processResult`).** NFS-e (`processNfseResult`) não precisava do mesmo ajuste — `nfse_invoices` só é criada hoje via Faturamento de Ordem de Serviço/Contrato de Serviço (`serviceOrderBillingService.ts`/`routes/serviceContracts.ts`, regra 48), que já cria a conta a receber **antes** da emissão de NFS-e (a NFS-e é opt-in por faturamento, regra 48) — nunca depois, na autorização. Confirmado por busca: não existe nenhum outro ponto de criação de `nfse_invoices` no código.
-    - **O caminho `/issue` continua existindo, sem mudança de contrato HTTP** (mesmo `{ok, status, number}` de resposta) — decisão deliberada de não remover nesta correção, pra não quebrar quem eventualmente dependa dele; documentado aqui como tecnicamente órfão (não emite NF-e de verdade, número sequencial local sem validade fiscal) pra quem for revisar essa área depois.
+61. **NCM/CFOP são travados 100% no cadastro do produto (`materials.ncm_code`/`materials.cfop`) — nunca digitados na tela de nota fiscal.** Produto sem código cadastrado: aviso + link pro cadastro (`/materials?edit=<id>`), nunca digitação manual como fallback. Item de NF-e sem produto vinculado não é aceito (sem produto não há de onde travar o fiscal). Vendedor e centro de custo herdam do pedido de origem em `POST /invoices` quando não informados explicitamente. `POST /invoices/:id/issue` (caminho legado que nunca falava com o SEFAZ) foi removido — único caminho de emissão é `POST /invoices/:id/emit`, via o painel de NF-e.
 
-61. **Nota fiscal de venda a partir de pedido: o bug real do "recebível não criado" (regra 60) tinha uma causa raiz mais funda — NF-e de pedido nunca chegava a ser emitida de verdade porque os itens não tinham NCM, e por isso a correção da regra 60 nunca disparava para esse fluxo.** Achado do usuário testando o fluxo completo (Pedido de Venda → Nova NF-e vinculada → emitir de verdade no SEFAZ): vendedor e centro de custo não vinham preenchidos ao vincular um pedido, NCM/CFOP ficavam abertos para digitação livre, e a lista de notas mostrava dois botões de "emitir". Isso decompôs em 5 problemas interligados:
-    - **`POST /invoices/:id/emit` (`routes/nfe.ts`) bloqueia com `400` quando algum item não tem `ncm_code`.** Itens herdados de um pedido nunca tentavam preencher `ncm_code`/`cfop` a partir do cadastro do material — a nota ficava travada em rascunho, o SEFAZ nunca era chamado de verdade, e `nfeResultsWorker.ts::processResult()` (onde mora a correção da regra 60) nunca rodava. A causa raiz do "recebível não criado" reportado de novo pelo usuário **era este bug**, não uma regressão da regra 60.
-    - **NCM e CFOP passam a ser travados 100% no cadastro do produto — nunca mais digitados na tela de nota fiscal.** Decisão explícita do usuário (options recomendadas eram "CFOP pré-preenchido mas editável", dado que `routes/nfe.ts` recalcula o CFOP de emissão de verdade a partir da UF origem/destino no momento da emissão, então o valor travado no item nunca é necessariamente o que vai pro SEFAZ nessa rota específica — a ressalva foi levada ao usuário e ele optou por travar os dois mesmo assim). Esse valor travado passa a ser 100% confiável, porém, para o caminho de POS/NFC-e (`focusNfe.ts`), que lê `invoice_items.cfop` diretamente com fallback `'5102'`. Produto sem NCM/CFOP cadastrado: a linha do item mostra aviso + link direto pro cadastro (`/materials?edit=<id>`), sem liberar digitação manual como fallback — o mesmo erro (código fiscal errado) não pode entrar por dois caminhos diferentes (nota E cadastro).
-    - **Corolário da trava 100%: item de NF-e sem produto cadastrado (`material_id` vazio) deixa de ser aceito como fallback de texto livre** — sem produto, não há de onde travar o fiscal. `InvoiceNewPage.tsx` troca o antigo input de nome livre por uma orientação (`t('inv.itemNeedsProduct')`) pra cadastrar/selecionar um produto primeiro.
-    - **Vendedor e centro de custo herdam do pedido de origem em `POST /invoices` (`routes/invoices.ts`)** — um único `SELECT` em `orders`, mesmo padrão pros dois campos: `resolvedSellerId`/`resolvedCostCenterId` só caem pro pedido quando o body não informa o campo explicitamente. Antes só o vendedor tinha esse fallback (cosmético — o dado já era salvo certo, só não aparecia preenchido na tela por um tipo TS incompleto em `handleOrderChange`); **centro de custo nunca teve fallback nenhum, um bug funcional real** — sem a tela mandar o campo, ficava `null` de verdade no banco, o que também quebrava a baixa de estoque na autorização (`invoices.cost_center_id`-gated).
-    - **`GET /materials/:id/components` (itens de kit) ganha `cfop` na projeção** — mesmo padrão de `ncm_code`, já selecionado ali; sem isso, kits nunca travariam CFOP corretamente mesmo com o resto da trava implementada.
-    - **`POST /invoices/:id/issue` — o caminho legado que a regra 60 havia deixado deliberadamente vivo — é removido nesta correção, junto com o botão de linha que o chamava.** Ele nunca falava com o SEFAZ de verdade; coexistir com o botão real ("NF-e" → painel → "Enviar para SEFAZ") confundia qual dos dois efetivamente emitia — exatamente o comportamento reportado pelo usuário. Único caminho de emissão a partir de agora: o painel de NF-e, via `POST /invoices/:id/emit`.
-    - **`materials.cfop` já existia no schema (`schema.ts`) mas nunca tinha UI nenhuma pra ser preenchido** — a trava 100% de CFOP na nota exigia um cadastro funcional pra travar contra; sem isso, o link "Cadastrar" (produto sem CFOP) levaria a um formulário sem o próprio campo. `MaterialsPage.tsx` ganha o campo `cfop` no formulário (frontend) e `routes/materials.ts` ganha suporte em `materialBody` (schema) + `POST`/`PATCH` (backend) — nenhuma migration nova, a coluna já existia. `MaterialsPage.tsx` também ganha o deep-link `?edit=<id>` (lido via `useSearchParams`, abre `openEdit()` automaticamente), que é o destino real do link "Cadastrar" da tela de nota.
+62. **`GET /v1/orders/:id` faz `LEFT JOIN materials` e devolve `ncm_code`/`cfop` prontos em cada item — o pedido é a fonte autoritativa, nunca recasar `material_id` contra uma lista de materiais buscada à parte no frontend** (frágil: paginação tem teto, lista é buscada uma vez só no mount).
 
-62. **Mesmo após a regra 61, um pedido com produto tendo NCM/CFOP corretamente cadastrado ainda podia chegar vazio na nota — causa raiz: `GET /v1/orders/:id` nunca fez JOIN com `materials`.** `order_items` não tem colunas `ncm_code`/`cfop` (fiscal é atributo do produto, não do pedido) — a rota devolvia só `SELECT * FROM order_items`, e `InvoiceNewPage.tsx::handleOrderChange` tinha que recasar `item.material_id` contra a lista de materiais buscada separadamente pela própria tela (`GET /v1/materials?per_page=500`, buscada uma única vez no mount). Essa recasagem client-side é frágil por dois motivos: (1) `per_page=500` é um teto — catálogos maiores silenciosamente deixam produtos fora da lista, fazendo `.find()` nunca casar; (2) a lista é buscada uma vez só no mount — uma edição concorrente no cadastro do produto (ex.: alguém acabou de preencher o CFOP que faltava) não se reflete até a tela ser recarregada do zero. **Fix: `routes/orders.ts` (`GET /orders/:id`) passa a fazer `LEFT JOIN materials m ON m.id = oi.material_id` e devolve `ncm_code`/`cfop` prontos em cada item** — o pedido se torna a fonte autoritativa (`SELECT oi.*, m.ncm_code, m.cfop FROM order_items oi LEFT JOIN materials m ...`), e `handleOrderChange` consome `it.ncm_code`/`it.cfop` diretamente da resposta, sem depender mais de `materials.find()`. Mesmo padrão de JOIN já usado por `GET /materials/:id/components` (regra 61) pra kits.
+63. **Todo endpoint de listagem devolve `{ data: [...] }` — nunca um array "nu".** Contrato único da API (`GET /cost-centers/active` já teve esse bug: array nu quebrava silenciosamente o dropdown em 4 telas que já esperavam `.data`).
+
+64. **PDV / NFC-e: módulo opcional (`requireModule('pos')`).** Terminal físico (`pos_terminals`) sempre usa a empresa padrão do tenant (regra 40) — não tem seletor de empresa, terminal já corresponde a um CNPJ/local. Sessão de caixa (`pos_sessions`) controla abertura/fechamento com movimentações (`pos_cash_movements`: suprimento/sangria/abertura/fechamento). Venda (`pos_sales`/`pos_sale_items`/`pos_sale_payments`) aceita pagamento misto (dinheiro/débito/crédito/Pix/voucher/crédito-loja). Rotas em `routes/pos.ts`, frontend em `pages/pos/`.
+
+65. **Agendamento (Scheduling): módulo opcional (`requireModule('scheduling')`).** Profissionais (`scheduling_professionals`) com áreas de atuação (`scheduling_areas`, vínculo N:N via `scheduling_professional_areas`), grade semanal de disponibilidade + exceções (`scheduling_availability_rules`/`scheduling_availability_exceptions`), sessões agendadas (`scheduling_sessions`), pacotes de cliente com movimentação de saldo (`scheduling_client_packages`/`scheduling_package_movements`) e sync opcional com Google Calendar (`scheduling_calendar_connections`, `routes/calendarIntegration.ts`). Rotas em `routes/scheduling*.ts`, frontend em `pages/scheduling/`.
 
 ---
 
-## Arquitetura
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Usuário final (browser / app mobile)                           │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ HTTPS
-┌─────────────────────────▼───────────────────────────────────────┐
-│  CloudFront (CDN)                                               │
-│  ├─ /           → S3 (React SPA: apps/backoffice build)         │
-│  ├─ /p/:token   → S3 (rota pública de propostas, sem auth)      │
-│  └─ /v1/*       → NLB → ECS Fargate Spot (api-core)            │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│  ECS Fargate Spot  —  api-core (Fastify + Drizzle ORM)          │
-│                                                                 │
-│  Workers in-process (onReady/onClose):                         │
-│  ├─ nfeResultsWorker     (SQS long-poll → UPDATE invoices)      │
-│  ├─ boletoResultsWorker  (SQS long-poll → UPDATE boletos)       │
-│  ├─ contractBillingWorker(SQS long-poll → INSERT billings)      │
-│  ├─ recurringPayablesWorker (23h interval → INSERT payables)    │
-│  ├─ dueSoonWorker        (23h interval → SQS notifications)     │
-│  └─ marketplaceSyncResultsWorker (SQS long-poll → UPDATE        │
-│      marketplace_connections/material_marketplace_links,        │
-│      INSERT orders — regra 42)                                  │
-│                                                                 │
-│  → RDS PostgreSQL 16 (SSL PGSSLMODE=require)                   │
-│  → SQS: nfe-requests, billing-requests, notifications,          │
-│         marketplace-sync-requests/results                       │
-└─────────────────────────────────────────────────────────────────┘
-
-┌───────────────────────┐  ┌────────────────────────┐  ┌──────────────────────────┐
-│  Lambda: lambda-fiscal│  │ Lambda: lambda-billing │  │ Lambda: lambda-notifications│
-│  (ECR container)      │  │ (ECR container)        │  │ (ECR container)          │
-│  SQS trigger          │  │ SQS trigger            │  │ SQS trigger              │
-│  → Focus NF-e API     │  │ → Itaú API v2 OAuth2   │  │ → SESv2 (e-mail HTML)   │
-│  → SEFAZ              │  │ → Boleto + PIX          │  │ Templates: welcome,      │
-│  → S3 (XML)           │  │ → S3 (PDF boleto)       │  │ reset, nfe, boleto,      │
-│  → SQS nfe-results    │  │ → SQS billing-results   │  │ proposta, vencimento     │
-└───────────────────────┘  └────────────────────────┘  └──────────────────────────┘
-
-┌───────────────────────────────┐
-│  Lambda: lambda-marketplace   │
-│  (ECR container)              │
-│  SQS trigger (sync-requests)  │
-│  → Mercado Livre API OAuth2   │
-│  → Sync preço/estoque (PUT)   │
-│  → Import de pedido (GET)     │
-│  → SQS marketplace-sync-results│
-└───────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│  App Mobile Flutter  (apps/mobile)                              │
-│  Android & iOS — mesma API REST /v1/* — JWT Bearer              │
-└─────────────────────────────────────────────────────────────────┘
-
-Infraestrutura (Terraform):
-  Route 53 → ACM us-east-1 → CloudFront → NLB → ECS
-  ECR: api-core, lambda-fiscal, lambda-billing, lambda-notifications, lambda-marketplace
-  SQS: nfe-requests/results, billing-requests/results, notifications, notifications-dlq,
-       marketplace-sync-requests/results, marketplace-sync-dlq
-  S3: static (SPA), nfe-xml (lifecycle 5 anos), billing-pdf (lifecycle 7 anos)
-  RDS: PostgreSQL 16, db.t3.micro, single-AZ, backup 7 dias
-  Scheduler (EventBridge): RDS auto-stop 20h→08h seg-sex (dev only)
-```
+## Arquitetura & Padrões de Código
 
 ### Stack tecnológico
 
 | Camada | Tecnologia |
 |--------|-----------|
 | Frontend Web | React 18, TypeScript, React Router v6, SheetJS (XLSX), Vite |
-| App Mobile | Flutter 3.x, Dart 3.x, Riverpod 2.x, Dio, GoRouter |
 | Backend API | Node 22, Fastify, Drizzle ORM, `@fastify/jwt`, `@fastify/sensible` |
-| Banco de dados | PostgreSQL 16 (RDS), Drizzle schema em `src/db/schema.ts` |
+| Banco de dados | PostgreSQL 16 (RDS), schema Drizzle em `services/api-core/src/db/schema.ts` |
 | Lambdas | Node 22, AWS SDK v3, ECR container images |
 | Infra | Terraform, GitHub Actions CI/CD, ECS Fargate Spot |
 | Fiscal | Focus NF-e API (`api.focusnfe.com.br` / `homologacao.focusnfe.com.br`) |
-| E-mail | Amazon SES v2, SQS → lambda-notifications |
-| Cobrança | Itaú API v2 OAuth2 `client_credentials` (app compartilhado da plataforma) → boleto + PIX · C6 Bank OAuth2 `client_credentials` + mTLS (credenciais por tenant, regra 59) → boleto — payload pendente de confirmação contra o OpenAPI real do C6 |
-| Marketplace | Mercado Livre API OAuth2 `authorization_code` → sync preço/estoque + import de pedido (`lambda-marketplace`) |
+| E-mail | Amazon SES v2, via SQS → `lambda-notifications` |
+| Cobrança | Itaú API v2 OAuth2 `client_credentials` (app compartilhado da plataforma) · C6 Bank OAuth2 `client_credentials` + mTLS (credenciais por tenant, regra 59) — ambos via `lambda-billing`, boleto + Pix |
+| Marketplace | Mercado Livre API OAuth2 `authorization_code` — sync preço/estoque + import de pedido (`lambda-marketplace`) |
 | Assinatura SaaS | Stripe Checkout + Billing Portal + webhook (regra 43) — opt-in via `STRIPE_SECRET_KEY` |
 
+### Camadas (DDD simplificado)
+
+Todo módulo com regra de negócio não trivial segue 3 camadas, sempre nessa direção de dependência (nunca invertida):
+
+- **Domínio** (`src/domain/<modulo>/<modulo>Domain.ts`) — funções puras: state machines, validação, cálculo. **Nunca faz I/O** (sem `db`, sem `fetch`). Testável sem mock de banco. Exemplos: `purchaseOrderDomain.ts`, `dreDomain.ts`, `cnpjDomain.ts`, `simplesRemessaDomain.ts`.
+- **Serviço** (`src/services/<modulo>Service.ts`) — orquestração e I/O: chama o domínio, lê/escreve no banco (`db.transaction`), publica em fila. Nunca é chamado direto por outro serviço sem necessidade — rotas chamam serviços, serviços chamam domínio.
+- **Rota** (`src/routes/<modulo>.ts`) — só HTTP: parse do body/params, chama o serviço, formata a resposta. Nunca contém regra de negócio nem chama o domínio diretamente.
+
+Nunca pular camada (rota chamando domínio direto, ou lógica de negócio dentro da rota) — isso já foi identificado como dívida técnica revertida em módulos como Pedido de Compra/NF-e de Entrada (regra 34) e DRE (regra 35).
+
+### Convenções de teste (Vitest)
+
+- Mock de `db` sempre via `vi.hoisted(() => ({ select: vi.fn(), execute: vi.fn(), transaction: vi.fn() }))` + `vi.mock('../db', ...)`.
+- Quando mais de uma query roda na mesma rota (comum com `db.execute` de SQL bruto), **discriminar por conteúdo da query** (regex no texto/`queryChunks`), nunca por ordem de chamada — `app.ts` dispara workers em background durante `buildApp()` que também chamam `db.execute`/`db.select` fora de ordem.
+- `db.transaction` mockado precisa diferenciar `insert(tabelaA)` de `insert(tabelaB)` quando o teste inspeciona valores inseridos (comparar a referência da tabela, não a ordem das chamadas).
+- Testes de rota usam `app.inject()` (Fastify) com `Authorization: Bearer ${app.jwt.sign({tenantId, userId, role})}`.
+- Testes de componente React usam Testing Library + `vi.mock` das dependências (`api`, `useAuth`, `useI18n`, `useModal`) — ver `OrdersPage.test.tsx` como referência de padrão completo (mocks hoisted, fixtures, helpers de setup).
+
+### Migrations
+
+Numeradas e cumulativas em `services/api-core/db/migrations/00NN_nome.sql`, **nunca destrutivas** (sem `DROP COLUMN` em coluna que já teve dado real — preferir deprecated-mas-presente, ver regra 41). Toda migration nova precisa ser adicionada ao array em `services/api-core/src/scripts/migrate.ts`, senão nunca roda.
+
+### Multi-tenant e i18n
+
+Isolamento por `tenant_id` sempre do JWT (regra 4). Toda chave de i18n nova entra nos dois arquivos, `pt-BR.ts` e `en.ts` (regra 7).
+
 ---
 
-## Diagramas de Fluxo de Negócio
+## Diagramas
 
-> Os diagramas abaixo usam **Mermaid** e são renderizados automaticamente pelo GitHub.
+> Todos em **Mermaid**, renderizados automaticamente pelo GitHub.
 
----
-
-### C4 Level 1 — Contexto do Sistema
+### C4 Nível 1 — Contexto do Sistema
 
 ```mermaid
 C4Context
-    title C4 Level 1 — Contexto do Orquestra ERP
+    title C4 Nível 1 — Contexto do Orquestra ERP
 
-    Person(user, "Usuário ERP", "Gestor, vendedor ou financeiro — acessa via browser ou app mobile")
+    Person(user, "Usuário ERP", "Gestor, vendedor, financeiro ou técnico de campo — acessa via browser")
     Person_Ext(client, "Cliente Final", "Recebe proposta comercial por e-mail e acessa o portal público")
 
-    System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, Simples Remessa, financeiro, propostas, centros de custo, relatórios")
+    System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, Simples Remessa, PDV, agendamento, financeiro, propostas, CRM, RH, centros de custo, relatórios")
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal que abstrai SEFAZ (NF-e) e prefeituras (NFS-e)")
     System_Ext(sefaz, "SEFAZ / Prefeitura", "Autoridade fiscal federal/estadual/municipal")
-    System_Ext(itau, "Itaú API v2", "Emissão de boleto bancário registrado e PIX via OAuth2")
+    System_Ext(itau, "Itaú API v2", "Boleto bancário registrado e Pix via OAuth2 — app compartilhado da plataforma")
+    System_Ext(c6, "C6 Bank API", "Boleto bancário via OAuth2 + mTLS — credenciais por tenant")
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail transacional")
     System_Ext(viacep, "ViaCEP", "Consulta de endereço por CEP — chamado direto do browser, sem backend")
-    System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications para o app mobile")
-    System_Ext(ml, "Mercado Livre API", "Marketplace — OAuth2 por empresa/CNPJ. Conexão, webhook, sync de preço/estoque e importação de pedido")
+    System_Ext(ml, "Mercado Livre API", "Marketplace — OAuth2 por empresa/CNPJ: conexão, webhook, sync de preço/estoque, importação de pedido")
+    System_Ext(stripe, "Stripe", "Checkout + Billing Portal + webhook — assinatura SaaS, opt-in")
+    System_Ext(gcal, "Google Calendar API", "Sync opcional de agenda — módulo de Agendamento")
 
-    Rel(user, erp, "Opera via browser ou app mobile", "HTTPS")
+    Rel(user, erp, "Opera via browser", "HTTPS")
     Rel(client, erp, "Acessa portal /p/:token", "HTTPS (sem autenticação)")
-    Rel(erp, focus, "Emite NF-e e NFS-e", "REST HTTPS")
+    Rel(erp, focus, "Emite NF-e, NFS-e e Simples Remessa", "REST HTTPS")
     Rel(focus, sefaz, "Transmite e autoriza notas", "SOAP/REST HTTPS")
-    Rel(erp, itau, "Emite boleto e PIX", "REST HTTPS OAuth2 client_credentials")
+    Rel(erp, itau, "Emite boleto e Pix", "REST HTTPS OAuth2 client_credentials")
+    Rel(erp, c6, "Emite boleto", "REST HTTPS OAuth2 client_credentials + mTLS")
     Rel(erp, ses, "Envia e-mails transacionais", "AWS SDK SQS → Lambda → SES")
-    Rel(erp, fcm, "Envia push notifications", "Firebase Admin SDK")
     Rel(erp, client, "Notifica por e-mail", "SES")
     Rel(user, viacep, "Consulta CEP (browser direto)", "REST HTTPS")
-    Rel(erp, ml, "Conecta via OAuth2, sincroniza preço/estoque e importa pedidos", "REST HTTPS (regra 42)")
+    Rel(erp, ml, "Conecta via OAuth2, sincroniza preço/estoque e importa pedidos", "REST HTTPS")
+    Rel(erp, stripe, "Checkout, portal de billing e webhook de assinatura", "REST HTTPS")
+    Rel(erp, gcal, "Sincroniza sessões agendadas", "REST HTTPS OAuth2")
 ```
 
 ---
 
-### C4 Level 2 — Containers
+### C4 Nível 2 — Containers
 
 ```mermaid
 C4Container
-    title C4 Level 2 — Containers do Orquestra ERP
+    title C4 Nível 2 — Containers do Orquestra ERP
 
-    Person(user, "Usuário ERP", "Opera o backoffice ou o app mobile")
+    Person(user, "Usuário ERP", "Opera o backoffice")
     Person_Ext(client, "Cliente Final", "Acessa portal de propostas")
 
     Container_Boundary(aws, "AWS Cloud") {
         Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA e assets. Roteia /v1/* para NLB. Certificado ACM us-east-1")
         Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo + portal público /p/:token")
-        Container(mobile, "App Mobile", "Flutter 3.x · Dart 3.x", "Android & iOS — consome API /v1/*. JWT Bearer. Push via FCM")
-        Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, recurringPayables, dueSoon, marketplaceSyncResults")
+        Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, contractBilling, recurringPayables, dueSoon, marketplaceSyncResults")
         ContainerDb(db, "RDS PostgreSQL 16", "PostgreSQL · SSL obrigatório", "Todos os dados isolados por tenant_id. Migrations em db/migrations/")
-        ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests · nfe-results · billing-requests · billing-results · notifications · notifications-dlq · marketplace-sync-requests/results")
-        ContainerDb(s3data, "S3 Data Buckets", "Amazon S3", "nfe-xml (lifecycle 5 anos) · billing-pdf (lifecycle 7 anos)")
-        Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e, NFS-e e Simples Remessa via Focus. Discrimina por {type:'nfse'|'remessa'}. Salva XML no S3")
-        Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/PIX via Itaú OAuth2. Salva PDF no S3")
+        ContainerDb(sqs, "SQS Queues", "Amazon SQS", "nfe-requests/results · billing-requests/results · notifications(-dlq) · marketplace-sync-requests/results(-dlq)")
+        ContainerDb(s3data, "S3 Data Buckets", "Amazon S3", "nfe-xml (lifecycle 5 anos) · billing-pdf (lifecycle 7 anos) · service-visit-photos (privado, SSE-KMS)")
+        Container(lfiscal, "lambda-fiscal", "Node 22 · ECR Container", "Emite NF-e, NFS-e e Simples Remessa via Focus. Discrimina por type. Salva XML no S3")
+        Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/Pix via Itaú ou C6 Bank (adapter por bank_accounts.billing_provider). Salva PDF no S3")
         Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
-        Container(lmarket, "lambda-marketplace", "Node 22 · ECR Container", "OAuth2 refresh, sync de preço/estoque (PUT /items) e import de pedido (GET /orders) via API do Mercado Livre")
+        Container(lmarket, "lambda-marketplace", "Node 22 · ECR Container", "OAuth2 refresh, sync de preço/estoque e import de pedido via API do Mercado Livre")
     }
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal")
-    System_Ext(itau, "Itaú API v2", "Boleto + PIX")
+    System_Ext(itau, "Itaú API v2", "Boleto + Pix")
+    System_Ext(c6, "C6 Bank API", "Boleto")
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail")
-    System_Ext(fcm, "Firebase Cloud Messaging", "Push notifications")
     System_Ext(ml, "Mercado Livre API", "OAuth2 + sync + pedidos")
+    System_Ext(stripe, "Stripe", "Assinatura SaaS")
 
     Rel(user, cdn, "Acessa via browser", "HTTPS")
-    Rel(user, mobile, "Acessa via app", "iOS / Android")
     Rel(client, cdn, "Acessa /p/:token", "HTTPS")
     Rel(cdn, spa, "Serve SPA", "S3 origin")
     Rel(cdn, api, "Proxia /v1/*", "HTTPS → NLB → ECS")
     Rel(spa, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
-    Rel(mobile, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
     Rel(api, db, "Lê e escreve dados", "Drizzle ORM · SSL TCP 5432")
     Rel(api, sqs, "Publica + consome mensagens", "AWS SDK v3")
-    Rel(api, fcm, "Push notifications", "Firebase Admin SDK")
+    Rel(api, stripe, "Checkout/portal/webhook", "REST HTTPS, in-process")
     Rel(sqs, lfiscal, "Trigger nfe-requests", "SQS Event Source Mapping")
     Rel(sqs, lbilling, "Trigger billing-requests", "SQS Event Source Mapping")
     Rel(sqs, lnotif, "Trigger notifications", "SQS Event Source Mapping")
@@ -525,10 +271,120 @@ C4Container
     Rel(lfiscal, focus, "POST /v2/nfe ou /v2/nfse", "REST HTTPS")
     Rel(lfiscal, s3data, "Salva XML", "AWS SDK PutObject")
     Rel(lbilling, itau, "OAuth2 token + POST /boletos", "REST HTTPS")
+    Rel(lbilling, c6, "OAuth2 token + mTLS + POST /boletos", "REST HTTPS")
     Rel(lbilling, s3data, "Salva PDF", "AWS SDK PutObject")
     Rel(lnotif, ses, "SendEmail com template HTML", "AWS SDK v3")
     Rel(lmarket, ml, "OAuth2 refresh + PUT/GET items/orders", "REST HTTPS")
     Rel(api, ml, "OAuth2 connect/callback + recebe webhook", "REST HTTPS")
+```
+
+---
+
+### C4 Nível 3 — Componentes: Pipeline de Emissão Fiscal
+
+```mermaid
+C4Component
+    title C4 Nível 3 — Componentes: Emissão de NF-e/NFS-e/Simples Remessa
+
+    Container_Boundary(api, "api-core") {
+        Component(route, "routes/nfe.ts · nfse.ts · simplesRemessas.ts", "Fastify route", "Recebe POST /:id/emit, valida status draft")
+        Component(resolveco, "companyService.resolveCompanyId()", "Service", "Resolve qual empresa emite, valida capacidade (emite_nfe/emite_nfse, regra 53)")
+        Component(worker, "nfeResultsWorker.ts", "SQS long-poll worker, in-process", "Consome nfe-results, atualiza status, dispara baixa de estoque (regra 30), comissão (regra 32) e receivable (regra 60)")
+    }
+
+    Container_Boundary(lambda, "lambda-fiscal") {
+        Component(handler, "handler.ts", "SQS trigger", "Discrimina por type: nfe | nfse | remessa")
+        Component(payload, "buildFocusPayload() / buildItem()", "Domain builder", "Monta payload Focus, recalcula IBS/CBS sempre (regra 44)")
+        Component(client, "FocusNfeClient", "HTTP client", "POST /v2/nfe ou /v2/nfse")
+    }
+
+    ContainerDb(sqsreq, "SQS nfe-requests", "Amazon SQS")
+    ContainerDb(sqsres, "SQS nfe-results", "Amazon SQS")
+    ContainerDb(s3, "S3 nfe-xml", "Amazon S3")
+    System_Ext(focus, "Focus NF-e API")
+
+    Rel(route, resolveco, "Valida empresa antes de enfileirar")
+    Rel(route, sqsreq, "sendMessage")
+    Rel(sqsreq, handler, "Trigger")
+    Rel(handler, payload, "Monta payload por tipo")
+    Rel(payload, client, "Payload pronto")
+    Rel(client, focus, "POST", "REST HTTPS")
+    Rel(handler, s3, "Salva XML")
+    Rel(handler, sqsres, "sendMessage — resultado")
+    Rel(sqsres, worker, "Trigger")
+```
+
+### C4 Nível 3 — Componentes: Motor de Cálculo de Impostos
+
+```mermaid
+C4Component
+    title C4 Nível 3 — Componentes: Motor Fiscal (regra 14)
+
+    Container_Boundary(api, "api-core") {
+        Component(route, "routes/tax.ts", "Fastify route", "POST /tax/calculate — usa nfe_configs.uf como origem")
+        Component(svc, "taxCalculationService.ts", "Orquestração", "Resolve DIFAL, FCP, IBS/CBS por UF destino")
+        Component(resolver, "taxRulesResolver.ts", "Lookup + cache 5min", "Único ponto de leitura das tabelas tax_*")
+        Component(engine, "taxEngine.ts", "Função pura, stateless", "Aritmética — nunca faz I/O")
+    }
+
+    ContainerDb(taxtables, "tax_icms_*, tax_fcp_rates,\ntax_st_rules, tax_simples_nacional_brackets,\ntax_ibs_cbs_rates", "PostgreSQL", "Tabelas centrais — nunca editáveis por tenant (regra 33)")
+
+    Rel(route, svc, "Chama com itens + UF origem/destino")
+    Rel(svc, resolver, "Busca alíquotas resolvidas")
+    Rel(resolver, taxtables, "SELECT com cache")
+    Rel(svc, engine, "Passa alíquotas já resolvidas")
+    Rel(engine, svc, "Devolve valores calculados")
+```
+
+---
+
+### Diagrama de Caso de Uso
+
+```mermaid
+flowchart LR
+    subgraph Atores
+        OW["Owner / Financeiro"]
+        VD["Vendedor"]
+        TC["Técnico de Campo"]
+        CL["Cliente Final"]
+    end
+
+    subgraph Externos["Sistemas Externos"]
+        SF["SEFAZ / Focus"]
+        BK["Itaú / C6 Bank"]
+        ML["Mercado Livre"]
+        ST["Stripe"]
+    end
+
+    OW --> UC1["Emitir NF-e / NFS-e / Simples Remessa"]
+    OW --> UC2["Gerenciar Contas a Pagar/Receber"]
+    OW --> UC3["Configurar Empresa, Perfis de Acesso, Módulos"]
+    OW --> UC4["Fechar Folha de Pagamento"]
+    OW --> UC5["Consultar DRE Gerencial"]
+    OW --> UC6["Gerenciar Centro de Custo"]
+
+    VD --> UC7["Criar Pedido de Venda"]
+    VD --> UC8["Enviar Proposta Comercial"]
+    VD --> UC9["Gerenciar Funil de Vendas (CRM)"]
+    VD --> UC10["Consultar Comissões"]
+
+    TC --> UC11["Fazer Check-in/Check-out de Visita"]
+    TC --> UC12["Registrar Fotos e Assinatura do Cliente"]
+
+    CL --> UC13["Visualizar e Aceitar/Rejeitar Proposta"]
+
+    UC1 --> SF
+    UC1 --> UC14["Gerar Conta a Receber (automático na autorização)"]
+    UC2 --> UC15["Emitir Boleto/Pix"]
+    UC15 --> BK
+    UC9 --> UC8
+    UC8 -->|aceita| UC16["Converter Proposta em Pedido"]
+    UC16 --> UC7
+    UC7 --> UC1
+    UC3 --> UC17["Conectar Loja Mercado Livre"]
+    UC17 --> ML
+    UC3 --> UC18["Ativar Assinatura SaaS"]
+    UC18 --> ST
 ```
 
 ---
@@ -547,11 +403,11 @@ sequenceDiagram
     participant S3
     participant R as SQS nfe-results
 
-    U->>F: Preenche dados da NF-e (itens, NCM, CFOP)
+    U->>F: Preenche dados da NF-e (itens, NCM, CFOP travados do cadastro — regra 61)
     F->>A: POST /v1/invoices
     A-->>F: 201 {id, status: "draft"}
 
-    U->>F: Clica "Emitir NF-e"
+    U->>F: Clica "Emitir NF-e" (painel de NF-e)
     F->>A: POST /v1/invoices/:id/emit
     A->>A: resolveCompanyId(tenant, company_id, docType='nfe') — só empresa com emite_nfe=true (regra 53)
     A->>Q: sendMessage — payload SPED completo
@@ -569,7 +425,9 @@ sequenceDiagram
     Note over A: nfeResultsWorker (long-poll SQS, in-process ECS)
     R-->>A: Mensagem de resultado
     A->>A: UPDATE invoices SET status='authorized', chave_nfe=..., url_danfe=...
-    A->>A: Se invoice.cost_center_id → applyExit por item (OUT de estoque)
+    A->>A: Se invoice.cost_center_id → applyExit por item (OUT de estoque, regra 30)
+    A->>A: Se invoice.seller_id → accrueCommission (regra 32)
+    A->>A: createReceivableFromInvoice() — idempotente (regra 60)
     A->>A: sendNotificationIfEnabled(nfe_authorized)
 
     Note over A,R: Status machine: draft → queued → processing → authorized
@@ -639,7 +497,7 @@ sequenceDiagram
     U->>F: Clica "Emitir"
     F->>A: POST /v1/simples-remessas/:id/emit
     A->>A: resolveCompanyId(tenant, company_id, docType='nfe') — mesma capacidade de venda (regra 53)
-    Note over A: domain.resolveTaxSituation(regime) → CST/CSOSN "não tributada"<br/>getIbsCbsRates(uf) → alíquota REAL (nunca zero, regra 44)<br/>base de cálculo = 0 (não a alíquota) — operação não onerosa
+    Note over A: domain.resolveTaxSituation(regime) → CST/CSOSN "não tributada"<br/>getIbsCbsRates(uf) → alíquota REAL (nunca zero, regra 51)<br/>base de cálculo = 0 (não a alíquota) — operação não onerosa
     A->>Q: sendMessage {type:"remessa", remessa_id, itens...}
     A-->>F: 202 {status: "processing"}
 
@@ -694,9 +552,9 @@ stateDiagram-v2
     end note
 
     note right of invoiced
-        invoices importa os itens do pedido.
-        NCM vem de materials.ncm
-        via materials.find(m => m.id === item.material_id)
+        GET /v1/orders/:id faz LEFT JOIN
+        materials — ncm_code/cfop já vêm
+        prontos no item (regra 62)
     end note
 ```
 
@@ -744,7 +602,7 @@ sequenceDiagram
 
 ---
 
-### Emissão de Boleto / PIX (Itaú API v2)
+### Emissão de Boleto Bancário (Itaú ou C6 Bank)
 
 ```mermaid
 sequenceDiagram
@@ -753,21 +611,22 @@ sequenceDiagram
     participant A as api-core (ECS)
     participant Q as SQS billing-requests
     participant L as lambda-billing
-    participant I as Itaú API v2
+    participant P as Itaú ou C6 Bank
     participant S3
     participant R as SQS billing-results
 
     U->>F: Clica "Emitir Boleto" no recebível (opcional: escolhe bank_account_id)
     F->>A: POST /v1/receivables/:id/emit-boleto
     A->>A: bankAccountService.resolveBankAccount() — bank_account_id explícito<br/>ou a conta padrão da empresa padrão do tenant (regra 41)
-    A->>Q: sendMessage — dados do boleto + itau_client_id/secret da conta resolvida
+    A->>Q: sendMessage — dados do boleto + credentials da conta resolvida (regra 59)
     A-->>F: 200 {status: "pending"}
 
     Q-->>L: Trigger SQS Event Source Mapping
-    L->>I: POST /oauth/token (client_credentials)
-    I-->>L: {access_token, expires_in}
-    L->>I: POST /boletos {nosso_numero, vencimento, sacado, valor...}
-    I-->>L: {nosso_numero, linha_digitavel, codigo_barras, url_pdf}
+    Note over L: Adapter por bank_accounts.billing_provider ('itau' | 'c6')
+    L->>P: OAuth2 client_credentials (C6 também usa mTLS)
+    P-->>L: {access_token, expires_in}
+    L->>P: POST /boletos {nosso_numero, vencimento, sacado, valor...}
+    P-->>L: {nosso_numero, linha_digitavel, codigo_barras, url_pdf}
     L->>S3: PutObject — PDF boleto (lifecycle 7 anos)
     L->>R: sendMessage — resultado com linha_digitavel e url_pdf
 
@@ -866,6 +725,47 @@ sequenceDiagram
 
 ---
 
+### Sync de Preço/Estoque e Importação de Pedido — Mercado Livre
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React)
+    participant A as api-core (ECS)
+    participant Q as SQS marketplace-sync-requests
+    participant L as lambda-marketplace
+    participant ML as Mercado Livre API
+    participant R as SQS marketplace-sync-results
+
+    U->>F: Clica "Sincronizar" no vínculo produto↔anúncio
+    F->>A: POST /v1/materials/:id/marketplace-links/:linkId/sync
+    A->>Q: sendMessage {type:"sync_material", access_token, refresh_token, preço, estoque}
+    A-->>F: 200 {status: "queued"}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>L: ensureFreshToken() — renova se faltam <5min pra expirar (refresh_token de uso único)
+    L->>ML: PUT /items/:id {price, available_quantity}
+    ML-->>L: {status}
+    L->>R: sendMessage — resultado + refreshed_tokens (sempre, se houve renovação)
+
+    Note over A: marketplaceSyncResultsWorker (long-poll, in-process ECS)
+    R-->>A: Mensagem de resultado
+    A->>A: UPDATE material_marketplace_links SET status=...
+    A->>A: Se refreshed_tokens presente → UPDATE marketplace_connections (nunca ignorar)
+
+    Note over A,ML: Webhook (POST /v1/public/marketplace/mercadolivre/webhook)<br/>nunca é fonte de verdade, só gatilho — sempre responde 200 rápido<br/>Só processa tópicos orders_v2 — demais tópicos são ignorados em silêncio
+    ML--)A: Webhook de pedido novo
+    A->>A: INSERT marketplace_webhook_events (idempotente por UNIQUE idempotency_key)
+    A->>Q: sendMessage {type:"order_import", resource}
+    Q-->>L: Trigger
+    L->>ML: GET /orders/:id
+    ML-->>L: {itens, comprador, valor}
+    L->>R: sendMessage — resultado
+    R-->>A: mapMlOrderToErpOrder() → INSERT orders (status='confirmed', origin='mercadolivre')
+```
+
+---
+
 ### Fluxo de Notificações por E-mail
 
 ```mermaid
@@ -920,706 +820,61 @@ flowchart TD
 | Fluxo de Caixa | `/dashboard` (seção) | receivables, payables (groupBy semana) |
 | Clientes | `/clients` | clients, client_contacts |
 | Histórico 360° | drawer de cliente | orders, invoices, receivables |
-| Materiais | `/materials` | materials, material_images |
+| Materiais | `/materials` | materials, material_images, material_price_history |
 | Estoque | `/stock` | inventory, inventory_movements |
 | Pedidos | `/orders` | orders, order_items |
 | Propostas | `/proposals`, `/proposals/:id/print`, `/p/:token` | proposals, proposal_items |
 | Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events |
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
+| Simples Remessa | `/simples-remessas` | simples_remessas, simples_remessa_items, simples_remessa_events |
 | Contas a Receber | `/receivables` | receivables, receivable_payments, boletos |
 | Centro de Custo | `/cost-centers`, `/cost-centers/:id` | cost_centers, cost_center_stock, cost_center_movements |
 | Vendedores / Comissões | `/sellers`, `/sellers/:id` | sellers, commission_entries |
 | Pedidos de Compra | `/purchase-orders` | purchase_orders, purchase_order_items |
 | NF-e de Entrada | `/supplier-invoices` | supplier_invoices, supplier_invoice_items |
-| DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables |
+| DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables/nfse_invoices |
 | Contas a Pagar | `/payables` | payables, payable_payments |
 | Contratos | `/contracts` | service_contracts, contract_billings |
 | Fornecedores | `/suppliers` | suppliers, supplier_contacts |
-| Relatórios | `/reports` | receivables (inadimplência), order_items (ranking) |
+| Relatórios | `/reports` | receivables (inadimplência), order_items (ranking), commission_entries |
 | Usuários | `/users` | users |
 | Perfis de Acesso *(só visível ao owner)* | `/access-profiles` | access_profiles, access_profile_permissions, access_profile_events |
-| RH Simplificado *(opcional, ver `tenant_modules`)* | `/employees`, `/payroll`, `/payroll/entries/:id/print` | employees, payroll_runs, payroll_entries, payroll_tax_brackets |
+| RH Simplificado *(opcional)* | `/employees`, `/payroll`, `/payroll/entries/:id/print` | employees, payroll_runs, payroll_entries, payroll_tax_brackets |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs, bank_accounts |
-| Empresas / Multi-CNPJ *(opcional, ver `tenant_modules`)* | `/company` (aba Fiscal) | nfe_configs (N por tenant) |
-| Ordens de Serviço *(opcional, ver `tenant_modules`)* | `/service-orders` | service_orders, service_order_items, service_visits |
+| Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant) |
+| Ordens de Serviço *(opcional)* | `/service-orders` | service_orders, service_order_items, service_visits |
 | Técnicos *(opcional)* | `/technicians` | technicians, users |
 | Portal do Técnico *(opcional, autenticado)* | `/tecnico/entrar`, `/tecnico/visitas`, `/tecnico/visitas/:id` | service_visits, service_visit_photos |
-| Integração Mercado Livre *(opcional, ver `tenant_modules`)* | `/company` (aba Integrações), aba "Mercado Livre" em `/materials` | marketplace_connections, material_marketplace_links, marketplace_webhook_events |
-| Funil de Vendas *(opcional, ver `tenant_modules`)* | `/sales-pipeline` | sales_pipeline_stages, sales_opportunities, sales_opportunity_activities |
-
----
-
-## 📱 App Mobile — Flutter (Android & iOS)
-
-> **Esta seção é o prompt principal para geração do app mobile.**
-> O app consome a **mesma API REST** (`/v1/*`) do backoffice web.
-> Toda autenticação usa JWT Bearer. Nenhuma rota nova é criada exclusivamente para o mobile
-> sem estar documentada na regra 2 acima.
-
-### Localização no monorepo
-
-```
-apps/
-  backoffice/          # React SPA (web)
-  mobile/              # Flutter app — Android & iOS
-    lib/
-    android/
-    ios/
-    pubspec.yaml
-```
-
-### Stack do App Mobile
-
-| Camada | Pacote | Versão mínima |
-|--------|--------|---------------|
-| UI framework | Flutter | 3.x (stable) |
-| Linguagem | Dart | 3.x |
-| State management | Riverpod | 2.x (`@riverpod` annotations) |
-| HTTP client | Dio | 5.x |
-| Navegação | GoRouter | 14.x |
-| Autenticação segura | flutter_secure_storage | 9.x |
-| Formulários | flutter_form_builder | 9.x |
-| PDF viewer / DANFE | url_launcher | 6.x (abre link Focus no browser) |
-| QR Code / Código de barras | mobile_scanner | 5.x |
-| Formatação (datas, moeda) | intl | 0.19.x |
-| Push notifications | firebase_messaging | 15.x |
-| Deep links | app_links | 6.x |
-| Compartilhamento | share_plus | 10.x |
-
-### Funcionalidades do App Mobile
-
-| Funcionalidade | Telas | Ações disponíveis |
-|---------------|-------|-------------------|
-| Login / Auth | Login, Esqueci a senha | Autenticar, redefinir senha, biometria opcional |
-| Dashboard | KPIs resumidos | Totais de a receber, a pagar, faturamento |
-| Clientes | Lista, Detalhe, Cadastro | Buscar, criar, editar, histórico 360° |
-| Materiais | Lista, Detalhe | Buscar, visualizar, escanear código de barras |
-| Pedidos | Lista, Detalhe, Criar | Criar, confirmar, entregar, cancelar |
-| Notas Fiscais | Lista, Detalhe | Status, abrir DANFE no browser, copiar chave |
-| Contas a Receber | Lista, Detalhe | Registrar pagamento, emitir boleto, visualizar linha digitável |
-| Contas a Pagar | Lista, Detalhe | Registrar pagamento, visualizar vencimentos |
-| Centro de Custo | Lista, Detalhe | Saldo por material, lançar entrada manual |
-| Propostas | Lista, Detalhe, Criar | Criar, enviar por e-mail, converter em pedido |
-| Fornecedores | Lista, Detalhe | Buscar, ver contas a pagar vinculadas |
-| Estoque | Visão geral, Alertas | Saldo atual, alertas de mínimo |
-
-### Regras para IA — App Mobile
-
-As regras abaixo são obrigatórias ao gerar código Flutter para este projeto:
-
-1. **Nunca criar rotas de API exclusivas para o mobile.** O app consome as mesmas rotas da regra 2 do Protocolo Anti-alucinação. Se uma funcionalidade exige uma rota nova, ela deve ser adicionada ao backend e listada na regra 2.
-
-2. **tenant_id sempre vem do JWT.** O app armazena o token JWT no `flutter_secure_storage` e injeta `Authorization: Bearer <token>` em todas as requisições via interceptor do Dio. Nunca passar `tenant_id` como query param ou body explícito.
-
-3. **Todos os valores monetários em BRL.** Usar `NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$')` do pacote `intl`. Nunca exibir valores sem formatação.
-
-4. **Todas as datas no padrão brasileiro.** Usar `DateFormat('dd/MM/yyyy', 'pt_BR')` do pacote `intl`. Datas com horário: `DateFormat('dd/MM/yyyy HH:mm', 'pt_BR')`.
-
-5. **Paleta de cores idêntica ao web.** `primaryColor = Color(0xFF3B5CE4)`, `accentColor = Color(0xFF00B4D8)`, `backgroundColor = Color(0xFFF9FAFB)`. O app deve ter identidade visual consistente com o backoffice.
-
-6. **Soft-delete: nunca deletar fisicamente.** As mesmas regras da tabela "Soft-delete por módulo" se aplicam — o app chama `PATCH` com `is_active: false` ou os endpoints de soft-delete documentados na regra 2.
-
-7. **Paginação: sempre enviar `page` e `per_page`.** Nunca carregar todos os registros de uma vez. Default: `per_page=20`. Implementar scroll infinito (`ListView.builder` + detector de fim de lista).
-
-8. **Erros da API: sempre exibir feedback visível.** Status 422 (DomainError) exibe a mensagem do campo `error`. Status 401 redireciona para o login e limpa o token. Status 5xx exibe "Erro interno — tente novamente".
-
-9. **Nunca definir Widgets dentro do método `build()`.** No Flutter, nunca fazer `Widget card = Container(...)` dentro de `build()`. Extrair sempre como método privado `Widget _buildCard()` ou como classe separada com `StatelessWidget`.
-
-10. **Estado de loading em toda requisição assíncrona.** Toda tela que faz fetch exibe `CircularProgressIndicator` durante o carregamento e trata os estados `loading`, `data` e `error` separadamente (usar `AsyncValue` do Riverpod).
-
-11. **DANFE e PDF de boleto: abrir no browser externo.** Usar `url_launcher` (`launchUrl`) para abrir URLs do Focus NF-e e URLs de PDF do Itaú. Nunca tentar renderizar PDF inline.
-
-12. **Deep link `/p/:token`: redirecionar para tela de proposta no app.** Configurar `app_links` para capturar `orquestraerp.com.br/p/:token` e navegar via GoRouter para `/proposals/public/:token`.
-
-13. **QR Code / código de barras: usar `mobile_scanner`.** Ao escanear em materiais, chamar `GET /v1/materials?search=<codigo>`. Ao escanear boleto, exibir linha digitável para cópia.
-
-14. **Status machines são as mesmas do web.** Orders: `draft → confirmed → delivered → invoiced`. Proposals: `draft → sent → viewed → accepted | rejected | expired | cancelled`. Invoices: `draft → queued → processing → authorized | rejected | cancelled`. Nunca inventar status novos.
-
-### Estrutura de Pastas do Projeto Flutter
-
-```
-apps/mobile/
-├── lib/
-│   ├── core/
-│   │   ├── api/
-│   │   │   ├── api_client.dart          # Dio + AuthInterceptor (inject JWT)
-│   │   │   ├── api_exception.dart       # DomainError, NetworkError, AuthError
-│   │   │   └── endpoints.dart           # Constantes de todas as rotas /v1/*
-│   │   ├── auth/
-│   │   │   ├── auth_repository.dart     # login, logout, me, forgot-password
-│   │   │   ├── auth_provider.dart       # @riverpod AuthState
-│   │   │   └── secure_storage.dart      # flutter_secure_storage wrapper
-│   │   ├── theme/
-│   │   │   ├── app_theme.dart           # ThemeData com paleta Orquestra ERP
-│   │   │   └── app_colors.dart          # primaryColor #3B5CE4, accent #00B4D8
-│   │   ├── i18n/
-│   │   │   └── strings_pt_br.dart       # Strings pt-BR (espelha chaves do web)
-│   │   ├── widgets/
-│   │   │   ├── app_scaffold.dart        # BottomNavigationBar + AppBar padrão
-│   │   │   ├── status_badge.dart        # StatusBadge(status: 'authorized')
-│   │   │   ├── currency_text.dart       # Exibe valor em R$
-│   │   │   ├── loading_overlay.dart     # Overlay durante fetch
-│   │   │   ├── error_card.dart          # Card de erro com ação de retry
-│   │   │   └── empty_state.dart         # Tela vazia com ícone + ação
-│   │   └── utils/
-│   │       ├── date_formatter.dart      # dd/MM/yyyy pt-BR
-│   │       └── currency_formatter.dart  # NumberFormat.currency pt-BR
-│   ├── features/
-│   │   ├── auth/
-│   │   │   ├── login_page.dart
-│   │   │   └── forgot_password_page.dart
-│   │   ├── dashboard/
-│   │   │   ├── dashboard_page.dart
-│   │   │   ├── dashboard_provider.dart
-│   │   │   └── kpi_card.dart
-│   │   ├── clients/
-│   │   │   ├── clients_list_page.dart
-│   │   │   ├── client_detail_page.dart
-│   │   │   ├── client_form_page.dart
-│   │   │   └── clients_provider.dart
-│   │   ├── materials/
-│   │   │   ├── materials_list_page.dart
-│   │   │   ├── material_detail_page.dart
-│   │   │   └── materials_provider.dart
-│   │   ├── orders/
-│   │   │   ├── orders_list_page.dart
-│   │   │   ├── order_detail_page.dart
-│   │   │   ├── order_create_page.dart
-│   │   │   └── orders_provider.dart
-│   │   ├── invoices/
-│   │   │   ├── invoices_list_page.dart
-│   │   │   ├── invoice_detail_page.dart
-│   │   │   └── invoices_provider.dart
-│   │   ├── receivables/
-│   │   │   ├── receivables_list_page.dart
-│   │   │   ├── receivable_detail_page.dart
-│   │   │   └── receivables_provider.dart
-│   │   ├── payables/
-│   │   │   ├── payables_list_page.dart
-│   │   │   ├── payable_detail_page.dart
-│   │   │   └── payables_provider.dart
-│   │   ├── cost_centers/
-│   │   │   ├── cost_centers_list_page.dart
-│   │   │   ├── cost_center_detail_page.dart
-│   │   │   ├── cost_center_stock_tab.dart
-│   │   │   ├── cost_center_movements_tab.dart
-│   │   │   ├── entry_bottom_sheet.dart
-│   │   │   └── cost_centers_provider.dart
-│   │   ├── proposals/
-│   │   │   ├── proposals_list_page.dart
-│   │   │   ├── proposal_detail_page.dart
-│   │   │   ├── proposal_create_page.dart
-│   │   │   └── proposals_provider.dart
-│   │   ├── suppliers/
-│   │   │   ├── suppliers_list_page.dart
-│   │   │   └── supplier_detail_page.dart
-│   │   └── stock/
-│   │       ├── stock_page.dart
-│   │       └── stock_provider.dart
-│   ├── router.dart                      # GoRouter — todas as rotas do app
-│   └── main.dart                        # ProviderScope + MaterialApp.router
-├── android/
-├── ios/
-└── pubspec.yaml
-```
-
-### Autenticação — Fluxo JWT no App
-
-```dart
-// core/api/api_client.dart — interceptor de autenticação
-class AuthInterceptor extends Interceptor {
-  final SecureStorage _storage;
-  AuthInterceptor(this._storage);
-
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
-    final token = await _storage.readToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
-    }
-    handler.next(options);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401) {
-      await _storage.deleteToken();
-      router.go('/login');   // GoRouter global
-    }
-    handler.next(err);
-  }
-}
-```
-
-### Padrão de Provider (Riverpod)
-
-```dart
-// features/clients/clients_provider.dart
-@riverpod
-class ClientsNotifier extends _$ClientsNotifier {
-  @override
-  Future<ClientsState> build() async => ClientsState.empty();
-
-  Future<void> load({String search = '', int page = 1}) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      final res = await ref.read(apiClientProvider)
-          .get('/v1/clients', queryParameters: {
-            'search': search, 'page': page, 'per_page': 20,
-          });
-      return ClientsState.fromJson(res.data);
-    });
-  }
-}
-```
-
-### Navegação — GoRouter
-
-```dart
-// router.dart
-final router = GoRouter(
-  initialLocation: '/login',
-  redirect: (context, state) {
-    final auth = ProviderScope.containerOf(context).read(authProvider);
-    final loggedIn = auth.valueOrNull?.token != null;
-    final onLogin = state.matchedLocation == '/login';
-    if (!loggedIn && !onLogin) return '/login';
-    if (loggedIn && onLogin) return '/dashboard';
-    return null;
-  },
-  routes: [
-    GoRoute(path: '/login',      builder: (_, __) => const LoginPage()),
-    GoRoute(path: '/dashboard',  builder: (_, __) => const DashboardPage()),
-    GoRoute(path: '/clients',    builder: (_, __) => const ClientsListPage()),
-    GoRoute(path: '/clients/:id', builder: (_, s) => ClientDetailPage(id: s.pathParameters['id']!)),
-    GoRoute(path: '/orders',     builder: (_, __) => const OrdersListPage()),
-    GoRoute(path: '/orders/:id', builder: (_, s) => OrderDetailPage(id: s.pathParameters['id']!)),
-    GoRoute(path: '/invoices',   builder: (_, __) => const InvoicesListPage()),
-    GoRoute(path: '/invoices/:id', builder: (_, s) => InvoiceDetailPage(id: s.pathParameters['id']!)),
-    GoRoute(path: '/receivables', builder: (_, __) => const ReceivablesListPage()),
-    GoRoute(path: '/payables',   builder: (_, __) => const PayablesListPage()),
-    GoRoute(path: '/cost-centers', builder: (_, __) => const CostCentersListPage()),
-    GoRoute(path: '/cost-centers/:id', builder: (_, s) => CostCenterDetailPage(id: s.pathParameters['id']!)),
-    GoRoute(path: '/proposals',  builder: (_, __) => const ProposalsListPage()),
-    GoRoute(path: '/proposals/public/:token', builder: (_, s) => ProposalPublicPage(token: s.pathParameters['token']!)),
-    GoRoute(path: '/suppliers',  builder: (_, __) => const SuppliersListPage()),
-    GoRoute(path: '/stock',      builder: (_, __) => const StockPage()),
-    GoRoute(path: '/materials',  builder: (_, __) => const MaterialsListPage()),
-  ],
-);
-```
-
-### Checklist para nova feature mobile
-
-Ao adicionar uma nova funcionalidade ao app Flutter:
-
-1. Confirmar que a rota de API existe na regra 2 deste README
-2. Criar `features/<modulo>/` com pages + provider
-3. Adicionar rota em `router.dart`
-4. Adicionar entry no `app_scaffold.dart` (BottomNav ou Drawer)
-5. Adicionar strings em `strings_pt_br.dart`
-6. Tratar todos os estados: loading, error, empty, data (usar `AsyncValue`)
-7. Testar em Android (emulador API 34+) e iOS (simulator iOS 17+)
-8. Verificar scroll e layout em telas estreitas (320dp) e tablets
-
----
-
-## Histórico de versões relevantes
-
-### v32.0 — Correção: NF-e de venda autorizada não gerava conta a receber
-
-> **Achado do usuário em produção**: um pedido de venda faturado em NF-e não aparecia em Contas a Receber. Regra de negócio violada — toda nota autorizada é o fato gerador de um recebível, sem exceção, num ERP correto.
->
-> **Causa raiz**: dois caminhos coexistem pra "emitir" uma nota — o real (`POST /invoices/:id/emit` → SQS → Focus NF-e → SEFAZ → `nfeResultsWorker.ts`) e um legado síncrono (`POST /invoices/:id/issue`, anterior à integração fiscal assíncrona, nunca fala com o SEFAZ). **Só o legado criava a conta a receber.** O handler real de autorização já disparava baixa de estoque e comissão de vendedor no mesmo bloco (regra 32) — só faltava o recebível.
->
-> **`createReceivableFromInvoice()`** (`receivableService.ts`, novo) centraliza a criação, reaproveitada pelos dois caminhos. Idempotente por `invoice_id` via UNIQUE parcial (migration 0065, mesmo padrão de `accrueCommission`/`service_order_id`) — protege contra reprocessamento de mensagem SQS e contra os dois botões sendo usados pro mesmo rascunho. `POST /v1/receivables` (manual) ganha `409` amigável no mesmo conflito.
->
-> **Escopo confirmado por análise de código**: só NF-e de venda precisava do ajuste — NFS-e já cria a conta a receber antes da emissão (via Faturamento de OS/Contrato, regra 48), nunca depois.
->
-> **Testes:** 7 novos — `nfeResultsWorkerReceivable.test.ts` (3, incl. regressão de idempotência), `receivableService.test.ts` (3), `invoiceIssueReceivable.test.ts` (1). Suíte completa continua verde.
->
-> **Ver regra 60 para o detalhamento completo.**
-
-### v31.0 — Boleto C6 Bank: 2º provedor de cobrança, credenciais genéricas por provedor e por tenant
-
-> **Pedido direto do usuário**: até aqui só existia Itaú. C6 (FEBRABAN 336) exige, além de `client_id`/`client_secret`, um certificado com chave privada (mTLS) — não cabia no modelo de colunas nomeadas por banco (`itau_client_id`/`itau_client_secret`) sem repetir a cirurgia pro 3º banco. Pedido explícito de abstração: "num grau que possamos sempre reutilizar o processo".
->
-> **`bank_accounts.credentials` (jsonb, migration 0064) generaliza credencial por provedor** — cobre Itaú retroativamente (backfill automático) sem quebrar nada; `itau_client_id`/`itau_client_secret` viram deprecated-mas-presentes, mesmo tratamento das colunas de `tenants` na regra 41. Próximo banco (Santander/Bradesco, já cogitados no enum) não pede migration nova.
->
-> **Credenciais C6 são genuinamente por tenant** (cada tenant usa as próprias, geradas no PJ Internet Banking dele) — o `lambda-billing` lê da mensagem SQS, nunca um app compartilhado. Corrige, só para C6, uma lacuna encontrada no Itaú (que hoje usa um único app da plataforma via env var, ignorando as credenciais por tenant que já existiam no schema).
->
-> **`C6Adapter implements BoletoAdapter`** — mesma interface do `ItauAdapter`, já desenhada para múltiplos bancos. mTLS via `https.Agent({cert, key})` nativo do Node, zero dependência nova. **Dependência externa real**: o portal `developers.c6bank.com.br` exige cadastro/homologação para liberar o contrato exato do endpoint de boleto — o fluxo de autenticação está implementado de verdade, o payload de emissão está marcado como pendente de confirmação no próprio código.
->
-> **Mesmo escopo do Itaú, deliberadamente**: emissão, consulta, cancelamento — sem webhook de pagamento (lacuna pré-existente nos dois bancos, não introduzida aqui).
->
-> **Testes:** 39 novos/estendidos — `bankAccountDomain.test.ts` (+11, validação de credencial por provedor), `bankAccounts.test.ts` (+3), `billingBankAccount.test.ts` (+1), `tenantBankAccount.test.ts` (+4). `lambda-billing` verificado só por `tsc --noEmit` (nunca teve suíte de testes, mesma situação do `lambda-notifications`). Suíte completa do projeto continua verde (950 passando, falhas restantes pré-existentes e não relacionadas).
->
-> **Refinamento de UX (mesma entrega): upload de certificado/chave em vez de colar manualmente.** Ao testar com credenciais reais de sandbox, colar o conteúdo de um `.crt`/`.key` numa textarea se mostrou uma barreira de onboarding alta pra usuário não-técnico — reaproveita o padrão de upload de logo/banner já existente na mesma tela (`FileReader`, agora `readAsText` em vez de `readAsDataURL`), zero mudança de backend. Textarea continua como fallback editável. Aviso de formato PEM não-bloqueante no frontend. +3 testes de componente (`CompanyPage.test.tsx`).
->
-> **Duas correções reais, achadas testando com credenciais de sandbox de verdade:** (1) reabrir uma conta C6 não mostrava indicação nenhuma de credencial já salva, e um bug relacionado no fluxo legado pré-preenchia o secret com o valor MASCARADO (corromperia o segredo real se salvo sem edição) — corrigido com um indicador "Já configurado" + merge por chave no backend (`mergeCredentials()`, string vazia nunca apaga o que já está gravado); (2) não existia nenhuma forma de definir uma conta como padrão pela tela — checkbox novo, usa o endpoint `set-default` que já existia desde a regra 41. (3) `C6_BASE_URL`/`C6_AUTH_URL` nunca tinham sido configuradas no Terraform — a guarda deliberada em `adapters/c6.ts` pegou isso exatamente como projetado (`boleto_emit_failed` no CloudWatch, nunca uma URL inventada); adicionadas com os valores de sandbox do C6.
->
-> **Ver regra 59 para o detalhamento completo.**
-
-### v30.0 — Ativação de Conta por E-mail (verificação obrigatória do owner no cadastro)
-
-> **Pedido direto do usuário**: hoje `POST /v1/auth/register` nunca confirma que o e-mail cadastrado existe de fato. A partir desta entrega, o tenant só usa o sistema depois que o owner clicar num link de confirmação enviado ao e-mail de cadastro — login continua funcionando imediatamente (JWT emitido na hora), só o USO fica bloqueado, mesma filosofia já usada pelo `subscriptionGuard` pra trial expirado.
->
-> **Novo hook global `tenantActivationGuard.ts`, irmão de `subscriptionGuard.ts`** — mesma allowlist, mesma consulta viva ao banco por request, registrado antes dos demais guards por ser o gate mais fundamental (identidade). `tenants.activated_at` (portão real, migration 0061, com backfill obrigatório pra todo tenant pré-existente) separado de `users.email_verified_at` (fato por usuário) — só a conta do owner criada em `POST /v1/auth/register` passa por essa ativação nesta v1, usuários convidados depois continuam com acesso imediato (decisão de escopo confirmada com o usuário).
->
-> **Token de verificação em colunas dedicadas** (nunca reaproveita `password_reset_token`), 48h de validade, mesmo mecanismo de geração já usado por reset de senha/convite de técnico. `POST /v1/auth/verify-email` (público) e `POST /v1/auth/resend-verification` (autenticado, cooldown de 60s) são as duas rotas novas.
->
-> **`cc?: string[]` novo em `NotificationMessage`** — toda ativação manda cópia pro e-mail pessoal do dono do sistema via `SYSTEM_OWNER_EMAIL` (nunca hardcoded). Novo tipo `tenant_email_verification` exige rebuild/redeploy do `lambda-notifications` — custo aceito desta vez, é o propósito da própria feature.
->
-> **Achado e corrigido durante a implementação**: um hook global síncrono a cada request inicialmente quebrou ~140 testes pré-existentes de rotas não relacionadas (mocks de `db` não previam essa consulta nova). Corrigido com fail-open em erro de infraestrutura na própria query + comparação estrita `activated_at !== null` (nunca trata ambiguidade de mock alheio como bloqueio) — zero teste pré-existente alterado.
->
-> **Frontend**: `AuthContext` ganha `tenant_activated_at`/`tenantActivated`/`refreshUser()`; `GuardedRoutes` mostra `EmailNotVerifiedScreen.tsx` no lugar do app normal enquanto não ativado; `VerifyEmailPage.tsx` consome o link do e-mail. **Limitação conhecida**: o avatar do e-mail precisa ser adicionado manualmente em `apps/backoffice/public/email/welcome-avatar.png` — não foi possível persistir a imagem enviada na conversa em disco.
->
-> **Testes:** 27 novos — `tenantActivationDomain.test.ts` (8, puro), `tenantActivationService.test.ts` (7), `tenantActivationGuard.test.ts` (12, incl. regressão do backfill e da ambiguidade de mock), mais 7 no `auth.test.ts` existente (token gerado no registro, verify-email, resend-verification). Suíte completa do projeto continua verde (só as 2 falhas pré-existentes não relacionadas: `costCentersActive.test.ts`, arquivo avulso não rastreado no git, e o teste de integração que exige um Postgres real local).
->
-> **Ver regra 58 para o detalhamento completo.**
-
-### v29.0 — RH Simplificado: cadastro de funcionários + folha de pagamento calculada (módulo opcional)
-
-> **Pedido do usuário, embasado em pesquisa de mercado** sobre o básico de um módulo de RH simplificado pra PME brasileira — cadastro de funcionários e geração de folha de pagamento mensal.
->
-> **Achado crítico de escopo (confirmado com o usuário): eSocial é obrigatório para empresas com 2+ funcionários** (certificado digital, envio mensal até dia 15 do mês seguinte) — incompatível com "simplificado". O módulo **nunca envia nada ao eSocial** — é uma ferramenta de cálculo/organização interna, mesmo racional já usado pro Focus NF-e (gateway pra SEFAZ) e pro DRE Gerencial ("sem dupla entrada contábil"). O aviso aparece explicitamente no próprio holerite impresso.
->
-> **4 tabelas novas** (migration 0060): `employees` (cadastro, entidade nova e independente de `sellers`/`technicians`), `payroll_runs` (a folha do mês, `draft`→`closed` irreversível), `payroll_entries` (1 holerite por funcionário, com snapshot no cálculo), `payroll_tax_brackets` (**global**, não tenant-scoped — INSS/IRRF são faixas federais, mesmo racional de `tax_simples_nacional_brackets`). Dois regimes: CLT completo (INSS/IRRF progressivos + provisão de férias/13º/FGTS) e Pró-labore (INSS fixo 11% + IRRF, sem encargos).
->
-> **Zero infraestrutura nova**: fechar a folha gera 1 `payables` por funcionário reaproveitando 100% o fluxo já existente (`category: 'payroll'` já era aceito desde a migration 0013), a categoria DRE "Despesas com Pessoal" já existia (seed da migration 0042, nenhuma categoria nova criada) — o DRE Gerencial já enxerga a despesa automaticamente. Holerite impresso via `window.print()` (zero lib de PDF).
->
-> **RBAC com 2 recursos separados** (`employees`/`payroll`) — permite um perfil que gerencia cadastro sem enxergar valores de folha. **Decisão de custo deliberada:** sem notificação por e-mail do holerite nesta v1 (evita rebuild do `lambda-notifications`).
->
-> **Ressalva importante:** as faixas de INSS 2026 seedadas são confirmadas por pesquisa; as faixas de IRRF acima de R$5.000/mês são uma aproximação não-oficial (a fórmula exata do redutor da faixa de transição não foi confirmada) — precisa de validação de um contador antes do primeiro uso em produção.
->
-> **Testes:** 55 novos — `payrollDomain.test.ts` (22, puro), `employeeService.test.ts` (8), `payrollService.test.ts` (12), `employeesRoute.test.ts` (5), `payrollRoute.test.ts` (8). Suíte completa do projeto continua 100% verde (845 passando, 2 falhas pré-existentes não relacionadas).
->
-> **Ver regra 57 para o detalhamento completo.**
-
-### v28.0 — Controle de Perfil de Acesso por Tenant (RBAC) + correção de isolamento multi-tenant em Usuários
-
-> **Pedido direto do usuário**: o criador da conta (`role='owner'`) passa a gerenciar perfis de acesso configuráveis do próprio tenant — quem vê e quem gerencia cada área do sistema. Durante a análise, achado um problema de segurança real e sério no mesmo arquivo que a feature ia mexer: `GET/PATCH/DELETE /v1/users` tinham falhas de isolamento multi-tenant (tenant_id vindo de query string sem checagem, e nenhuma checagem em PATCH/DELETE — um usuário de um tenant conseguia listar/editar/desativar usuários de OUTRO tenant, inclusive promovendo alguém a `owner`). Corrigido como pré-requisito desta entrega, não à parte.
->
-> **`role` reduzido a 2 papéis de sistema não-configuráveis** (`owner`, `technician`) — todo o resto vira `role='user'` + `access_profile_id` apontando pra um perfil configurável pelo tenant. 3 tabelas novas (migration 0059): `access_profiles`, `access_profile_permissions` (grants `view`/`manage` por recurso), `access_profile_events` (auditoria append-only).
->
-> **Dois mecanismos de gate novos e reutilizáveis**: `requireRole(...roles)` (generaliza o `technicianRoleGuard` ad-hoc pra um preHandler por rota) e `requirePermission(resource, action)` (mesmo desenho de `requireModule()`, sempre consulta viva ao banco, bypass total pro owner). `POST/PATCH/DELETE /v1/users` e toda `routes/accessProfiles.ts` exigem `requireRole('owner')`; `PATCH /v1/tenant/modules/:key` é a primeira rota existente a ganhar `requirePermission('company', 'manage')` de fato — o resto do sistema ganha o gate progressivamente depois, módulo por módulo (escopo deliberado, confirmado com o usuário).
->
-> **3 perfis padrão semeados de forma preguiçosa** (Administrador/Financeiro/Operacional), mesmo idioma do `DEFAULT_STAGES` do Funil de Vendas. `AccessProfilesPage.tsx` (nova, só visível ao owner) gerencia os perfis com uma matriz de permissões — primeira tela a usar de fato o `DataTable` do design system. `UsersPage.tsx` ganha a atribuição de perfil por usuário. `Layout.tsx` estende o mesmo padrão de `enabledModules.includes(...)` já usado por módulos opcionais, agora também filtrando por `can(resource, 'view')`.
->
-> **Testes:** 71 novos — `accessControlDomain.test.ts` (20, puro), `accessControlService.test.ts` (22), `accessProfilesRoute.test.ts` (11), `usersRoute.test.ts` (14, regressão específica dos 3 bugs de isolamento corrigidos), `accessControlE2E.test.ts` (4, jornada completa via HTTP real — criar perfil, conceder permissão, criar usuário, o próprio usuário consultar `GET /v1/auth/permissions` e usar uma rota real gated por `requirePermission`).
->
-> **Ver regra 56 para o detalhamento completo.**
-
-### v27.0 — Funil de Vendas (CRM/pipeline): módulo opcional, Kanban, timeline de atividades, conversão em Proposta
-
-> **Motivado por análise de mercado**: concorrentes de perfil parecido (ex.: Omie) têm CRM/funil de vendas nativo — o Orquestra ERP não tinha. Fecha o gap com um módulo opcional (liga/desliga por tenant, mesmo mecanismo de `tenant_modules` já usado por Ordens de Serviço/Multi-Empresa/Mercado Livre), configurável (etapas do funil customizáveis pelo tenant) e consciente de custo (zero infraestrutura/dependência nova).
->
-> **3 tabelas novas** (migration 0058): `sales_pipeline_stages` (etapas configuráveis, lazy-seed de 4 padrão na primeira leitura), `sales_opportunities` (`status` open/won/lost como eixo separado de `stage_id`), `sales_opportunity_activities` (timeline append-only — mudança de etapa/resultado logada automaticamente, nunca à mão).
->
-> **`convertToProposal()` reaproveita 100% do schema/fluxo de Propostas já existente** — cria uma `proposals` em `draft` com 1 item-placeholder e vincula `proposal_id` de volta, fechando o fluxo **Lead → Oportunidade → Proposta (já existia) → Pedido (já existia)** sem duplicar nenhuma lógica downstream.
->
-> **Kanban nativo, sem biblioteca de drag-and-drop nova.** `SalesPipelinePage.tsx` usa `draggable`/`onDragStart`/`onDragOver`/`onDrop` do HTML5 puro — mesmo racional de custo já usado antes pra recusar libs de PDF. Primeira tela do produto a efetivamente usar o componente de design system `Drawer` (`.Body`/`.Footer`).
->
-> **Decisão de custo deliberada:** sem notificação por e-mail nesta v1 (evita rebuild/redeploy do `lambda-notifications`) — visibilidade de "oportunidade atribuída" fica só no Kanban por enquanto.
->
-> **Testes:** 40 novos — `salesPipelineDomain.test.ts` (12, puro), `salesPipelineService.test.ts` (16), `salesPipelineRoute.test.ts` (12, incluindo o 403 do gate de módulo).
->
-> **Ver regra 55 para o detalhamento completo.**
-
-### v26.0 — Importação de Materiais: atualização de preço (opt-in) + histórico
-
-> **Motivado por um cliente real**: reimportar a mesma planilha pra atualizar `preco_venda`/`preco_custo` sempre resultava em "0 importados, N ignorados" — SKU duplicado era sempre erro, nunca atualização, e mesmo que fosse possível, não havia rastro de qual preço valia antes.
->
-> **`POST /v1/materials/import` ganha `update_existing`/`dry_run` (ambos opcionais, default `false`)** — sem marcar, comportamento idêntico ao de antes (regressão coberta por teste explícito). Marcado, SKU existente com preço diferente é atualizado — **só `sale_price`/`cost_price`, nunca outros campos** — e `dry_run=true` classifica (criar/atualizar/sem-alteração/erro, com o de→para do preço) sem escrever nada, usado pelo frontend para mostrar o diff antes de confirmar.
->
-> **Nova tabela `material_price_history`** (migration 0050) — append-only, mesmo padrão de `cost_center_movements`/`commission_entries`. Gravada tanto pela importação em massa quanto por `PATCH /v1/materials/:id` (edição manual) — histórico completo independente da origem da mudança. `GET /v1/materials/:id/price-history` alimenta a nova seção "Histórico de Preços" no drawer do material.
->
-> **Achado que reduziu o risco da mudança:** `cost_center_stock.avg_unit_cost` é um snapshot próprio, nunca lê `materials.cost_price` diretamente — mudar preço em massa não corrompe custo médio já lançado em centros de custo.
->
-> **Gap conhecido:** `POST /v1/clients/import` tem a mesma limitação (skip-only) e fica de fora deste escopo.
->
-> **Testes:** 19 novos — `materialPriceHistoryDomain.test.ts` (7, puro), `materialsImport.test.ts` (7, incluindo a regressão exata do cliente), `materialPriceHistoryRoute.test.ts` (5, PATCH + GET price-history).
->
-> **Ver regra 45 para o detalhamento completo.**
-
-### v25.0 — Correção: rejeição SEFAZ "Valor do IBS da UF difere do calculado"
-
-> **Bug real de produção, descoberto no primeiro envio de NF-e depois do deploy da v24.0.** `buildItem()` (`services/lambda-fiscal/src/lib/focusNfe.ts`) enviava `ibs_uf_aliquota`/`cbs_aliquota` com o default correto (0,1%/0,9%, quando ausentes) mas `ibs_uf_valor`/`cbs_valor` com um default fixo de `0` — porque o frontend ainda não envia `ibs_rate`/`ibs_value` ao criar a nota, esses campos chegavam zerados em `invoice_items`, e `routes/nfe.ts` mapeia `0` para `undefined` (`Number(0) || undefined`, mesmo padrão já usado para os outros impostos). Resultado: alíquota correta + valor zerado = `base × aliquota ≠ valor enviado` → SEFAZ rejeita.
->
-> **Correção:** `cbs_valor`/`ibs_uf_valor` passam a ser **sempre** recalculados dentro de `buildItem()` a partir de `base_calculo × aliquota` — o Lambda nunca mais confia num valor já persistido, mesmo que venha preenchido. Único ponto de origem da aritmética que efetivamente chega à SEFAZ. Ver regra 44.
->
-> **Testes:** 2 testes novos em `focusNfe.test.ts` (lambda-fiscal) — reproduzem exatamente o cenário de produção (alíquota/valor ausentes) e provam que um valor recebido incorreto é ignorado e recalculado, nunca repassado.
-
-### v24.0 — Reforma Tributária: campos IBS/CBS na NF-e e NFC-e (LC 214/2025)
-
-> **Sprint de compliance urgente — não é feature de crescimento.** Desde 1º/jan/2026 os documentos fiscais precisam trazer os campos de IBS/CBS (mesmo em regime de teste); a Receita já iniciou validação ativa em 1º/abr/2026 e o preenchimento se torna mandatório em 3/ago/2026. Antes desta versão, não havia nenhuma menção a IBS/CBS/`cClassTrib` em `services/api-core` nem em `services/lambda-fiscal`.
->
-> **Escopo: NF-e (produto, modelo 55) + NFC-e (PDV, modelo 65)** — ambas sob fiscalização ativa. **NFS-e fica de fora, documentada como gap conhecido** (layout nacional de IBS/CBS para NFS-e ainda em piloto restrito).
->
-> **Extensão da pilha fiscal existente (regra 14), não reescrita:** `taxRulesResolver.ts` ganha `getIbsCbsRates()` (mesmo padrão de cache/fallback de `getFcpRate()`); `taxEngine.ts` ganha `ibs_value`/`cbs_value` por linha; `taxCalculationService.ts` resolve as alíquotas da UF de destino. Migration `0049_ibs_cbs_tax_reform.sql`: nova tabela `tax_ibs_cbs_rates` (seed das 27 UFs com as alíquotas de teste 2026 — CBS 0,9% + IBS 0,1%), `materials.class_trib` (override por produto, mesmo padrão de `cfop`/`cst_csosn`), colunas em `invoice_items`/`invoices`/`pos_sale_items`.
->
-> **Decisão de negócio confirmada com o usuário: IBS/CBS são só informativos em 2026 — nunca somados ao total cobrado do cliente** (compensáveis com PIS/COFINS este ano, sem carga nova). `taxEngine.ts` calcula os valores mas eles nunca entram em `line_total`/`grand_total`.
->
-> **`cClassTrib` não deriva de NCM/CFOP** — a pesquisa que motivou esta sprint confirmou que não há mapeamento 1:1 (depende de contexto/regime). Default de sistema `'000001'` (tributação integral), override manual por produto via `materials.class_trib`.
->
-> **Focus NF-e (`lambda-fiscal/lib/focusNfe.ts::buildItem()`):** campos reais documentados pelo Focus — `ibs_cbs_situacao_tributaria`, `ibs_cbs_classificacao_tributaria`, `ibs_cbs_base_calculo`, `cbs_aliquota`, `cbs_valor`, `ibs_uf_aliquota`, `ibs_uf_valor`, `ibs_mun_aliquota`, `ibs_mun_valor`. Split IBS estado/município não publicado para 2026 — valor cheio em `ibs_uf_valor`, `0` em `ibs_mun_valor` (simplificação documentada). NFC-e (`api-core/services/fiscal/focusNfe.ts`) resolve a alíquota fresh na emissão, mesmo comportamento que o ICMS da NFC-e já tinha — só `class_trib` é persistido (`pos_sale_items`, copiado de `materials` no `addItem()`).
->
-> **Testes:** 24 testes novos/estendidos — `taxEngine.test.ts` (6), `taxRulesResolver.test.ts` (3), `taxCalculationService.test.ts` (1), `tax.test.ts` (1), `nfeEmit.test.ts` (1) no api-core; `focusNfe.test.ts` (4, novo) no lambda-fiscal; `focusNfeNfce.test.ts` (5, novo, NFC-e) no api-core. `buildNfcePayload()` exportado só para teste direto (evita mockar `fetch`/rede).
->
-> **Ver regra 44 para o detalhamento completo.**
-
-### v23.0 — Correção: variáveis de ambiente de produção não conectadas (Stripe + Mercado Livre)
-
-> **Achado ao investigar por que `stripe_enabled: false` aparecia em produção** (`GET /v1/subscription`): a assinatura Stripe (feature implementada em sessão anterior, commit `3f1a505`) nunca teve `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` conectadas ao Terraform/ECS — o módulo estava pronto no código, mas inerte em produção desde sempre (regra 43).
->
-> **Mesma auditoria revelou 2 gaps equivalentes na integração Mercado Livre (v21.0/v22.0):** `MARKETPLACE_SYNC_REQUESTS_QUEUE_URL`/`MARKETPLACE_SYNC_RESULTS_QUEUE_URL` (necessárias para o `api-core` publicar/consumir as filas do Lambda) e `MERCADOLIVRE_CLIENT_ID`/`MERCADOLIVRE_CLIENT_SECRET` (necessárias para o fluxo OAuth de `marketplaceConnectionService.ts`) nunca tinham sido adicionadas ao `environment` do ECS em `terraform/ecs.tf` — só ao Lambda. Corrigido nesta versão, junto com o Stripe.
->
-> **Correção:** `terraform/variables.tf` ganha `stripe_secret_key`/`stripe_webhook_secret` (sensitive); `terraform/ecs.tf` ganha as 6 variáveis faltantes no `environment` do container `api-core`; `deploy.yml` ganha `TF_VAR_stripe_secret_key`/`TF_VAR_stripe_webhook_secret`. **Ação necessária do usuário:** cadastrar `TF_VAR_STRIPE_SECRET_KEY` e `TF_VAR_STRIPE_WEBHOOK_SECRET` nos GitHub Secrets do repositório com os valores reais do Stripe (modo live) antes do próximo deploy — sem isso, o `terraform apply` usa os defaults vazios (`""`) e o Stripe continua desabilitado.
->
-> **Nenhum tenant existente é afetado ao ligar o Stripe** — `subscriptionGuard` (regra 43) libera incondicionalmente qualquer tenant com `trial_ends_at IS NULL` (todos os cadastrados antes desta feature existir).
-
-### v22.0 — Integração Mercado Livre (Fase 2 — Lambda + Terraform + sync real)
-
-> **Conclui a Fase 2 anunciada na v21.0** — usuário obteve cadastro de desenvolvedor no Mercado Livre. Entrega: novo serviço `services/lambda-marketplace` (mesmo molde de `lambda-billing`), infraestrutura Terraform (`terraform/marketplace.tf`, filas em `sqs.tf`, ECR em `ecr.tf`, variáveis `mercado_livre_client_id`/`mercado_livre_client_secret`) e CI/CD (`deploy.yml`).
->
-> **Lambdas nunca acessam o Postgres diretamente** (mesmo padrão de `BillingEmitMessage.banking`) — `materialMarketplaceLinkService.requestSync()` e `marketplaceWebhookService.ingestWebhook()` (ambos da v21.0) passaram a embutir um snapshot dos tokens da conexão e do preço/estoque do material na mensagem SQS (`MarketplaceSyncRequestMessage` em `lib/marketplace-types.ts`, duplicado em `lambda-marketplace/lib/types.ts` — mesma convenção de tipos duplicados por workspace já usada por `lambda-billing`).
->
-> **Refresh de token OAuth — o `refresh_token` do Mercado Livre é de uso único.** `MercadoLivreAdapter.ensureFreshToken()` renova quando faltam menos de 5 min de validade e devolve sempre o novo par via `refreshed_tokens` na mensagem de resultado; `marketplaceSyncResultsWorker.ts` persiste esse campo em `marketplace_connections` (independente do tipo da mensagem) — sem isso, a próxima chamada usaria um refresh_token já invalidado pela própria API do ML.
->
-> **Decisões confirmadas com o usuário (ambas recomendadas):** tokens continuam em texto puro (consistente com `itau_client_secret`/`focus_token_producao` — nenhum segredo do projeto usa KMS hoje); sync só manual nesta fase (o endpoint `POST /v1/materials/:id/marketplace-links/:linkId/sync` já existente passa a funcionar de ponta a ponta — sync automático ao alterar preço/estoque fica para depois).
->
-> **Escopo do MVP:** `fetchResource` só processa tópicos de pedido (`orders_v2`); outros tópicos de webhook são ignorados em silêncio. `syncMaterial` atualiza preço/estoque via `PUT /items/:id` — quando o vínculo tem `ml_variation_id`, o PUT ainda mira o item base (variações ficam para uma iteração futura).
->
-> **Testes:** 17 testes novos — 5 em `materialMarketplaceLinks.test.ts`/`marketplaceWebhook.test.ts`/`marketplaceSyncResultsWorker.test.ts` (api-core, cobrindo o novo shape de mensagem e a persistência de `refreshed_tokens`) + 12 em `lambda-marketplace` (`mercadolivre.test.ts`, `marketplaceSyncService.test.ts` — token refresh, sync de preço/estoque, mapeamento de pedido, propagação de erro para retry do SQS).
->
-> **Sem `terraform apply` nesta sessão** — arquivos `.tf` validados localmente (`terraform validate`/`fmt`), aplicação real acontece pelo pipeline `deploy.yml` já existente quando mergeado, ou manualmente quando as credenciais do app do Mercado Livre estiverem configuradas nos GitHub Secrets (`TF_VAR_MERCADO_LIVRE_CLIENT_ID`/`_SECRET`).
-
-### v21.0 — Integração Mercado Livre (Fase 1 — api-core)
-
-> **Migration 0048.** Novas tabelas `marketplace_connections` (conexão OAuth por EMPRESA — `nfe_configs`, não por tenant), `material_marketplace_links` (vínculo material↔anúncio, N por conexão) e `marketplace_webhook_events` (append-only, idempotente por `topic+resource`). `orders` ganha `marketplace_order_id` e `origin` (`'erp'`|`'mercadolivre'`), nullable/aditivo.
->
-> **Implementação em duas fases, deliberada:** esta versão entrega só o módulo **api-core** — migration, domínio, serviços, rotas, worker in-process e testes unitários, 100% verificável sem AWS real. O Lambda `lambda-marketplace`, a infraestrutura Terraform (SQS, ECR, IAM) e o CI/CD ficam para a Fase 2, quando houver credenciais reais do Mercado Livre para validar o fluxo OAuth de ponta a ponta. Até lá, tudo que dependeria da fila SQS é um no-op deliberado (mesmo padrão de graceful-degradation já usado em toda emissão fiscal/boleto quando a fila não está configurada) — conectar/desconectar conta e vincular material a anúncio funcionam hoje, de ponta a ponta. **Atualização: a Fase 2 foi concluída na v22.0.**
->
-> **OAuth2 sem tabela de state:** `signState`/`verifyState` (`marketplaceDomain.ts`) assinam o `company_id` com HMAC-SHA256 + timestamp (expira em 10 min) — o parâmetro `state` da URL de autorização carrega a própria empresa, revalidado no callback antes de confiar nele. O callback (`GET /v1/public/integrations/mercadolivre/callback`) é público — o Mercado Livre redireciona o navegador do usuário, sem JWT — e sempre termina em redirect de volta ao app.
->
-> **Segredos em texto puro nesta fase** — mesma limitação já documentada para `itau_client_secret`/`focus_token_producao`/`bank_accounts.itau_client_secret` (nenhum segredo deste projeto usa KMS hoje). Envelope encryption via KMS fica para a Fase 2.
->
-> **Webhook nunca é fonte de verdade, só um gatilho:** valida forma, grava para auditoria/idempotência, sempre responde 200 rápido mesmo em erro interno.
->
-> **Arquitetura:** domínio puro em `src/domain/marketplace/marketplaceDomain.ts`, serviços em `src/services/marketplaceConnectionService.ts`, `materialMarketplaceLinkService.ts`, `marketplaceWebhookService.ts`, worker em `src/workers/marketplaceSyncResultsWorker.ts`, rotas em `routes/marketplaceIntegration.ts`, `routes/materialMarketplaceLinks.ts`, `routes/marketplaceWebhook.ts`. Ver regra 42 para o detalhamento completo.
->
-> **Frontend:** `CompanyPage.tsx` ganha aba "Integrações" (conectar/desconectar por empresa). `MaterialsPage.tsx` ganha seção "Mercado Livre" no drawer de edição (vincular/desvincular anúncio, sincronizar), visível só com o módulo habilitado e ao menos uma conta conectada.
->
-> **Testes:** 39 testes novos — `marketplaceDomain.test.ts` (10, puro), `marketplaceIntegration.test.ts` (9, rotas — inclui prova de state adulterado rejeitado), `materialMarketplaceLinks.test.ts` (7), `marketplaceWebhook.test.ts` (4, idempotência), `marketplaceSyncResultsWorker.test.ts` (1). Suíte completa: 381/387 passando (6 falhas remanescentes são pré-existentes em `billing.test.ts`, não relacionadas).
->
-> **Soft-delete:** `material_marketplace_links.status = 'closed'` (não usa `is_active`, reaproveita a coluna de status do ciclo de vida do anúncio).
-
-### v20.0 — Múltiplas Contas Bancárias por Empresa
-
-> **Migration 0047.** Nova tabela `bank_accounts` — N contas bancárias por empresa (`nfe_configs`, não por tenant). Antes, um tenant tinha exatamente uma conta (colunas soltas em `tenants`: `bank_code`, `agency`, `account`, `account_digit`, `billing_provider`, `billing_days_to_expire`, `itau_client_id`, `itau_client_secret`) — essas colunas ficam deprecated-mas-presentes, sem DROP destrutivo. Backfill automático: todo tenant que já tinha dados bancários preenchidos ganhou 1 `bank_account` vinculada à sua empresa padrão, marcada `is_default=true` — nenhum tenant existente ficou sem conta.
->
-> **Sem gate de módulo:** diferente de `multi_empresa` (regra 40), qualquer tenant pode ter mais de uma conta bancária para o mesmo CNPJ, mesmo sem o módulo multi-empresa habilitado — faz sentido mesmo para quem só tem 1 CNPJ.
->
-> **Onde a conta é resolvida de verdade:** `POST /v1/receivables/:id/emit-boleto` aceita `bank_account_id` opcional e resolve via `bankAccountService.resolveBankAccount()` — não mais assume uma única config bancária por tenant. O snapshot em `boletos` (`banco_code`/`agencia`/`conta`/`digito`) e a mensagem SQS para o `lambda-billing` continuam no mesmo formato, agora alimentados pela conta resolvida. `boletos.bank_account_id` (nullable) grava qual conta foi a origem.
->
-> **Retrocompatibilidade:** `GET|PATCH /v1/tenant` mantém o mesmo contrato de sempre para os campos bancários, delegando por trás para a conta padrão da empresa padrão do tenant — comportamento byte-idêntico ao anterior para quem nunca cadastrou uma 2ª conta. Correção incluída: `GET /v1/tenant` passou a mascarar `itau_client_secret` (`****xxxx`), corrigindo uma inconsistência com o padrão já usado em `nfe_configs`/Focus tokens.
->
-> **Arquitetura:** domínio puro em `src/domain/bankAccount/bankAccountDomain.ts` (`canDeactivate` — invariante por empresa, não por tenant), serviço em `src/services/bankAccountService.ts` (reaproveita `validateBankingData()`/`isValidBillingProvider()` de `lib/banking.ts`, já existentes), rotas em `src/routes/bankAccounts.ts`. Ver regra 41 para o detalhamento completo.
->
-> **Frontend:** `CompanyPage.tsx` (aba Bancário) ganha seletor de empresa + conta em duas camadas de progressive disclosure, reaproveitando o formulário existente. `ReceivablesPage.tsx` ganha seletor opcional de conta bancária na emissão de boleto.
->
-> **Testes:** 22 testes novos — `bankAccountDomain.test.ts` (6, puro), `bankAccounts.test.ts` (9, rotas), `billingBankAccount.test.ts` (3, regressão + fix na emissão de boleto), `tenantBankAccount.test.ts` (4, retrocompatibilidade de `/v1/tenant`).
->
-> **Soft-delete:** `bank_accounts.is_active = false` — bloqueado pelo domínio (`canDeactivate`) se a conta for a padrão ou a última ativa da sua empresa.
-
-### v19.0 — Multi-Empresa (Multi-CNPJ) na Emissão Fiscal
-
-> **Migration 0046.** `nfe_configs` promovido de singleton por tenant (`tenant_id` era PRIMARY KEY) para N por tenant — cada linha é uma empresa/CNPJ. Nova PK `id`, mais `is_default` (qual empresa é usada quando nenhuma é escolhida) e `is_active` (soft-delete). `company_id` (nullable, FK para `nfe_configs.id`) adicionado a `invoices`, `nfse_invoices` e `service_contracts` — os três pontos onde a identidade fiscal emissora importa de verdade. Toda linha existente de `nfe_configs` virou automaticamente a empresa padrão do seu tenant; todo `invoice`/`nfse_invoice`/`service_contract` histórico foi backfillado com o `company_id` da empresa padrão — nenhuma linha fica órfã.
->
-> **Segurança do módulo: criar uma 2ª+ empresa exige `multi_empresa` habilitado.** Mesmo mecanismo genérico de `tenant_modules` já usado por `service_orders` (regra 38) — `POST /v1/companies` é gated por `requireModule('multi_empresa')`; listar/editar a empresa que já existe nunca é gated (não é a capacidade nova). Enquanto o módulo está desligado (padrão), o sistema se comporta byte-a-byte como antes da migration: 1 empresa por tenant, resolvida sempre pela mesma linha.
->
-> **Onde "qual CNPJ emite" passou a ser resolvido de verdade — não só cosmético:** `POST /v1/invoices/:id/emit`, `POST /v1/nfse/:id/emit`, `POST /v1/service-contracts/:id/billings` e `POST /v1/tax/calculate` agora resolvem a empresa via `companyService.resolveCompanyId()` em vez de assumir uma única config fiscal por tenant. Prova de regressão + prova do fix em `nfeEmit.test.ts`: tenant sem multi-empresa emite exatamente como antes; invoice com `company_id` de uma empresa não-padrão emite com o CNPJ/razão social/token daquela empresa.
->
-> **Escopo deliberadamente restrito a emissão fiscal nesta versão — documentado como limitação conhecida (regra 40), não esquecimento:** `payables`, `purchase_orders`, `supplier_invoices`, `receivables`, `proposals`, `orders` e POS/NFC-e continuam sem `company_id` — ficam para uma fase futura. **Atualização (v20.0):** boleto/Itaú deixou de ser 1:1 por tenant — ver regra 41 (`bank_accounts`).
->
-> **Arquitetura:** domínio puro em `src/domain/company/companyDomain.ts` (`canDeactivate`, `validateNewCompanyCnpj` — reaproveita `cnpjDomain.ts` da regra 36), serviço único de resolução em `src/services/companyService.ts`, rotas em `src/routes/companies.ts`. `GET|PUT /v1/nfe-config` (legado) continua funcionando sem nenhuma mudança de contrato — por trás, opera sobre a empresa padrão via `companyService`.
->
-> **Frontend:** `CompanyPage.tsx` (aba Fiscal) ganha seletor de empresa com progressive disclosure (só aparece com >1 CNPJ), reaproveitando o mesmo formulário existente — sem duplicação de JSX. `InvoiceNewPage.tsx` e `ContractsPage.tsx` ganham seletor opcional de "Empresa emissora", mesma regra de visibilidade. Aba **Módulos** ganha o card `multi_empresa` (mecanismo genérico já existente, só uma entrada de label nova).
->
-> **Testes:** 27 testes novos — `companyDomain.test.ts` (10, puro), `companies.test.ts` (10, rotas — inclui a prova explícita do gate 403/módulo desligado), `nfeEmit.test.ts` (4, regressão + fix no ponto de emissão), mais casos de multi-empresa adicionados a `tax.test.ts`, `nfse.test.ts`, `invoicesCompany.test.ts` e `serviceContractsCompany.test.ts`.
->
-> **Soft-delete:** `nfe_configs.is_active = false` — bloqueado pelo domínio (`canDeactivate`) se a empresa for a padrão ou a última ativa do tenant.
-
-### v18.0 — Contatos de Fornecedor
-
-> **Migration 0045.** `supplier_contacts` — mesma ideia de `client_contacts` (lista de contatos por tipo, com nome/e-mail/telefone/observações), aplicada ao cadastro de fornecedores.
->
-> **Correção de padrão, não cópia cega:** `client_contacts.ts` ainda usa o padrão legado de `tenant_id` vindo do body/query (regra 4 — exceção temporária). O novo `supplierContacts.ts` foi implementado já com o padrão correto (`tenantId` do JWT via `authenticate`), mesmo padrão que `suppliers.ts` já usa — ver regra 39 para o raciocínio completo.
->
-> **Tipos de contato adaptados ao papel do fornecedor:** `comercial | financeiro | suporte | logistica | outro` — não reaproveita os tipos de `client_contacts` (`comprador`/`compras` descrevem quem compra de nós, não fazem sentido do lado do fornecedor).
->
-> **Frontend:** terceira aba "Contatos" em `SuppliersPage.tsx` (ao lado de Dados Gerais/Dados Bancários), visível apenas em modo edição — segue o padrão de abas que a própria página já usa, não o layout de rolagem única de `ClientsPage.tsx`.
->
-> **Testes:** `supplierContacts.test.ts` — 10 testes cobrindo autenticação, isolamento por tenant, validação de `contact_type` e soft-delete.
->
-> **Soft-delete:** `supplier_contacts.is_active = false` (nunca deletado fisicamente) — mesmo padrão de `client_contacts`, agora também documentado na tabela de soft-delete (lacuna pré-existente corrigida nesta versão).
-
-### v17.0 — Ordens de Serviço / Visita Técnica (módulo opcional por tenant)
-
-> **Migration 0044.** Primeiro módulo verticalizado do produto — não compete com ERPs de SMB genéricos, abre um segmento (equipamentos, climatização, elétrica, manutenção industrial) onde nenhum concorrente direto de SMB tem um módulo de OS decente.
->
-> **Habilitação sob demanda:** `tenant_modules (tenant_id, module_key, enabled)` — flag genérica, desligada por padrão, reaproveitável por módulos opcionais futuros. Toggle em Minha Empresa → Módulos (`GET|PATCH /v1/tenant/modules`). Toda rota do módulo é gated por `requireModule('service_orders')` — backend é sempre a autoridade, nunca o frontend.
->
-> **Técnico é usuário autenticado, não link público anônimo:** `users.role = 'technician'` (CHECK constraint ampliado) + `technicians` (1:1 obrigatório com `users`, CPF capturado uma vez no cadastro). O e-mail de agendamento (`service_visit_assigned`) carrega um link de *roteamento*, não de autorização — toda ação exige JWT + `technician_id` da visita batendo com o técnico logado. `technicianRoleGuard` (hook global) restringe esse papel ao prefixo `/v1/technician/*`, fechando o que seria uma lacuna de acesso a todo o resto da API.
->
-> **Fotos e assinatura do cliente:** upload direto do navegador para o S3 via presigned POST (nunca proxiado pela API), bucket privado com SSE-KMS + Block Public Access + CORS restrito. Assinatura é artefato 1:1 com a visita (`service_visits.signature_s3_key`), fotos são galeria N:1 (`service_visit_photos`, idempotente, append-only). Compressão client-side (Canvas, ~1600px/JPEG80) antes do upload — controle de custo sem Lambda de processamento de imagem.
->
-> **Arquitetura:** Clean Architecture — `src/domain/serviceOrder/`, `src/domain/serviceVisit/` (puro, testado — 35 testes novos), `src/services/serviceOrderService.ts`, `serviceVisitService.ts`, `technicianService.ts`, `servicePhotoStorageService.ts`, `tenantModuleService.ts`, `src/routes/serviceOrders.ts`, `technicians.ts`, `technicianPortal.ts`, `tenantModules.ts`.
->
-> **Frontend:** `ServiceOrdersPage.tsx`, `TechniciansPage.tsx` (backoffice, dentro do grupo de nav "Campo" — só aparece se o módulo estiver habilitado) e um portal do técnico separado (`TechnicianLoginPage.tsx`, `TechnicianVisitsPage.tsx`, `TechnicianVisitDetailPage.tsx`, `TechnicianLayout.tsx`) fora do `<Layout>` administrativo — captura de foto com compressão e assinatura em `<canvas>` via `lib/visitUpload.ts`.
->
-> **Soft-delete:** `service_orders.status = 'cancelled'` · `service_visits.status = 'cancelled'` · `technicians.is_active = false` (também desabilita o login). `service_visit_photos` é append-only.
-
-### v16.0 — P1 NF-e de Entrada + P2 Pedido de Compra + P3 DRE Gerencial
-
-> **Arquitetura:** Clean Architecture com DDD em 3 camadas para cada módulo:
-> - Domínio puro (`src/domain/*/`) — state machine, validação, fórmulas. Zero I/O, 100% testável.
-> - Serviços de aplicação (`src/services/`) — orquestração de I/O + domínio. Injeção de db para testabilidade.
-> - Rotas HTTP (`src/routes/`) — adapter Fastify, extrai tenantId do JWT (regra 4), delega a serviços.
->
-> **P2 — Pedido de Compra (migrations 0040):**
-> `purchase_orders` + `purchase_order_items`. State machine: `draft → approved → received | cancelled`. Aprovação marca `approved_by`/`approved_at`. Recebimento é acionado automaticamente pela confirmação da NF-e de entrada vinculada. `purchaseOrderDomain.ts` valida transições e calcula totais (com desconto/frete). `purchaseOrderService.ts` orquestra criação e transições.
->
-> **P1 — NF-e de Entrada (migration 0041):**
-> `supplier_invoices` + `supplier_invoice_items`. State machine: `draft → confirmed | divergence | cancelled`. Confirmação (`confirmSupplierInvoice`): (1) cria `payable` automaticamente, (2) registra `inventory_movements type='in'` por item com `material_id`, (3) executa 3-way matching contra PO vinculado via `matchAgainstPO()` — status fica `divergence` se quantidade/preço diferirem. `purchase_order_id` é FK opcional para 3-way match. NF-e de entrada tem foco em dados manuais (número, chave, data, itens) por enquanto — integração com Focus manifesto do destinatário reservada para v1 do módulo de compliance fiscal.
->
-> **P3 — DRE Gerencial (migration 0042):**
-> `dre_categories` (14 categorias globais pré-seedadas seguindo padrão CFC) + `payables.dre_category_id` (FK opcional). DRE Gerencial (Caminho A — sem dupla entrada): receita = NF-e + NFS-e autorizadas no período (correção posterior — ver regra 48); despesas = payables por `dre_category_id`. Fórmula em `dreDomain.buildDRE()` — puro, testável. `dreService.computeDRE()` faz as queries e chama o domínio. Totalizadores: Receita Líquida, Lucro Bruto + Margem, EBITDA + Margem, EBT, Resultado Líquido + Margem. **Não substitui SPED Contábil/ECD.** Ver regra 35.
->
-> **Frontend:** `PurchaseOrdersPage.tsx`, `SupplierInvoicesPage.tsx`, `DREPage.tsx` (cards de KPI + tabela contábil com totalizadores intermediários + disclaimer gerencial). Nav em grupos Inventário (compras) e Financeiro (DRE).
->
-> **Testes:** 38 testes unitários novos — `purchaseOrderDomain.test.ts` (16), `supplierInvoiceDomain.test.ts` (16), `dreDomain.test.ts` (6).
->
-> **Soft-delete:** `purchase_orders.status = 'cancelled'` · `supplier_invoices.status = 'cancelled'`.
-
-### v15.0 — Motor Fiscal Multi-estado (ICMS/FCP/DIFAL/Simples Nacional)
-
-> **Migration 0037_tax_rules.sql:**
-> Cinco tabelas fiscais centrais mantidas pela Orquestra (não editáveis por tenant).
-> `tax_icms_interstate_rates`: 702 registros gerados via regra legal da Resolução do Senado 22/89 (Sul/Sudeste-sem-ES → demais = 7%; outros pares = 12%).
-> `tax_icms_internal_rates`: alíquota "modal" de referência por UF — **revisar com contabilidade antes de produção** (coluna `notes` documenta isso explicitamente).
-> `tax_fcp_rates` e `tax_st_rules`: estrutura criada sem dados — popular por demanda (FCP) e via provedor de dados fiscais (ICMS-ST, ver regra 33).
-> `tax_simples_nacional_brackets`: Anexo I (Comércio), 6 faixas da LC 123/2006 pós-reforma 2018.
-> Colunas novas: `tenants.simples_rbt12`; `invoices.fcp_total`/`icms_difal_total`; `invoice_items.fcp_rate`/`fcp_value`/`icms_difal_value`.
->
-> **Arquitetura do motor (3 camadas):**
-> `taxRulesResolver.ts` (lookup de alíquotas, cache 5 min) → `taxCalculationService.ts` (orquestração: DIFAL/FCP) → `taxEngine.ts` (aritmética pura/stateless).
-> `POST /v1/tax/calculate` agora é autenticado (regra 4) e usa `nfe_configs.uf` como origem por padrão — nunca mais hardcode `'SP'`.
->
-> **DIFAL (EC 87/2015):** lançado automaticamente quando venda é interestadual + `client.icms_taxpayer='9'` + `client.consumer_type='1'`. Fórmula simplificada (sem gross-up do Anexo VI). Ver regra 33 para limitações documentadas.
->
-> **Simples Nacional:** `taxRulesResolver.getSimplesEffectiveRate()` usa fórmula oficial LC 123 e o `tenants.simples_rbt12` configurado em Empresa → Fiscal. Para NF-e: ICMS/PIS/COFINS continuam zerados (correto — impostos no DAS); alíquota efetiva é informativa via `GET /v1/tax/simples-effective-rate`.
->
-> **Correções incluídas:** `focusNfe.ts` (NFC-e/PDV) parou de mandar `icms_aliquota: 0` fixo — agora resolve via `taxRulesResolver.getIcmsRate(cfg.uf, cfg.uf, db)` (intra-estado, com fallback 0 nunca bloqueante).
->
-> **Frontend:** `InvoiceNewPage` usa `nfe_configs.uf` como origem real, auto-preenche UF destino pelo estado do cliente, passa `icms_taxpayer`/`consumer_type` para DIFAL correto, e exibe linhas de FCP e DIFAL no Step 5 quando > 0. `CompanyPage → Fiscal`: novo campo RBT12 (Simples Nacional), condicional ao regime CRT=1.
->
-> **Testes:** 49 novos testes unitários (`taxRulesResolver`, `taxEngine`, `taxCalculationService`, `tax` route).
-
-### v14.0 — Cadastro de Vendedores + Motor de Comissionamento
-
-> **Vendedores (migration 0036):**
-> Novo módulo `sellers`, desacoplado de `users` — login via `user_id` é opcional (representante externo não precisa de acesso ao sistema).
-> `sellers`: `id`, `tenant_id`, `user_id` (nullable), `name`, `email`, `phone`, `document`, `default_commission_pct NUMERIC(5,2)`, `commission_base VARCHAR(20)` (`'subtotal'` ou `'total'` — padrão `'subtotal'`, pós-desconto e pré-imposto), `is_active BOOL DEFAULT true`.
->
-> **Atribuição de venda:** `orders.seller_id` e `invoices.seller_id` — nullable, `ON DELETE SET NULL`, mesmo padrão de fan-out de `cost_center_id` (v13.0). Não preencher não quebra nenhum pedido/nota existente. `POST /v1/invoices` herda `seller_id` do pedido de origem (`order_id`) quando não informado explicitamente.
->
-> **Gatilho de comissão — sempre na autorização da NF-e:**
-> - Lançamento: `nfeResultsWorker.ts` chama `accrueCommission()` no mesmo bloco que já faz a baixa de estoque do centro de custo, quando `invoices.nfe_status` vira `'authorized'` e a nota tem `seller_id`.
-> - Cancelamento: `POST /v1/invoices/:id/cancel` chama `cancelCommission()` quando a nota cancelada estava autorizada — nunca deleta o registro, apenas marca `status = 'cancelled'` (regra 8).
->
-> **Motor (`commissionService.ts`):** `accrueCommission`, `cancelCommission`. Idempotência via UNIQUE `(tenant_id, idempotency_key)` com chave `invoice:${invoiceId}` — uma NF-e gera no máximo uma comissão. `commission_amount = round2(base_amount * rate / 100)`.
->
-> **`commission_entries`** (ledger, nunca deletado): `id`, `tenant_id`, `seller_id`, `invoice_id`, `order_id`, `base_amount`, `rate`, `commission_amount`, `status` (`'accrued'` | `'cancelled'`), `idempotency_key`, `cancelled_at`.
->
-> **API:** 7 rotas em `sellers.ts` (CRUD + soft-delete + `/active` + `/:id/commissions` extrato) e `GET /v1/reports/commissions` (ranking gerencial por vendedor).
->
-> **Frontend web:** `SellersPage.tsx` (CRUD list), `SellerDetailPage.tsx` (extrato de comissões com cards de resumo — total a receber / total cancelado). Dropdown de vendedor (opcional) em `OrdersPage.tsx` e `InvoiceNewPage.tsx`.
-
-### v13.0 — Centro de Custo + Design System UI + NF-e/NFS-e UI Redesign
-
-> **Centro de Custo (migrations 0026 + 0027):**
-> Novo módulo de controle de materiais por projeto/departamento.
-> `cost_centers`: `id`, `tenant_id`, `code VARCHAR(20) UNIQUE(tenant)`, `name`, `description`, `allow_negative BOOL DEFAULT false`, `is_active BOOL DEFAULT true`.
-> `cost_center_stock`: saldo materializado por `(cost_center_id, material_id)` — PK composta. Custo médio ponderado `avg_unit_cost NUMERIC(12,4)`.
-> `cost_center_movements`: ledger append-only com UNIQUE `(tenant_id, idempotency_key)`. ENUMs: `cc_movement_direction ('in','out')` e `cc_movement_source ('manual_entry','adjustment','payable','order','invoice')`.
->
-> **Gatilhos automáticos:**
-> - OUT: `nfeResultsWorker` ao detectar `nfe_status='authorized'` com `invoice.cost_center_id` → `applyExit` por item.
-> - Estorno: cancelamento de NF-e autorizada com CC → `applyEntry({source:'adjustment', sourceId:'cancel:invoiceId'})` por item.
->
-> **Motor de estoque (`costCenterStock.ts`):** `applyEntry`, `applyExit`, `applyAdjustment`. `SELECT FOR UPDATE` em toda escrita. Idempotência via catch-23505 no UNIQUE de `idempotency_key`. `toFixed(4)` para avg. `applyAdjustment` lê o saldo dentro da própria transação. `delta=0` retorna `{skipped:true}`.
->
-> **API:** 10 rotas em `costCenters.ts`. `DomainError` (saldo insuficiente) → HTTP 422.
->
-> **FK opcional** em payables, orders, invoices, receivables: `cost_center_id UUID REFERENCES cost_centers(id) ON DELETE SET NULL`.
->
-> **Frontend web:** `CostCentersPage.tsx` (CRUD list), `CostCenterDetailPage.tsx` (tabs Estoque + Movimentações), `CostCenterDrawers.tsx` (MaterialSelect fora do corpo do componente — evita remount). Dropdown CC + filtro por CC em 5 páginas (Payables, Orders, Invoices, InvoiceNew, Receivables). InvoiceNewPage: aviso amber inline por item quando quantidade excede saldo do CC — advisory, não bloqueia emissão.
->
-> **Design System:** Tokens CSS unificados. **NF-e/NFS-e UI Redesign:** Formulários de emissão com novo layout editorial.
-
-### v12.0 — Fluxo de Caixa + Histórico 360° + Relatórios + Impressão de Proposta
-
-> **`GET /v1/dashboard/cashflow`:** Agrupa vencimentos em 12 semanas. `DashboardPage` exibe gráfico de barras duplas.
-> **`GET /v1/clients/:id/history`:** 20 pedidos, 20 notas, 20 recebíveis do cliente.
-> **Relatórios:** `ReportsPage.tsx` com abas Inadimplência e Ranking de Produtos. Exportação XLSX.
-> **Impressão de Proposta:** `window.print()` no portal público.
-> **i18n:** Chaves `cl.history`, `d.cashflow*`, `nav.reports`, `rep.*`.
-
-### v11.0 — Gestão de Propostas Comerciais + OAuth2 Itaú
-
-> **Propostas:** Status machine `draft → sent → viewed → accepted | rejected | expired | cancelled`. Token público 64 hex chars. Portal `/p/:token`. Conversão direta em pedido.
-> **OAuth2 Itaú:** `tenants.itau_client_id` + `tenants.itau_client_secret` (migration 0025).
-
-### v10.0 — Reset de Senha + XLSX Export + Dashboard KPIs + Contas Recorrentes + Notificações
-
-> **Reset de senha:** `users.password_reset_token` + `users.password_reset_expires`.
-> **XLSX export:** SheetJS client-side em Receivables, Payables, Invoices, Clients.
-> **Dashboard KPIs:** 5 queries paralelas. Cards bento grid + mini bar chart.
-> **Contas Recorrentes:** `payables.recurrence` (none/weekly/monthly/quarterly/yearly). Worker 23h.
-> **Notificações de Vencimento:** `notification_configs.notify_receivable_due_days`. `dueSoonWorker.ts`.
+| Integração Mercado Livre *(opcional)* | `/company` (aba Integrações), aba "Mercado Livre" em `/materials` | marketplace_connections, material_marketplace_links, marketplace_webhook_events |
+| Funil de Vendas *(opcional)* | `/sales-pipeline` | sales_pipeline_stages, sales_opportunities, sales_opportunity_activities |
+| PDV / NFC-e *(opcional)* | `/pos`, `/pos/caixa`, `/pos/sales`, `/pos/terminals`, `/pos/sessions` | pos_terminals, pos_sessions, pos_cash_movements, pos_sales, pos_sale_items, pos_sale_payments |
+| Agendamento *(opcional)* | `/scheduling`, `/scheduling/calendar`, `/scheduling/professionals`, `/scheduling/areas`, `/scheduling/package-templates`, `/scheduling/settings` | scheduling_professionals, scheduling_areas, scheduling_availability_rules/exceptions, scheduling_sessions, scheduling_client_packages, scheduling_calendar_connections |
+| Assinatura SaaS *(opt-in via `STRIPE_SECRET_KEY`)* | `/subscription` | plans, billing_events |
 
 ---
 
 ## Adicionando um novo módulo
 
-### Backend (obrigatório para todos)
+### Backend (obrigatório)
 
-1. **Migration SQL** em `services/api-core/db/migrations/00NN_nome.sql`
-2. **Schema Drizzle** em `services/api-core/src/db/schema.ts`
-3. **Adicionar migration** ao array em `services/api-core/src/scripts/migrate.ts`
-4. **Rota Fastify** em `services/api-core/src/routes/nome.ts`
-5. **Registrar rota** em `services/api-core/src/app.ts`
-6. **Atualizar regra 1** deste README com novas tabelas/colunas
-7. **Atualizar regra 2** deste README com novas rotas
+1. **Migration SQL** em `services/api-core/db/migrations/00NN_nome.sql` — cumulativa, nunca destrutiva.
+2. **Schema Drizzle** em `services/api-core/src/db/schema.ts`.
+3. **Adicionar a migration** ao array em `services/api-core/src/scripts/migrate.ts` — senão nunca roda.
+4. **Domínio puro** (se houver regra de negócio não trivial) em `src/domain/<modulo>/`.
+5. **Serviço** em `src/services/<modulo>Service.ts` — orquestração/I-O, chama o domínio.
+6. **Rota Fastify** em `src/routes/<modulo>.ts` — só HTTP, chama o serviço.
+7. **Registrar rota** em `src/app.ts`.
+8. Se for módulo opcional: adicionar chave a `MODULE_KEYS` em `tenantModuleService.ts` e usar `requireModule('chave')` nas rotas.
 
 ### Frontend Web (backoffice)
 
-8. **Página React** em `apps/backoffice/src/pages/nome/NomePage.tsx`
-9. **Rota React Router** em `apps/backoffice/src/App.tsx`
-10. **Nav item + ícone SVG** em `apps/backoffice/src/components/Layout.tsx`
-11. **Chaves i18n** em `apps/backoffice/src/i18n/pt-BR.ts` E `en.ts`
-12. **Atualizar tabela "Módulos do sistema"** neste README
+9. **Página React** em `apps/backoffice/src/pages/<modulo>/<Modulo>Page.tsx`.
+10. **Rota React Router** em `apps/backoffice/src/App.tsx`.
+11. **Nav item + ícone SVG** em `apps/backoffice/src/components/Layout.tsx`.
+12. **Chaves i18n** em `apps/backoffice/src/i18n/pt-BR.ts` E `en.ts` (regra 7).
+13. **Atualizar a tabela "Módulos do sistema"** neste README.
 
-### App Mobile Flutter
-
-13. **Feature directory** em `apps/mobile/lib/features/nome/`
-14. **Provider** `nome_provider.dart` com `@riverpod`
-15. **Telas** `nome_list_page.dart`, `nome_detail_page.dart`, etc.
-16. **Rota** em `apps/mobile/lib/router.dart`
-17. **Nav entry** em `apps/mobile/lib/core/widgets/app_scaffold.dart`
-18. **Strings** em `apps/mobile/lib/core/i18n/strings_pt_br.dart`
-19. **Atualizar tabela "Funcionalidades do App Mobile"** neste README
+Não é necessário atualizar manualmente listas de tabelas/rotas no Protocolo Anti-alucinação — as regras 1 e 2 apontam para o código-fonte como fonte de verdade; só adicionar o nome da tabela na lista de varredura rápida da regra 1, se for tabela nova.
 
 ### Soft-delete por módulo
 
@@ -1631,23 +886,14 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 | users | `status` | `'disabled'` |
 | suppliers | `is_active` | `false` |
 | supplier_contacts | `is_active` | `false` |
-| nfe_configs (empresas) | `is_active` | `false` (bloqueado se for a padrão ou a última ativa — `companyDomain.canDeactivate`) |
-| bank_accounts | `is_active` | `false` (bloqueado se for a padrão da empresa ou a última ativa daquela empresa — `bankAccountDomain.canDeactivate`) |
-| material_marketplace_links | `status` | `'closed'` (não usa `is_active` — reaproveita a mesma coluna de status do ciclo de vida do anúncio) |
+| nfe_configs (empresas) | `is_active` | `false` (bloqueado se for a padrão ou a última ativa) |
+| bank_accounts | `is_active` | `false` (bloqueado se for a padrão da empresa ou a última ativa daquela empresa) |
+| material_marketplace_links | `status` | `'closed'` |
 | cost_centers | `is_active` | `false` |
 | sellers | `is_active` | `false` |
-| orders | `status` | `'cancelled'` |
-| invoices | `status` | `'cancelled'` |
-| receivables | `status` | `'cancelled'` |
-| payables | `status` | `'cancelled'` |
-| service_contracts | `status` | `'cancelled'` |
-| proposals | `status` | `'cancelled'` |
-| purchase_orders | `status` | `'cancelled'` |
-| supplier_invoices | `status` | `'cancelled'` |
+| orders, invoices, receivables, payables, service_contracts, proposals, purchase_orders, supplier_invoices, service_orders, service_visits | `status` | `'cancelled'` |
 | technicians | `is_active` | `false` (também desabilita `users.status='disabled'` do login vinculado) |
-| service_orders | `status` | `'cancelled'` |
-| service_visits | `status` | `'cancelled'` |
-| boleto_events, nfe_events, nfse_events, cost_center_movements, service_visit_photos | — | append-only, nunca deletar |
+| boleto_events, nfe_events, nfse_events, cost_center_movements, service_visit_photos, sales_opportunity_activities, access_profile_events, payroll_tax_brackets | — | append-only, nunca deletar |
 
 ---
 
@@ -1657,10 +903,8 @@ Ao adicionar uma nova funcionalidade ao app Flutter:
 
 - Node.js ≥ 20
 - Docker + Docker Compose
-- Flutter SDK 3.x (para o app mobile)
-- Dart 3.x
 
-### Iniciando o ambiente web
+### Iniciando o ambiente
 
 ```bash
 # 1. Subir infraestrutura local (PostgreSQL 16 + LocalStack SQS/S3/SES)
@@ -1676,20 +920,6 @@ npm run dev:api
 npm run dev:backoffice
 ```
 
-### Iniciando o app mobile
-
-```bash
-cd apps/mobile
-flutter pub get
-flutter run                    # escolhe emulador/dispositivo interativamente
-flutter run -d emulator-5554  # Android específico
-flutter run -d iPhone          # iOS específico
-
-# Build para produção
-flutter build apk --release          # Android
-flutter build ios --release          # iOS
-```
-
 ### Acessos locais
 
 | Serviço | URL |
@@ -1698,8 +928,6 @@ flutter build ios --release          # iOS
 | API Core | http://localhost:3000 |
 | PostgreSQL | postgresql://erp_lite:erp_lite@localhost:5432/erp_lite |
 | LocalStack (SQS/S3/SES) | http://localhost:4566 |
-| App Mobile → API (Android emulador) | http://10.0.2.2:3000 |
-| App Mobile → API (iOS simulator) | http://localhost:3000 |
 
 ---
 
@@ -1718,17 +946,6 @@ BILLING_RESULTS_QUEUE_URL # SQS billing-results
 NFE_BUCKET                # S3 para XMLs NF-e
 APP_URL                   # https://www.orquestraerp.com.br (padrão)
 NODE_ENV                  # prod (ECS) | development (local)
-```
-
-## Variáveis de ambiente (app mobile Flutter)
-
-```dart
-// apps/mobile/lib/core/api/endpoints.dart
-// Configurar via --dart-define na build ou via .env (flutter_dotenv)
-const String kApiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:3000',  // Android emulador aponta para localhost
-  // iOS simulator: usar http://localhost:3000
-  // Produção: https://orquestraerp.com.br
-);
+STRIPE_SECRET_KEY         # opt-in — sem isso, módulo de assinatura é no-op (regra 43)
+STRIPE_WEBHOOK_SECRET     # verificação HMAC do webhook Stripe
 ```
