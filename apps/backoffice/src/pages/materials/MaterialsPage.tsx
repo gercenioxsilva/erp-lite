@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
@@ -30,6 +31,7 @@ interface Material {
   sale_price:       number;
   cost_price:       number;
   ncm_code:         string | null;
+  cfop:             string | null;
   weight_kg:        number | null;
   length_cm:        number | null;
   width_cm:         number | null;
@@ -68,7 +70,7 @@ interface PriceHistoryEntry {
 
 const EMPTY_FORM = {
   sku: '', name: '', description: '', notes: '', type: 'product', category: '',
-  brand: '', unit: 'UN', sale_price: '', cost_price: '', ncm_code: '',
+  brand: '', unit: 'UN', sale_price: '', cost_price: '', ncm_code: '', cfop: '',
   weight_kg: '', length_cm: '', width_cm: '', height_cm: '', tracks_inventory: true,
 };
 
@@ -144,6 +146,7 @@ function downloadTemplate() {
 export function MaterialsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
+  const [searchParams, setSearchParams] = useSearchParams();
   const modal = useModal();
   const [items,      setItems]      = useState<Material[]>([]);
   const [total,      setTotal]      = useState(0);
@@ -362,6 +365,7 @@ export function MaterialsPage() {
       sale_price:      String(m.sale_price ?? ''),
       cost_price:      String(m.cost_price ?? ''),
       ncm_code:        m.ncm_code     ?? '',   // ← bug fix: preenche NCM existente
+      cfop:            m.cfop         ?? '',
       weight_kg:       m.weight_kg != null ? String(m.weight_kg) : '',
       length_cm:       m.length_cm != null ? String(m.length_cm) : '',
       width_cm:        m.width_cm  != null ? String(m.width_cm)  : '',
@@ -371,6 +375,25 @@ export function MaterialsPage() {
     setFormError('');
     setDrawerOpen(true);
   }
+
+  // Deep-link "?edit=<id>" (regra 61) — vem do link "Cadastrar NCM/CFOP" na
+  // tela de NF-e quando um produto ainda não tem código fiscal. Busca direto
+  // por id (não depende do produto estar na página/filtro atual da listagem).
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !tenantId) return;
+    (async () => {
+      try {
+        const m = await api.get<Material>(`/v1/materials/${editId}`);
+        openEdit(m);
+      } catch { /**/ } finally {
+        const next = new URLSearchParams(searchParams);
+        next.delete('edit');
+        setSearchParams(next, { replace: true });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, searchParams]);
 
   function setF(field: string) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -807,6 +830,16 @@ export function MaterialsPage() {
                     <label>{t('m.ncm')}</label>
                     <input value={form.ncm_code} onChange={setF('ncm_code')} placeholder="0000.00.00" />
                   </div>
+                  <div className="field">
+                    {/* CFOP travado na tela de nota fiscal a partir daqui
+                        (regra 61) — precisa existir um jeito de cadastrar,
+                        senão o aviso "sem CFOP" na nota nunca teria solução. */}
+                    <label>{t('m.cfop')}</label>
+                    <input value={form.cfop} onChange={setF('cfop')} placeholder="5102" maxLength={4} />
+                  </div>
+                </div>
+
+                <div className="field-row">
                   <div className="field">
                     <label>{t('m.weight')}</label>
                     <input type="number" step="0.001" min="0" value={form.weight_kg} onChange={setF('weight_kg')} />
