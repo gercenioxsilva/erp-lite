@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
+import { Badge } from '../../ds/components/Badge';
 import { Can } from '../../rbac';
 
 interface Tenant {
@@ -1365,57 +1366,65 @@ export function CompanyPage() {
                   </div>
                 )}
 
-                {/* Ambiente Focus NF-e — toggle HML/PRD */}
-                <div className="field" style={{ marginTop: 8 }}>
-                  <label>{t('comp.nfe.ambiente')}</label>
-                  <div className="seg-toggle">
-                    <button type="button"
-                      className={`seg-homo ${nfeForm.focus_ambiente === '2' ? 'is-active' : ''}`}
-                      onClick={() => setNfeForm(f => ({ ...f, focus_ambiente: '2' }))}>
-                      {t('comp.nfe.homo')}
-                    </button>
-                    <button type="button"
-                      className={`seg-prod ${nfeForm.focus_ambiente === '1' ? 'is-active' : ''}`}
-                      onClick={() => setNfeForm(f => ({ ...f, focus_ambiente: '1' }))}>
-                      {t('comp.nfe.prod')}
-                    </button>
+                {/* Ambiente de emissão (toggle HML/PRD) + credenciais — um só card,
+                    já que a credencial ativa depende diretamente do ambiente. */}
+                <div style={{
+                  marginTop: 16, padding: '16px', borderRadius: 8,
+                  background: nfeForm.focus_ambiente === '1' ? 'var(--status-cancelled-bg)' : 'var(--surface)',
+                  border: `1px solid ${nfeForm.focus_ambiente === '1' ? 'rgba(220,38,38,.28)' : 'var(--border)'}`,
+                  transition: 'background-color 150ms ease, border-color 150ms ease',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <h4 style={{ margin: 0 }}>{t('comp.nfe.ambiente')}</h4>
+                    <Badge variant={nfeForm.focus_ambiente === '1' ? 'cancelled' : 'draft'}>
+                      {nfeForm.focus_ambiente === '1' ? t('comp.nfe.prod') : t('comp.nfe.homo')}
+                    </Badge>
                   </div>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{t('comp.nfe.ambienteHint')}</p>
+
+                  <Switch
+                    checked={nfeForm.focus_ambiente === '1'}
+                    onChange={() => setNfeForm(f => ({ ...f, focus_ambiente: f.focus_ambiente === '1' ? '2' : '1' }))}
+                    label={t('comp.nfe.ambienteToggle')}
+                  />
+
                   {nfeForm.focus_ambiente === '1' && (
-                    <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6, fontWeight: 600 }}>
+                    <div className="alert alert-error" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
                       {t('comp.nfe.prodWarn')}
                     </div>
                   )}
-                </div>
 
-                {/* Tokens por tenant */}
-                <div style={{ marginTop: 16, padding: '16px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                  <h4 style={{ marginBottom: 4 }}>{t('comp.nfe.tokensTitle')}</h4>
-                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfe.tokenHint')}</p>
+                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border-soft, var(--border))' }}>
+                    <strong style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>{t('comp.nfe.tokensTitle')}</strong>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.nfe.tokenHint')}</p>
 
-                  <div className="field">
-                    <label>{t('comp.nfe.tokenHomo')}</label>
-                    {nfeCfg?.focus_token_homologacao && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
-                        {t('comp.nfe.tokenSet')}: <code>{nfeCfg.focus_token_homologacao}</code>
-                      </div>
-                    )}
-                    <input type="password" value={nfeForm.focus_token_homologacao}
-                      placeholder={nfeCfg?.focus_token_homologacao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
-                      autoComplete="new-password"
-                      onChange={e => setNfeForm(f => ({ ...f, focus_token_homologacao: e.target.value }))} />
-                  </div>
+                    <div className="field">
+                      <label>{t('comp.nfe.tokenHomo')}</label>
+                      {nfeCfg?.focus_token_homologacao && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <Badge variant="active">{t('comp.nfe.tokenSet')}</Badge>
+                          <code style={{ fontSize: 11, color: 'var(--muted)' }}>{nfeCfg.focus_token_homologacao}</code>
+                        </div>
+                      )}
+                      <input type="password" value={nfeForm.focus_token_homologacao}
+                        placeholder={nfeCfg?.focus_token_homologacao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
+                        autoComplete="new-password"
+                        onChange={e => setNfeForm(f => ({ ...f, focus_token_homologacao: e.target.value }))} />
+                    </div>
 
-                  <div className="field">
-                    <label>{t('comp.nfe.tokenProd')}</label>
-                    {nfeCfg?.focus_token_producao && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
-                        {t('comp.nfe.tokenSet')}: <code>{nfeCfg.focus_token_producao}</code>
-                      </div>
-                    )}
-                    <input type="password" value={nfeForm.focus_token_producao}
-                      placeholder={nfeCfg?.focus_token_producao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
-                      autoComplete="new-password"
-                      onChange={e => setNfeForm(f => ({ ...f, focus_token_producao: e.target.value }))} />
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>{t('comp.nfe.tokenProd')}</label>
+                      {nfeCfg?.focus_token_producao && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <Badge variant="active">{t('comp.nfe.tokenSet')}</Badge>
+                          <code style={{ fontSize: 11, color: 'var(--muted)' }}>{nfeCfg.focus_token_producao}</code>
+                        </div>
+                      )}
+                      <input type="password" value={nfeForm.focus_token_producao}
+                        placeholder={nfeCfg?.focus_token_producao ? t('comp.nfe.tokenKeep') : t('comp.nfe.tokenPH')}
+                        autoComplete="new-password"
+                        onChange={e => setNfeForm(f => ({ ...f, focus_token_producao: e.target.value }))} />
+                    </div>
                   </div>
                 </div>
 
