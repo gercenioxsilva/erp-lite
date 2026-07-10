@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
@@ -17,8 +17,8 @@ interface ClientOption   {
   id: string; company_name: string | null; full_name: string | null;
   state?: string | null; icms_taxpayer?: string | null; consumer_type?: string | null;
 }
-interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; sale_price: number | null; description?: string | null; type?: string | null; }
-interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; ncm_code: string | null; }
+interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; cfop: string | null; sale_price: number | null; description?: string | null; type?: string | null; }
+interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; ncm_code: string | null; cfop: string | null; }
 interface OrderOption    { id: string; number: string; client_id: string; client_name: string; status: string; }
 interface CostCenter { id: string; code: string; name: string; }
 interface StockItem  { material_id: string; quantity: number; }
@@ -55,6 +55,27 @@ function newItem(): FormItem {
     _key: Math.random().toString(36).slice(2),
     material_id: '', name: '', ncm_code: '', cfop: '', quantity: '1', unit_price: '0',
   };
+}
+
+// NCM/CFOP travados no cadastro do produto (regra 61) — nunca digitados na
+// tela de nota, sempre copiados de `materials.ncm_code`/`materials.cfop` no
+// momento em que o produto é selecionado (handlePickMaterial/updateItem,
+// addKit, handleOrderChange). Sem produto selecionado ainda: célula vazia.
+// Produto selecionado mas sem o código cadastrado: aviso + link direto pro
+// cadastro do produto, em vez de liberar digitação manual aqui — o mesmo
+// erro (código fiscal errado num produto) não pode entrar via nota E via
+// cadastro por dois caminhos diferentes.
+function FiscalCodeCell({ materialId, value, label }: { materialId: string; value: string; label: string }) {
+  if (!materialId) return <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+  if (value) return <span style={{ fontSize: 12 }}>{value}</span>;
+  return (
+    <div style={{ fontSize: 11, color: 'var(--danger)' }}>
+      ⚠ Sem {label}.{' '}
+      <Link to={`/materials?edit=${materialId}`} style={{ color: 'var(--danger)', textDecoration: 'underline' }}>
+        Cadastrar
+      </Link>
+    </div>
+  );
 }
 
 const STEPS: Step[] = [
@@ -148,22 +169,35 @@ export function InvoiceNewPage() {
     setTaxResult(null);
     if (!orderId) { setFormClientId(''); setFormItems([newItem()]); return; }
     try {
+      // GET /v1/orders/:id devolve o pedido inteiro (SELECT o.*) — seller_id
+      // e cost_center_id sempre estiveram na resposta, só nunca eram lidos
+      // aqui (regra 61). client_id sempre herdou certo; os outros dois
+      // ficavam sempre em branco na tela, mesmo já vindo prontos do pedido.
       const detail = await api.get<{
-        client_id: string;
+        client_id: string; seller_id: string | null; cost_center_id: string | null;
         items: Array<{ material_id: string | null; name: string; quantity: number; unit_price: number; }>;
       }>(`/v1/orders/${orderId}`);
       setFormClientId(detail.client_id);
+      setFormSellerId(detail.seller_id ?? '');
+      // handleCostCenterChange (não setFormCostCenterId direto) — também
+      // busca o saldo de estoque do centro de custo herdado, senão o aviso
+      // de "saldo insuficiente" (abaixo, na tabela de itens) nunca aparece
+      // pra um centro de custo que veio do pedido em vez de escolhido na hora.
+      void handleCostCenterChange(detail.cost_center_id ?? '');
       setFormItems(
         detail.items.length > 0
-          ? detail.items.map(it => ({
-              _key: Math.random().toString(36).slice(2),
-              material_id: it.material_id ?? '',
-              name: it.name,
-              ncm_code: materials.find(m => m.id === it.material_id)?.ncm_code ?? '',
-              cfop: '',
-              quantity: String(it.quantity),
-              unit_price: String(it.unit_price),
-            }))
+          ? detail.items.map(it => {
+              const mat = it.material_id ? materials.find(m => m.id === it.material_id) : undefined;
+              return {
+                _key: Math.random().toString(36).slice(2),
+                material_id: it.material_id ?? '',
+                name: it.name,
+                ncm_code: mat?.ncm_code ?? '',
+                cfop:     mat?.cfop     ?? '',
+                quantity: String(it.quantity),
+                unit_price: String(it.unit_price),
+              };
+            })
           : [newItem()],
       );
     } catch (err: unknown) {
@@ -210,7 +244,7 @@ export function InvoiceNewPage() {
         material_id: c.component_id,
         name:        c.name,
         ncm_code:    c.ncm_code ?? '',
-        cfop:        '',
+        cfop:        c.cfop ?? '',
         quantity:    String(Number(c.quantity) || 1),
         unit_price:  c.sale_price ? String(c.sale_price) : '0',
       }));
@@ -231,6 +265,7 @@ export function InvoiceNewPage() {
         return {
           ...item, material_id: val, name: mat?.name ?? '',
           ncm_code: mat?.ncm_code ?? '',
+          cfop:     mat?.cfop     ?? '',
           unit_price: mat?.sale_price != null ? String(mat.sale_price) : item.unit_price,
         };
       }
@@ -467,9 +502,9 @@ export function InvoiceNewPage() {
                               kitLabel={t('o.kit.badge')}
                             />
                             {!item.material_id && (
-                              <input placeholder={t('o.namePH')} value={item.name}
-                                onChange={e => updateItem(idx, 'name', e.target.value)}
-                                style={{ marginTop: 4, fontSize: 12 }} />
+                              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>
+                                {t('inv.itemNeedsProduct')}
+                              </div>
                             )}
                             {formCostCenterId && item.material_id && (() => {
                               const stock = ccStock.find(s => s.material_id === item.material_id);
@@ -494,14 +529,10 @@ export function InvoiceNewPage() {
                               style={{ fontSize: 12 }} />
                           </td>
                           <td style={{ padding: '6px 8px' }}>
-                            <input placeholder="0000.00.00" value={item.ncm_code}
-                              onChange={e => updateItem(idx, 'ncm_code', e.target.value)}
-                              style={{ fontSize: 12 }} />
+                            <FiscalCodeCell materialId={item.material_id} value={item.ncm_code} label={t('inv.ncm')} />
                           </td>
                           <td style={{ padding: '6px 8px' }}>
-                            <input placeholder="5102" value={item.cfop}
-                              onChange={e => updateItem(idx, 'cfop', e.target.value)}
-                              style={{ fontSize: 12 }} />
+                            <FiscalCodeCell materialId={item.material_id} value={item.cfop} label={t('inv.cfop')} />
                           </td>
                           <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 12 }}>
                             {BRL.format((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))}
