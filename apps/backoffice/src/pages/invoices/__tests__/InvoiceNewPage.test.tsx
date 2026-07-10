@@ -55,7 +55,10 @@ const MAT_WITHOUT_FISCAL = {
 
 const ORDER_DETAIL = {
   client_id: CLIENT_ID, seller_id: SELLER_ID, cost_center_id: CC_ID,
-  items: [{ material_id: MAT_WITH_FISCAL.id, name: MAT_WITH_FISCAL.name, quantity: 2, unit_price: 50 }],
+  items: [{
+    material_id: MAT_WITH_FISCAL.id, name: MAT_WITH_FISCAL.name, quantity: 2, unit_price: 50,
+    ncm_code: MAT_WITH_FISCAL.ncm_code, cfop: MAT_WITH_FISCAL.cfop,
+  }],
 };
 
 function setupMocks(overrides: { orderDetail?: unknown } = {}) {
@@ -118,6 +121,34 @@ describe('InvoiceNewPage — herança de dados do pedido (regra 61)', () => {
   });
 
   it('herda NCM/CFOP do cadastro do produto ao vincular o pedido', async () => {
+    await linkOrder();
+    await waitFor(() => {
+      expect(screen.getByText('1234.56.78')).toBeInTheDocument();
+      expect(screen.getByText('5102')).toBeInTheDocument();
+    });
+  });
+
+  it('[regressão] NCM/CFOP vêm da resposta do pedido, não de recasar contra a lista de materiais da tela (regra 62)', async () => {
+    // GET /v1/materials devolve uma lista vazia (simula: catálogo grande
+    // além do per_page=500, ou dado desatualizado em memória) -- mesmo assim
+    // o pedido já traz ncm_code/cfop prontos via JOIN no backend, então a
+    // herança não pode depender de materials.find() encontrar o produto.
+    setupMocks({});
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('/v1/clients'))
+        return Promise.resolve({ data: [{ id: CLIENT_ID, company_name: 'ACME Ltda', full_name: null }] });
+      if (url.includes('/v1/materials/') && url.includes('/components')) return Promise.resolve({ data: [] });
+      if (url.includes('/v1/materials')) return Promise.resolve({ data: [] });
+      if (url.includes('/v1/orders/') && url.match(/\/v1\/orders\/[\w-]+$/)) return Promise.resolve(ORDER_DETAIL);
+      if (url.includes('/v1/orders'))
+        return Promise.resolve({ data: [{ id: ORDER_ID, number: '00001', client_id: CLIENT_ID, client_name: 'ACME Ltda', status: 'draft' }] });
+      if (url.includes('/v1/nfe-config')) return Promise.resolve({ focus_ambiente: null });
+      if (url.includes('/v1/cost-centers/active')) return Promise.resolve({ data: [{ id: CC_ID, code: '001', name: 'Centro X' }] });
+      if (url.includes('/v1/cost-centers/') && url.includes('/stock')) return Promise.resolve({ data: [] });
+      if (url.includes('/v1/sellers/active')) return Promise.resolve([{ id: SELLER_ID, name: 'Vendedor X' }]);
+      if (url.includes('/v1/companies')) return Promise.resolve({ data: [] });
+      return Promise.resolve({});
+    });
     await linkOrder();
     await waitFor(() => {
       expect(screen.getByText('1234.56.78')).toBeInTheDocument();
