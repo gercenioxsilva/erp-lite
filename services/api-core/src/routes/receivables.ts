@@ -62,20 +62,30 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!due_date)
       return reply.badRequest('due_date é obrigatório');
 
-    const [row] = await db.insert(receivables).values({
-      tenant_id:   tenantId,
-      client_id:   client_id  || null,
-      invoice_id:  invoice_id || null,
-      description: description.trim(),
-      amount:      String(Number(amount).toFixed(2)),
-      due_date,
-      status:         'pending',
-      notes:          notes || null,
-      cost_center_id: cost_center_id || null,
-      created_by:     userId,
-    }).returning();
+    try {
+      const [row] = await db.insert(receivables).values({
+        tenant_id:   tenantId,
+        client_id:   client_id  || null,
+        invoice_id:  invoice_id || null,
+        description: description.trim(),
+        amount:      String(Number(amount).toFixed(2)),
+        due_date,
+        status:         'pending',
+        notes:          notes || null,
+        cost_center_id: cost_center_id || null,
+        created_by:     userId,
+      }).returning();
 
-    return reply.code(201).send(row);
+      return reply.code(201).send(row);
+    } catch (err: any) {
+      // UNIQUE parcial em receivables.invoice_id (migration 0065, regra 60) —
+      // essa nota já tem uma conta a receber (provavelmente gerada
+      // automaticamente na autorização da NF-e).
+      if (err.code === '23505' && invoice_id) {
+        return reply.conflict('Esta nota fiscal já tem uma conta a receber vinculada.');
+      }
+      throw err;
+    }
   });
 
   /* ── GET /v1/receivables/:id ────────────────────────────────────────────── */

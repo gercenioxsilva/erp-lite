@@ -94,6 +94,7 @@ const migrations = [
   '0062_rbac.sql',
   '0063_scheduling.sql',
   '0064_bank_account_credentials.sql',
+  '0065_receivables_invoice_idempotency.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
