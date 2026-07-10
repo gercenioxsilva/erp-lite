@@ -68,6 +68,15 @@ function IcoField() {
   );
 }
 
+function IcoAgenda() {
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3.5" width="14" height="12" rx="2"/><path d="M2 7.5h14"/><path d="M6 2v3M12 2v3"/>
+      <path d="M5.5 11h2M10.5 11h2"/>
+    </svg>
+  );
+}
+
 function IcoReports() {
   return (
     <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -189,6 +198,17 @@ export function Layout({ children }: { children: ReactNode }) {
         { to: '/pos/sales',     label: 'Histórico',        permission: 'pos:view'   },
         { to: '/pos/terminals', label: 'Terminais',        permission: 'pos:manage' },
         { to: '/pos/sessions',  label: 'Sessões',          permission: 'pos:view'   },
+      ],
+    } as NavGroupDef] : []),
+    ...(enabledModules.includes('scheduling') ? [{
+      id: 'scheduling', label: 'Agendamentos', icon: IcoAgenda, children: [
+        { to: '/scheduling',                   label: 'Painel', end: true,   permission: 'scheduling:view'               },
+        { to: '/scheduling/calendar',          label: 'Calendário',          permission: 'scheduling:view'               },
+        { to: '/scheduling/requests',          label: 'Solicitações',        permission: 'scheduling:view'               },
+        { to: '/scheduling/areas',             label: 'Áreas de Atuação',    permission: 'scheduling_areas:view'         },
+        { to: '/scheduling/professionals',     label: 'Profissionais',       permission: 'scheduling_professionals:view' },
+        { to: '/scheduling/package-templates', label: 'Modelos de Pacote',   permission: 'scheduling_packages:view'      },
+        { to: '/scheduling/settings',          label: 'Configurações',       permission: 'scheduling:settings'           },
       ],
     } as NavGroupDef] : []),
     { id: 'inventory', label: t('nav.group.inventory'), icon: IcoStock, children: [

@@ -68,11 +68,31 @@ import { TechnicianVisitDetailPage } from './pages/technician/TechnicianVisitDet
 import { RolesPage }        from './pages/users/RolesPage';
 import { AccessDeniedPage } from './pages/AccessDeniedPage';
 import { ProtectedRoute }   from './rbac';
+import { SchedulingDashboardPage }  from './pages/scheduling/SchedulingDashboardPage';
+import { SchedulingCalendarPage }   from './pages/scheduling/SchedulingCalendarPage';
+import { BookingRequestsPage }      from './pages/scheduling/BookingRequestsPage';
+import { AreasPage }                from './pages/scheduling/AreasPage';
+import { ProfessionalsPage }        from './pages/scheduling/ProfessionalsPage';
+import { ProfessionalDetailPage }   from './pages/scheduling/ProfessionalDetailPage';
+import { PackageTemplatesPage }     from './pages/scheduling/PackageTemplatesPage';
+import { SchedulingClientDetailPage } from './pages/scheduling/SchedulingClientDetailPage';
+import { SchedulingSettingsPage }   from './pages/scheduling/SchedulingSettingsPage';
+import { SchedulingOnboardingPage } from './pages/scheduling/SchedulingOnboardingPage';
+import { PortalLayout }       from './pages/portal/PortalLayout';
+import { PortalLoginPage }    from './pages/portal/PortalLoginPage';
+import { PortalHomePage }     from './pages/portal/PortalHomePage';
+import { PortalSessionsPage } from './pages/portal/PortalSessionsPage';
+import { PortalBookingPage }  from './pages/portal/PortalBookingPage';
+import { PortalPackagesPage } from './pages/portal/PortalPackagesPage';
+import { PortalProfilePage }  from './pages/portal/PortalProfilePage';
 
 function GuardedRoutes() {
   const { user, loading } = useAuth();
   if (loading) return <div className="spinner">Carregando…</div>;
   if (!user)   return <Navigate to="/login" replace />;
+  // Papel 'client' (portal de agendamentos) nunca navega o admin — o backend
+  // já barra tudo via clientRoleGuard; aqui é UX (mesma dupla camada do técnico).
+  if (user.role === 'client') return <Navigate to="/portal" replace />;
 
   // Cada rota privada exige a permissão de visualização do seu módulo. Sem ela,
   // ProtectedRoute redireciona para /403. A autoridade real é o backend.
@@ -141,6 +161,16 @@ function GuardedRoutes() {
             no catálogo ainda — ver nota acima em simples-remessa. */}
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
         <Route path="/technicians"     element={gate('technicians:view', <TechniciansPage />)} />
+        <Route path="/scheduling"                    element={gate('scheduling:view', <SchedulingDashboardPage />)} />
+        <Route path="/scheduling/onboarding"         element={gate('scheduling:settings', <SchedulingOnboardingPage />)} />
+        <Route path="/scheduling/calendar"           element={gate('scheduling:view', <SchedulingCalendarPage />)} />
+        <Route path="/scheduling/requests"           element={gate('scheduling:view', <BookingRequestsPage />)} />
+        <Route path="/scheduling/areas"              element={gate('scheduling_areas:view', <AreasPage />)} />
+        <Route path="/scheduling/professionals"      element={gate('scheduling_professionals:view', <ProfessionalsPage />)} />
+        <Route path="/scheduling/professionals/:id"  element={gate('scheduling_professionals:view', <ProfessionalDetailPage />)} />
+        <Route path="/scheduling/package-templates"  element={gate('scheduling_packages:view', <PackageTemplatesPage />)} />
+        <Route path="/scheduling/clients/:id"        element={gate('scheduling:view', <SchedulingClientDetailPage />)} />
+        <Route path="/scheduling/settings"           element={gate('scheduling:settings', <SchedulingSettingsPage />)} />
         <Route path="/403"             element={<AccessDeniedPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
@@ -166,6 +196,16 @@ export function App() {
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />
+              {/* Portal do Cliente (agendamentos) — mesmo padrão do portal do
+                  técnico: grupo próprio fora do GuardedRoutes, shell mínimo. */}
+              <Route path="/portal/entrar" element={<PortalLoginPage />} />
+              <Route path="/portal" element={<PortalLayout />}>
+                <Route index          element={<PortalHomePage />} />
+                <Route path="sessoes" element={<PortalSessionsPage />} />
+                <Route path="agendar" element={<PortalBookingPage />} />
+                <Route path="pacotes" element={<PortalPackagesPage />} />
+                <Route path="perfil"  element={<PortalProfilePage />} />
+              </Route>
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>
