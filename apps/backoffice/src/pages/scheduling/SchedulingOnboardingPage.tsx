@@ -23,6 +23,7 @@ interface Professional {
   id:      string;
   name:    string;
   user_id: string | null;
+  area_ids?: string[];
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -37,6 +38,13 @@ const STEPS: Step[] = [
 const DEFAULT_WEEK: WeeklyRule[] = [1, 2, 3, 4, 5].map(weekday => ({
   weekday, start_time: '09:00', end_time: '18:00',
 }));
+
+// A grade semanal precisa de espaço pra mostrar a semana inteira numa linha
+// só — os outros dois passos são formulários de 1-2 campos e ficam melhor
+// numa coluna estreita e centrada, então só este passo pede mais largura.
+const WIDE_STEP = 2;
+const NARROW_WIDTH = 680;
+const WIDE_WIDTH   = 1180;
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -62,17 +70,19 @@ export function SchedulingOnboardingPage() {
   const [selfService, setSelfService] = useState(true);
   const [profName,    setProfName]    = useState('');
   const [rules,       setRules]       = useState<WeeklyRule[]>(DEFAULT_WEEK);
+  const [existingProfessionals, setExistingProfessionals] = useState<Professional[]>([]);
 
-  // ── Data loading (pré-preenche negócio + áreas já existentes) ─────────────
+  // ── Data loading (pré-preenche negócio + áreas + profissionais já existentes)
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitial() {
       try {
-        const [settings, areasResp] = await Promise.all([
+        const [settings, areasResp, profResp] = await Promise.all([
           api.get<Settings>('/v1/scheduling/settings'),
           api.get<{ data: Area[] }>('/v1/scheduling/areas'),
+          api.get<{ data: Professional[] }>('/v1/scheduling/professionals?include_inactive=true'),
         ]);
         if (cancelled) return;
         setBusinessName(settings.business_name ?? '');
@@ -80,11 +90,18 @@ export function SchedulingOnboardingPage() {
         const active = areasResp.data.filter(a => a.is_active);
         setExistingAreas(active);
         if (active.length > 0) setSelectedAreaId(active[0].id);
+        setExistingProfessionals(profResp.data);
+
+        // Já existe um profissional vinculado ao próprio usuário — provavelmente
+        // um retorno ao onboarding: pré-marca "eu mesmo atendo" com esse nome.
+        const own = profResp.data.find(p => p.user_id === user?.id);
+        if (own) setProfName(own.name);
       } catch { /**/ }
     }
 
     void loadInitial();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function goToStep(n: 0 | 1 | 2) {
@@ -150,7 +167,27 @@ export function SchedulingOnboardingPage() {
 
   // ── Passo 3 — profissional + grade + concluir ──────────────────────────────
 
+  // Reaproveita um profissional já cadastrado sempre que possível — só cria
+  // um novo quando de fato não existe (evita duplicar por causa de um
+  // reenvio do formulário ou de o usuário digitar um nome já cadastrado).
   async function ensureProfessional(name: string): Promise<string> {
+    const reuse = selfService
+      ? existingProfessionals.find(p => p.user_id === user?.id)
+      : existingProfessionals.find(p => p.name.trim().toLowerCase() === name.toLowerCase());
+
+    if (reuse) {
+      // Garante que o profissional reaproveitado também atende a área
+      // escolhida neste onboarding, sem descartar áreas que já tinha.
+      if (selectedAreaId && !(reuse.area_ids ?? []).includes(selectedAreaId)) {
+        try {
+          await api.put(`/v1/scheduling/professionals/${reuse.id}/areas`, {
+            area_ids: [...new Set([...(reuse.area_ids ?? []), selectedAreaId])],
+          });
+        } catch { /* não bloqueia a conclusão do onboarding por isso */ }
+      }
+      return reuse.id;
+    }
+
     try {
       const created = await api.post<Professional>('/v1/scheduling/professionals', {
         name,
@@ -162,7 +199,7 @@ export function SchedulingOnboardingPage() {
       // Erros do servidor não são "já existe" — propaga.
       if (!(err instanceof ApiError) || err.status >= 500) throw err;
     }
-    // Profissional já existe (ou resposta sem id): reaproveita o cadastro.
+    // Corrida rara (duplo submit) ou resposta sem id: reaproveita o cadastro.
     const list = await api.get<{ data: Professional[] }>('/v1/scheduling/professionals?include_inactive=true');
     const existing =
       (selfService ? list.data.find(p => p.user_id === user?.id) : undefined) ??
@@ -197,16 +234,27 @@ export function SchedulingOnboardingPage() {
 
   // ── JSX ───────────────────────────────────────────────────────────────────
 
+  const isWideStep = step === WIDE_STEP;
+
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      {/* ── Page header ──────────────────────────────────────────────── */}
-      <div className="page-header">
-        <h1>Configurar Agendamento</h1>
+    <div style={{ maxWidth: WIDE_WIDTH, margin: '0 auto' }}>
+      {/* Cabeçalho e indicador de passos ficam sempre numa coluna estreita e
+          centrada — só o card de conteúdo alarga no passo da grade semanal. */}
+      <div style={{ maxWidth: NARROW_WIDTH, margin: '0 auto' }}>
+        <div className="page-header">
+          <h1>Configurar Agendamento</h1>
+        </div>
+        <StepProgress steps={STEPS} currentStep={step} />
       </div>
 
-      <StepProgress steps={STEPS} currentStep={step} />
-
-      <div className="card" style={{ padding: 24, marginTop: 20 }}>
+      <div
+        className="card"
+        style={{
+          padding: 24,
+          marginTop: 20,
+          ...(isWideStep ? {} : { maxWidth: NARROW_WIDTH, marginLeft: 'auto', marginRight: 'auto' }),
+        }}
+      >
         {error && <div className="alert alert-error" role="alert">{error}</div>}
 
         {/* ── Passo 1 — Seu negócio ──────────────────────────────────── */}
@@ -298,35 +346,43 @@ export function SchedulingOnboardingPage() {
           <form onSubmit={handleFinish} noValidate>
             <h3 style={{ fontSize: 15, marginBottom: 4 }}>Disponibilidade</h3>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-              Defina quem atende e em quais horários. Você pode ajustar tudo depois em Profissionais.
+              Defina quem atende e em quais horários. Clique nos atalhos de período ou ajuste manualmente —
+              dá pra mudar tudo depois em Profissionais.
             </p>
 
-            <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={selfService}
-                  onChange={e => setSelfService(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
-                Eu mesmo atendo
-              </label>
-              {selfService ? (
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  Vamos criar seu perfil profissional como <strong>{user?.name ?? 'você'}</strong>, vinculado ao seu usuário.
-                </span>
-              ) : (
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  Informe abaixo o nome do primeiro profissional da equipe.
-                </span>
+            <div className="field-row" style={{ alignItems: 'start' }}>
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text)' }}>
+                  <input type="checkbox" checked={selfService}
+                    onChange={e => setSelfService(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+                  Eu mesmo atendo
+                </label>
+                {selfService ? (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Vamos usar seu perfil profissional como <strong>{user?.name ?? 'você'}</strong>, vinculado ao seu usuário.
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Busque um profissional já cadastrado ou digite um nome novo para criar.
+                  </span>
+                )}
+              </div>
+
+              {!selfService && (
+                <div className="field">
+                  <label>Nome do profissional *</label>
+                  <input
+                    value={profName} onChange={e => setProfName(e.target.value)}
+                    required placeholder="Buscar ou criar…" list="onboarding-professionals"
+                  />
+                  <datalist id="onboarding-professionals">
+                    {existingProfessionals.map(p => <option key={p.id} value={p.name} />)}
+                  </datalist>
+                </div>
               )}
             </div>
 
-            {!selfService && (
-              <div className="field">
-                <label>Nome do profissional *</label>
-                <input value={profName} onChange={e => setProfName(e.target.value)}
-                  required placeholder="Ex.: Ana Souza" />
-              </div>
-            )}
-
-            <div className="field">
+            <div className="field" style={{ marginTop: 4 }}>
               <label>Grade semanal</label>
               <AvailabilityWeekEditor value={rules} onChange={setRules} disabled={busy} />
             </div>

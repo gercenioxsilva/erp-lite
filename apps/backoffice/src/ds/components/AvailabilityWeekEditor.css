@@ -1,90 +1,311 @@
-.ds-weekgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-  gap: var(--space-3);
-}
+/* Lista semanal — um dia por LINHA (não coluna). Cada linha usa a largura
+   inteira do container, então a barra de 24h e os horários ficam legíveis
+   mesmo com os 7 dias visíveis ao mesmo tempo. */
 
-.ds-weekgrid__day {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: var(--space-3);
-  background: var(--surface);
+.ds-weekgrid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.ds-weekgrid__day--off {
-  background: var(--surface-2, #f8fafc);
-}
-
-.ds-weekgrid__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.ds-weekgrid__head h4 {
-  margin: 0;
-  font-size: var(--text-sm, 13px);
-  font-weight: 700;
-}
-
-.ds-weekgrid__off {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.ds-weekgrid__range {
+.ds-weekgrid__row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3) var(--space-2) 17px;
+  border-top: 1px solid var(--border-soft);
+  transition: background-color 150ms ease;
 }
 
-.ds-weekgrid__range input[type='time'] {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 6px;
+.ds-weekgrid__row:first-child { border-top: none; }
+
+.ds-weekgrid__row--open { background: var(--surface); }
+.ds-weekgrid__row:not(.ds-weekgrid__row--open) { background: var(--surface-2, #f8fafc); }
+
+/* Traço de acento à esquerda só em dias abertos — peso visual sem precisar
+   de mais texto. */
+.ds-weekgrid__row--open::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, var(--primary), var(--accent));
+}
+
+/* ── Coluna 1: dia + status ──────────────────────────────────────────────── */
+
+.ds-weekgrid__label {
+  flex: 0 0 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ds-weekgrid__day-name {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ds-weekgrid__status {
+  width: fit-content;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--status-draft-bg);
+  color: var(--status-draft-fg);
+}
+
+.ds-weekgrid__status--open {
+  background: var(--status-authorized-bg);
+  color: var(--status-authorized-fg);
+}
+
+/* ── Coluna 2: linha do tempo de 24h ─────────────────────────────────────── */
+
+.ds-weekgrid__bar {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ds-weekgrid__bar-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border-soft);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  font-size: 12px;
+  overflow: hidden;
+}
+
+.ds-weekgrid__bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+}
+
+.ds-weekgrid__bar-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--muted);
+  opacity: .7;
   font-variant-numeric: tabular-nums;
 }
 
-.ds-weekgrid__range input[type='time']:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
+/* ── Coluna 3: faixas configuradas + atalhos ─────────────────────────────── */
+
+.ds-weekgrid__controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.ds-weekgrid__remove {
+.ds-weekgrid__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ds-weekgrid__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(var(--primary-rgb), .08);
+  color: var(--primary-h);
+  border: 1px solid rgba(var(--primary-rgb), .25);
+  border-radius: 999px;
+  padding: 3px 4px 3px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-weekgrid__pill button {
   border: none;
   background: none;
-  color: var(--muted);
-  font-size: 16px;
+  color: inherit;
+  opacity: .6;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: var(--r-sm);
+  transition: background-color 150ms ease, opacity 150ms ease;
 }
 
-.ds-weekgrid__remove:hover {
-  color: var(--danger);
-  background: var(--status-cancelled-bg);
+.ds-weekgrid__pill button:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(var(--primary-rgb), .18);
 }
+
+.ds-weekgrid__pill button:disabled { cursor: not-allowed; }
+
+.ds-weekgrid__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-weekgrid__preset {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.ds-weekgrid__preset:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), .06);
+}
+
+.ds-weekgrid__preset:active:not(:disabled) { transform: scale(.96); }
+
+.ds-weekgrid__preset--active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.ds-weekgrid__preset--active:hover:not(:disabled) { background: var(--primary-h); color: #fff; }
+
+.ds-weekgrid__preset:disabled { opacity: .5; cursor: not-allowed; }
 
 .ds-weekgrid__add {
   border: 1px dashed var(--border);
   background: none;
-  border-radius: var(--r-sm);
+  border-radius: 999px;
   color: var(--primary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 5px;
+  padding: 3px 10px;
   cursor: pointer;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 
-.ds-weekgrid__add:hover {
+.ds-weekgrid__add:hover:not(:disabled) {
   border-color: var(--primary);
-  background: rgba(59, 92, 228, 0.06);
+  background: rgba(var(--primary-rgb), .06);
+}
+
+.ds-weekgrid__add:disabled { opacity: .5; cursor: not-allowed; }
+
+.ds-weekgrid__copy {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 3px 2px;
+  transition: color 150ms ease, text-decoration-color 150ms ease;
+  white-space: nowrap;
+}
+
+.ds-weekgrid__copy:hover:not(:disabled) {
+  color: var(--primary);
+  text-decoration-color: var(--primary);
+}
+
+.ds-weekgrid__copy:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Formulário inline de faixa personalizada ────────────────────────────── */
+
+.ds-weekgrid__custom-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--surface-2, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 4px 3px 8px;
+}
+
+.ds-weekgrid__custom-form input[type='time'] {
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px;
+  width: auto;
+}
+
+.ds-weekgrid__custom-form input[type='time']:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.ds-weekgrid__custom-ok, .ds-weekgrid__custom-cancel {
+  border: none;
+  border-radius: 50%;
+  width: 19px;
+  height: 19px;
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ds-weekgrid__custom-ok {
+  background: var(--success);
+  color: #fff;
+}
+
+.ds-weekgrid__custom-ok:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+
+.ds-weekgrid__custom-cancel {
+  background: none;
+  color: var(--muted);
+}
+
+.ds-weekgrid__custom-cancel:hover:not(:disabled) { color: var(--danger); background: var(--status-cancelled-bg); }
+
+/* ── Responsivo: abaixo disso, empilha em vez de espremer a linha ───────── */
+
+@media (max-width: 760px) {
+  .ds-weekgrid__row { flex-wrap: wrap; row-gap: var(--space-2); }
+  .ds-weekgrid__label { flex: 1 1 auto; flex-direction: row; align-items: center; gap: 8px; order: 1; }
+  .ds-weekgrid__bar   { flex: 1 1 100%; order: 2; }
+  .ds-weekgrid__controls { flex: 1 1 100%; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-weekgrid__row, .ds-weekgrid__preset, .ds-weekgrid__add, .ds-weekgrid__copy,
+  .ds-weekgrid__pill button, .ds-weekgrid__custom-ok, .ds-weekgrid__custom-cancel {
+    transition: none;
+  }
 }

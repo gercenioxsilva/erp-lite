@@ -1359,6 +1359,8 @@ const en: Record<TKey, string> = {
   'comp.modules.salesPipelineDesc': 'CRM with a configurable Kanban board: track leads and opportunities from first contact through won/lost, log calls/meetings, and convert to a Proposal with one click once qualified.',
   'comp.modules.hr':     'Simplified HR',
   'comp.modules.hrDesc': 'Employee registry and calculated payroll (INSS/IRRF/FGTS/vacation/13th salary) — an internal organization/cost tool, not a replacement for eSocial submission or your accountant\'s payroll system.',
+  'comp.modules.scheduling':     'Scheduling',
+  'comp.modules.schedulingDesc': 'Session scheduling with packages: professionals, service areas, availability, client session packages, and self-booking portal.',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',
