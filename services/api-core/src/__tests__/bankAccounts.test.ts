@@ -52,6 +52,22 @@ describe('GET /v1/bank-accounts', () => {
     expect(body.data).toHaveLength(1);
     expect(body.data[0].itau_client_secret).toBe('****3456');
   });
+
+  it('masks every sensitive key inside credentials (genérico, migration 0064) — inclusive cert/key do C6', async () => {
+    mockDb.select.mockReturnValueOnce(selectOnce([
+      {
+        id: ACCOUNT_A, company_id: COMPANY_ID, is_default: true, is_active: true, billing_provider: 'c6',
+        credentials: { client_id: 'meu-client-id', client_secret: 'abcdef123456', cert: '-----BEGIN CERTIFICATE-----XYZ9', key: '-----BEGIN PRIVATE KEY-----ABC1' },
+      },
+    ]));
+
+    const res = await app.inject({ method: 'GET', url: '/v1/bank-accounts', headers: { authorization: `Bearer ${token(app)}` } });
+    const creds = res.json().data[0].credentials;
+    expect(creds.client_id).toBe('meu-client-id'); // não sensível, não mascarado
+    expect(creds.client_secret).toBe('****3456');
+    expect(creds.cert).toBe('****XYZ9');
+    expect(creds.key).toBe('****ABC1');
+  });
 });
 
 describe('POST /v1/bank-accounts', () => {
@@ -104,6 +120,38 @@ describe('POST /v1/bank-accounts', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().is_default).toBe(true);
+  });
+
+  it('returns 422 invalid_credentials when billing_provider=c6 and cert/key are missing (C6 exige mTLS)', async () => {
+    mockDb.select.mockReturnValueOnce(selectOnce([{ id: COMPANY_ID, tenant_id: TENANT_ID, is_active: true }])); // resolveCompanyId
+
+    const res = await app.inject({
+      method: 'POST', url: '/v1/bank-accounts',
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { ...validPayload, bank_code: '336', billing_provider: 'c6', credentials: { client_id: 'x', client_secret: 'y' } },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ error: 'invalid_credentials', provider: 'c6', missing: ['cert', 'key'] });
+  });
+
+  it('returns 201 for C6 with a complete credentials object (client_id/secret/cert/key)', async () => {
+    mockDb.select.mockReturnValueOnce(selectOnce([{ id: COMPANY_ID, tenant_id: TENANT_ID, is_active: true }])); // resolveCompanyId
+    mockDb.select.mockReturnValueOnce(selectOnce([])); // listAllForCompany
+    const c6Payload = {
+      ...validPayload, bank_code: '336', billing_provider: 'c6',
+      credentials: { client_id: 'x', client_secret: 'y', cert: 'CERT', key: 'KEY' },
+    };
+    mockDb.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: ACCOUNT_A, ...c6Payload, is_default: true, is_active: true }]) }),
+    });
+
+    const res = await app.inject({
+      method: 'POST', url: '/v1/bank-accounts',
+      headers: { authorization: `Bearer ${token(app)}` }, payload: c6Payload,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().credentials.client_id).toBe('x');
+    expect(res.json().credentials.client_secret).toBe('****y'); // mask sempre prefixa ****, mesmo pra string curta
   });
 });
 

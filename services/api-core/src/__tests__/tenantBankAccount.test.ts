@@ -69,6 +69,22 @@ describe('GET /v1/tenant — campos bancários vêm da conta padrão, segredo ma
     expect(res.statusCode).toBe(200);
     expect(res.json().bank_code).toBeNull();
   });
+
+  it('retorna credentials genérico (migration 0064) mascarado — inclusive cert/key do C6', async () => {
+    accountRows = [{
+      id: ACCOUNT_ID, company_id: COMPANY_ID, is_default: true, is_active: true,
+      bank_code: '336', agency: '1234', account: '16102', account_digit: '5',
+      billing_provider: 'c6', billing_days_to_expire: 30,
+      credentials: { client_id: 'c6-id', client_secret: 'supersecretvalue1234', cert: 'CERTIFICATE-CONTENT', key: 'PRIVATE-KEY-CONTENT' },
+    }];
+
+    const res = await app.inject({ method: 'GET', url: '/v1/tenant', headers: { authorization: `Bearer ${token(app)}` } });
+    const creds = res.json().credentials;
+    expect(creds.client_id).toBe('c6-id');
+    expect(creds.client_secret).toBe('****1234');
+    expect(creds.cert).toBe('****TENT');
+    expect(creds.key).toBe('****TENT');
+  });
 });
 
 describe('PATCH /v1/tenant — campos bancários delegados para bankAccountService', () => {
@@ -104,5 +120,38 @@ describe('PATCH /v1/tenant — campos bancários delegados para bankAccountServi
       payload: { bank_code: '999', agency: '1234', account: '16102', account_digit: '5' },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('cria a conta padrão com credentials genérico do C6 (client_id/secret/cert/key)', async () => {
+    accountRows = [];
+    mockDb.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: ACCOUNT_ID, is_default: true }]) }),
+    });
+
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/tenant',
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: {
+        bank_code: '336', agency: '1234', account: '16102', account_digit: '5', billing_provider: 'c6',
+        credentials: { client_id: 'x', client_secret: 'y', cert: 'CERT', key: 'KEY' },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const insertedValues = (mockDb.insert as any).mock.results[0].value.values.mock.calls[0][0];
+    expect(insertedValues.credentials).toEqual({ client_id: 'x', client_secret: 'y', cert: 'CERT', key: 'KEY' });
+  });
+
+  it('retorna 400 quando billing_provider=c6 e faltam cert/key (mensagem cita os campos faltantes)', async () => {
+    accountRows = [];
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/tenant',
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: {
+        bank_code: '336', agency: '1234', account: '16102', account_digit: '5', billing_provider: 'c6',
+        credentials: { client_id: 'x', client_secret: 'y' },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/cert, key/);
   });
 });

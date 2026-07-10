@@ -643,6 +643,17 @@ const ptBR = {
   'comp.bank.itauClientIdPH':    'client_id fornecido pelo Itaú',
   'comp.bank.itauClientSecret':  'Client Secret',
   'comp.bank.itauClientSecretPH':'client_secret fornecido pelo Itaú',
+  'comp.bank.c6':                'C6 Bank (336)',
+  'comp.bank.c6Auth':            'Credenciais C6 Bank (client_credentials + mTLS)',
+  'comp.bank.c6Hint':            'Gere no PJ Internet Banking do C6: Meu perfil > Integrações via API > Nova chave. O certificado (.crt) e a chave privada (.key) têm validade de 12 meses.',
+  'comp.bank.c6ClientId':        'Client ID',
+  'comp.bank.c6ClientIdPH':      'client_id fornecido pelo C6',
+  'comp.bank.c6ClientSecret':    'Client Secret',
+  'comp.bank.c6ClientSecretPH':  'client_secret fornecido pelo C6',
+  'comp.bank.c6Cert':            'Certificado (.crt)',
+  'comp.bank.c6CertPH':          'Cole o conteúdo do arquivo .crt',
+  'comp.bank.c6Key':             'Chave privada (.key)',
+  'comp.bank.c6KeyPH':           'Cole o conteúdo do arquivo .key',
 
   // ── Configuração NF-e (aba Fiscal) ────────────────────────────────────
   'comp.nfe.title':       'Configuração NF-e (Focus NF-e / SEFAZ)',

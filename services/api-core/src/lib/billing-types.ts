@@ -7,8 +7,17 @@ export interface BankingConfig {
   account_digit: string;
   billing_provider: string;
   billing_days_to_expire: number;
+  /** @deprecated ver `credentials` — mantido só por compatibilidade de mensagens já em voo. */
   itau_client_id?: string | null;
+  /** @deprecated ver `credentials`. */
   itau_client_secret?: string | null;
+  /** Genérico por provedor (migration 0064) — {client_id, client_secret} pro
+   *  Itaú, {client_id, client_secret, cert, key} pro C6. Único campo que o
+   *  lambda-billing deveria ler daqui em diante: credenciais são POR TENANT
+   *  (cada tenant usa a própria conta C6/Itaú), nunca um app compartilhado
+   *  da plataforma — diferente do env var ITAU_CLIENT_ID/SECRET legado do
+   *  Lambda, que hoje serve todos os tenants com o mesmo app. */
+  credentials?: Record<string, string> | null;
 }
 
 export interface BillingEmitMessage {

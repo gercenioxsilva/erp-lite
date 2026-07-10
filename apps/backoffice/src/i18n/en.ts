@@ -587,6 +587,17 @@ const en: Record<TKey, string> = {
   'comp.bank.itauClientIdPH':    'client_id provided by Itaú',
   'comp.bank.itauClientSecret':  'Client Secret',
   'comp.bank.itauClientSecretPH':'client_secret provided by Itaú',
+  'comp.bank.c6':                'C6 Bank (336)',
+  'comp.bank.c6Auth':            'C6 Bank Credentials (client_credentials + mTLS)',
+  'comp.bank.c6Hint':            'Generate in C6 PJ Internet Banking: My profile > API Integrations > New key. The certificate (.crt) and private key (.key) are valid for 12 months.',
+  'comp.bank.c6ClientId':        'Client ID',
+  'comp.bank.c6ClientIdPH':      'client_id provided by C6',
+  'comp.bank.c6ClientSecret':    'Client Secret',
+  'comp.bank.c6ClientSecretPH':  'client_secret provided by C6',
+  'comp.bank.c6Cert':            'Certificate (.crt)',
+  'comp.bank.c6CertPH':          'Paste the .crt file contents',
+  'comp.bank.c6Key':             'Private key (.key)',
+  'comp.bank.c6KeyPH':           'Paste the .key file contents',
 
   // ── NF-e Configuration (Fiscal tab) ───────────────────────────────────
   'comp.nfe.title':       'NF-e Configuration (Focus NF-e / SEFAZ)',
