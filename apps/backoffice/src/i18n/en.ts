@@ -601,6 +601,9 @@ const en: Record<TKey, string> = {
   'comp.bank.c6SelectFile':      'Select file',
   'comp.bank.c6FileTooLarge':    'File too large — real certificates and keys are only a few KB. Double-check you selected the right file.',
   'comp.bank.c6FileFormatWarning':'The contents don\'t look like the expected format (PEM). Check you didn\'t swap the certificate for the key, or vice versa.',
+  'comp.bank.alreadyConfigured': '✓ Already configured',
+  'comp.bank.leaveBlankToKeep':  'Leave blank to keep the current value',
+  'comp.bank.setAsDefault':      'Set as default account',
 
   // ── NF-e Configuration (Fiscal tab) ───────────────────────────────────
   'comp.nfe.title':       'NF-e Configuration (Focus NF-e / SEFAZ)',

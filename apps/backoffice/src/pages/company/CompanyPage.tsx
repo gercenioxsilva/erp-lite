@@ -136,6 +136,22 @@ export function CompanyPage() {
   const [bankSuccess, setBankSuccess] = useState('');
   const [bankError, setBankError]   = useState('');
 
+  // Indica, por campo sensível, se JÁ existe um valor salvo no backend —
+  // client_secret/cert/key nunca são pré-preenchidos de volta no formulário
+  // (o backend só devolve mascarado, ****xxxx, e reenviar isso como se fosse
+  // um valor novo corromperia o segredo real). Sem esse indicador, um campo
+  // em branco parecia "nada foi salvo", quando na verdade só está esperando
+  // um valor novo pra trocar — achado do usuário testando com credenciais
+  // reais de C6.
+  const [credentialsConfigured, setCredentialsConfigured] = useState({
+    itau_client_secret: false, c6_client_secret: false, c6_cert: false, c6_key: false,
+  });
+  // "Definir como conta padrão" — ação explícita no salvar, nunca implícita.
+  // Antes não existia NENHUM jeito de promover uma conta não-padrão (ex.: a
+  // C6 recém-cadastrada) a padrão pela tela — só a 1ª conta de cada empresa
+  // nascia padrão automaticamente.
+  const [setAsDefaultOnSave, setSetAsDefaultOnSave] = useState(false);
+
   // Multi-conta bancária (regra 41) — N contas por empresa. Seletor só aparece
   // com mais de 1 conta no tenant; tenant com 1 empresa/1 conta não vê mudança.
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
@@ -208,7 +224,9 @@ export function CompanyPage() {
     // credentials vem mascarado do backend (****xxxx em client_secret/cert/key)
     // — client_id não é sensível, então é o único campo pré-preenchido de
     // verdade; os demais ficam em branco (usuário precisa reenviar pra trocar,
-    // mesmo comportamento que o Itaú já tem hoje pro client_secret).
+    // mesmo comportamento que o Itaú já tem hoje pro client_secret). O
+    // indicador "já configurado" (abaixo) é o que deixa isso visível na tela,
+    // em vez de parecer que o dado nunca foi salvo.
     const c = a.credentials || {};
     setBankForm({
       bank_code: a.bank_code || '', agency: a.agency || '', account: a.account || '', account_digit: a.account_digit || '',
@@ -217,6 +235,13 @@ export function CompanyPage() {
       c6_client_id: a.billing_provider === 'c6' ? (c.client_id || '') : '',
       c6_client_secret: '', c6_cert: '', c6_key: '',
     });
+    setCredentialsConfigured({
+      itau_client_secret: Boolean(a.itau_client_secret),
+      c6_client_secret:   Boolean(c.client_secret),
+      c6_cert:             Boolean(c.cert),
+      c6_key:               Boolean(c.key),
+    });
+    setSetAsDefaultOnSave(false);
     resetC6FileState();
   }
 
@@ -233,6 +258,8 @@ export function CompanyPage() {
         bank_code: '', agency: '', account: '', account_digit: '', billing_provider: 'itau', billing_days_to_expire: '30',
         itau_client_id: '', itau_client_secret: '', c6_client_id: '', c6_client_secret: '', c6_cert: '', c6_key: '',
       });
+      setCredentialsConfigured({ itau_client_secret: false, c6_client_secret: false, c6_cert: false, c6_key: false });
+      setSetAsDefaultOnSave(false);
       resetC6FileState();
       return;
     }
@@ -303,10 +330,23 @@ export function CompanyPage() {
         billing_provider:       data.billing_provider       || 'itau',
         billing_days_to_expire: String(data.billing_days_to_expire ?? 30),
         itau_client_id:         data.itau_client_id         || '',
-        itau_client_secret:     data.itau_client_secret     || '',
+        // itau_client_secret NUNCA pré-preenchido com o valor mascarado
+        // (****xxxx) que a API devolve — reenviar isso como se fosse um
+        // valor novo corromperia o segredo real (achado do usuário testando
+        // com credenciais reais de C6, corrigido aqui e no caminho de
+        // fillBankFormFromAccount, que já fazia certo). O indicador "já
+        // configurado" abaixo é o que mostra que existe algo salvo.
+        itau_client_secret: '',
         c6_client_id:           data.billing_provider === 'c6' ? (c.client_id || '') : '',
         c6_client_secret: '', c6_cert: '', c6_key: '',
       });
+      setCredentialsConfigured({
+        itau_client_secret: Boolean(data.itau_client_secret),
+        c6_client_secret:   Boolean(c.client_secret),
+        c6_cert:             Boolean(c.cert),
+        c6_key:               Boolean(c.key),
+      });
+      setSetAsDefaultOnSave(false);
       resetC6FileState();
     } catch (err: any) {
       setError(err.message || t('comp.errLoad'));
@@ -547,16 +587,19 @@ export function CompanyPage() {
 
     try {
       if (selectedBankAccountId === 'new') {
-        await api.post('/v1/bank-accounts', { ...payload, company_id: bankingCompanyId });
+        const created = await api.post<BankAccount>('/v1/bank-accounts', { ...payload, company_id: bankingCompanyId });
+        if (setAsDefaultOnSave) await api.patch(`/v1/bank-accounts/${created.id}/set-default`, {});
         setBankSuccess(t('comp.bank.saved'));
         await loadBankAccounts();
         setSelectedBankAccountId(null);
       } else if (selectedBankAccountId) {
         await api.patch(`/v1/bank-accounts/${selectedBankAccountId}`, payload);
+        if (setAsDefaultOnSave) await api.patch(`/v1/bank-accounts/${selectedBankAccountId}/set-default`, {});
         setBankSuccess(t('comp.bank.saved'));
         await loadBankAccounts();
       } else {
-        // Conta padrão — fluxo legado, retrocompatível (regra 41).
+        // Conta padrão — fluxo legado, retrocompatível (regra 41). Já É a
+        // conta padrão por definição — não há "definir como padrão" aqui.
         await api.patch('/v1/tenant', payload);
         setBankSuccess(t('comp.bank.saved'));
         loadTenant();
@@ -999,8 +1042,11 @@ export function CompanyPage() {
                     </div>
                     <div className="field">
                       <label>{t('comp.bank.itauClientSecret')}</label>
+                      {credentialsConfigured.itau_client_secret && !bankForm.itau_client_secret && (
+                        <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 4 }}>{t('comp.bank.alreadyConfigured')}</div>
+                      )}
                       <input type="password" value={bankForm.itau_client_secret}
-                        placeholder={t('comp.bank.itauClientSecretPH')}
+                        placeholder={credentialsConfigured.itau_client_secret ? t('comp.bank.leaveBlankToKeep') : t('comp.bank.itauClientSecretPH')}
                         autoComplete="new-password"
                         onChange={e => setBankForm(f => ({ ...f, itau_client_secret: e.target.value }))} />
                     </div>
@@ -1023,8 +1069,11 @@ export function CompanyPage() {
                     </div>
                     <div className="field">
                       <label>{t('comp.bank.c6ClientSecret')}</label>
+                      {credentialsConfigured.c6_client_secret && !bankForm.c6_client_secret && (
+                        <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 4 }}>{t('comp.bank.alreadyConfigured')}</div>
+                      )}
                       <input type="password" value={bankForm.c6_client_secret}
-                        placeholder={t('comp.bank.c6ClientSecretPH')}
+                        placeholder={credentialsConfigured.c6_client_secret ? t('comp.bank.leaveBlankToKeep') : t('comp.bank.c6ClientSecretPH')}
                         autoComplete="new-password"
                         onChange={e => setBankForm(f => ({ ...f, c6_client_secret: e.target.value }))} />
                     </div>
@@ -1041,8 +1090,11 @@ export function CompanyPage() {
                         {c6CertFileName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c6CertFileName}</span>}
                       </div>
                       {c6CertWarning && <div role="alert" className="alert alert-warning" style={{ marginBottom: 6, fontSize: 12 }}>{c6CertWarning}</div>}
+                      {credentialsConfigured.c6_cert && !bankForm.c6_cert && (
+                        <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 4 }}>{t('comp.bank.alreadyConfigured')}</div>
+                      )}
                       <textarea rows={4} value={bankForm.c6_cert}
-                        placeholder={t('comp.bank.c6CertPH')}
+                        placeholder={credentialsConfigured.c6_cert ? t('comp.bank.leaveBlankToKeep') : t('comp.bank.c6CertPH')}
                         style={{ fontFamily: 'monospace', fontSize: 12 }}
                         onChange={e => setBankForm(f => ({ ...f, c6_cert: e.target.value }))} />
                     </div>
@@ -1055,14 +1107,32 @@ export function CompanyPage() {
                         {c6KeyFileName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c6KeyFileName}</span>}
                       </div>
                       {c6KeyWarning && <div role="alert" className="alert alert-warning" style={{ marginBottom: 6, fontSize: 12 }}>{c6KeyWarning}</div>}
+                      {credentialsConfigured.c6_key && !bankForm.c6_key && (
+                        <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 4 }}>{t('comp.bank.alreadyConfigured')}</div>
+                      )}
                       <textarea rows={4} value={bankForm.c6_key}
-                        placeholder={t('comp.bank.c6KeyPH')}
+                        placeholder={credentialsConfigured.c6_key ? t('comp.bank.leaveBlankToKeep') : t('comp.bank.c6KeyPH')}
                         autoComplete="new-password"
                         style={{ fontFamily: 'monospace', fontSize: 12 }}
                         onChange={e => setBankForm(f => ({ ...f, c6_key: e.target.value }))} />
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* "Definir como conta padrão" — antes não existia NENHUMA forma de
+                  promover uma conta (nova ou já existente) a padrão pela tela;
+                  só a 1ª conta de cada empresa nascia padrão automaticamente.
+                  Escondido pra conta que já É a padrão (id null, o fluxo legado
+                  /v1/tenant) — nada a fazer ali. */}
+              {selectedBankAccountId !== null && !bankAccounts.find(a => a.id === selectedBankAccountId)?.is_default && (
+                <div className="field" style={{ marginTop: 16 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={setAsDefaultOnSave}
+                      onChange={e => setSetAsDefaultOnSave(e.target.checked)} />
+                    {t('comp.bank.setAsDefault')}
+                  </label>
+                </div>
               )}
 
               <div style={{ marginTop: 20 }}>
