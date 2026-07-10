@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, supplierContacts, suppliers } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 // Papéis do lado do fornecedor — não reaproveita os rótulos de client_contacts
 // ('comprador'/'compras' descreve quem compra DE nós, não faz sentido aqui).
@@ -28,7 +29,7 @@ export const supplierContactsRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
 
   // GET /v1/suppliers/:id/contacts
-  fastify.get<{ Params: { id: string } }>('/suppliers/:id/contacts', auth, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/suppliers/:id/contacts', { ...auth, preHandler: [requirePermission('suppliers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: supplierId } = request.params;
 
@@ -48,6 +49,7 @@ export const supplierContactsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/suppliers/:id/contacts', {
     ...auth,
     schema: { body: { ...contactBody, required: ['contact_type'] } },
+    preHandler: [requirePermission('suppliers:edit')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: supplierId } = request.params;
@@ -74,6 +76,7 @@ export const supplierContactsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string; cid: string } }>('/suppliers/:id/contacts/:cid', {
     ...auth,
     schema: { body: patchBody },
+    preHandler: [requirePermission('suppliers:edit')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: supplierId, cid } = request.params;
@@ -101,7 +104,7 @@ export const supplierContactsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // DELETE /v1/suppliers/:id/contacts/:cid (soft delete)
-  fastify.delete<{ Params: { id: string; cid: string } }>('/suppliers/:id/contacts/:cid', auth, async (request, reply) => {
+  fastify.delete<{ Params: { id: string; cid: string } }>('/suppliers/:id/contacts/:cid', { ...auth, preHandler: [requirePermission('suppliers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: supplierId, cid } = request.params;
 

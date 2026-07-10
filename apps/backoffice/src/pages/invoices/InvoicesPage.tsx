@@ -6,6 +6,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { StatusPill, Drawer, Timeline } from '../../ds';
+import { Can }      from '../../rbac';
 import type { FiscalStatus } from '../../ds';
 import type { TKey } from '../../i18n/pt-BR';
 
@@ -262,9 +263,11 @@ export function InvoicesPage() {
             invoices.map(i => ({ number: i.number, client_name: i.client_name, total: i.total, issue_date: i.issue_date, status: i.status, nfe_status: i.nfe_status })),
             `notas-fiscais-${new Date().toISOString().slice(0,10)}.xlsx`
           )}>↓ Exportar</button>
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={() => navigate('/invoices/new')}>
-            + {t('inv.new')}
-          </button>
+          <Can permission="invoices:create">
+            <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={() => navigate('/invoices/new')}>
+              + {t('inv.new')}
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -332,7 +335,9 @@ export function InvoicesPage() {
         ) : invoices.length === 0 ? (
           <div className="empty-state">
             {t('inv.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/invoices/new')}>{t('inv.new')}</button>
+            <Can permission="invoices:create">
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate('/invoices/new')}>{t('inv.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -381,19 +386,23 @@ export function InvoicesPage() {
                   <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
                       {inv.status === 'draft' && !inv.nfe_status && (
-                        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                          onClick={() => handleIssue(inv.id)}>
-                          {t('inv.issue')}
-                        </button>
+                        <Can permission="invoices:emit">
+                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                            onClick={() => handleIssue(inv.id)}>
+                            {t('inv.issue')}
+                          </button>
+                        </Can>
                       )}
                       <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
                         onClick={() => openNfePanel(inv)}>
                         {t('nfe.viewPanel')}
                       </button>
                       {inv.status !== 'cancelled' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleCancel(inv.id)}>
-                          {t('inv.cancel')}
-                        </button>
+                        <Can permission="invoices:cancel">
+                          <button className="btn btn-danger btn-sm" onClick={() => handleCancel(inv.id)}>
+                            {t('inv.cancel')}
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>
@@ -440,16 +449,20 @@ export function InvoicesPage() {
                       ? `${nfeDetail.nfe_attempts} ${t('nfe.attempts')}` : t('nfe.notEmitted')}
                   </div>
                   {!nfeDetail?.nfe_status && nfePanelInv.status === 'draft' && (
-                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                      disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
-                      {nfeEmitting ? t('c.saving') : t('nfe.emitSefaz')}
-                    </button>
+                    <Can permission="invoices:emit">
+                      <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                        disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
+                        {nfeEmitting ? t('c.saving') : t('nfe.emitSefaz')}
+                      </button>
+                    </Can>
                   )}
                   {nfeDetail?.nfe_status === 'rejected' && (
-                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                      disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
-                      {nfeEmitting ? t('c.saving') : t('nfe.retry')}
-                    </button>
+                    <Can permission="invoices:emit">
+                      <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                        disabled={nfeEmitting} onClick={() => void emitNfe(nfePanelInv.id)}>
+                        {nfeEmitting ? t('c.saving') : t('nfe.retry')}
+                      </button>
+                    </Can>
                   )}
                 </div>
                 {nfeDetail && (

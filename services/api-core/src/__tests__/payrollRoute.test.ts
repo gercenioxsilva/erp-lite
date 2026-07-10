@@ -39,7 +39,6 @@ function ownerToken(app: FastifyInstance) {
 function mockGates() {
   mockDb.select
     .mockReturnValueOnce(selectOnce([{ enabled: true }])) // requireModule('hr')
-    .mockReturnValueOnce(selectOnce([{ role: 'owner', access_profile_id: null }])); // requirePermission (owner bypass)
 }
 
 describe('rotas de /v1/payroll', () => {

@@ -5,8 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, tenants, users } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
 import { getStripe } from '../lib/stripeClient';
-import { getEffectivePermissions } from '../services/accessControlService';
-import { permissionsToMap } from '../domain/accessControl/accessControlDomain';
+import { getPermissionsList } from '../rbac/permissionService';
 import {
   issueVerificationToken, sendVerificationEmail, verifyEmail, resendVerification,
   TenantActivationDomainError, type DrizzleDB,
@@ -118,10 +117,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      const permissions = await getPermissionsList(result.tenant.id, result.user.role);
       return reply.code(201).send({
         token,
         user:     { id: result.user.id, email: result.user.email, name: result.user.name, role: result.user.role },
         tenantId: result.tenant.id,
+        permissions,
       });
     } catch (err: any) {
       if (err.code === '23505') return reply.conflict('Email or tax ID already registered');
@@ -149,10 +150,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       { expiresIn: '24h' },
     );
 
+    const permissions = await getPermissionsList(user.tenant_id, user.role);
     return {
       token,
       user:     { id: user.id, email: user.email, name: user.name, role: user.role },
       tenantId: user.tenant_id,
+      permissions,
     };
   });
 
@@ -169,19 +172,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       role: users.role, tenant_id: users.tenant_id, status: users.status,
       tenant_activated_at: tenants.activated_at,
     }).from(users).innerJoin(tenants, eq(users.tenant_id, tenants.id)).where(eq(users.id, userId));
-    return row ?? null;
-  });
+    if (!row) return null;
 
-  // GET /v1/auth/permissions — bootstrap de permissões efetivas do usuário
-  // logado (RBAC), mesmo papel de GET /v1/tenant/modules pro frontend: só
-  // exibe/esconde menu, nunca é o controle de acesso de verdade (isso é
-  // sempre requirePermission() no backend).
-  fastify.get('/auth/permissions', {
-    preHandler: [(fastify as any).authenticate],
-  }, async (request) => {
-    const { userId, tenantId } = (request as any).user;
-    const effective = await getEffectivePermissions(userId, tenantId);
-    return { permissions: permissionsToMap(effective) };
+    const permissions = await getPermissionsList(row.tenant_id, row.role);
+    return { ...row, permissions };
   });
 
   // POST /v1/auth/forgot-password (sem autenticação)

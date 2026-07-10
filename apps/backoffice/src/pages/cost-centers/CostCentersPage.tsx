@@ -4,6 +4,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,9 +142,11 @@ export function CostCentersPage() {
       {/* ── Page header ──────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('cc.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('cc.new')}
-        </button>
+        <Can permission="cost_centers:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('cc.new')}
+          </button>
+        </Can>
       </div>
 
       {/* ── Search ───────────────────────────────────────────────────── */}
@@ -163,9 +166,11 @@ export function CostCentersPage() {
         ) : items.length === 0 ? (
           <div className="empty-state">
             {t('c.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>
-              {t('cc.new')}
-            </button>
+            <Can permission="cost_centers:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>
+                {t('cc.new')}
+              </button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -195,12 +200,16 @@ export function CostCentersPage() {
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(cc)}>
-                        {t('c.edit')}
-                      </button>
-                      <button className="btn btn-danger btn-sm" onClick={() => void handleDelete(cc.id)}>
-                        {t('c.del')}
-                      </button>
+                      <Can permission="cost_centers:edit">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(cc)}>
+                          {t('c.edit')}
+                        </button>
+                      </Can>
+                      <Can permission="cost_centers:delete">
+                        <button className="btn btn-danger btn-sm" onClick={() => void handleDelete(cc.id)}>
+                          {t('c.del')}
+                        </button>
+                      </Can>
                     </div>
                   </td>
                 </tr>

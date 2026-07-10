@@ -4,6 +4,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { KPICard, StatusPill, Drawer, Timeline } from '../../ds';
+import { Can } from '../../rbac';
 import type { FiscalStatus } from '../../ds';
 import type { TKey } from '../../i18n/pt-BR';
 
@@ -327,10 +328,12 @@ export function NfsePage() {
         </Drawer.Body>
         <Drawer.Footer>
           {detail?.nfse_status === 'rejected' && (
-            <button type="button" className="btn btn-primary" style={{ marginRight: 'auto' }}
-              disabled={reemitting} onClick={() => void handleReemit()}>
-              {reemitting ? t('c.saving') : t('nfse.reemit')}
-            </button>
+            <Can permission="nfse:emit">
+              <button type="button" className="btn btn-primary" style={{ marginRight: 'auto' }}
+                disabled={reemitting} onClick={() => void handleReemit()}>
+                {reemitting ? t('c.saving') : t('nfse.reemit')}
+              </button>
+            </Can>
           )}
           <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
             {t('c.close')}

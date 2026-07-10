@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
+import { Can } from '../../rbac';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -668,9 +669,11 @@ export function CompanyPage() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>
@@ -703,13 +706,17 @@ export function CompanyPage() {
                 style={{ display: 'none' }} onChange={handleLogoChange} />
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
-                  {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
-                </button>
-                {tenant?.logo_url && (
-                  <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
-                    {t('comp.removeLogo')}
+                <Can permission="company:edit">
+                  <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
+                    {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
                   </button>
+                </Can>
+                {tenant?.logo_url && (
+                  <Can permission="company:edit">
+                    <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
+                      {t('comp.removeLogo')}
+                    </button>
+                  </Can>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
@@ -743,13 +750,17 @@ export function CompanyPage() {
                 style={{ display: 'none' }} onChange={handleBannerChange} />
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleBannerClick} disabled={bannerSaving}>
-                  {bannerSaving ? t('c.saving') : (tenant?.proposal_banner_url ? t('comp.changeBanner') : t('comp.uploadBanner'))}
-                </button>
-                {tenant?.proposal_banner_url && (
-                  <button className="btn btn-danger btn-sm" onClick={handleBannerDelete} disabled={bannerSaving}>
-                    {t('comp.removeBanner')}
+                <Can permission="company:edit">
+                  <button className="btn btn-secondary btn-sm" onClick={handleBannerClick} disabled={bannerSaving}>
+                    {bannerSaving ? t('c.saving') : (tenant?.proposal_banner_url ? t('comp.changeBanner') : t('comp.uploadBanner'))}
                   </button>
+                </Can>
+                {tenant?.proposal_banner_url && (
+                  <Can permission="company:edit">
+                    <button className="btn btn-danger btn-sm" onClick={handleBannerDelete} disabled={bannerSaving}>
+                      {t('comp.removeBanner')}
+                    </button>
+                  </Can>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
@@ -899,9 +910,11 @@ export function CompanyPage() {
               )}
 
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={bankSaving}>
-                  {bankSaving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={bankSaving}>
+                    {bankSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>
@@ -1027,11 +1040,13 @@ export function CompanyPage() {
                       />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-                        onClick={() => void handleSimplesRbt12Save()}
-                        disabled={simplesRbt12Saving}>
-                        {simplesRbt12Saving ? t('c.saving') : t('c.save')}
-                      </button>
+                      <Can permission="company:edit">
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                          onClick={() => void handleSimplesRbt12Save()}
+                          disabled={simplesRbt12Saving}>
+                          {simplesRbt12Saving ? t('c.saving') : t('c.save')}
+                        </button>
+                      </Can>
                       {simplesRbt12Msg && (
                         <span style={{ fontSize: 12, color: simplesRbt12Msg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)' }}>
                           {simplesRbt12Msg}
@@ -1214,9 +1229,11 @@ export function CompanyPage() {
                 )}
 
                 <div style={{ marginTop: 20 }}>
-                  <button type="submit" className="btn btn-primary" disabled={nfeSaving}>
-                    {nfeSaving ? t('c.saving') : t('c.save')}
-                  </button>
+                  <Can permission="company:edit">
+                    <button type="submit" className="btn btn-primary" disabled={nfeSaving}>
+                      {nfeSaving ? t('c.saving') : t('c.save')}
+                    </button>
+                  </Can>
                 </div>
               </form>
             </div>
@@ -1247,9 +1264,11 @@ export function CompanyPage() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={notifSaving}>
-                  {notifSaving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={notifSaving}>
+                    {notifSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>

@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
+import { requirePermission } from '../lib/requirePermission';
 
 function calcProposalTotals(items: any[], discount = 0, shipping = 0) {
   const subtotal = items.reduce((s: number, it: any) => {
@@ -23,7 +24,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
 
   // ── GET /v1/proposals ──────────────────────────────────────────────────
-  fastify.get('/proposals', auth, async (request) => {
+  fastify.get('/proposals', { ...auth, preHandler: [requirePermission('proposals:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, search, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
@@ -59,7 +60,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/proposals ─────────────────────────────────────────────────
-  fastify.post('/proposals', auth, async (request, reply) => {
+  fastify.post('/proposals', { ...auth, preHandler: [requirePermission('proposals:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userEmail = (request as any).user.email;
     const userId    = (request as any).user.id;
@@ -111,7 +112,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── GET /v1/proposals/:id ─────────────────────────────────────────────
-  fastify.get('/proposals/:id', auth, async (request, reply) => {
+  fastify.get('/proposals/:id', { ...auth, preHandler: [requirePermission('proposals:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
 
@@ -133,7 +134,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   // Mesmo formato de GET /v1/public/proposals/:token, porém autenticado por
   // tenantId (não por public_token) — funciona para qualquer status, inclusive
   // 'draft', e nunca muda status/public_viewed_at (uso interno, não é o link do cliente).
-  fastify.get('/proposals/:id/print', auth, async (request, reply) => {
+  fastify.get('/proposals/:id/print', { ...auth, preHandler: [requirePermission('proposals:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -244,7 +245,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── PATCH /v1/proposals/:id ───────────────────────────────────────────
-  fastify.patch('/proposals/:id', auth, async (request, reply) => {
+  fastify.patch('/proposals/:id', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const { title, client_id, valid_until, notes, terms_text, delivery_time, payment_method, discount, shipping, items } =
@@ -303,7 +304,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/proposals/:id/send ───────────────────────────────────────
-  fastify.post('/proposals/:id/send', auth, async (request, reply) => {
+  fastify.post('/proposals/:id/send', { ...auth, preHandler: [requirePermission('proposals:send')] }, async (request, reply) => {
     const tenantId  = (request as any).user.tenantId;
     const { id }    = request.params as { id: string };
 
@@ -351,7 +352,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/proposals/:id/convert ───────────────────────────────────
-  fastify.post('/proposals/:id/convert', auth, async (request, reply) => {
+  fastify.post('/proposals/:id/convert', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.id;
     const { id }   = request.params as { id: string };
@@ -401,7 +402,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/proposals/:id/duplicate ─────────────────────────────────
-  fastify.post('/proposals/:id/duplicate', auth, async (request, reply) => {
+  fastify.post('/proposals/:id/duplicate', { ...auth, preHandler: [requirePermission('proposals:create')] }, async (request, reply) => {
     const tenantId  = (request as any).user.tenantId;
     const userId    = (request as any).user.id;
     const userEmail = (request as any).user.email;
@@ -446,7 +447,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/proposals/:id/cancel ────────────────────────────────────
-  fastify.post('/proposals/:id/cancel', auth, async (request, reply) => {
+  fastify.post('/proposals/:id/cancel', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 

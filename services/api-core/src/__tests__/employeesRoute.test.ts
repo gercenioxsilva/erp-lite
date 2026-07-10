@@ -58,7 +58,6 @@ describe('rotas de /v1/employees', () => {
   it('200 quando módulo habilitado e owner (bypass de permissão)', async () => {
     mockDb.select
       .mockReturnValueOnce(selectOnce([{ enabled: true }])) // isModuleEnabled
-      .mockReturnValueOnce(selectOnce([{ role: 'owner', access_profile_id: null }])); // getEffectivePermissions
     svc.listEmployees.mockResolvedValue([{ id: 'emp-1', name: 'Fulano' }]);
 
     const res = await app.inject({
@@ -72,7 +71,6 @@ describe('rotas de /v1/employees', () => {
   it('POST /employees 422 quando o service lança erro de domínio', async () => {
     mockDb.select
       .mockReturnValueOnce(selectOnce([{ enabled: true }]))
-      .mockReturnValueOnce(selectOnce([{ role: 'owner', access_profile_id: null }]));
     const { PayrollDomainError } = await import('../services/hr/employeeService');
     svc.createEmployee.mockRejectedValue(new (PayrollDomainError as any)('employee_cpf_invalid'));
 
@@ -88,7 +86,6 @@ describe('rotas de /v1/employees', () => {
   it('POST /employees 201 quando tudo ok', async () => {
     mockDb.select
       .mockReturnValueOnce(selectOnce([{ enabled: true }]))
-      .mockReturnValueOnce(selectOnce([{ role: 'owner', access_profile_id: null }]));
     svc.createEmployee.mockResolvedValue({ id: 'emp-1', name: 'Fulano' });
 
     const res = await app.inject({

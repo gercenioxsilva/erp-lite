@@ -19,3 +19,14 @@ export { Timeline } from './components/Timeline';
 export type { TimelineEvent } from './components/Timeline';
 
 export { Drawer } from './components/Drawer';
+
+export { BalanceBar } from './components/BalanceBar';
+
+export { SlotPicker } from './components/SlotPicker';
+export type { Slot } from './components/SlotPicker';
+
+export { AvailabilityWeekEditor } from './components/AvailabilityWeekEditor';
+export type { WeeklyRule } from './components/AvailabilityWeekEditor';
+
+export { CalendarWeekGrid } from './components/CalendarWeekGrid';
+export type { CalendarSession } from './components/CalendarWeekGrid';

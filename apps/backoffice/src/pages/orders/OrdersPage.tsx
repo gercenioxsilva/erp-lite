@@ -4,6 +4,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
+import { Can }      from '../../rbac';
 import type { TKey } from '../../i18n/pt-BR';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -289,9 +290,11 @@ export function OrdersPage() {
       {/* ── Header ── */}
       <div className="page-header">
         <h1>{t('o.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('o.new')}
-        </button>
+        <Can permission="orders:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('o.new')}
+          </button>
+        </Can>
       </div>
 
       {/* ── Status tabs ── */}
@@ -332,7 +335,9 @@ export function OrdersPage() {
         ) : orders.length === 0 ? (
           <div className="empty-state">
             {t('o.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('o.new')}</button>
+            <Can permission="orders:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('o.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -364,26 +369,34 @@ export function OrdersPage() {
                     <div className="flex-gap">
                       {o.status === 'draft' && (
                         <>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openEdit(o)}>
-                            {t('c.edit')}
-                          </button>
-                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                            onClick={() => transition(o.id, 'confirm')}>
-                            {t('o.confirm')}
-                          </button>
+                          <Can permission="orders:edit">
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(o)}>
+                              {t('c.edit')}
+                            </button>
+                          </Can>
+                          <Can permission="orders:edit">
+                            <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => transition(o.id, 'confirm')}>
+                              {t('o.confirm')}
+                            </button>
+                          </Can>
                         </>
                       )}
                       {(o.status === 'confirmed' || o.status === 'invoiced') && (
-                        <button className="btn btn-secondary btn-sm"
-                          onClick={() => transition(o.id, 'deliver')}>
-                          {t('o.deliver')}
-                        </button>
+                        <Can permission="orders:edit">
+                          <button className="btn btn-secondary btn-sm"
+                            onClick={() => transition(o.id, 'deliver')}>
+                            {t('o.deliver')}
+                          </button>
+                        </Can>
                       )}
                       {(o.status === 'draft' || o.status === 'confirmed' || o.status === 'invoiced') && (
-                        <button className="btn btn-danger btn-sm"
-                          onClick={() => transition(o.id, 'cancel')}>
-                          {t('c.del')}
-                        </button>
+                        <Can permission="orders:edit">
+                          <button className="btn btn-danger btn-sm"
+                            onClick={() => transition(o.id, 'cancel')}>
+                            {t('c.del')}
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>

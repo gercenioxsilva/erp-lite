@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can }     from '../../rbac';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -198,7 +199,9 @@ export function SellerDetailPage() {
             {seller.is_active ? t('c.active') : t('c.inactive')}
           </span>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={openEdit}>{t('c.edit')}</button>
+        <Can permission="sellers:edit">
+          <button className="btn btn-secondary btn-sm" onClick={openEdit}>{t('c.edit')}</button>
+        </Can>
       </div>
 
       <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 24 }}>

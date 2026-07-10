@@ -1,9 +1,10 @@
 import { FastifyPluginAsync } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, invoices, invoiceItems, receivables, orders } from '../db';
 import { applyEntry } from '../services/costCenterStock';
 import { cancelCommission } from '../services/commissionService';
 import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
+import { requirePermission } from '../lib/requirePermission';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -22,12 +23,14 @@ interface InvoiceItemPayload {
 export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/invoices ───────────────────────────────────────────────── */
-  fastify.get('/invoices', async (request, reply) => {
-    const { tenant_id, status, search, nfe_status, client_id,
+  fastify.get('/invoices', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    // tenant_id ainda é aceito na query por retrocompatibilidade de contrato,
+    // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
+    const { status, search, nfe_status, client_id,
             issue_date_from, issue_date_to, total_min, total_max,
             page = '1', per_page = '20' } =
       request.query as Record<string, string>;
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
@@ -58,14 +61,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         FROM invoices i
         JOIN clients c ON c.id = i.client_id
         LEFT JOIN orders o ON o.id = i.order_id
-        WHERE i.tenant_id = ${tenant_id} ${filters}
+        WHERE i.tenant_id = ${tenantId} ${filters}
         ORDER BY i.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
       db.execute<{ count: string }>(sql`
         SELECT COUNT(*) AS count FROM invoices i
         JOIN clients c ON c.id = i.client_id
-        WHERE i.tenant_id = ${tenant_id} ${filters}
+        WHERE i.tenant_id = ${tenantId} ${filters}
       `),
     ]);
 
@@ -73,11 +76,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/invoices ──────────────────────────────────────────────── */
-  fastify.post('/invoices', async (request, reply) => {
+  fastify.post('/invoices', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:create')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const body = request.body as any;
-    const { tenant_id, client_id, order_id, items, notes, serie = '1',
+    // tenant_id ainda é aceito no body por retrocompatibilidade de contrato,
+    // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
+    const { client_id, order_id, items, notes, serie = '1',
             tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id } = body;
-    if (!tenant_id || !client_id) return reply.badRequest('tenant_id and client_id are required');
+    if (!client_id) return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
     // company_id (regra 40) é opcional na criação — quando informado, precisa
@@ -87,7 +93,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     let resolvedCompanyId: string | null = null;
     if (company_id) {
       try {
-        const company = await resolveCompanyId(tenant_id, company_id);
+        const company = await resolveCompanyId(tenantId, company_id);
         resolvedCompanyId = company.id;
       } catch (err) {
         if (err instanceof CompanyDomainError) return reply.badRequest('Empresa (company_id) inválida para este tenant');
@@ -118,7 +124,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const invoice = await db.transaction(async (tx) => {
       const [inv] = await tx.insert(invoices).values({
-        tenant_id, client_id, order_id: order_id || null, serie,
+        tenant_id: tenantId, client_id, order_id: order_id || null, serie,
         company_id: resolvedCompanyId,
         notes: notes || null,
         subtotal: String(subtotal), tax_total: String(taxTotal), total: String(total),
@@ -165,7 +171,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/invoices/:id ───────────────────────────────────────────── */
-  fastify.get('/invoices/:id', async (request, reply) => {
+  fastify.get('/invoices/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [{ rows: [invoice] }, { rows: items }] = await Promise.all([
       db.execute<any>(sql`
@@ -174,7 +181,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         FROM invoices i
         JOIN clients c ON c.id = i.client_id
         LEFT JOIN orders o ON o.id = i.order_id
-        WHERE i.id = ${id}
+        WHERE i.id = ${id} AND i.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`SELECT * FROM invoice_items WHERE invoice_id = ${id} ORDER BY created_at`),
     ]);
@@ -183,13 +190,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/invoices/:id/issue ────────────────────────────────────── */
-  fastify.post('/invoices/:id/issue', async (request, reply) => {
+  fastify.post('/invoices/:id/issue', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:emit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [invoice] = await db.select({
       id: invoices.id, tenant_id: invoices.tenant_id,
       client_id: invoices.client_id, serie: invoices.serie,
       status: invoices.status, total: invoices.total,
-    }).from(invoices).where(eq(invoices.id, id));
+    }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
     if (!invoice)                   return reply.notFound('Nota fiscal não encontrada');
     if (invoice.status !== 'draft') return reply.badRequest('Apenas rascunhos podem ser emitidos');
 
@@ -205,7 +213,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     await db.transaction(async (tx) => {
       await tx.update(invoices)
         .set({ status: 'issued', number, issue_date: issueDate })
-        .where(eq(invoices.id, id));
+        .where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
 
       await tx.insert(receivables).values({
         tenant_id:   invoice.tenant_id,
@@ -222,7 +230,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/invoices/:id/cancel ───────────────────────────────────── */
-  fastify.post('/invoices/:id/cancel', async (request, reply) => {
+  fastify.post('/invoices/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:cancel')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [invoice] = await db.select({
       id:             invoices.id,
@@ -231,14 +240,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       nfe_status:     invoices.nfe_status,
       cost_center_id: invoices.cost_center_id,
       tenant_id:      invoices.tenant_id,
-    }).from(invoices).where(eq(invoices.id, id));
+    }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
     if (!invoice)                       return reply.notFound('Nota fiscal não encontrada');
     if (invoice.status === 'cancelled') return reply.badRequest('Nota já cancelada');
 
     const wasAuthorized = invoice.nfe_status === 'authorized';
 
     await db.transaction(async (tx) => {
-      await tx.update(invoices).set({ status: 'cancelled' }).where(eq(invoices.id, id));
+      await tx.update(invoices).set({ status: 'cancelled' }).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
       if (invoice.order_id) {
         await tx.execute(sql`
           UPDATE orders SET status = 'confirmed'

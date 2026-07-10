@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api } from '../lib/api';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { api, AUTH_SIGNOUT_EVENT } from '../lib/api';
 
 interface AuthUser {
   id: string;
@@ -7,17 +7,12 @@ interface AuthUser {
   name: string;
   role: string;
   tenant_id: string;
+  permissions: string[];
   // Ativação de conta por e-mail — null = tenant ainda não confirmou o
   // e-mail do owner. Só controla UX (tela de bloqueio); o controle de
   // acesso de verdade é sempre tenantActivationGuard.ts no backend.
   tenant_activated_at: string | null;
 }
-
-// Perfil de Acesso (RBAC) — mapa de permissões efetivas do usuário logado,
-// vindo de GET /v1/auth/permissions. Só controla UX (menu/botões); o
-// controle de acesso de verdade é sempre requirePermission() no backend
-// (mesmo princípio já usado por GET /v1/tenant/modules).
-type PermissionMap = Record<string, { view: boolean; manage: boolean }>;
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -26,9 +21,11 @@ interface AuthContextValue {
   login:    (email: string, password: string) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout:   () => void;
-  can: (resource: string, action?: 'view' | 'manage') => boolean;
-  tenantActivated: boolean;
+  /** Recarrega papel + permissões do /auth/me (reflete troca de perfil sem re-login). */
+  refreshPermissions: () => Promise<void>;
+  /** Alias usado pelo fluxo de ativação (VerifyEmailPage/EmailNotVerifiedScreen). */
   refreshUser: () => Promise<void>;
+  tenantActivated: boolean;
 }
 
 interface RegisterData {
@@ -45,6 +42,7 @@ interface AuthResponse {
   token: string;
   user: { id: string; email: string; name: string; role: string };
   tenantId: string;
+  permissions: string[];
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -52,14 +50,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<AuthUser | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
-  const [permissions, setPermissions] = useState<PermissionMap>({});
   const [loading, setLoading] = useState(true);
-
-  function loadPermissions() {
-    api.get<{ permissions: PermissionMap }>('/v1/auth/permissions')
-      .then(res => setPermissions(res.permissions ?? {}))
-      .catch(() => setPermissions({}));
-  }
 
   // Fonte única de verdade pro AuthUser — sempre busca o /auth/me completo
   // (inclui tenant_activated_at), nunca reconstrói o objeto a partir da
@@ -77,16 +68,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) { setLoading(false); return; }
 
     loadMe()
-      .then(loadPermissions)
       .catch(() => localStorage.removeItem('token'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    setUser(null);
+    setTenantId(null);
+  }, []);
+
+  // Sessão expirada / revogada (401 em request autenticado): o api.ts limpa o
+  // token e dispara este evento; aqui só zeramos o estado → GuardedRoutes
+  // redireciona para /login sem reload duro.
+  useEffect(() => {
+    const handle = () => { setUser(null); setTenantId(null); };
+    window.addEventListener(AUTH_SIGNOUT_EVENT, handle);
+    return () => window.removeEventListener(AUTH_SIGNOUT_EVENT, handle);
+  }, []);
+
   async function saveSession(res: AuthResponse): Promise<void> {
     localStorage.setItem('token', res.token);
     await loadMe();
-    loadPermissions();
   }
 
   async function login(email: string, password: string) {
@@ -99,22 +103,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await saveSession(res);
   }
 
-  function logout() {
-    localStorage.removeItem('token');
-    setUser(null);
-    setTenantId(null);
-    setPermissions({});
-  }
-
-  function can(resource: string, action: 'view' | 'manage' = 'view'): boolean {
-    return permissions[resource]?.[action] ?? false;
-  }
+  const refreshPermissions = useCallback(async () => {
+    await loadMe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tenantActivated = user != null && user.tenant_activated_at != null;
 
   return (
     <AuthContext.Provider value={{
-      user, tenantId, loading, login, register, logout, can, tenantActivated, refreshUser: loadMe,
+      user, tenantId, loading, login, register, logout,
+      refreshPermissions, refreshUser: loadMe, tenantActivated,
     }}>
       {children}
     </AuthContext.Provider>

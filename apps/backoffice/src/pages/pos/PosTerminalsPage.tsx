@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { Can } from '../../rbac';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -114,9 +115,11 @@ export function PosTerminalsPage() {
       {/* ── Header ── */}
       <div className="page-header">
         <h1>Terminais PDV</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + Novo Terminal
-        </button>
+        <Can permission="pos:manage">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + Novo Terminal
+          </button>
+        </Can>
       </div>
 
       {/* ── Error ── */}
@@ -133,9 +136,11 @@ export function PosTerminalsPage() {
         ) : terminals.length === 0 ? (
           <div className="empty-state">
             Nenhum terminal cadastrado.{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>
-              Criar terminal
-            </button>
+            <Can permission="pos:manage">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>
+                Criar terminal
+              </button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -163,20 +168,24 @@ export function PosTerminalsPage() {
                   </td>
                   <td>
                     <div className="flex-gap">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ width: 'auto' }}
-                        onClick={() => openEdit(t)}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        className={`btn btn-sm ${t.is_active ? 'btn-danger' : 'btn-secondary'}`}
-                        style={{ width: 'auto' }}
-                        onClick={() => void handleToggleActive(t)}
-                      >
-                        {t.is_active ? 'Desativar' : 'Ativar'}
-                      </button>
+                      <Can permission="pos:manage">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ width: 'auto' }}
+                          onClick={() => openEdit(t)}
+                        >
+                          Editar
+                        </button>
+                      </Can>
+                      <Can permission="pos:manage">
+                        <button
+                          className={`btn btn-sm ${t.is_active ? 'btn-danger' : 'btn-secondary'}`}
+                          style={{ width: 'auto' }}
+                          onClick={() => void handleToggleActive(t)}
+                        >
+                          {t.is_active ? 'Desativar' : 'Ativar'}
+                        </button>
+                      </Can>
                     </div>
                   </td>
                 </tr>
@@ -250,9 +259,11 @@ export function PosTerminalsPage() {
               <button className="btn btn-secondary" onClick={closeModal} disabled={saving}>
                 Cancelar
               </button>
-              <button className="btn btn-primary" onClick={() => void handleSave()} disabled={saving}>
-                {saving ? 'Salvando…' : 'Salvar'}
-              </button>
+              <Can permission="pos:manage">
+                <button className="btn btn-primary" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? 'Salvando…' : 'Salvar'}
+                </button>
+              </Can>
             </div>
           </div>
         </div>

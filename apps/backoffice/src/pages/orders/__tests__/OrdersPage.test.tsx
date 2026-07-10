@@ -21,7 +21,13 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ tenantId: 'tenant-123', user: { name: 'Test', role: 'owner' } }),
+  useAuth: () => ({
+    tenantId: 'tenant-123',
+    // permissions precisa cobrir os botões gated por <Can> na página (Novo
+    // pedido → orders:create; Editar/Confirmar → orders:edit) — em produção
+    // um 'owner' real recebe todas as permissões do backend.
+    user: { name: 'Test', role: 'owner', permissions: ['orders:view', 'orders:create', 'orders:edit'] },
+  }),
 }));
 
 vi.mock('../../../i18n', () => ({

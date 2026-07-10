@@ -5,6 +5,7 @@ import { db, serviceContracts, contractBillings, receivables, clients, materials
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
+import { requirePermission } from '../lib/requirePermission';
 
 const FREQUENCIES = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
 const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
@@ -38,18 +39,20 @@ const patchBody = { ...contractBody, required: [] as string[] };
 export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /v1/service-contracts
-  fastify.get('/service-contracts', async (request, reply) => {
+  fastify.get('/service-contracts', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const {
-      tenant_id, client_id, status, search,
+      client_id, status, search,
       page = '1', per_page = '20',
     } = request.query as Record<string, string>;
-
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 
-    const conditions: any[] = [eq(serviceContracts.tenant_id, tenant_id)];
+    const conditions: any[] = [eq(serviceContracts.tenant_id, tenantId)];
     if (client_id) conditions.push(eq(serviceContracts.client_id, client_id));
     if (status)    conditions.push(eq(serviceContracts.status, status));
     if (search) conditions.push(or(
@@ -67,7 +70,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
         FROM service_contracts sc
         JOIN clients  c ON c.id = sc.client_id
         LEFT JOIN materials m ON m.id = sc.material_id
-        WHERE sc.tenant_id = ${tenant_id}
+        WHERE sc.tenant_id = ${tenantId}
           ${client_id ? sql`AND sc.client_id = ${client_id}::uuid` : sql``}
           ${status    ? sql`AND sc.status = ${status}`             : sql``}
           ${search    ? sql`AND (sc.description ILIKE ${'%' + search + '%'} OR sc.contract_number ILIKE ${'%' + search + '%'})` : sql``}
@@ -81,6 +84,8 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /v1/service-contracts
   fastify.post('/service-contracts', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:create')],
     schema: {
       body: {
         ...contractBody,
@@ -88,21 +93,22 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
   }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, unknown>;
 
     // Verify client belongs to tenant
     const [c] = await db.select({ id: clients.id }).from(clients)
-      .where(and(eq(clients.id, b.client_id as string), eq(clients.tenant_id, b.tenant_id as string)));
+      .where(and(eq(clients.id, b.client_id as string), eq(clients.tenant_id, tenantId)));
     if (!c) return reply.notFound('Client not found');
 
     // Generate sequential contract number
     const { rows: [seq] } = await db.execute<{ count: number }>(sql`
-      SELECT COUNT(*)::int AS count FROM service_contracts WHERE tenant_id = ${b.tenant_id as string}
+      SELECT COUNT(*)::int AS count FROM service_contracts WHERE tenant_id = ${tenantId}
     `);
     const contractNumber = String(seq.count + 1).padStart(5, '0');
 
     const [contract] = await db.insert(serviceContracts).values({
-      tenant_id:         b.tenant_id         as string,
+      tenant_id:         tenantId,
       client_id:         b.client_id         as string,
       material_id:       (b.material_id      ?? null) as string | null,
       company_id:        (b.company_id       ?? null) as string | null,
@@ -125,7 +131,11 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/service-contracts/:id
-  fastify.get<{ Params: { id: string } }>('/service-contracts/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/service-contracts/:id', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
     const { rows } = await db.execute<any>(sql`
       SELECT sc.*,
@@ -134,7 +144,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       FROM service_contracts sc
       JOIN clients  c ON c.id = sc.client_id
       LEFT JOIN materials m ON m.id = sc.material_id
-      WHERE sc.id = ${id}
+      WHERE sc.id = ${id} AND sc.tenant_id = ${tenantId}
     `);
     if (!rows[0]) return reply.notFound('Contract not found');
 
@@ -154,13 +164,17 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /v1/service-contracts/:id
   fastify.patch<{ Params: { id: string } }>('/service-contracts/:id', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:edit')],
     schema: { body: patchBody },
   }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
     const b = request.body as Record<string, unknown>;
 
     const [existing] = await db.select({ id: serviceContracts.id })
-      .from(serviceContracts).where(eq(serviceContracts.id, id));
+      .from(serviceContracts)
+      .where(and(eq(serviceContracts.id, id), eq(serviceContracts.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Contract not found');
 
     const allowed = ['description', 'client_id', 'material_id', 'company_id', 'start_date', 'end_date',
@@ -173,21 +187,25 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [updated] = await db.update(serviceContracts)
       .set(updateData as any)
-      .where(eq(serviceContracts.id, id))
+      .where(and(eq(serviceContracts.id, id), eq(serviceContracts.tenant_id, tenantId)))
       .returning();
 
     return updated;
   });
 
   // POST /v1/service-contracts/:id/billings — gera cobrança manualmente para o período atual
-  fastify.post<{ Params: { id: string } }>('/service-contracts/:id/billings', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/service-contracts/:id/billings', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:edit')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id: contractId } = request.params;
 
     const { rows } = await db.execute<any>(sql`
       SELECT sc.*, COALESCE(c.company_name, c.full_name) AS client_name
       FROM service_contracts sc
       JOIN clients c ON c.id = sc.client_id
-      WHERE sc.id = ${contractId}
+      WHERE sc.id = ${contractId} AND sc.tenant_id = ${tenantId}
     `);
     const contract = rows[0];
     if (!contract) return reply.notFound('Contract not found');
@@ -333,7 +351,11 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/service-contracts/:id/billings
-  fastify.get<{ Params: { id: string } }>('/service-contracts/:id/billings', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/service-contracts/:id/billings', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id: contractId } = request.params;
 
     const { rows } = await db.execute<any>(sql`
@@ -343,7 +365,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
              r.amount AS receivable_amount
       FROM contract_billings cb
       LEFT JOIN receivables r ON r.id = cb.receivable_id
-      WHERE cb.contract_id = ${contractId}
+      WHERE cb.contract_id = ${contractId} AND cb.tenant_id = ${tenantId}
       ORDER BY cb.period_start DESC
     `);
 

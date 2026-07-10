@@ -4,6 +4,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 import { ProductPicker, type ProductPickerOption } from '../../ds/components/ProductPicker';
 
 interface KitComp {
@@ -566,12 +567,16 @@ export function MaterialsPage() {
       <div className="page-header">
         <h1>{t('m.title')}</h1>
         <div className="flex-gap">
-          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }} onClick={() => setImportOpen(true)}>
-            ↑ {t('mi.import')}
-          </button>
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-            + {t('m.new')}
-          </button>
+          <Can permission="materials:import">
+            <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }} onClick={() => setImportOpen(true)}>
+              ↑ {t('mi.import')}
+            </button>
+          </Can>
+          <Can permission="materials:create">
+            <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+              + {t('m.new')}
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -651,8 +656,12 @@ export function MaterialsPage() {
                   </td>
                   <td>
                     <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(m)}>{t('c.edit')}</button>
-                      <button className="btn btn-danger btn-sm"    onClick={() => handleDelete(m.id)}>{t('c.del')}</button>
+                      <Can permission="materials:edit">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(m)}>{t('c.edit')}</button>
+                      </Can>
+                      <Can permission="materials:delete">
+                        <button className="btn btn-danger btn-sm"    onClick={() => handleDelete(m.id)}>{t('c.del')}</button>
+                      </Can>
                     </div>
                   </td>
                 </tr>

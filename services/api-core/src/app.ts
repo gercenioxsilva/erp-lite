@@ -2,7 +2,8 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import jwt from '@fastify/jwt';
-import { customersRoutes } from './routes/customers';
+// customersRoutes: import removida junto com o registro abaixo (hotfix de
+// segurança 2026-07-08) — ver comentário na chamada de app.register comentada.
 import { materialsRoutes } from './routes/materials';
 import { authRoutes }      from './routes/auth';
 import { clientsRoutes }   from './routes/clients';
@@ -14,7 +15,6 @@ import { nfeRoutes }                from './routes/nfe';
 import { nfseRoutes }               from './routes/nfse';
 import { simplesRemessaRoutes }     from './routes/simplesRemessa';
 import { salesPipelineRoutes }      from './routes/salesPipeline';
-import { accessProfilesRoutes }     from './routes/accessProfiles';
 import { employeesRoutes }          from './routes/employees';
 import { payrollRoutes }            from './routes/payroll';
 import { notificationConfigRoutes } from './routes/notificationConfig';
@@ -46,8 +46,14 @@ import { tenantModulesRoutes }     from './routes/tenantModules';
 import { techniciansRoutes }       from './routes/technicians';
 import { serviceOrdersRoutes }     from './routes/serviceOrders';
 import { technicianPortalRoutes }  from './routes/technicianPortal';
+import { rbacRoutes }            from './routes/rbac';
+import { schedulingRoutes }      from './routes/scheduling';
+import { schedulingSessionsRoutes } from './routes/schedulingSessions';
+import { schedulingPortalRoutes }   from './routes/schedulingPortal';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
+import { clientRoleGuard } from './middleware/clientRoleGuard';
+import { syncRbacCatalog } from './rbac/syncRbacCatalog';
 import { tenantActivationGuard } from './middleware/tenantActivationGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
@@ -85,7 +91,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
   await app.register(authRoutes,      { prefix: '/v1' });
-  await app.register(customersRoutes, { prefix: '/v1' });
+  // customersRoutes DESREGISTRADO (hotfix de segurança, 2026-07-08): CRUD direto
+  // na tabela `tenants` sem authenticate e sem NENHUM filtro de tenant — qualquer
+  // um sem login podia listar/editar/cancelar qualquer empresa do SaaS. Sem
+  // caller conhecido no repo (frontend/scripts/testes) — parece resíduo de
+  // bootstrap nunca protegido. Cross-tenant por natureza (opera sobre `tenants`,
+  // não sobre dados de UM tenant), então não faz sentido virar RBAC tenant-scoped
+  // como as demais rotas — nenhum papel hoje deveria ter esse poder. Reversível:
+  // descomentar a linha abaixo se surgir um uso legítimo (ex.: backoffice interno
+  // de sucesso do cliente), mas aí precisa de um conceito de permissão de
+  // plataforma separado do RBAC por tenant, não authenticate+requirePermission comum.
+  // await app.register(customersRoutes, { prefix: '/v1' });
   await app.register(materialsRoutes, { prefix: '/v1' });
   await app.register(clientsRoutes,   { prefix: '/v1' });
   await app.register(usersRoutes,     { prefix: '/v1' });
@@ -96,7 +112,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(nfseRoutes,               { prefix: '/v1' });
   await app.register(simplesRemessaRoutes,     { prefix: '/v1' });
   await app.register(salesPipelineRoutes,      { prefix: '/v1' });
-  await app.register(accessProfilesRoutes,     { prefix: '/v1' });
   await app.register(employeesRoutes,          { prefix: '/v1' });
   await app.register(payrollRoutes,            { prefix: '/v1' });
   await app.register(notificationConfigRoutes, { prefix: '/v1' });
@@ -129,6 +144,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(techniciansRoutes,        { prefix: '/v1' });
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
   await app.register(technicianPortalRoutes,   { prefix: '/v1' });
+  await app.register(rbacRoutes,               { prefix: '/v1' });
+  await app.register(schedulingRoutes,         { prefix: '/v1' });
+  await app.register(schedulingSessionsRoutes, { prefix: '/v1' });
+  await app.register(schedulingPortalRoutes,   { prefix: '/v1' });
 
   // Ativação de conta roda antes de assinatura/papel — é o gate mais
   // fundamental (identidade confirmada), faz sentido que ganhe prioridade
@@ -137,8 +156,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.addHook('preHandler', tenantActivationGuard);
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
+  app.addHook('preHandler', clientRoleGuard);
 
   app.addHook('onReady', async () => {
+    // Semeia o catálogo RBAC + papéis de sistema (idempotente). Não derruba o
+    // boot em caso de falha — owner segue com acesso pleno por código.
+    syncRbacCatalog().catch((err) =>
+      app.log.error({ event: 'rbac_sync_failed', error: String(err) }, 'rbac_sync_failed'));
     startNfeResultsWorker();
     startBoletoResultsWorker();
     startContractBillingWorker();

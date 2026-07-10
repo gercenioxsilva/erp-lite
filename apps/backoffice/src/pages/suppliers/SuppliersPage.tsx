@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 import {
   maskCNPJ, maskCPF, maskPhone, maskCEP, digits, normalizeCNPJ,
   fetchAddressByCEP, UF_LIST,
@@ -379,7 +380,9 @@ export function SuppliersPage() {
     <div>
       <div className="page-header">
         <h1>{t('sup.title')}</h1>
-        <button className="btn btn-primary btn-cta" onClick={openCreate}>{t('sup.add')}</button>
+        <Can permission="suppliers:create">
+          <button className="btn btn-primary btn-cta" onClick={openCreate}>{t('sup.add')}</button>
+        </Can>
       </div>
 
       {/* Filters */}
@@ -444,9 +447,13 @@ export function SuppliersPage() {
                     </span>
                   </td>
                   <td style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(sup)}>{t('c.edit')}</button>
+                    <Can permission="suppliers:edit">
+                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(sup)}>{t('c.edit')}</button>
+                    </Can>
                     {sup.is_active && (
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(sup)}>{t('c.del')}</button>
+                      <Can permission="suppliers:delete">
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDeactivate(sup)}>{t('c.del')}</button>
+                      </Can>
                     )}
                   </td>
                 </tr>

@@ -5,14 +5,11 @@ import { buildApp } from '../app';
 // Regressão de segurança (RBAC): antes desta entrega, GET /v1/users confiava
 // em tenant_id da query string, e PATCH/DELETE não filtravam tenant_id
 // nenhum — um usuário de QUALQUER tenant conseguia listar/editar/desativar
-// usuários de OUTRO tenant. Estes testes provam que tenant_id agora vem
-// sempre de request.user.tenantId (JWT), nunca de query/param, e que as
-// mutações exigem requireRole('owner').
-
-vi.mock('../services/accessControlService', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('../services/accessControlService');
-  return { ...actual, assignUserProfile: vi.fn() };
-});
+// usuários de OUTRO tenant. Estes testes provam que tenant_id vem sempre de
+// request.user.tenantId (JWT), nunca de query/param/body, e que o owner
+// nunca pode ser desabilitado. Os gates de ação são requirePermission()
+// (users:create/edit/delete) — mockados grant-all pelo rbac.setup.ts, como
+// em todos os testes de rota; a matriz papel→permissão tem testes próprios.
 
 const mockDb = vi.hoisted(() => ({ select: vi.fn(), update: vi.fn(), insert: vi.fn() }));
 
@@ -68,7 +65,12 @@ function setupDb(selectQueue: unknown[][], updateResult: { rowCount?: number } =
   }));
   mockDb.update.mockImplementation(() => ({
     set: () => ({
-      where: (expr: unknown) => { whereExprs.push(expr); return Promise.resolve(updateResult); },
+      where: (expr: unknown) => {
+        whereExprs.push(expr);
+        const p: any = Promise.resolve(updateResult);
+        p.returning = () => Promise.resolve([{ id: TARGET_USER_ID, email: 'x@ex.com', name: 'X', role: 'user', status: 'active' }]);
+        return p;
+      },
     }),
   }));
   mockDb.insert.mockImplementation(() => ({
@@ -100,70 +102,49 @@ describe('GET /v1/users — isolamento multi-tenant', () => {
   });
 });
 
-describe('POST /v1/users — owner apenas, tenant sempre do JWT', () => {
+describe('POST /v1/users — tenant sempre do JWT, papel validado', () => {
   let app: FastifyInstance;
   beforeEach(async () => { vi.clearAllMocks(); app = await buildApp(); });
   afterEach(async () => { await app.close(); });
 
-  it('403 quando o ator não é owner', async () => {
-    setupDb([]);
+  it('403 quando um ator não-owner tenta atribuir o papel owner', async () => {
+    setupDb([[{ id: 'role-owner' }]]); // isAssignableRole encontra o papel
     const res = await app.inject({
       method: 'POST', url: '/v1/users',
       headers: { authorization: `Bearer ${userToken(app)}` },
-      payload: { email: 'novo@ex.com', password: 'senha1234' },
+      payload: { email: 'novo@ex.com', password: 'senha1234', role: 'owner' },
     });
     expect(res.statusCode).toBe(403);
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
-  it('201 e o novo usuário nasce sempre com tenant_id do JWT — payload não aceita tenant_id (additionalProperties: false)', async () => {
-    const { insertedValues } = setupDb([]);
+  it('201 e o novo usuário nasce sempre com tenant_id do JWT — tenant_id do body é IGNORADO', async () => {
+    const { insertedValues } = setupDb([[{ id: 'role-user' }]]);
     const res = await app.inject({
       method: 'POST', url: '/v1/users',
       headers: { authorization: `Bearer ${ownerToken(app, TENANT_A)}` },
-      payload: { email: 'novo@ex.com', password: 'senha1234' },
+      payload: { email: 'novo@ex.com', password: 'senha1234', role: 'user', tenant_id: TENANT_B },
     });
     expect(res.statusCode).toBe(201);
     expect(insertedValues[0]).toMatchObject({ tenant_id: TENANT_A, role: 'user' });
   });
 
-  it('ignora um tenant_id malicioso no body — o schema (additionalProperties: false) descarta o campo, JWT prevalece', async () => {
-    const { insertedValues } = setupDb([]);
-    const res = await app.inject({
-      method: 'POST', url: '/v1/users',
-      headers: { authorization: `Bearer ${ownerToken(app, TENANT_A)}` },
-      payload: { email: 'novo@ex.com', password: 'senha1234', tenant_id: TENANT_B },
-    });
-    expect(res.statusCode).toBe(201);
-    expect(insertedValues[0].tenant_id).toBe(TENANT_A);
-  });
-
-  it('ignora role no body — o schema descarta o campo, todo novo usuário nasce role=user', async () => {
-    const { insertedValues } = setupDb([]);
+  it('400 quando o papel não existe (nem sistema, nem custom do tenant)', async () => {
+    setupDb([[]]); // isAssignableRole não encontra nada
     const res = await app.inject({
       method: 'POST', url: '/v1/users',
       headers: { authorization: `Bearer ${ownerToken(app)}` },
-      payload: { email: 'novo@ex.com', password: 'senha1234', role: 'owner' },
+      payload: { email: 'novo@ex.com', password: 'senha1234', role: 'papel-fantasma' },
     });
-    expect(res.statusCode).toBe(201);
-    expect(insertedValues[0].role).toBe('user');
+    expect(res.statusCode).toBe(400);
+    expect(mockDb.insert).not.toHaveBeenCalled();
   });
 });
 
-describe('PATCH /v1/users/:id — isolamento multi-tenant + owner apenas', () => {
+describe('PATCH /v1/users/:id — isolamento multi-tenant + proteção do owner', () => {
   let app: FastifyInstance;
   beforeEach(async () => { vi.clearAllMocks(); app = await buildApp(); });
   afterEach(async () => { await app.close(); });
-
-  it('403 quando o ator não é owner', async () => {
-    setupDb([]);
-    const res = await app.inject({
-      method: 'PATCH', url: `/v1/users/${TARGET_USER_ID}`,
-      headers: { authorization: `Bearer ${userToken(app)}` },
-      payload: { name: 'Novo nome' },
-    });
-    expect(res.statusCode).toBe(403);
-  });
 
   it('404 quando o usuário-alvo pertence a OUTRO tenant (nunca vaza edição cross-tenant)', async () => {
     // A busca por (id, tenant_id=TENANT_A) não encontra nada porque o usuário
@@ -204,31 +185,25 @@ describe('PATCH /v1/users/:id — isolamento multi-tenant + owner apenas', () =>
     expect(res.json().error).toBe('cannot_disable_owner');
   });
 
-  it('ignora role no body (campo fora do schema) — sem mais nenhum campo válido, vira "nada para atualizar"', async () => {
-    setupDb([[{ id: TARGET_USER_ID, role: 'user' }]]);
+  it('400 ao tentar trocar para um papel que não existe no tenant', async () => {
+    setupDb([
+      [{ id: TARGET_USER_ID, role: 'user' }], // lookup do alvo
+      [],                                     // isAssignableRole: papel não existe
+    ]);
     const res = await app.inject({
       method: 'PATCH', url: `/v1/users/${TARGET_USER_ID}`,
       headers: { authorization: `Bearer ${ownerToken(app)}` },
-      payload: { role: 'owner' },
+      payload: { role: 'papel-fantasma' },
     });
     expect(res.statusCode).toBe(400);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 });
 
-describe('DELETE /v1/users/:id — isolamento multi-tenant + owner apenas', () => {
+describe('DELETE /v1/users/:id — isolamento multi-tenant + proteção do owner', () => {
   let app: FastifyInstance;
   beforeEach(async () => { vi.clearAllMocks(); app = await buildApp(); });
   afterEach(async () => { await app.close(); });
-
-  it('403 quando o ator não é owner', async () => {
-    setupDb([]);
-    const res = await app.inject({
-      method: 'DELETE', url: `/v1/users/${TARGET_USER_ID}`,
-      headers: { authorization: `Bearer ${userToken(app)}` },
-    });
-    expect(res.statusCode).toBe(403);
-  });
 
   it('404 quando o usuário-alvo pertence a outro tenant', async () => {
     setupDb([[]]);

@@ -62,7 +62,6 @@ import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
 import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
-import { AccessProfilesPage }  from './pages/access-profiles/AccessProfilesPage';
 import { EmployeesPage }       from './pages/employees/EmployeesPage';
 import { PayrollPage }         from './pages/payroll/PayrollPage';
 import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
@@ -71,73 +70,122 @@ import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
 import { TechnicianVisitDetailPage } from './pages/technician/TechnicianVisitDetailPage';
+import { RolesPage }        from './pages/users/RolesPage';
+import { AccessDeniedPage } from './pages/AccessDeniedPage';
+import { ProtectedRoute }   from './rbac';
+import { SchedulingDashboardPage }  from './pages/scheduling/SchedulingDashboardPage';
+import { SchedulingCalendarPage }   from './pages/scheduling/SchedulingCalendarPage';
+import { BookingRequestsPage }      from './pages/scheduling/BookingRequestsPage';
+import { AreasPage }                from './pages/scheduling/AreasPage';
+import { ProfessionalsPage }        from './pages/scheduling/ProfessionalsPage';
+import { ProfessionalDetailPage }   from './pages/scheduling/ProfessionalDetailPage';
+import { PackageTemplatesPage }     from './pages/scheduling/PackageTemplatesPage';
+import { SchedulingClientDetailPage } from './pages/scheduling/SchedulingClientDetailPage';
+import { SchedulingSettingsPage }   from './pages/scheduling/SchedulingSettingsPage';
+import { SchedulingOnboardingPage } from './pages/scheduling/SchedulingOnboardingPage';
+import { PortalLayout }       from './pages/portal/PortalLayout';
+import { PortalLoginPage }    from './pages/portal/PortalLoginPage';
+import { PortalHomePage }     from './pages/portal/PortalHomePage';
+import { PortalSessionsPage } from './pages/portal/PortalSessionsPage';
+import { PortalBookingPage }  from './pages/portal/PortalBookingPage';
+import { PortalPackagesPage } from './pages/portal/PortalPackagesPage';
+import { PortalProfilePage }  from './pages/portal/PortalProfilePage';
 
 function GuardedRoutes() {
   const { user, loading, tenantActivated } = useAuth();
   if (loading) return <div className="spinner">Carregando…</div>;
   if (!user)   return <Navigate to="/login" replace />;
+  // Papel 'client' (portal de agendamentos) nunca navega o admin — o backend
+  // já barra tudo via clientRoleGuard; aqui é UX (mesma dupla camada do técnico).
+  if (user.role === 'client') return <Navigate to="/portal" replace />;
+
   // Ativação de conta por e-mail — só UX (o controle de acesso de verdade é
   // sempre tenantActivationGuard.ts no backend); evita renderizar um app
   // cheio de erros 403 pra um tenant ainda não verificado.
   if (!tenantActivated) return <EmailNotVerifiedScreen />;
+
+  // Cada rota privada exige a permissão de visualização do seu módulo. Sem ela,
+  // ProtectedRoute redireciona para /403. A autoridade real é o backend.
+  const gate = (permission: string, element: JSX.Element) => (
+    <ProtectedRoute permission={permission}>{element}</ProtectedRoute>
+  );
+
   return (
     <Layout>
       <Routes>
         <Route path="/"           element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard"  element={<DashboardPage />} />
-        <Route path="/clients"    element={<ClientsPage />} />
-        <Route path="/materials"  element={<MaterialsPage />} />
-        <Route path="/users"      element={<UsersPage />} />
-        <Route path="/orders"      element={<OrdersPage />} />
-        <Route path="/invoices"     element={<InvoicesPage />} />
-        <Route path="/invoices/new" element={<InvoiceNewPage />} />
-        <Route path="/stock"       element={<StockPage />} />
-        <Route path="/receivables" element={<ReceivablesPage />} />
-        <Route path="/suppliers"   element={<SuppliersPage />} />
-        <Route path="/payables"    element={<PayablesPage />} />
-        <Route path="/company"     element={<CompanyPage />} />
-        <Route path="/contracts"   element={<ContractsPage />} />
-        <Route path="/nfse"        element={<NfsePage />} />
+        <Route path="/dashboard"  element={gate('dashboard:view', <DashboardPage />)} />
+        <Route path="/clients"    element={gate('clients:view', <ClientsPage />)} />
+        <Route path="/materials"  element={gate('materials:view', <MaterialsPage />)} />
+        <Route path="/users"      element={gate('users:view', <UsersPage />)} />
+        <Route path="/roles"      element={gate('roles:view', <RolesPage />)} />
+        <Route path="/orders"      element={gate('orders:view', <OrdersPage />)} />
+        <Route path="/invoices"     element={gate('invoices:view', <InvoicesPage />)} />
+        <Route path="/invoices/new" element={gate('invoices:create', <InvoiceNewPage />)} />
+        <Route path="/stock"       element={gate('stock:view', <StockPage />)} />
+        <Route path="/receivables" element={gate('receivables:view', <ReceivablesPage />)} />
+        <Route path="/suppliers"   element={gate('suppliers:view', <SuppliersPage />)} />
+        <Route path="/payables"    element={gate('payables:view', <PayablesPage />)} />
+        <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
+        <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
+        <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
+        {/* TODO(follow-up RBAC): simples-remessa e sales-pipeline são módulos novos
+            de develop, sem chave no catálogo de permissões ainda — deixados sem
+            gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
         <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
-        <Route path="/proposals"       element={<ProposalsPage />} />
-        <Route path="/reports"              element={<ReportsPage />} />
-        <Route path="/reports/cashflow"     element={<CashflowPage />} />
-        <Route path="/reports/aging"        element={<AgingPage />} />
-        <Route path="/reports/expenses"     element={<ExpensesPage />} />
-        <Route path="/reports/pos-cash"     element={<PosCashReportPage />} />
-        <Route path="/reports/overdue"      element={<OverduePage />} />
-        <Route path="/reports/top-products" element={<TopProductsPage />} />
-        <Route path="/reports/commissions"  element={<CommissionsPage />} />
-        <Route path="/reports/sales"                    element={<SalesPage />} />
-        <Route path="/reports/proposals-funnel"         element={<ProposalsFunnelPage />} />
-        <Route path="/reports/pos-payments"             element={<PosPaymentsPage />} />
-        <Route path="/reports/stock-position"           element={<StockPositionPage />} />
-        <Route path="/reports/abc"                      element={<AbcPage />} />
-        <Route path="/reports/kardex"                   element={<KardexPage />} />
-        <Route path="/reports/technician-productivity"  element={<TechnicianProductivityPage />} />
-        <Route path="/reports/recurring-revenue"        element={<RecurringRevenuePage />} />
-        <Route path="/reports/supplier-spend"           element={<SupplierSpendPage />} />
-        <Route path="/reports/tax-summary"              element={<TaxSummaryPage />} />
-        <Route path="/cost-centers"     element={<CostCentersPage />} />
-        <Route path="/cost-centers/:id" element={<CostCenterDetailPage />} />
-        <Route path="/sellers"     element={<SellersPage />} />
-        <Route path="/sellers/:id" element={<SellerDetailPage />} />
-        <Route path="/purchase-orders"   element={<PurchaseOrdersPage />} />
-        <Route path="/supplier-invoices" element={<SupplierInvoicesPage />} />
-        <Route path="/dre"               element={<DREPage />} />
-        <Route path="/billing"         element={<BillingPage />} />
-        <Route path="/billing/success" element={<BillingSuccessPage />} />
-        <Route path="/pos/caixa"       element={<PosCaixaPage />} />
-        <Route path="/pos"             element={<PosPage />} />
-        <Route path="/pos/sales"       element={<PosHistoryPage />} />
-        <Route path="/pos/terminals"   element={<PosTerminalsPage />} />
-        <Route path="/pos/sessions"    element={<PosSessionsPage />} />
-        <Route path="/service-orders"  element={<ServiceOrdersPage />} />
+        <Route path="/proposals"       element={gate('proposals:view', <ProposalsPage />)} />
+        <Route path="/reports"              element={gate('reports:view', <ReportsPage />)} />
+        <Route path="/reports/cashflow"     element={gate('reports:view', <CashflowPage />)} />
+        <Route path="/reports/aging"        element={gate('reports:view', <AgingPage />)} />
+        <Route path="/reports/expenses"     element={gate('reports:view', <ExpensesPage />)} />
+        <Route path="/reports/pos-cash"     element={gate('reports:view', <PosCashReportPage />)} />
+        <Route path="/reports/overdue"      element={gate('reports:view', <OverduePage />)} />
+        <Route path="/reports/top-products" element={gate('reports:view', <TopProductsPage />)} />
+        <Route path="/reports/commissions"  element={gate('reports:view', <CommissionsPage />)} />
+        <Route path="/reports/sales"                    element={gate('reports:view', <SalesPage />)} />
+        <Route path="/reports/proposals-funnel"         element={gate('reports:view', <ProposalsFunnelPage />)} />
+        <Route path="/reports/pos-payments"             element={gate('reports:view', <PosPaymentsPage />)} />
+        <Route path="/reports/stock-position"           element={gate('reports:view', <StockPositionPage />)} />
+        <Route path="/reports/abc"                      element={gate('reports:view', <AbcPage />)} />
+        <Route path="/reports/kardex"                   element={gate('reports:view', <KardexPage />)} />
+        <Route path="/reports/technician-productivity"  element={gate('reports:view', <TechnicianProductivityPage />)} />
+        <Route path="/reports/recurring-revenue"        element={gate('reports:view', <RecurringRevenuePage />)} />
+        <Route path="/reports/supplier-spend"           element={gate('reports:view', <SupplierSpendPage />)} />
+        <Route path="/reports/tax-summary"              element={gate('reports:view', <TaxSummaryPage />)} />
+        <Route path="/cost-centers"     element={gate('cost_centers:view', <CostCentersPage />)} />
+        <Route path="/cost-centers/:id" element={gate('cost_centers:view', <CostCenterDetailPage />)} />
+        <Route path="/sellers"     element={gate('sellers:view', <SellersPage />)} />
+        <Route path="/sellers/:id" element={gate('sellers:view', <SellerDetailPage />)} />
+        <Route path="/purchase-orders"   element={gate('purchase_orders:view', <PurchaseOrdersPage />)} />
+        <Route path="/supplier-invoices" element={gate('supplier_invoices:view', <SupplierInvoicesPage />)} />
+        <Route path="/dre"               element={gate('reports:view', <DREPage />)} />
+        <Route path="/billing"         element={gate('billing:manage', <BillingPage />)} />
+        <Route path="/billing/success" element={gate('billing:manage', <BillingSuccessPage />)} />
+        <Route path="/pos/caixa"       element={gate('pos:view', <PosCaixaPage />)} />
+        <Route path="/pos"             element={gate('pos:view', <PosPage />)} />
+        <Route path="/pos/sales"       element={gate('pos:view', <PosHistoryPage />)} />
+        <Route path="/pos/terminals"   element={gate('pos:manage', <PosTerminalsPage />)} />
+        <Route path="/pos/sessions"    element={gate('pos:view', <PosSessionsPage />)} />
+        <Route path="/service-orders"  element={gate('service_orders:view', <ServiceOrdersPage />)} />
+        {/* TODO(follow-up RBAC): sales-pipeline é módulo novo de develop, sem chave
+            no catálogo ainda — ver nota acima em simples-remessa. */}
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
-        <Route path="/access-profiles" element={<AccessProfilesPage />} />
-        <Route path="/employees"       element={<EmployeesPage />} />
-        <Route path="/payroll"         element={<PayrollPage />} />
-        <Route path="/technicians"     element={<TechniciansPage />} />
+        <Route path="/technicians"     element={gate('technicians:view', <TechniciansPage />)} />
+        {/* RH Simplificado (módulo 'hr', mergeado de develop) — gated pelo
+            catálogo RBAC; /access-profiles foi superseded pela tela /roles. */}
+        <Route path="/employees"       element={gate('employees:view', <EmployeesPage />)} />
+        <Route path="/payroll"         element={gate('payroll:view', <PayrollPage />)} />
+        <Route path="/scheduling"                    element={gate('scheduling:view', <SchedulingDashboardPage />)} />
+        <Route path="/scheduling/onboarding"         element={gate('scheduling:settings', <SchedulingOnboardingPage />)} />
+        <Route path="/scheduling/calendar"           element={gate('scheduling:view', <SchedulingCalendarPage />)} />
+        <Route path="/scheduling/requests"           element={gate('scheduling:view', <BookingRequestsPage />)} />
+        <Route path="/scheduling/areas"              element={gate('scheduling_areas:view', <AreasPage />)} />
+        <Route path="/scheduling/professionals"      element={gate('scheduling_professionals:view', <ProfessionalsPage />)} />
+        <Route path="/scheduling/professionals/:id"  element={gate('scheduling_professionals:view', <ProfessionalDetailPage />)} />
+        <Route path="/scheduling/package-templates"  element={gate('scheduling_packages:view', <PackageTemplatesPage />)} />
+        <Route path="/scheduling/clients/:id"        element={gate('scheduling:view', <SchedulingClientDetailPage />)} />
+        <Route path="/scheduling/settings"           element={gate('scheduling:settings', <SchedulingSettingsPage />)} />
+        <Route path="/403"             element={<AccessDeniedPage />} />
         <Route path="*"                element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>
@@ -164,6 +212,16 @@ export function App() {
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />
+              {/* Portal do Cliente (agendamentos) — mesmo padrão do portal do
+                  técnico: grupo próprio fora do GuardedRoutes, shell mínimo. */}
+              <Route path="/portal/entrar" element={<PortalLoginPage />} />
+              <Route path="/portal" element={<PortalLayout />}>
+                <Route index          element={<PortalHomePage />} />
+                <Route path="sessoes" element={<PortalSessionsPage />} />
+                <Route path="agendar" element={<PortalBookingPage />} />
+                <Route path="pacotes" element={<PortalPackagesPage />} />
+                <Route path="perfil"  element={<PortalProfilePage />} />
+              </Route>
               <Route path="/*"               element={<GuardedRoutes />} />
             </Routes>
           </AuthProvider>

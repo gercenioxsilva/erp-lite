@@ -3,6 +3,7 @@ import { useNavigate }         from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can }     from '../../rbac';
 
 interface Terminal { id: string; code: string; name: string; nfce_series: number; is_active: boolean; }
 interface CashMovement { id: string; type: string; amount: string; reason: string | null; created_at: string; }
@@ -180,9 +181,11 @@ export function PosCaixaPage() {
             <button className="btn btn-secondary" onClick={() => navigate('/pos')}>
               {t('pos.caixa.goToPdv')} →
             </button>
-            <button className="btn btn-danger btn-sm" onClick={() => { setCloseModal(true); setCountedAmt(''); }}>
-              {t('pos.caixa.close')}
-            </button>
+            <Can permission="pos:operate">
+              <button className="btn btn-danger btn-sm" onClick={() => { setCloseModal(true); setCountedAmt(''); }}>
+                {t('pos.caixa.close')}
+              </button>
+            </Can>
           </div>
         )}
       </div>
@@ -216,13 +219,15 @@ export function PosCaixaPage() {
           <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 28 }}>
             {t('pos.caixa.openToStart')}
           </p>
-          <button
-            className="btn btn-primary btn-cta"
-            style={{ width: '100%', fontSize: 15, padding: '12px 0', justifyContent: 'center' }}
-            onClick={() => setOpenModal(true)}
-          >
-            {t('pos.caixa.open')}
-          </button>
+          <Can permission="pos:operate">
+            <button
+              className="btn btn-primary btn-cta"
+              style={{ width: '100%', fontSize: 15, padding: '12px 0', justifyContent: 'center' }}
+              onClick={() => setOpenModal(true)}
+            >
+              {t('pos.caixa.open')}
+            </button>
+          </Can>
         </div>
       )}
 
@@ -259,18 +264,22 @@ export function PosCaixaPage() {
                 {t('pos.caixa.movements')}
               </h2>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => { setMoveModal('sangria'); setMoveAmount(''); setMoveReason(''); }}
-                >
-                  − {t('pos.caixa.sangria')}
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => { setMoveModal('suprimento'); setMoveAmount(''); setMoveReason(''); }}
-                >
-                  + {t('pos.caixa.suprimento')}
-                </button>
+                <Can permission="pos:operate">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setMoveModal('sangria'); setMoveAmount(''); setMoveReason(''); }}
+                  >
+                    − {t('pos.caixa.sangria')}
+                  </button>
+                </Can>
+                <Can permission="pos:operate">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setMoveModal('suprimento'); setMoveAmount(''); setMoveReason(''); }}
+                  >
+                    + {t('pos.caixa.suprimento')}
+                  </button>
+                </Can>
               </div>
             </div>
 
@@ -361,14 +370,16 @@ export function PosCaixaPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-              <button
-                className="btn btn-primary"
-                style={{ flex: 1, justifyContent: 'center' }}
-                onClick={() => void handleOpen()}
-                disabled={!selTerminal || loading}
-              >
-                {loading ? t('pos.saving') : t('pos.caixa.confirmOpen')}
-              </button>
+              <Can permission="pos:operate">
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => void handleOpen()}
+                  disabled={!selTerminal || loading}
+                >
+                  {loading ? t('pos.saving') : t('pos.caixa.confirmOpen')}
+                </button>
+              </Can>
               <button className="btn btn-secondary" onClick={() => setOpenModal(false)} disabled={loading}>
                 {t('pos.cancel')}
               </button>
@@ -409,14 +420,16 @@ export function PosCaixaPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-              <button
-                className="btn btn-danger"
-                style={{ flex: 1, justifyContent: 'center' }}
-                onClick={() => void handleClose()}
-                disabled={loading}
-              >
-                {loading ? t('pos.saving') : t('pos.caixa.confirmClose')}
-              </button>
+              <Can permission="pos:operate">
+                <button
+                  className="btn btn-danger"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => void handleClose()}
+                  disabled={loading}
+                >
+                  {loading ? t('pos.saving') : t('pos.caixa.confirmClose')}
+                </button>
+              </Can>
               <button className="btn btn-secondary" onClick={() => setCloseModal(false)} disabled={loading}>
                 {t('pos.cancel')}
               </button>
@@ -466,14 +479,16 @@ export function PosCaixaPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-              <button
-                className="btn btn-primary"
-                style={{ flex: 1, justifyContent: 'center' }}
-                onClick={() => void handleMovement()}
-                disabled={!moveAmount || loading}
-              >
-                {loading ? t('pos.saving') : t('pos.confirm')}
-              </button>
+              <Can permission="pos:operate">
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => void handleMovement()}
+                  disabled={!moveAmount || loading}
+                >
+                  {loading ? t('pos.saving') : t('pos.confirm')}
+                </button>
+              </Can>
               <button className="btn btn-secondary" onClick={() => setMoveModal(null)} disabled={loading}>
                 {t('pos.cancel')}
               </button>

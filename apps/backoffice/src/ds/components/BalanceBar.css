@@ -1,0 +1,54 @@
+.ds-balance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 120px;
+}
+
+.ds-balance--compact { min-width: 90px; }
+
+.ds-balance__segments {
+  display: flex;
+  gap: 3px;
+}
+
+.ds-balance__seg {
+  flex: 1;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--primary);
+  transition: background-color 150ms ease;
+}
+
+/* Sessão consumida: some visualmente, sobra o "trilho" */
+.ds-balance__seg--used {
+  background: var(--border);
+}
+
+/* Pacote esgotado: o que foi usado ganha o tom de alerta suave */
+.ds-balance__seg--exhausted.ds-balance__seg--used,
+.ds-balance__fill.ds-balance__seg--exhausted {
+  background: var(--status-pending-bg);
+  outline: 1px solid var(--status-pending-fg);
+  outline-offset: -1px;
+}
+
+.ds-balance__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--primary);
+  overflow: hidden;
+  direction: rtl; /* preenchimento (usado) cresce da direita — o que resta fica à esquerda, como nos segmentos */
+}
+
+.ds-balance__fill {
+  display: block;
+  height: 100%;
+  background: var(--border);
+}
+
+.ds-balance__label {
+  font-size: var(--text-xs, 12px);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
