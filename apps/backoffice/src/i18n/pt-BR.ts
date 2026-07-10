@@ -657,6 +657,9 @@ const ptBR = {
   'comp.bank.c6SelectFile':      'Selecionar arquivo',
   'comp.bank.c6FileTooLarge':    'Arquivo muito grande — certificados e chaves reais têm poucos KB. Confira se selecionou o arquivo certo.',
   'comp.bank.c6FileFormatWarning':'O conteúdo não parece estar no formato esperado (PEM). Confira se não trocou o certificado pela chave, ou vice-versa.',
+  'comp.bank.alreadyConfigured': '✓ Já configurado',
+  'comp.bank.leaveBlankToKeep':  'Deixe em branco para manter o valor atual',
+  'comp.bank.setAsDefault':      'Definir como conta padrão',
 
   // ── Configuração NF-e (aba Fiscal) ────────────────────────────────────
   'comp.nfe.title':       'Configuração NF-e (Focus NF-e / SEFAZ)',
