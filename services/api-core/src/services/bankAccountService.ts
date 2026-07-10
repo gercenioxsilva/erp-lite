@@ -36,17 +36,44 @@ export interface BankAccountInput {
   itau_client_secret?: string | null;
 }
 
-/** Resolve a credencial "final" desta chamada: `credentials` explícito vence;
- * sem ele, dobra os campos legados itau_client_id/secret (compat); sem
- * nenhum dos dois, `undefined` — quem chama decide o que fazer (em
- * update/upsert, o merge com o registro atual já preserva o valor existente
- * antes de chegar aqui). */
+/** Resolve a credencial "bruta" desta chamada específica: `credentials`
+ * explícito vence; sem ele, dobra os campos legados itau_client_id/secret
+ * (compat); sem nenhum dos dois, `undefined`. Isto é só o que o CALLER
+ * enviou agora — em update/upsert, precisa passar por `mergeCredentials`
+ * antes de virar o valor final gravado (ver abaixo). */
 function resolveCredentials(input: Partial<BankAccountInput>): Record<string, string> | null | undefined {
   if (input.credentials !== undefined) return input.credentials;
   if (input.itau_client_id || input.itau_client_secret) {
     return { client_id: input.itau_client_id ?? '', client_secret: input.itau_client_secret ?? '' };
   }
   return undefined;
+}
+
+/**
+ * Mescla a credencial desta chamada com a já gravada — string vazia (ou a
+ * ausência da chave) em `incoming` significa "não mudar essa chave
+ * específica", NUNCA "apagar". Existe pra resolver um problema real: o
+ * frontend nunca deveria reenviar o valor mascarado (`****xxxx`) que recebeu
+ * na leitura como se fosse um valor novo (sobrescreveria o segredo real com
+ * lixo) — em vez disso, deixa o campo em branco quando o usuário não quer
+ * trocá-lo, e este merge preserva o que já estava lá. Também permite trocar
+ * só o certificado sem reenviar o client_secret, por exemplo, sem exigir o
+ * objeto `credentials` inteiro a cada PATCH.
+ */
+function mergeCredentials(
+  current: Record<string, string> | null | undefined,
+  incoming: Record<string, string> | null | undefined,
+): Record<string, string> | null {
+  // Nem `undefined` (nada enviado nesta chamada) nem `null` (chamador não
+  // trouxe credencial nenhuma desta vez) apagam o que já está gravado — só
+  // uma chave individual vazia dentro do objeto é ignorada, nunca o objeto
+  // inteiro sendo null/ausente.
+  if (!incoming) return current ?? null;
+  const merged: Record<string, string> = { ...(current ?? {}) };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value) merged[key] = value;
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
 }
 
 function assertValid(input: Partial<BankAccountInput>) {
@@ -189,8 +216,13 @@ export async function upsertDefaultBankAccount(
 
   // Já existe: atualização parcial (ex.: só trocar o client_secret do Itaú sem
   // reenviar agência/conta) — mescla com o que já está gravado, mesmo
-  // comportamento que PATCH /v1/tenant sempre teve.
-  const merged = { ...existingDefault, ...input } as BankAccountInput;
+  // comportamento que PATCH /v1/tenant sempre teve. Credencial passa pelo
+  // mergeCredentials (não o spread ingênuo acima) — string vazia em `input`
+  // nunca apaga o que já estava gravado (ver mergeCredentials).
+  const mergedCredentials = mergeCredentials(
+    existingDefault.credentials as Record<string, string> | null, resolveCredentials(input),
+  );
+  const merged = { ...existingDefault, ...input, credentials: mergedCredentials } as BankAccountInput;
   assertValid(merged);
   // tenant_id repetido explicitamente na cláusula, mesmo o id já ter sido
   // resolvido de forma tenant-scoped linhas acima (getDefaultBankAccount) —
@@ -208,7 +240,11 @@ export async function updateBankAccount(
   tenantId: string, bankAccountId: string, input: Partial<BankAccountInput>, db: DrizzleDB = _db,
 ): Promise<BankAccount> {
   const current = await resolveBankAccount(tenantId, bankAccountId, db);
-  const merged = { ...current, ...input } as BankAccountInput;
+  // Credencial passa por mergeCredentials, não pelo spread ingênuo — string
+  // vazia em `input.credentials` (o formulário sempre manda os 4 campos,
+  // mesmo os que o usuário não tocou) nunca apaga o que já estava gravado.
+  const mergedCredentials = mergeCredentials(current.credentials as Record<string, string> | null, resolveCredentials(input));
+  const merged = { ...current, ...input, credentials: mergedCredentials } as BankAccountInput;
   assertValid(merged);
 
   const [row] = await db.update(bankAccounts).set({
