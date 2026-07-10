@@ -6,6 +6,7 @@ import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
+import { createReceivableFromInvoice } from '../services/receivableService';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -98,16 +99,19 @@ async function poll(queueUrl: string): Promise<void> {
   }
 }
 
-async function processResult(result: NfeResultMessage): Promise<void> {
+// Exportado só pra teste direto (processResult nunca é chamado fora deste
+// arquivo em produção — sempre via poll()/SQS).
+export async function processResult(result: NfeResultMessage): Promise<void> {
   const { invoice_id, nfe_status, nfe_chave, nfe_protocol,
           nfe_auth_date, xml_s3_key, danfe_url, nfe_reject_reason } = result;
 
   if (nfe_status === 'authorized') {
     const { rows: [inv] } = await db.execute<{
       tenant_id: string; serie: string; number: string | null;
+      client_id: string | null; total: string;
       client_name: string | null; client_email: string | null;
     }>(sql`
-      SELECT i.tenant_id, i.serie, i.number,
+      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM invoices i
@@ -218,6 +222,26 @@ async function processResult(result: NfeResultMessage): Promise<void> {
       }
     } catch (commErr) {
       console.error(JSON.stringify({ event: 'commission_accrual_error', invoice_id, error: String(commErr) }));
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Conta a receber (fire-and-forget, idempotente) ────────────────────────
+    // Toda nota de venda autorizada pelo SEFAZ gera uma conta a receber — é o
+    // fluxo correto de qualquer ERP, a nota fiscal É o fato gerador do
+    // recebível. Faltava aqui: só o caminho legado POST /invoices/:id/issue
+    // (que nunca passa pelo SEFAZ de verdade) criava isso — regra 60.
+    try {
+      const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      await createReceivableFromInvoice({
+        tenantId:    result.tenant_id,
+        invoiceId:   invoice_id,
+        clientId:    inv.client_id,
+        amount:      inv.total,
+        description: `NF-e nº ${number} (série ${inv.serie})`,
+        dueDate,
+      }, db);
+    } catch (recvErr) {
+      console.error(JSON.stringify({ event: 'receivable_creation_error', invoice_id, error: String(recvErr) }));
     }
     // ─────────────────────────────────────────────────────────────────────────
 
