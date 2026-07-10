@@ -122,9 +122,15 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     const b = request.body as { name?: string; role?: string; status?: string; password?: string };
 
     // Escopo por tenant — corrige o antigo lookup global por id.
-    const [existing] = await db.select({ id: users.id }).from(users)
+    const [existing] = await db.select({ id: users.id, role: users.role }).from(users)
       .where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Usuário não encontrado');
+
+    // Proteção portada do PR #141: o dono do tenant nunca pode ser
+    // desabilitado — seria lock-out do próprio negócio.
+    if (existing.role === 'owner' && b.status === 'disabled') {
+      return reply.code(422).send({ error: 'cannot_disable_owner' });
+    }
 
     if (b.role !== undefined) {
       if (!(await isAssignableRole(tenantId, b.role))) return reply.badRequest('Papel inválido');
@@ -154,6 +160,15 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { tenantId } = (request as any).user;
     const { id } = request.params as { id: string };
+
+    const [target] = await db.select({ id: users.id, role: users.role }).from(users)
+      .where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
+    if (!target) return reply.notFound('Usuário não encontrado');
+    // Proteção portada do PR #141: nunca desabilitar o dono do tenant.
+    if (target.role === 'owner') {
+      return reply.code(422).send({ error: 'cannot_disable_owner' });
+    }
+
     const result = await db.update(users)
       .set({ status: 'disabled' })
       .where(and(eq(users.id, id), eq(users.tenant_id, tenantId), eq(users.status, 'active')));

@@ -15,6 +15,8 @@ import { nfeRoutes }                from './routes/nfe';
 import { nfseRoutes }               from './routes/nfse';
 import { simplesRemessaRoutes }     from './routes/simplesRemessa';
 import { salesPipelineRoutes }      from './routes/salesPipeline';
+import { employeesRoutes }          from './routes/employees';
+import { payrollRoutes }            from './routes/payroll';
 import { notificationConfigRoutes } from './routes/notificationConfig';
 import { receivablesRoutes }        from './routes/receivables';
 import { suppliersRoutes }          from './routes/suppliers';
@@ -52,6 +54,7 @@ import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
 import { clientRoleGuard } from './middleware/clientRoleGuard';
 import { syncRbacCatalog } from './rbac/syncRbacCatalog';
+import { tenantActivationGuard } from './middleware/tenantActivationGuard';
 import { startNfeResultsWorker, stopNfeResultsWorker }             from './workers/nfeResultsWorker';
 import { startBoletoResultsWorker, stopBoletoResultsWorker }       from './workers/boletoResultsWorker';
 import { startContractBillingWorker, stopContractBillingWorker }   from './workers/contractBillingWorker';
@@ -109,6 +112,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(nfseRoutes,               { prefix: '/v1' });
   await app.register(simplesRemessaRoutes,     { prefix: '/v1' });
   await app.register(salesPipelineRoutes,      { prefix: '/v1' });
+  await app.register(employeesRoutes,          { prefix: '/v1' });
+  await app.register(payrollRoutes,            { prefix: '/v1' });
   await app.register(notificationConfigRoutes, { prefix: '/v1' });
   await app.register(receivablesRoutes,        { prefix: '/v1' });
   await app.register(suppliersRoutes,          { prefix: '/v1' });
@@ -144,6 +149,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(schedulingSessionsRoutes, { prefix: '/v1' });
   await app.register(schedulingPortalRoutes,   { prefix: '/v1' });
 
+  // Ativação de conta roda antes de assinatura/papel — é o gate mais
+  // fundamental (identidade confirmada), faz sentido que ganhe prioridade
+  // se um tenant novo, ainda não verificado, também tiver algum outro
+  // problema de acesso simultâneo.
+  app.addHook('preHandler', tenantActivationGuard);
   app.addHook('preHandler', subscriptionGuard);
   app.addHook('preHandler', technicianRoleGuard);
   app.addHook('preHandler', clientRoleGuard);

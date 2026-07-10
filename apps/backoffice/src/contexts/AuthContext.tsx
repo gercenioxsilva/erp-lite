@@ -8,6 +8,10 @@ interface AuthUser {
   role: string;
   tenant_id: string;
   permissions: string[];
+  // Ativação de conta por e-mail — null = tenant ainda não confirmou o
+  // e-mail do owner. Só controla UX (tela de bloqueio); o controle de
+  // acesso de verdade é sempre tenantActivationGuard.ts no backend.
+  tenant_activated_at: string | null;
 }
 
 interface AuthContextValue {
@@ -19,6 +23,9 @@ interface AuthContextValue {
   logout:   () => void;
   /** Recarrega papel + permissões do /auth/me (reflete troca de perfil sem re-login). */
   refreshPermissions: () => Promise<void>;
+  /** Alias usado pelo fluxo de ativação (VerifyEmailPage/EmailNotVerifiedScreen). */
+  refreshUser: () => Promise<void>;
+  tenantActivated: boolean;
 }
 
 interface RegisterData {
@@ -45,14 +52,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Fonte única de verdade pro AuthUser — sempre busca o /auth/me completo
+  // (inclui tenant_activated_at), nunca reconstrói o objeto a partir da
+  // resposta parcial de login/register. Reaproveitada tanto no boot quanto
+  // depois de VerifyEmailPage.tsx confirmar o e-mail (o token de sessão já
+  // existe desde o registro — só o status de ativação muda).
+  async function loadMe(): Promise<void> {
+    const u = await api.get<AuthUser>('/v1/auth/me');
+    setUser(u);
+    setTenantId(u.tenant_id);
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); return; }
 
-    api.get<AuthUser>('/v1/auth/me')
-      .then(u => { setUser(u); setTenantId(u.tenant_id); })
+    loadMe()
       .catch(() => localStorage.removeItem('token'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = useCallback(() => {
@@ -70,30 +88,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(AUTH_SIGNOUT_EVENT, handle);
   }, []);
 
-  function saveSession(res: AuthResponse) {
+  async function saveSession(res: AuthResponse): Promise<void> {
     localStorage.setItem('token', res.token);
-    setUser({ ...res.user, tenant_id: res.tenantId, permissions: res.permissions ?? [] });
-    setTenantId(res.tenantId);
+    await loadMe();
   }
 
   async function login(email: string, password: string) {
     const res = await api.post<AuthResponse>('/v1/auth/login', { email, password });
-    saveSession(res);
+    await saveSession(res);
   }
 
   async function register(data: RegisterData) {
     const res = await api.post<AuthResponse>('/v1/auth/register', data);
-    saveSession(res);
+    await saveSession(res);
   }
 
   const refreshPermissions = useCallback(async () => {
-    const u = await api.get<AuthUser>('/v1/auth/me');
-    setUser(u);
-    setTenantId(u.tenant_id);
+    await loadMe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const tenantActivated = user != null && user.tenant_activated_at != null;
+
   return (
-    <AuthContext.Provider value={{ user, tenantId, loading, login, register, logout, refreshPermissions }}>
+    <AuthContext.Provider value={{
+      user, tenantId, loading, login, register, logout,
+      refreshPermissions, refreshUser: loadMe, tenantActivated,
+    }}>
       {children}
     </AuthContext.Provider>
   );

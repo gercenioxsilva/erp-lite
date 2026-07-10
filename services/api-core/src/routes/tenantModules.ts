@@ -4,6 +4,9 @@ import { requirePermission } from '../lib/requirePermission';
 
 export const tenantModulesRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
+  // Ligar/desligar um módulo é uma mutação sensível de "Minha Empresa" — a
+  // primeira rota existente a usar requirePermission() de fato (RBAC), além
+  // dos gates users:* já aplicados a routes/users.ts.
 
   // ── GET /v1/tenant/modules ──────────────────────────────────────────────
   // Somente autenticado (sem permissão): o menu do frontend precisa dessa lista

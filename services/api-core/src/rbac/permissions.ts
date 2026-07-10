@@ -52,6 +52,11 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   scheduling_professionals: { label: 'Profissionais',       actions: { view: 'Ver profissionais', create: 'Criar profissional', edit: 'Editar profissional', delete: 'Desativar profissional' } },
   scheduling_packages:      { label: 'Pacotes de Sessões',  actions: { view: 'Ver pacotes e modelos', manage: 'Criar/editar modelos e pacotes', grant: 'Conceder pacote a cliente', payment: 'Alterar status de pagamento' } },
   scheduling_portal:        { label: 'Portal do Cliente',   actions: { access: 'Acessar o portal de agendamentos' } },
+  // RH Simplificado (módulo opcional 'hr', mergeado de develop) — dados
+  // sensíveis de folha: fora do OPERATIONAL do gestor por padrão; owner/admin
+  // têm tudo por código e papéis custom podem receber o grant.
+  employees:                { label: 'Funcionários (RH)',   actions: { view: 'Ver funcionários', manage: 'Gerenciar funcionários' } },
+  payroll:                  { label: 'Folha de Pagamento',  actions: { view: 'Ver folha', manage: 'Calcular/gerenciar folha' } },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

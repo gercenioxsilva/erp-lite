@@ -23,6 +23,8 @@ import { NfsePage }        from './pages/nfse/NfsePage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
+import { VerifyEmailPage }    from './pages/auth/VerifyEmailPage';
+import { EmailNotVerifiedScreen } from './components/EmailNotVerifiedScreen';
 import { ProposalsPage }      from './pages/proposals/ProposalsPage';
 import { ProposalPublicPage } from './pages/proposals/ProposalPublicPage';
 import { ProposalPrintPage }  from './pages/proposals/ProposalPrintPage';
@@ -60,6 +62,9 @@ import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
 import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
+import { EmployeesPage }       from './pages/employees/EmployeesPage';
+import { PayrollPage }         from './pages/payroll/PayrollPage';
+import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
@@ -87,12 +92,17 @@ import { PortalPackagesPage } from './pages/portal/PortalPackagesPage';
 import { PortalProfilePage }  from './pages/portal/PortalProfilePage';
 
 function GuardedRoutes() {
-  const { user, loading } = useAuth();
+  const { user, loading, tenantActivated } = useAuth();
   if (loading) return <div className="spinner">Carregando…</div>;
   if (!user)   return <Navigate to="/login" replace />;
   // Papel 'client' (portal de agendamentos) nunca navega o admin — o backend
   // já barra tudo via clientRoleGuard; aqui é UX (mesma dupla camada do técnico).
   if (user.role === 'client') return <Navigate to="/portal" replace />;
+
+  // Ativação de conta por e-mail — só UX (o controle de acesso de verdade é
+  // sempre tenantActivationGuard.ts no backend); evita renderizar um app
+  // cheio de erros 403 pra um tenant ainda não verificado.
+  if (!tenantActivated) return <EmailNotVerifiedScreen />;
 
   // Cada rota privada exige a permissão de visualização do seu módulo. Sem ela,
   // ProtectedRoute redireciona para /403. A autoridade real é o backend.
@@ -161,6 +171,10 @@ function GuardedRoutes() {
             no catálogo ainda — ver nota acima em simples-remessa. */}
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
         <Route path="/technicians"     element={gate('technicians:view', <TechniciansPage />)} />
+        {/* RH Simplificado (módulo 'hr', mergeado de develop) — gated pelo
+            catálogo RBAC; /access-profiles foi superseded pela tela /roles. */}
+        <Route path="/employees"       element={gate('employees:view', <EmployeesPage />)} />
+        <Route path="/payroll"         element={gate('payroll:view', <PayrollPage />)} />
         <Route path="/scheduling"                    element={gate('scheduling:view', <SchedulingDashboardPage />)} />
         <Route path="/scheduling/onboarding"         element={gate('scheduling:settings', <SchedulingOnboardingPage />)} />
         <Route path="/scheduling/calendar"           element={gate('scheduling:view', <SchedulingCalendarPage />)} />
@@ -190,9 +204,11 @@ export function App() {
               <Route path="/register"        element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password"  element={<ResetPasswordPage />} />
+              <Route path="/verify-email"    element={<VerifyEmailPage />} />
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
+              <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />

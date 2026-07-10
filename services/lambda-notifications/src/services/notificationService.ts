@@ -19,7 +19,7 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
 
   await app.ses.send(new SendEmailCommand({
     FromEmailAddress:  fromAddress,
-    Destination:       { ToAddresses: [msg.recipient.email] },
+    Destination:       { ToAddresses: [msg.recipient.email], CcAddresses: msg.cc?.length ? msg.cc : undefined },
     ReplyToAddresses:  msg.reply_to ? [msg.reply_to] : undefined,
     Content: {
       Simple: {

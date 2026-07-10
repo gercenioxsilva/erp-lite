@@ -63,6 +63,11 @@ export const tenants = pgTable('tenants', {
   // Simples Nacional — faturamento acumulado 12 meses (migration 0037), usado para
   // calcular a alíquota efetiva por faixa quando nfe_configs.regime_tributario = 1
   simples_rbt12: decimal('simples_rbt12', { precision: 15, scale: 2 }),
+  // Ativação de conta por e-mail (migration 0061) — NULL = tenant ainda não
+  // confirmou o e-mail do owner, bloqueado por tenantActivationGuard.ts.
+  // Backfill obrigatório: tenants existentes antes desta migration nascem
+  // com activated_at = created_at (ver 0061_tenant_activation.sql).
+  activated_at: timestamp('activated_at', { withTimezone: true }),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -78,9 +83,23 @@ export const users = pgTable('users', {
   status:        varchar('status', { length: 20 }).notNull().default('active'),
   password_reset_token:   varchar('password_reset_token',   { length: 255 }),
   password_reset_expires: timestamp('password_reset_expires', { withTimezone: true }),
+  // Ativação de conta por e-mail (migration 0061) — colunas DEDICADAS, nunca
+  // reaproveitam password_reset_token/expires (domínios de segurança
+  // diferentes: trocar senha vs. confirmar identidade). email_verified_at é
+  // um fato por usuário (auditoria), distinto de tenants.activated_at (o
+  // portão de acesso de verdade, no agregado Tenant).
+  email_verification_token:   varchar('email_verification_token',   { length: 255 }),
+  email_verification_expires: timestamp('email_verification_expires', { withTimezone: true }),
+  email_verified_at:          timestamp('email_verified_at', { withTimezone: true }),
+  // Perfil de acesso (RBAC, migration 0059) — NULL para role='owner'/'technician',
+  // que nunca usam perfil (seu acesso é 100% definido por role). Referência
+  // adiantada segura: accessProfiles é definida mais abaixo neste arquivo, mas
+  // o callback só é avaliado tardiamente (mesmo padrão já usado por
+  // salesOpportunities → sellers/proposals).
+  access_profile_id: uuid('access_profile_id').references((): AnyPgColumn => accessProfiles.id, { onDelete: 'set null' }),
   // Papel 'client' (portal de agendamento): vincula o login ao cadastro
   // comercial. Não-único de propósito — dois responsáveis podem ter login
-  // para o mesmo aluno (migration 0060).
+  // para o mesmo aluno (migration 0063).
   client_id:     uuid('client_id').references((): AnyPgColumn => clients.id, { onDelete: 'set null' }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -512,7 +531,7 @@ export const simplesRemessas = pgTable('simples_remessas', {
   // Qual empresa/CNPJ emite esta remessa (regra 40) — nullable, resolvido
   // para a empresa padrão do tenant quando omitido, mesmo padrão de invoices.
   company_id: uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
-  client_id:  uuid('client_id').notNull().references(() => clients.id),
+  client_id:  uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
   // Retorno de remessa: quando não nulo, esta linha É o retorno da remessa
   // original apontada aqui — mesma tabela, sem entidade paralela (thunk evita
   // ciclo de definição, já que a tabela referencia a si mesma).
@@ -1394,37 +1413,6 @@ export const tenantModules = pgTable('tenant_modules', {
   updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ── RBAC: catálogo de permissões + papéis (system + custom por tenant) ──────
-// permissions é global (semeado do catálogo em código). roles.tenant_id NULL =
-// papel de sistema (owner/admin/...); não-NULL = papel custom do tenant.
-// Índices únicos parciais (system: key; custom: tenant_id+key) ficam na migração
-// 0055 — Drizzle 0.36 não expressa UNIQUE parcial, e as migrações são a
-// autoridade do DDL aqui.
-export const permissions = pgTable('permissions', {
-  key:         varchar('key',    { length: 60 }).primaryKey(),
-  module:      varchar('module', { length: 40 }).notNull(),
-  action:      varchar('action', { length: 30 }).notNull(),
-  description: varchar('description', { length: 200 }),
-});
-
-export const roles = pgTable('roles', {
-  id:          uuid('id').primaryKey().defaultRandom(),
-  tenant_id:   uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
-  key:         varchar('key',  { length: 40 }).notNull(),
-  name:        varchar('name', { length: 80 }).notNull(),
-  description: varchar('description', { length: 200 }),
-  is_system:   boolean('is_system').notNull().default(false),
-  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const rolePermissions = pgTable('role_permissions', {
-  role_id:        uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
-  permission_key: varchar('permission_key', { length: 60 }).notNull().references(() => permissions.key, { onDelete: 'cascade' }),
-}, (t) => ({
-  pk: primaryKey({ columns: [t.role_id, t.permission_key] }),
-}));
-
 // Perfil do técnico — 1:1 obrigatório com users (login é o próprio requisito
 // de segurança, diferente de sellers onde user_id é opcional).
 export const technicians = pgTable('technicians', {
@@ -1510,6 +1498,161 @@ export const serviceVisitPhotos = pgTable('service_visit_photos', {
   idempotency_key:  varchar('idempotency_key', { length: 80 }).notNull(),
   created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Controle de Perfil de Acesso por Tenant (RBAC) — migration 0059
+// ──────────────────────────────────────────────────────────────────────────────
+// role continua existindo, mas com semântica reduzida a 2 papéis de sistema
+// não-configuráveis (owner/technician) — todo o resto vira access_profile_id.
+// PERMISSION_RESOURCES/actions ficam em código (accessControlDomain.ts), não
+// numa tabela de catálogo — mesmo racional de MODULE_KEYS.
+
+export const accessProfiles = pgTable('access_profiles', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 255 }),
+  is_system:   boolean('is_system').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accessProfilePermissions = pgTable('access_profile_permissions', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  access_profile_id: uuid('access_profile_id').notNull().references(() => accessProfiles.id, { onDelete: 'cascade' }),
+  resource:          varchar('resource', { length: 40 }).notNull(),
+  action:            varchar('action', { length: 10 }).notNull(),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accessProfileEvents = pgTable('access_profile_events', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  access_profile_id: uuid('access_profile_id').references(() => accessProfiles.id, { onDelete: 'set null' }),
+  type:              varchar('type', { length: 30 }).notNull(),
+  changed_by:        uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
+  payload:           jsonb('payload'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RH Simplificado (migration 0060) — módulo opcional. Ferramenta de cálculo/
+// organização interna (cadastro + folha calculada) — nunca envia nada ao
+// eSocial, ver regra correspondente no README.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const employees = pgTable('employees', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  user_id:           uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  name:              varchar('name', { length: 255 }).notNull(),
+  cpf:               varchar('cpf', { length: 11 }).notNull(),
+  email:             varchar('email', { length: 255 }),
+  phone:             varchar('phone', { length: 30 }),
+  role_title:        varchar('role_title', { length: 120 }),
+  regime:            varchar('regime', { length: 20 }).notNull().default('clt'),
+  base_salary:       decimal('base_salary', { precision: 15, scale: 2 }).notNull().default('0'),
+  cost_center_id:    uuid('cost_center_id').references(() => costCenters.id, { onDelete: 'set null' }),
+  hire_date:         date('hire_date').notNull(),
+  termination_date:  date('termination_date'),
+  is_active:         boolean('is_active').notNull().default(true),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payrollRuns = pgTable('payroll_runs', {
+  id:                     uuid('id').primaryKey().defaultRandom(),
+  tenant_id:              uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:             uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  reference_month:        date('reference_month').notNull(),
+  status:                 varchar('status', { length: 20 }).notNull().default('draft'),
+  gross_total:            decimal('gross_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  deductions_total:       decimal('deductions_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  net_total:              decimal('net_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  employer_charges_total: decimal('employer_charges_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  closed_at:              timestamp('closed_at', { withTimezone: true }),
+  closed_by:              uuid('closed_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payrollEntries = pgTable('payroll_entries', {
+  id:                       uuid('id').primaryKey().defaultRandom(),
+  tenant_id:                uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  payroll_run_id:           uuid('payroll_run_id').notNull().references(() => payrollRuns.id, { onDelete: 'cascade' }),
+  employee_id:              uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'restrict' }),
+  employee_name:            varchar('employee_name', { length: 255 }).notNull(),
+  regime:                   varchar('regime', { length: 20 }).notNull(),
+  base_salary:              decimal('base_salary', { precision: 15, scale: 2 }).notNull(),
+  extra_earnings:           jsonb('extra_earnings').notNull().default([]),
+  extra_deductions:         jsonb('extra_deductions').notNull().default([]),
+  inss_value:               decimal('inss_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  irrf_value:               decimal('irrf_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  fgts_value:               decimal('fgts_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  ferias_provisao:          decimal('ferias_provisao', { precision: 15, scale: 2 }).notNull().default('0'),
+  decimo_terceiro_provisao: decimal('decimo_terceiro_provisao', { precision: 15, scale: 2 }).notNull().default('0'),
+  gross_total:              decimal('gross_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  deductions_total:         decimal('deductions_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  net_total:                decimal('net_total', { precision: 15, scale: 2 }).notNull().default('0'),
+  payable_id:               uuid('payable_id').references(() => payables.id, { onDelete: 'set null' }),
+  created_at:               timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:               timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Global (tenant_id ausente de propósito) — INSS/IRRF são faixas federais,
+// iguais pra todo tenant. Mesmo racional de tax_simples_nacional_brackets no
+// motor fiscal (regra 15) — precisa de atualização manual quando a lei muda.
+export const payrollTaxBrackets = pgTable('payroll_tax_brackets', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  type:            varchar('type', { length: 10 }).notNull(),
+  min_value:       decimal('min_value', { precision: 15, scale: 2 }).notNull(),
+  max_value:       decimal('max_value', { precision: 15, scale: 2 }),
+  rate:            decimal('rate', { precision: 6, scale: 4 }).notNull(),
+  deduction_value: decimal('deduction_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  valid_from:      date('valid_from').notNull(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RBAC por papéis — catálogo module:action + papéis de sistema/custom
+// (migration 0062; catálogo é code-authoritative em rbac/permissions.ts e
+// semeado no boot por syncRbacCatalog). Convive com as tabelas de
+// access_profiles acima (migration 0059), que ficaram SUPERSEDED por este
+// modelo — mantidas apenas porque a migration já foi aplicada em ambientes.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── RBAC: catálogo de permissões + papéis (system + custom por tenant) ──────
+// permissions é global (semeado do catálogo em código). roles.tenant_id NULL =
+// papel de sistema (owner/admin/...); não-NULL = papel custom do tenant.
+// Índices únicos parciais (system: key; custom: tenant_id+key) ficam na migração
+// 0055 — Drizzle 0.36 não expressa UNIQUE parcial, e as migrações são a
+// autoridade do DDL aqui.
+export const permissions = pgTable('permissions', {
+  key:         varchar('key',    { length: 60 }).primaryKey(),
+  module:      varchar('module', { length: 40 }).notNull(),
+  action:      varchar('action', { length: 30 }).notNull(),
+  description: varchar('description', { length: 200 }),
+});
+
+export const roles = pgTable('roles', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+  key:         varchar('key',  { length: 40 }).notNull(),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 200 }),
+  is_system:   boolean('is_system').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const rolePermissions = pgTable('role_permissions', {
+  role_id:        uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
+  permission_key: varchar('permission_key', { length: 60 }).notNull().references(() => permissions.key, { onDelete: 'cascade' }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.role_id, t.permission_key] }),
+}));
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // Agendamento de Sessões com Pacotes — migration 0060
