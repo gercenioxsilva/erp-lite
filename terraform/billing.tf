@@ -68,6 +68,14 @@ resource "aws_lambda_function" "billing" {
       ITAU_CLIENT_SECRET        = var.itau_client_secret
       ITAU_BASE_URL             = "https://api.itau.com.br"
       ITAU_AUTH_URL             = "https://sts.itau.com.br/itauBank/api/v2/token"
+      # C6 — só as URLs de API (mesmas pra todo tenant, não são segredo).
+      # Credenciais (client_id/secret/certificado) são POR TENANT, lidas da
+      # mensagem SQS — nunca aqui, ver adapters/c6.ts (regra 59).
+      # SANDBOX por enquanto (é o que a homologação do C6 liberou até agora)
+      # — trocar pra URL de produção quando o cadastro em
+      # developers.c6bank.com.br for concluído.
+      C6_BASE_URL               = "https://baas-api-sandbox.c6bank.info"
+      C6_AUTH_URL               = "https://baas-api-sandbox.c6bank.info/v1/auth/"
       LOG_LEVEL                 = "info"
     }
   }
