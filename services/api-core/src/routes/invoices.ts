@@ -4,7 +4,6 @@ import { db, invoices, invoiceItems, orders } from '../db';
 import { applyEntry } from '../services/costCenterStock';
 import { cancelCommission } from '../services/commissionService';
 import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
-import { createReceivableFromInvoice, type DrizzleDB } from '../services/receivableService';
 import { requirePermission } from '../lib/requirePermission';
 
 interface InvoiceItemPayload {
@@ -102,11 +101,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    // Herda o vendedor do pedido de origem quando não informado explicitamente
-    let resolvedSellerId: string | null = seller_id || null;
-    if (!resolvedSellerId && order_id) {
-      const [ord] = await db.select({ seller_id: orders.seller_id }).from(orders).where(eq(orders.id, order_id));
-      resolvedSellerId = ord?.seller_id ?? null;
+    // Herda vendedor e centro de custo do pedido de origem quando não
+    // informados explicitamente — mesma lógica pros dois, um único SELECT
+    // (regra 61: antes só o vendedor herdava; centro de custo nunca herdou,
+    // o que também quebrava a baixa de estoque na autorização, gated em
+    // invoices.cost_center_id).
+    let resolvedSellerId:     string | null = seller_id      || null;
+    let resolvedCostCenterId: string | null = cost_center_id || null;
+    if ((!resolvedSellerId || !resolvedCostCenterId) && order_id) {
+      const [ord] = await db.select({ seller_id: orders.seller_id, cost_center_id: orders.cost_center_id })
+        .from(orders).where(eq(orders.id, order_id));
+      resolvedSellerId     = resolvedSellerId     ?? ord?.seller_id      ?? null;
+      resolvedCostCenterId = resolvedCostCenterId ?? ord?.cost_center_id ?? null;
     }
 
     const n = (v: unknown) => Number(v) || 0;
@@ -134,7 +140,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         icms_total: String(icmsTotal), pis_total: String(pisTotal), cofins_total: String(cofinsTotal),
         fcp_total: String(fcpTotal), icms_difal_total: String(difalTotal),
         ibs_total: String(ibsTotal), cbs_total: String(cbsTotal),
-        cost_center_id: cost_center_id || null,
+        cost_center_id: resolvedCostCenterId,
         seller_id: resolvedSellerId,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
@@ -188,50 +194,6 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     ]);
     if (!invoice) return reply.notFound('Nota fiscal não encontrada');
     return { ...invoice, items };
-  });
-
-  /* ── POST /v1/invoices/:id/issue ────────────────────────────────────── */
-  fastify.post('/invoices/:id/issue', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:emit')] }, async (request, reply) => {
-    const tenantId = (request as any).user.tenantId;
-    const { id } = request.params as { id: string };
-    const [invoice] = await db.select({
-      id: invoices.id, tenant_id: invoices.tenant_id,
-      client_id: invoices.client_id, serie: invoices.serie,
-      status: invoices.status, total: invoices.total,
-    }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
-    if (!invoice)                   return reply.notFound('Nota fiscal não encontrada');
-    if (invoice.status !== 'draft') return reply.badRequest('Apenas rascunhos podem ser emitidos');
-
-    const { rows: [num] } = await db.execute<{ n: string }>(sql`
-      SELECT COALESCE(MAX(CASE WHEN number ~ '^[0-9]+$' THEN number::INTEGER END), 0) + 1 AS n
-      FROM invoices WHERE tenant_id = ${invoice.tenant_id} AND serie = ${invoice.serie} AND status = 'issued'
-    `);
-
-    const number    = String(num.n).padStart(6, '0');
-    const issueDate = new Date().toISOString().slice(0, 10);
-    const dueDate   = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-    await db.transaction(async (tx) => {
-      await tx.update(invoices)
-        .set({ status: 'issued', number, issue_date: issueDate })
-        .where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
-
-      // Mesma função usada pelo nfeResultsWorker.ts na autorização real via
-      // SEFAZ (regra 60) — garante que os dois caminhos que podem "emitir"
-      // uma nota nunca divergem na criação do recebível, e que tentar duas
-      // vezes pra mesma nota (ex.: usuário clica os dois botões) nunca
-      // duplica (UNIQUE parcial em receivables.invoice_id, migration 0065).
-      await createReceivableFromInvoice({
-        tenantId:    invoice.tenant_id,
-        invoiceId:   invoice.id,
-        clientId:    invoice.client_id,
-        description: `NF-e nº ${number} (série ${invoice.serie})`,
-        amount:      String(invoice.total),
-        dueDate,
-      }, tx as unknown as DrizzleDB);
-    });
-
-    return { ok: true, status: 'issued', number };
   });
 
   /* ── POST /v1/invoices/:id/cancel ───────────────────────────────────── */

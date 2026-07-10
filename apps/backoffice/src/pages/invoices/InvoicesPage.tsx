@@ -227,16 +227,7 @@ export function InvoicesPage() {
     } finally { setNfeEmitting(false); }
   }
 
-  /* ── Issue / Cancel ── */
-  async function handleIssue(id: string) {
-    const ok = await modal.confirm({
-      title: t('inv.issue'), message: t('inv.issueMsg'),
-      confirmLabel: t('inv.issue'),
-    });
-    if (!ok) return;
-    try { await api.post(`/v1/invoices/${id}/issue`, {}); void load(); }
-    catch (err: unknown) { modal.error(err); }
-  }
+  /* ── Cancel ── */
   async function handleCancel(id: string) {
     const ok = await modal.confirm({
       title: t('inv.cancel'), message: t('inv.cancelMsg'),
@@ -385,14 +376,12 @@ export function InvoicesPage() {
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <div className="flex-gap">
-                      {inv.status === 'draft' && !inv.nfe_status && (
-                        <Can permission="invoices:emit">
-                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                            onClick={() => handleIssue(inv.id)}>
-                            {t('inv.issue')}
-                          </button>
-                        </Can>
-                      )}
+                      {/* Único caminho de emissão: o painel de NF-e, que fala
+                          de verdade com o SEFAZ (regra 61) — o antigo botão
+                          de linha ("Emitir NF-e" → POST /invoices/:id/issue)
+                          nunca chamava o SEFAZ, só marcava local como
+                          emitido, e coexistir com este aqui confundia qual
+                          dos dois era o real. */}
                       <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
                         onClick={() => openNfePanel(inv)}>
                         {t('nfe.viewPanel')}
