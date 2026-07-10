@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db';
 import { getDefaultBankAccount, upsertDefaultBankAccount, BankAccountDomainError } from '../services/bankAccountService';
 import { requirePermission } from '../lib/requirePermission';
+import { isValidSegmentKey, HEX_COLOR_RE } from '../lib/segments';
 
 const BANKING_FIELDS = [
   'bank_code', 'agency', 'account', 'account_digit',
@@ -72,7 +73,21 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       'maintenance_contact_name', 'maintenance_contact_phone', 'maintenance_contact_email',
       'fiscal_contact_name', 'fiscal_contact_phone', 'fiscal_contact_email',
       'simples_rbt12',
+      // Branding (migration 0065) — segmento + override manual de cores.
+      'segment_key', 'brand_primary', 'brand_accent',
     ];
+
+    // Validação do branding antes de montar o patch (a paleta/labels reais
+    // vivem no catálogo do frontend; aqui só garantimos chave/cor válidas).
+    if (body.segment_key !== undefined && body.segment_key !== null && !isValidSegmentKey(body.segment_key)) {
+      return reply.badRequest('segment_key inválido');
+    }
+    for (const colorKey of ['brand_primary', 'brand_accent']) {
+      const v = body[colorKey];
+      if (v !== undefined && v !== null && v !== '' && !HEX_COLOR_RE.test(v)) {
+        return reply.badRequest(`${colorKey} deve ser uma cor hexadecimal '#RRGGBB'`);
+      }
+    }
 
     const patch: Record<string, unknown> = {};
     for (const key of allowed) {
