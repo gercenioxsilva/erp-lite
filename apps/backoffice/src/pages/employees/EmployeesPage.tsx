@@ -55,8 +55,8 @@ export function EmployeesPage() {
 
   useEffect(() => { void load(); }, [search]);
   useEffect(() => {
-    api.get<CostCenter[]>('/v1/cost-centers/active')
-      .then(d => setCostCenters(Array.isArray(d) ? d : []))
+    api.get<{ data: CostCenter[] }>('/v1/cost-centers/active')
+      .then(d => setCostCenters(d.data ?? []))
       .catch(() => setCostCenters([]));
   }, []);
 

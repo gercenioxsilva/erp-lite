@@ -97,8 +97,8 @@ export function PayablesPage() {
   }, [tenantId, page, statusFilter, catFilter, search, dateFrom, dateTo, costCenterFilter]);
 
   useEffect(() => {
-    api.get<CostCenter[]>('/v1/cost-centers/active')
-      .then(d => setCostCenters(Array.isArray(d) ? d : []))
+    api.get<{ data: CostCenter[] }>('/v1/cost-centers/active')
+      .then(d => setCostCenters(d.data ?? []))
       .catch(() => setCostCenters([]));
   }, []);
 

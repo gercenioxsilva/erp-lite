@@ -65,6 +65,11 @@ const MOCK_ORDERS = [
   },
 ];
 
+const MOCK_COST_CENTERS = [
+  { id: 'cc-1', code: '001', name: 'Obra A' },
+  { id: 'cc-2', code: '002', name: 'Obra B' },
+];
+
 /* ── Setup helpers ──────────────────────────────────────────────────────── */
 function setupEmptyMocks() {
   mockGet.mockImplementation((url: string) => {
@@ -77,9 +82,10 @@ function setupEmptyMocks() {
 
 function setupWithData() {
   mockGet.mockImplementation((url: string) => {
-    if (url.includes('/v1/orders'))    return Promise.resolve({ data: MOCK_ORDERS, total: 1, page: 1, per_page: 20 });
-    if (url.includes('/v1/clients'))   return Promise.resolve({ data: MOCK_CLIENTS,   total: 2, page: 1, per_page: 100 });
-    if (url.includes('/v1/materials')) return Promise.resolve({ data: MOCK_MATERIALS, total: 2, page: 1, per_page: 100 });
+    if (url.includes('/v1/orders'))            return Promise.resolve({ data: MOCK_ORDERS, total: 1, page: 1, per_page: 20 });
+    if (url.includes('/v1/clients'))           return Promise.resolve({ data: MOCK_CLIENTS,   total: 2, page: 1, per_page: 100 });
+    if (url.includes('/v1/materials'))         return Promise.resolve({ data: MOCK_MATERIALS, total: 2, page: 1, per_page: 100 });
+    if (url.includes('/v1/cost-centers/active')) return Promise.resolve({ data: MOCK_COST_CENTERS });
     return Promise.resolve({});
   });
 }
@@ -214,6 +220,18 @@ describe('OrdersPage — drawer / create form', () => {
       const select = screen.getByLabelText(`${t('o.client')} *`);
       expect(within(select as HTMLElement).getByRole('option', { name: 'ACME Ltda' })).toBeInTheDocument();
       expect(within(select as HTMLElement).getByRole('option', { name: 'João Silva' })).toBeInTheDocument();
+    });
+  });
+
+  it('[regressão] popula o dropdown de centro de custo a partir de { data: [...] } (GET /v1/cost-centers/active)', async () => {
+    setupWithData();
+    render(<OrdersPage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /novo pedido/i }));
+    await waitFor(() => {
+      const select = screen.getByLabelText(t('cc.costCenter'));
+      expect(within(select as HTMLElement).getByRole('option', { name: '001 — Obra A' })).toBeInTheDocument();
+      expect(within(select as HTMLElement).getByRole('option', { name: '002 — Obra B' })).toBeInTheDocument();
     });
   });
 
