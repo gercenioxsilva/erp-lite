@@ -22,6 +22,7 @@ import {
   listSessions, requestSessionAsClient, cancelOwnPendingSession, getAvailableSlots,
 } from '../services/schedulingSessionService';
 import { handleSchedulingDomainError } from './scheduling';
+import { syncSessionEvent } from '../services/googleCalendarService';
 
 const HM_PATTERN = '^([01][0-9]|2[0-3]):[0-5][0-9]$';
 const DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$';
@@ -106,7 +107,11 @@ export const schedulingPortalRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     try {
       const clientId = await currentClientId(request);
-      return await cancelOwnPendingSession(id, tenantId, clientId, userId);
+      const canceled = await cancelOwnPendingSession(id, tenantId, clientId, userId);
+      // Solicitação pendente cancelada pelo cliente — remove o evento se por
+      // acaso já existia (pendentes normalmente não têm evento → no-op).
+      syncSessionEvent(canceled.id, 'delete').catch(() => { /* não bloqueia */ });
+      return canceled;
     } catch (err) { return handlePortalError(err, reply); }
   });
 

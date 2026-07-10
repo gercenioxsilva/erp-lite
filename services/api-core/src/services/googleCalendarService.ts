@@ -9,9 +9,11 @@
 
 import { eq, and } from 'drizzle-orm';
 import { db as _db } from '../db';
-import { schedulingCalendarConnections } from '../db/schema';
 import {
-  signState, verifyState, buildAuthorizationUrl, GoogleCalendarDomainError,
+  schedulingCalendarConnections, schedulingSessions, schedulingAreas, schedulingSettings,
+} from '../db/schema';
+import {
+  signState, verifyState, buildAuthorizationUrl, sessionToGoogleEvent, GoogleCalendarDomainError,
 } from '../domain/googleCalendar/googleCalendarDomain';
 import { getProfessionalOrThrow } from './schedulingProfessionalService';
 import { SchedulingDomainError } from '../domain/scheduling/schedulingDomain';
@@ -173,4 +175,111 @@ export async function disconnectConnection(tenantId: string, professionalId: str
     status: 'disconnected', access_token: null, refresh_token: null,
     disconnected_at: new Date(),
   }).where(eq(schedulingCalendarConnections.id, row.id));
+}
+
+// ── Renovação de token + sincronização de evento (mutão ERP→Google) ──────────
+
+const GOOGLE_CALENDAR_API = 'https://www.googleapis.com/calendar/v3/calendars';
+
+/**
+ * Garante um access_token válido: se expirou (ou está perto), troca o
+ * refresh_token por um novo. Persiste o resultado. Devolve o access_token
+ * utilizável, ou null se não há como renovar (sem refresh_token).
+ */
+export async function refreshIfExpired(conn: CalendarConnection, db: DrizzleDB = _db): Promise<string | null> {
+  const now = Date.now();
+  const exp = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0;
+  // Margem de 60s para não usar um token que expira no meio da chamada.
+  if (conn.access_token && exp - now > 60_000) return conn.access_token;
+  if (!conn.refresh_token || !isGoogleCalendarConfigured()) return conn.access_token ?? null;
+
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: clientId(),
+      client_secret: clientSecret(),
+      refresh_token: conn.refresh_token,
+    }),
+  });
+  if (!res.ok) return null; // renovação falhou — deixa o sync degradar para no-op
+
+  const token = await res.json() as GoogleTokenResponse;
+  const expiresAt = new Date(Date.now() + token.expires_in * 1000);
+  await db.update(schedulingCalendarConnections).set({
+    access_token: token.access_token, token_expires_at: expiresAt, last_refreshed_at: new Date(),
+  }).where(eq(schedulingCalendarConnections.id, conn.id));
+  return token.access_token;
+}
+
+export type SyncAction = 'upsert' | 'delete';
+
+/**
+ * Sincroniza UMA sessão com o Google Calendar do profissional dela.
+ * Fire-and-forget: chamada após a transação da rota, com .catch() — nunca
+ * derruba o fluxo principal. No-op silencioso quando não há conexão ativa
+ * (feature-flag por ausência de conexão, além do env-unset).
+ *
+ * 'upsert'  → cria (grava google_event_id) ou atualiza o evento.
+ * 'delete'  → remove o evento (se houver) e limpa google_event_id.
+ */
+export async function syncSessionEvent(sessionId: string, action: SyncAction, db: DrizzleDB = _db): Promise<void> {
+  if (!isGoogleCalendarConfigured()) return;
+
+  const [session] = await db.select().from(schedulingSessions).where(eq(schedulingSessions.id, sessionId));
+  if (!session) return;
+
+  const [conn] = await db.select().from(schedulingCalendarConnections)
+    .where(and(
+      eq(schedulingCalendarConnections.professional_id, session.professional_id),
+      eq(schedulingCalendarConnections.provider, 'google'),
+    ));
+  if (!conn || conn.status !== 'connected') return;
+
+  const accessToken = await refreshIfExpired(conn, db);
+  if (!accessToken) return;
+
+  const calId = encodeURIComponent(conn.calendar_id || 'primary');
+  const base = `${GOOGLE_CALENDAR_API}/${calId}/events`;
+  const authHeaders = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+  if (action === 'delete') {
+    if (!session.google_event_id) return; // nada a remover
+    await fetch(`${base}/${encodeURIComponent(session.google_event_id)}`, { method: 'DELETE', headers: authHeaders })
+      .catch(() => undefined);
+    await db.update(schedulingSessions).set({ google_event_id: null }).where(eq(schedulingSessions.id, sessionId));
+    return;
+  }
+
+  // upsert — precisa do nome da área e do fuso do tenant para montar o evento.
+  const [area] = session.area_id
+    ? await db.select({ name: schedulingAreas.name }).from(schedulingAreas).where(eq(schedulingAreas.id, session.area_id))
+    : [];
+  const [settings] = await db.select({ timezone: schedulingSettings.timezone }).from(schedulingSettings)
+    .where(eq(schedulingSettings.tenant_id, session.tenant_id));
+  const tz = settings?.timezone || 'America/Sao_Paulo';
+
+  const body = JSON.stringify(sessionToGoogleEvent({
+    client_name: session.client_name,
+    date:        session.date,
+    start_time:  session.start_time,
+    end_time:    session.end_time,
+    notes:       session.notes,
+  }, area?.name ?? null, tz));
+
+  if (session.google_event_id) {
+    // PATCH do evento existente; se sumiu (404), recria abaixo.
+    const res = await fetch(`${base}/${encodeURIComponent(session.google_event_id)}`, { method: 'PATCH', headers: authHeaders, body })
+      .catch(() => null);
+    if (res && res.ok) return;
+    if (res && res.status !== 404) return; // erro transitório — não recria às cegas
+  }
+
+  const res = await fetch(base, { method: 'POST', headers: authHeaders, body }).catch(() => null);
+  if (!res || !res.ok) return;
+  const created = await res.json() as { id?: string };
+  if (created.id) {
+    await db.update(schedulingSessions).set({ google_event_id: created.id }).where(eq(schedulingSessions.id, sessionId));
+  }
 }
