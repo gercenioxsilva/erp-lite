@@ -108,7 +108,20 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         SELECT o.*, COALESCE(c.company_name, c.full_name) AS client_name, c.person_type, c.cnpj, c.cpf
         FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ${id} AND o.tenant_id = ${tenantId}
       `),
-      db.execute<any>(sql`SELECT * FROM order_items WHERE order_id = ${id} ORDER BY created_at`),
+      // LEFT JOIN materials pra trazer ncm_code/cfop atuais do cadastro junto
+      // com o item — order_items não tem essas colunas (fiscal é do produto,
+      // não do pedido). Antes disso, a NF-e gerada a partir de um pedido
+      // dependia do frontend recasar material_id contra uma lista de
+      // materiais buscada à parte (paginada em até 500, carregada uma vez no
+      // mount da tela) — frágil o bastante pra NCM/CFOP ficarem vazios mesmo
+      // com o cadastro do produto correto.
+      db.execute<any>(sql`
+        SELECT oi.*, m.ncm_code, m.cfop
+        FROM order_items oi
+        LEFT JOIN materials m ON m.id = oi.material_id
+        WHERE oi.order_id = ${id}
+        ORDER BY oi.created_at
+      `),
     ]);
     if (!order) return reply.notFound('Pedido não encontrado');
     return { ...order, items };
