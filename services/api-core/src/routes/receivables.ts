@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, or, ilike, sql, desc, gte, lte } from 'drizzle-orm';
 import { db, receivables, receivablePayments, clients } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 
 const VALID_STATUSES  = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
 const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -8,7 +9,7 @@ const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_c
 export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/receivables ────────────────────────────────────────────────── */
-  fastify.get('/receivables', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/receivables', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, client_id, due_date_from, due_date_to, search,
             page = '1', per_page = '20' } = request.query as Record<string, string>;
@@ -49,7 +50,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/receivables ───────────────────────────────────────────────── */
-  fastify.post('/receivables', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/receivables', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { client_id, invoice_id, description, amount, due_date, notes, cost_center_id } = request.body as any;
@@ -78,7 +79,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/receivables/:id ────────────────────────────────────────────── */
-  fastify.get('/receivables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/receivables/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -101,7 +102,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/receivables/:id ──────────────────────────────────────────── */
-  fastify.patch('/receivables/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/receivables/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const body     = request.body as any;
@@ -129,7 +130,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/receivables/:id/cancel ───────────────────────────────────── */
-  fastify.post('/receivables/:id/cancel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/receivables/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -147,7 +148,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/receivables/:id/payments ─────────────────────────────────── */
-  fastify.post('/receivables/:id/payments', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/receivables/:id/payments', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
@@ -189,7 +190,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/receivables/:id/payments/:paymentId ────────────────────── */
-  fastify.delete('/receivables/:id/payments/:paymentId', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/receivables/:id/payments/:paymentId', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] }, async (request, reply) => {
     const tenantId      = (request as any).user.tenantId;
     const { id, paymentId } = request.params as { id: string; paymentId: string };
 

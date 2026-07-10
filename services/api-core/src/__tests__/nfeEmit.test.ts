@@ -61,6 +61,7 @@ function mockExecuteByQuery(invoiceRow: unknown, itemRows: unknown[]) {
 
 describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -68,6 +69,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue/nfe-requests';
     mockDb.update.mockReturnValue(updateChain());
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => {
@@ -90,6 +92,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
 
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(202);
@@ -111,6 +114,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(202);
@@ -128,6 +132,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
 
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(400);
@@ -149,6 +154,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
 
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(400);
@@ -175,6 +181,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(202);
@@ -193,6 +200,7 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
 
     const res = await app.inject({
       method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(404);

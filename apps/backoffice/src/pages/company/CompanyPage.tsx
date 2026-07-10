@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
+import { Can } from '../../rbac';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -15,7 +16,8 @@ interface Tenant {
   status: string; plan: string;
   bank_code: string | null; agency: string | null; account: string | null; account_digit: string | null;
   billing_provider: string | null; billing_days_to_expire: number | null;
-  itau_client_id: string | null; itau_client_secret: string | null;
+  itau_client_id: string | null; itau_client_secret: string | null; // @deprecated — ver credentials
+  credentials: Record<string, string> | null; // genérico por provedor (migration 0064), mascarado na leitura
   simples_rbt12: string | null;
 }
 
@@ -49,7 +51,8 @@ interface BankAccount {
   id: string; company_id: string; label: string | null; is_default: boolean; is_active: boolean;
   bank_code: string; agency: string; account: string; account_digit: string;
   billing_provider: string; billing_days_to_expire: number;
-  itau_client_id: string | null; itau_client_secret: string | null; // mascarado (****xxxx) na leitura
+  itau_client_id: string | null; itau_client_secret: string | null; // @deprecated — ver credentials
+  credentials: Record<string, string> | null; // genérico por provedor (migration 0064), mascarado na leitura
 }
 
 const EMPTY_NFE_FORM = {
@@ -79,11 +82,13 @@ const MAX_LOGO_SIZE = 300 * 1024; // 300 KB
 const MAX_BANNER_SIZE = 5 * 1024 * 1024; // 5 MB — banner da proposta
 
 const BANKS = [
+  { value: '336', label: 'C6 Bank (336)' },
   { value: '341', label: 'Itaú (341)' },
 ];
 
 const PROVIDERS = [
   { value: 'itau', label: 'Itaú' },
+  { value: 'c6', label: 'C6 Bank' },
 ];
 
 export function CompanyPage() {
@@ -115,6 +120,7 @@ export function CompanyPage() {
     bank_code: '', agency: '', account: '', account_digit: '',
     billing_provider: 'itau', billing_days_to_expire: '30',
     itau_client_id: '', itau_client_secret: '',
+    c6_client_id: '', c6_client_secret: '', c6_cert: '', c6_key: '',
   });
   const [bankSaving, setBankSaving] = useState(false);
   const [bankSuccess, setBankSuccess] = useState('');
@@ -189,10 +195,17 @@ export function CompanyPage() {
   }
 
   function fillBankFormFromAccount(a: BankAccount) {
+    // credentials vem mascarado do backend (****xxxx em client_secret/cert/key)
+    // — client_id não é sensível, então é o único campo pré-preenchido de
+    // verdade; os demais ficam em branco (usuário precisa reenviar pra trocar,
+    // mesmo comportamento que o Itaú já tem hoje pro client_secret).
+    const c = a.credentials || {};
     setBankForm({
       bank_code: a.bank_code || '', agency: a.agency || '', account: a.account || '', account_digit: a.account_digit || '',
       billing_provider: a.billing_provider || 'itau', billing_days_to_expire: String(a.billing_days_to_expire ?? 30),
       itau_client_id: a.itau_client_id || '', itau_client_secret: '',
+      c6_client_id: a.billing_provider === 'c6' ? (c.client_id || '') : '',
+      c6_client_secret: '', c6_cert: '', c6_key: '',
     });
   }
 
@@ -200,7 +213,10 @@ export function CompanyPage() {
     setSelectedBankAccountId(id);
     setBankError(''); setBankSuccess('');
     if (id === 'new') {
-      setBankForm({ bank_code: '', agency: '', account: '', account_digit: '', billing_provider: 'itau', billing_days_to_expire: '30', itau_client_id: '', itau_client_secret: '' });
+      setBankForm({
+        bank_code: '', agency: '', account: '', account_digit: '', billing_provider: 'itau', billing_days_to_expire: '30',
+        itau_client_id: '', itau_client_secret: '', c6_client_id: '', c6_client_secret: '', c6_cert: '', c6_key: '',
+      });
       return;
     }
     if (id === null) { loadTenant(); return; } // conta padrão — fluxo legado
@@ -261,6 +277,7 @@ export function CompanyPage() {
         postal_code:   data.postal_code   || '',
       });
       setSimplesRbt12(data.simples_rbt12 != null ? String(data.simples_rbt12) : '');
+      const c = data.credentials || {};
       setBankForm({
         bank_code:              data.bank_code              || '',
         agency:                 data.agency                 || '',
@@ -270,6 +287,8 @@ export function CompanyPage() {
         billing_days_to_expire: String(data.billing_days_to_expire ?? 30),
         itau_client_id:         data.itau_client_id         || '',
         itau_client_secret:     data.itau_client_secret     || '',
+        c6_client_id:           data.billing_provider === 'c6' ? (c.client_id || '') : '',
+        c6_client_secret: '', c6_cert: '', c6_key: '',
       });
     } catch (err: any) {
       setError(err.message || t('comp.errLoad'));
@@ -434,6 +453,14 @@ export function CompanyPage() {
     e.preventDefault(); setBankError(''); setBankSuccess('');
     setBankSaving(true);
 
+    // Genérico por provedor (migration 0064) — só o provedor selecionado
+    // manda credencial; os demais provedores (brcode/santander/bradesco, sem
+    // adapter ainda) não têm campo próprio, credentials fica null.
+    const credentials =
+      bankForm.billing_provider === 'itau' ? { client_id: bankForm.itau_client_id, client_secret: bankForm.itau_client_secret } :
+      bankForm.billing_provider === 'c6'   ? { client_id: bankForm.c6_client_id, client_secret: bankForm.c6_client_secret, cert: bankForm.c6_cert, key: bankForm.c6_key } :
+      null;
+
     const payload = {
       bank_code:              bankForm.bank_code              || null,
       agency:                 bankForm.agency                 || null,
@@ -441,8 +468,7 @@ export function CompanyPage() {
       account_digit:          bankForm.account_digit          || null,
       billing_provider:       bankForm.billing_provider       || null,
       billing_days_to_expire: bankForm.billing_days_to_expire ? Number(bankForm.billing_days_to_expire) : null,
-      itau_client_id:         bankForm.itau_client_id         || null,
-      itau_client_secret:     bankForm.itau_client_secret     || null,
+      credentials,
     };
 
     try {
@@ -668,9 +694,11 @@ export function CompanyPage() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>
@@ -703,13 +731,17 @@ export function CompanyPage() {
                 style={{ display: 'none' }} onChange={handleLogoChange} />
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
-                  {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
-                </button>
-                {tenant?.logo_url && (
-                  <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
-                    {t('comp.removeLogo')}
+                <Can permission="company:edit">
+                  <button className="btn btn-secondary btn-sm" onClick={handleLogoClick} disabled={logoSaving}>
+                    {logoSaving ? t('c.saving') : (tenant?.logo_url ? t('comp.changeLogo') : t('comp.uploadLogo'))}
                   </button>
+                </Can>
+                {tenant?.logo_url && (
+                  <Can permission="company:edit">
+                    <button className="btn btn-danger btn-sm" onClick={handleLogoDelete} disabled={logoSaving}>
+                      {t('comp.removeLogo')}
+                    </button>
+                  </Can>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
@@ -743,13 +775,17 @@ export function CompanyPage() {
                 style={{ display: 'none' }} onChange={handleBannerChange} />
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleBannerClick} disabled={bannerSaving}>
-                  {bannerSaving ? t('c.saving') : (tenant?.proposal_banner_url ? t('comp.changeBanner') : t('comp.uploadBanner'))}
-                </button>
-                {tenant?.proposal_banner_url && (
-                  <button className="btn btn-danger btn-sm" onClick={handleBannerDelete} disabled={bannerSaving}>
-                    {t('comp.removeBanner')}
+                <Can permission="company:edit">
+                  <button className="btn btn-secondary btn-sm" onClick={handleBannerClick} disabled={bannerSaving}>
+                    {bannerSaving ? t('c.saving') : (tenant?.proposal_banner_url ? t('comp.changeBanner') : t('comp.uploadBanner'))}
                   </button>
+                </Can>
+                {tenant?.proposal_banner_url && (
+                  <Can permission="company:edit">
+                    <button className="btn btn-danger btn-sm" onClick={handleBannerDelete} disabled={bannerSaving}>
+                      {t('comp.removeBanner')}
+                    </button>
+                  </Can>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
@@ -898,10 +934,53 @@ export function CompanyPage() {
                 </>
               )}
 
+              {bankForm.billing_provider === 'c6' && (
+                <>
+                  <div style={{ marginTop: 16, marginBottom: 8, fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>
+                    {t('comp.bank.c6Auth')}
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.bank.c6Hint')}</p>
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('comp.bank.c6ClientId')}</label>
+                      <input type="text" value={bankForm.c6_client_id}
+                        placeholder={t('comp.bank.c6ClientIdPH')}
+                        onChange={e => setBankForm(f => ({ ...f, c6_client_id: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.bank.c6ClientSecret')}</label>
+                      <input type="password" value={bankForm.c6_client_secret}
+                        placeholder={t('comp.bank.c6ClientSecretPH')}
+                        autoComplete="new-password"
+                        onChange={e => setBankForm(f => ({ ...f, c6_client_secret: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="field-row">
+                    <div className="field">
+                      <label>{t('comp.bank.c6Cert')}</label>
+                      <textarea rows={4} value={bankForm.c6_cert}
+                        placeholder={t('comp.bank.c6CertPH')}
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}
+                        onChange={e => setBankForm(f => ({ ...f, c6_cert: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>{t('comp.bank.c6Key')}</label>
+                      <textarea rows={4} value={bankForm.c6_key}
+                        placeholder={t('comp.bank.c6KeyPH')}
+                        autoComplete="new-password"
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}
+                        onChange={e => setBankForm(f => ({ ...f, c6_key: e.target.value }))} />
+                    </div>
+                  </div>
+                </>
+              )}
+
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={bankSaving}>
-                  {bankSaving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={bankSaving}>
+                    {bankSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>
@@ -1027,11 +1106,13 @@ export function CompanyPage() {
                       />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
-                        onClick={() => void handleSimplesRbt12Save()}
-                        disabled={simplesRbt12Saving}>
-                        {simplesRbt12Saving ? t('c.saving') : t('c.save')}
-                      </button>
+                      <Can permission="company:edit">
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                          onClick={() => void handleSimplesRbt12Save()}
+                          disabled={simplesRbt12Saving}>
+                          {simplesRbt12Saving ? t('c.saving') : t('c.save')}
+                        </button>
+                      </Can>
                       {simplesRbt12Msg && (
                         <span style={{ fontSize: 12, color: simplesRbt12Msg.startsWith('Erro') ? 'var(--danger)' : 'var(--success)' }}>
                           {simplesRbt12Msg}
@@ -1214,9 +1295,11 @@ export function CompanyPage() {
                 )}
 
                 <div style={{ marginTop: 20 }}>
-                  <button type="submit" className="btn btn-primary" disabled={nfeSaving}>
-                    {nfeSaving ? t('c.saving') : t('c.save')}
-                  </button>
+                  <Can permission="company:edit">
+                    <button type="submit" className="btn btn-primary" disabled={nfeSaving}>
+                      {nfeSaving ? t('c.saving') : t('c.save')}
+                    </button>
+                  </Can>
                 </div>
               </form>
             </div>
@@ -1247,9 +1330,11 @@ export function CompanyPage() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" disabled={notifSaving}>
-                  {notifSaving ? t('c.saving') : t('c.save')}
-                </button>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={notifSaving}>
+                    {notifSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
               </div>
             </form>
           </div>

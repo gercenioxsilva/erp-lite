@@ -5,6 +5,7 @@ import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
+import { Can } from '../../rbac';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -194,9 +195,11 @@ export function PurchaseOrdersPage() {
     <div>
       <div className="page-header">
         <h1>{t('po.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('po.new')}
-        </button>
+        <Can permission="purchase_orders:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('po.new')}
+          </button>
+        </Can>
       </div>
 
       {/* Status tabs */}
@@ -222,7 +225,9 @@ export function PurchaseOrdersPage() {
         ) : orders.length === 0 ? (
           <div className="empty-state">
             {t('po.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('po.new')}</button>
+            <Can permission="purchase_orders:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('po.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -253,16 +258,20 @@ export function PurchaseOrdersPage() {
                   <td>
                     <div className="flex-gap">
                       {o.status === 'draft' && (
-                        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                          onClick={e => { e.stopPropagation(); void transition(o.id, 'approve'); }}>
-                          {t('po.approve')}
-                        </button>
+                        <Can permission="purchase_orders:edit">
+                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                            onClick={e => { e.stopPropagation(); void transition(o.id, 'approve'); }}>
+                            {t('po.approve')}
+                          </button>
+                        </Can>
                       )}
                       {(o.status === 'draft' || o.status === 'approved') && (
-                        <button className="btn btn-danger btn-sm"
-                          onClick={e => { e.stopPropagation(); void transition(o.id, 'cancel'); }}>
-                          {t('c.del')}
-                        </button>
+                        <Can permission="purchase_orders:delete">
+                          <button className="btn btn-danger btn-sm"
+                            onClick={e => { e.stopPropagation(); void transition(o.id, 'cancel'); }}>
+                            {t('c.del')}
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>

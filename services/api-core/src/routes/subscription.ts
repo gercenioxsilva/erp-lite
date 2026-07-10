@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { getStripe, isStripeEnabled } from '../lib/stripeClient';
+import { requirePermission } from '../lib/requirePermission';
 
 const APP_URL = process.env.APP_URL || 'https://orquestraerp.com.br';
 
@@ -9,7 +10,7 @@ const APP_URL = process.env.APP_URL || 'https://orquestraerp.com.br';
 export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /v1/subscription — current subscription state + available plans
-  fastify.get('/subscription', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/subscription', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('billing:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const { rows: [tenant] } = await db.execute<any>(sql`
@@ -48,7 +49,7 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/subscription/checkout-session — creates Stripe Checkout session
-  fastify.post('/subscription/checkout-session', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/subscription/checkout-session', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('billing:manage')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { plan_id } = request.body as { plan_id: string };
 
@@ -82,7 +83,7 @@ export const subscriptionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/subscription/portal-session — creates Stripe Customer Portal session
-  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/subscription/portal-session', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('billing:manage')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const stripe = getStripe();

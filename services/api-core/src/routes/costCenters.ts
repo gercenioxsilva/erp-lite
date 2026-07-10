@@ -6,11 +6,12 @@ import {
   applyAdjustment,
   DomainError,
 } from '../services/costCenterStock';
+import { requirePermission } from '../lib/requirePermission';
 
 export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/cost-centers ───────────────────────────────────────────────── */
-  fastify.get('/cost-centers', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/cost-centers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { search, is_active, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
@@ -52,7 +53,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/cost-centers/active ────────────────────────────────────────── */
-  fastify.get('/cost-centers/active', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/cost-centers/active', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const { rows } = await db.execute<any>(sql`
@@ -66,7 +67,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/cost-centers ──────────────────────────────────────────────── */
-  fastify.post('/cost-centers', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/cost-centers', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { code, name, description, allow_negative = false } = request.body as any;
 
@@ -95,7 +96,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/cost-centers/:id ───────────────────────────────────────────── */
-  fastify.get<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
 
@@ -109,7 +110,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/cost-centers/:id ─────────────────────────────────────────── */
-  fastify.patch<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
     const body     = request.body as any;
@@ -141,7 +142,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/cost-centers/:id ────────────────────────────────────────── */
-  fastify.delete<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/cost-centers/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:delete')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
 
@@ -155,7 +156,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/cost-centers/:id/stock ─────────────────────────────────────── */
-  fastify.get<{ Params: { id: string } }>('/cost-centers/:id/stock', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/cost-centers/:id/stock', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
 
@@ -190,7 +191,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/cost-centers/:id/movements ─────────────────────────────────── */
-  fastify.get<{ Params: { id: string } }>('/cost-centers/:id/movements', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/cost-centers/:id/movements', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
     const { material_id, direction, from, to, page = '1', per_page = '20' } =
@@ -238,7 +239,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/cost-centers/:id/entries ──────────────────────────────────── */
-  fastify.post<{ Params: { id: string } }>('/cost-centers/:id/entries', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/cost-centers/:id/entries', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params;
@@ -285,7 +286,7 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/cost-centers/:id/adjustments ───────────────────────────────── */
-  fastify.post<{ Params: { id: string } }>('/cost-centers/:id/adjustments', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/cost-centers/:id/adjustments', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('cost_centers:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params;

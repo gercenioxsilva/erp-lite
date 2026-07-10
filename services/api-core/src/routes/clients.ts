@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq, ilike, or, and, sql } from 'drizzle-orm';
 import { db, clients } from '../db';
 import { normalizeCNPJ } from '../domain/cnpj/cnpjDomain';
+import { requirePermission } from '../lib/requirePermission';
 
 const clientBody = {
   type: 'object',
@@ -31,7 +32,12 @@ const patchBody = { ...clientBody, required: [] as string[] };
 export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /v1/clients
-  fastify.post('/clients', { schema: { body: clientBody } }, async (request, reply) => {
+  fastify.post('/clients', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('clients:create')],
+    schema: { body: clientBody },
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, unknown>;
 
     if (b.person_type === 'PJ' && !b.company_name)
@@ -43,7 +49,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
     const icms_taxpayer = b.person_type === 'PF' ? '9' : ((b.icms_taxpayer ?? '9') as string);
 
     const [client] = await db.insert(clients).values({
-      tenant_id: b.tenant_id as string, person_type: b.person_type as string,
+      tenant_id: tenantId, person_type: b.person_type as string,
       company_name: (b.company_name ?? null) as string | null,
       trade_name:   (b.trade_name   ?? null) as string | null,
       cnpj:         b.cnpj ? normalizeCNPJ(b.cnpj as string) : null,
@@ -75,6 +81,8 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /v1/clients/import
   fastify.post('/clients/import', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('clients:import')],
     schema: {
       body: {
         type: 'object', required: ['tenant_id', 'clients'], additionalProperties: false,
@@ -87,7 +95,8 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
   }, async (request) => {
-    const { tenant_id, clients: rows } = request.body as {
+    const tenantId = (request as any).user.tenantId;
+    const { clients: rows } = request.body as {
       tenant_id: string; clients: Record<string, unknown>[];
     };
 
@@ -122,7 +131,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const inserted = await db.insert(clients).values({
-          tenant_id, person_type: personType,
+          tenant_id: tenantId, person_type: personType,
           company_name: toStr(b.company_name), trade_name: toStr(b.trade_name),
           cnpj: toCNPJ(b.cnpj), state_reg: toStr(b.state_reg),
           municipal_reg: toStr(b.municipal_reg), suframa: toStr(b.suframa),
@@ -149,15 +158,15 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/clients
-  fastify.get('/clients', async (request, reply) => {
-    const { tenant_id, person_type, search, page = '1', per_page = '20' } =
+  fastify.get('/clients', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { person_type, search, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
 
-    const conditions: any[] = [eq(clients.tenant_id, tenant_id), eq(clients.is_active, true)];
+    const conditions: any[] = [eq(clients.tenant_id, tenantId), eq(clients.is_active, true)];
     if (person_type) conditions.push(eq(clients.person_type, person_type));
     if (search) conditions.push(or(
       ilike(clients.company_name, `%${search}%`),
@@ -178,16 +187,18 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/clients/:id
-  fastify.get<{ Params: { id: string } }>('/clients/:id', async (request, reply) => {
-    const [c] = await db.select().from(clients).where(eq(clients.id, request.params.id));
+  fastify.get<{ Params: { id: string } }>('/clients/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const [c] = await db.select().from(clients).where(and(eq(clients.id, request.params.id), eq(clients.tenant_id, tenantId)));
     if (!c) return reply.notFound('Client not found');
     return c;
   });
 
   // PATCH /v1/clients/:id
-  fastify.patch<{ Params: { id: string } }>('/clients/:id', { schema: { body: patchBody } }, async (request, reply) => {
+  fastify.patch<{ Params: { id: string } }>('/clients/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:edit')], schema: { body: patchBody } }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
-    const [existing] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id));
+    const [existing] = await db.select({ id: clients.id }).from(clients).where(and(eq(clients.id, id), eq(clients.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Client not found');
 
     const b = request.body as Record<string, unknown>;
@@ -200,21 +211,22 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
     if (!Object.keys(updateData).length) return reply.badRequest('No fields to update');
 
-    const [updated] = await db.update(clients).set(updateData as any).where(eq(clients.id, id)).returning();
+    const [updated] = await db.update(clients).set(updateData as any).where(and(eq(clients.id, id), eq(clients.tenant_id, tenantId))).returning();
     return updated;
   });
 
   // DELETE /v1/clients/:id (soft delete)
-  fastify.delete<{ Params: { id: string } }>('/clients/:id', async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/clients/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:delete')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const result = await db.update(clients)
       .set({ is_active: false })
-      .where(and(eq(clients.id, request.params.id), eq(clients.is_active, true)));
+      .where(and(eq(clients.id, request.params.id), eq(clients.is_active, true), eq(clients.tenant_id, tenantId)));
     if (!result.rowCount) return reply.notFound('Client not found or already inactive');
     return reply.code(204).send();
   });
 
   // GET /v1/clients/:id/history — 360° view: orders, invoices, receivables
-  fastify.get<{ Params: { id: string } }>('/clients/:id/history', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/clients/:id/history', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params;
 

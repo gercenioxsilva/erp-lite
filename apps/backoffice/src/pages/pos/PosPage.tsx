@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { Can } from '../../rbac';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -318,9 +319,11 @@ export function PosPage() {
           <button onClick={handleNewSale} className="btn btn-secondary" style={{ fontSize: 12 }}>
             F2 Nova venda
           </button>
-          <button onClick={() => setShowCancel(true)} className="btn btn-danger" style={{ fontSize: 12 }}>
-            F4 Cancelar
-          </button>
+          <Can permission="pos:operate">
+            <button onClick={() => setShowCancel(true)} className="btn btn-danger" style={{ fontSize: 12 }}>
+              F4 Cancelar
+            </button>
+          </Can>
           <button onClick={() => navigate('/pos/caixa')} className="btn btn-secondary" style={{ fontSize: 12 }}>
             ← Caixa
           </button>
@@ -393,7 +396,9 @@ export function PosPage() {
                         <td className="td-price">{fmtBRL(item.unit_price)}</td>
                         <td className="td-total">{fmtBRL(item.total)}</td>
                         <td className="td-action">
-                          <button onClick={() => handleRemoveItem(item.id)} className="pos-remove-btn" title="Remover">×</button>
+                          <Can permission="pos:operate">
+                            <button onClick={() => handleRemoveItem(item.id)} className="pos-remove-btn" title="Remover">×</button>
+                          </Can>
                         </td>
                       </tr>
                     ))}
@@ -481,9 +486,11 @@ export function PosPage() {
                   placeholder="0,00"
                   className="pos-amount-input"
                 />
-                <button onClick={handleAddPayment} disabled={!payAmount || loading} className="pos-ok-btn">
-                  OK
-                </button>
+                <Can permission="pos:operate">
+                  <button onClick={handleAddPayment} disabled={!payAmount || loading} className="pos-ok-btn">
+                    OK
+                  </button>
+                </Can>
               </div>
             </div>
 
@@ -497,7 +504,9 @@ export function PosPage() {
                     <span className="pos-payment-method">{PAYMENT_LABELS[p.method] ?? p.method}</span>
                     <div className="pos-payment-row-right">
                       <span className="pos-payment-amount">{fmtBRL(p.amount)}</span>
-                      <button onClick={() => handleRemovePayment(p.id)} className="pos-remove-btn" title="Remover">×</button>
+                      <Can permission="pos:operate">
+                        <button onClick={() => handleRemovePayment(p.id)} className="pos-remove-btn" title="Remover">×</button>
+                      </Can>
                     </div>
                   </div>
                 ))
@@ -506,13 +515,15 @@ export function PosPage() {
 
             {/* Finalize */}
             <div className="pos-finalize-block">
-              <button
-                onClick={handleFinalize}
-                disabled={!canFinalize || loading}
-                className="pos-finalize-btn"
-              >
-                {loading ? 'Processando…' : 'F9  FINALIZAR'}
-              </button>
+              <Can permission="pos:operate">
+                <button
+                  onClick={handleFinalize}
+                  disabled={!canFinalize || loading}
+                  className="pos-finalize-btn"
+                >
+                  {loading ? 'Processando…' : 'F9  FINALIZAR'}
+                </button>
+              </Can>
             </div>
           </div>
         </div>
@@ -533,9 +544,11 @@ export function PosPage() {
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               <button onClick={() => setShowCancel(false)} className="btn btn-secondary">Voltar</button>
-              <button onClick={handleCancel} disabled={loading} className="btn btn-danger">
-                {loading ? 'Cancelando…' : 'Confirmar cancelamento'}
-              </button>
+              <Can permission="pos:operate">
+                <button onClick={handleCancel} disabled={loading} className="btn btn-danger">
+                  {loading ? 'Cancelando…' : 'Confirmar cancelamento'}
+                </button>
+              </Can>
             </div>
           </div>
         </div>
@@ -583,9 +596,11 @@ export function PosPage() {
                 {sale.fiscal_message && (
                   <p className="pos-modal-error-msg">{sale.fiscal_message}</p>
                 )}
-                <button onClick={handleReissueFiscal} className="pos-modal-reissue-btn">
-                  Reemitir NFC-e
-                </button>
+                <Can permission="pos:operate">
+                  <button onClick={handleReissueFiscal} className="pos-modal-reissue-btn">
+                    Reemitir NFC-e
+                  </button>
+                </Can>
               </div>
             )}
 

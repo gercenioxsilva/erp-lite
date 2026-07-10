@@ -10,6 +10,7 @@ import {
 } from '../services/pos/posSaleService';
 import { consultarNFCe } from '../services/fiscal/focusNfe';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 
 export const posRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -24,7 +25,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   // ── TERMINALS ─────────────────────────────────────────────────────────────
 
   // GET /v1/pos/terminals
-  fastify.get('/pos/terminals', async (request, reply) => {
+  fastify.get('/pos/terminals', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const rows = await db.execute(
@@ -35,7 +36,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/terminals
-  fastify.post('/pos/terminals', async (request, reply) => {
+  fastify.post('/pos/terminals', { preHandler: [requirePermission('pos:manage')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const b = request.body as Record<string, unknown>;
@@ -51,7 +52,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/pos/terminals/:id
-  fastify.get('/pos/terminals/:id', async (request, reply) => {
+  fastify.get('/pos/terminals/:id', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -63,7 +64,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // PATCH /v1/pos/terminals/:id
-  fastify.patch('/pos/terminals/:id', async (request, reply) => {
+  fastify.patch('/pos/terminals/:id', { preHandler: [requirePermission('pos:manage')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -85,7 +86,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   // ── SESSIONS ──────────────────────────────────────────────────────────────
 
   // GET /v1/pos/sessions — list sessions (paginated)
-  fastify.get('/pos/sessions', async (request) => {
+  fastify.get('/pos/sessions', { preHandler: [requirePermission('pos:view')] }, async (request) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const q = request.query as Record<string, string>;
@@ -129,7 +130,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sessions — open session
-  fastify.post('/pos/sessions', async (request, reply) => {
+  fastify.post('/pos/sessions', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId  = (request.user as { tenantId: string }).tenantId;
     const operatorId = (request.user as { userId: string }).userId;
@@ -148,7 +149,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/pos/sessions/:id — get session with aggregated totals
-  fastify.get('/pos/sessions/:id', async (request, reply) => {
+  fastify.get('/pos/sessions/:id', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -190,7 +191,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sessions/:id/close — close session
-  fastify.post('/pos/sessions/:id/close', async (request, reply) => {
+  fastify.post('/pos/sessions/:id/close', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId  = (request.user as { tenantId: string }).tenantId;
     const operatorId = (request.user as { userId: string }).userId;
@@ -209,7 +210,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/pos/sessions/:id/cash-movements — list movements
-  fastify.get('/pos/sessions/:id/cash-movements', async (request, reply) => {
+  fastify.get('/pos/sessions/:id/cash-movements', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -222,7 +223,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sessions/:id/cash-movements — sangria / suprimento
-  fastify.post('/pos/sessions/:id/cash-movements', async (request, reply) => {
+  fastify.post('/pos/sessions/:id/cash-movements', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId  = (request.user as { tenantId: string }).tenantId;
     const operatorId = (request.user as { userId: string }).userId;
@@ -246,7 +247,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   // ── SALES ─────────────────────────────────────────────────────────────────
 
   // POST /v1/pos/sales — create sale
-  fastify.post('/pos/sales', async (request, reply) => {
+  fastify.post('/pos/sales', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId  = (request.user as { tenantId: string }).tenantId;
     const operatorId = (request.user as { userId: string }).userId;
@@ -264,7 +265,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/pos/sales — list sales (history)
-  fastify.get('/pos/sales', async (request, reply) => {
+  fastify.get('/pos/sales', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const q = request.query as Record<string, string>;
@@ -302,7 +303,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/pos/sales/:id — get sale detail
-  fastify.get('/pos/sales/:id', async (request, reply) => {
+  fastify.get('/pos/sales/:id', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -322,7 +323,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/items
-  fastify.post('/pos/sales/:id/items', async (request, reply) => {
+  fastify.post('/pos/sales/:id/items', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -341,7 +342,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // PATCH /v1/pos/sales/:id/items/:itemId
-  fastify.patch('/pos/sales/:id/items/:itemId', async (request, reply) => {
+  fastify.patch('/pos/sales/:id/items/:itemId', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id, itemId } = request.params as { id: string; itemId: string };
@@ -360,7 +361,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // DELETE /v1/pos/sales/:id/items/:itemId
-  fastify.delete('/pos/sales/:id/items/:itemId', async (request, reply) => {
+  fastify.delete('/pos/sales/:id/items/:itemId', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id, itemId } = request.params as { id: string; itemId: string };
@@ -374,7 +375,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/customer
-  fastify.post('/pos/sales/:id/customer', async (request, reply) => {
+  fastify.post('/pos/sales/:id/customer', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -393,7 +394,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/payments
-  fastify.post('/pos/sales/:id/payments', async (request, reply) => {
+  fastify.post('/pos/sales/:id/payments', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -415,7 +416,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // DELETE /v1/pos/sales/:id/payments/:paymentId
-  fastify.delete('/pos/sales/:id/payments/:paymentId', async (request, reply) => {
+  fastify.delete('/pos/sales/:id/payments/:paymentId', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id, paymentId } = request.params as { id: string; paymentId: string };
@@ -429,7 +430,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/finalize
-  fastify.post('/pos/sales/:id/finalize', async (request, reply) => {
+  fastify.post('/pos/sales/:id/finalize', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -447,7 +448,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/cancel
-  fastify.post('/pos/sales/:id/cancel', async (request, reply) => {
+  fastify.post('/pos/sales/:id/cancel', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId  = (request.user as { tenantId: string }).tenantId;
     const operatorId = (request.user as { userId: string }).userId;
@@ -466,7 +467,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /v1/pos/sales/:id/reissue-fiscal — reemitir NFC-e
-  fastify.post('/pos/sales/:id/reissue-fiscal', async (request, reply) => {
+  fastify.post('/pos/sales/:id/reissue-fiscal', { preHandler: [requirePermission('pos:operate')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const { id } = request.params as { id: string };
@@ -482,7 +483,7 @@ export const posRoutes: FastifyPluginAsync = async (fastify) => {
   // ── PRODUCTS SEARCH ───────────────────────────────────────────────────────
 
   // GET /v1/pos/products?q=...
-  fastify.get('/pos/products', async (request, reply) => {
+  fastify.get('/pos/products', { preHandler: [requirePermission('pos:view')] }, async (request, reply) => {
     await request.jwtVerify();
     const tenantId = (request.user as { tenantId: string }).tenantId;
     const q = request.query as Record<string, string>;

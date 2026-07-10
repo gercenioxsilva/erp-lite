@@ -9,11 +9,11 @@ import {
 export const employeesRoutes: FastifyPluginAsync = async (fastify) => {
   const view = {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requireModule('hr'), requirePermission('employees', 'view')],
+    preHandler: [requireModule('hr'), requirePermission('employees:view')],
   };
   const manage = {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requireModule('hr'), requirePermission('employees', 'manage')],
+    preHandler: [requireModule('hr'), requirePermission('employees:manage')],
   };
 
   function handleDomainError(err: unknown, reply: any) {

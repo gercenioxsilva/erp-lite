@@ -4,6 +4,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can }      from '../../rbac';
 import {
   maskCNPJ, maskCPF, maskPhone, maskCEP, digits, normalizeCNPJ,
   isValidCNPJ, isValidCPF, fetchAddressByCEP, UF_LIST,
@@ -503,22 +504,28 @@ export function ClientsPage() {
       <div className="page-header">
         <h1>{t('cl.title')}</h1>
         <div className="flex-gap">
-          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
-            onClick={() => {
-              const ws = XLSX.utils.json_to_sheet(items.map((c: Client) => ({ company_name: c.company_name, full_name: c.full_name, cnpj: c.cnpj, cpf: c.cpf, email: c.email, phone: c.phone, city: c.city, state: c.state, is_active: c.is_active })));
-              const wb = XLSX.utils.book_new();
-              XLSX.utils.book_append_sheet(wb, ws, 'Dados');
-              XLSX.writeFile(wb, `clientes-${new Date().toISOString().slice(0,10)}.xlsx`);
-            }}>
-            ↓ Exportar
-          </button>
-          <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
-            onClick={() => { setImportOpen(true); setImportPhase('idle'); }}>
-            ↑ {t('cl.import')}
-          </button>
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-            + {t('cl.new')}
-          </button>
+          <Can permission="clients:export">
+            <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
+              onClick={() => {
+                const ws = XLSX.utils.json_to_sheet(items.map((c: Client) => ({ company_name: c.company_name, full_name: c.full_name, cnpj: c.cnpj, cpf: c.cpf, email: c.email, phone: c.phone, city: c.city, state: c.state, is_active: c.is_active })));
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+                XLSX.writeFile(wb, `clientes-${new Date().toISOString().slice(0,10)}.xlsx`);
+              }}>
+              ↓ Exportar
+            </button>
+          </Can>
+          <Can permission="clients:import">
+            <button className="btn btn-secondary btn-cta" style={{ width: 'auto' }}
+              onClick={() => { setImportOpen(true); setImportPhase('idle'); }}>
+              ↑ {t('cl.import')}
+            </button>
+          </Can>
+          <Can permission="clients:create">
+            <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+              + {t('cl.new')}
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -583,8 +590,12 @@ export function ClientsPage() {
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{c.email ?? '—'}</td>
                   <td>
                     <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>{t('c.edit')}</button>
-                      <button className="btn btn-danger btn-sm"    onClick={() => handleDelete(c.id)}>{t('c.del')}</button>
+                      <Can permission="clients:edit">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>{t('c.edit')}</button>
+                      </Can>
+                      <Can permission="clients:delete">
+                        <button className="btn btn-danger btn-sm"    onClick={() => handleDelete(c.id)}>{t('c.del')}</button>
+                      </Can>
                     </div>
                   </td>
                 </tr>

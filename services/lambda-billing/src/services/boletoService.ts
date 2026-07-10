@@ -18,7 +18,7 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
   let result: BillingResultMessage;
 
   try {
-    const adapter = app.getAdapter(msg.banking.bank_code);
+    const adapter = app.getAdapter(msg.banking.bank_code, msg.banking);
 
     const boletoResult = await adapter.emit({
       amount:        Number(msg.amount),

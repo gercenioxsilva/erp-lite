@@ -1,0 +1,59 @@
+.ds-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: var(--space-2);
+}
+
+.ds-slots__chip {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 6px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.ds-slots__chip:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-slots__chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.ds-slots__chip--selected {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.ds-slots__chip-end {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.ds-slots__empty {
+  padding: var(--space-4);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--text-sm, 13px);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-slots__chip { transition: none; }
+  .ds-slots__chip:hover { transform: none; }
+}

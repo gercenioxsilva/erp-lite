@@ -5,6 +5,7 @@ import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import type { TKey } from '../../i18n/pt-BR';
 import { ProductPicker, type ProductPickerOption } from '../../ds/components/ProductPicker';
+import { Can } from '../../rbac';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -324,9 +325,11 @@ export function SupplierInvoicesPage() {
     <div>
       <div className="page-header">
         <h1>{t('si.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('si.new')}
-        </button>
+        <Can permission="supplier_invoices:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('si.new')}
+          </button>
+        </Can>
       </div>
 
       {/* Tabs */}
@@ -350,7 +353,9 @@ export function SupplierInvoicesPage() {
         ) : invoices.length === 0 ? (
           <div className="empty-state">
             {t('si.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('si.new')}</button>
+            <Can permission="supplier_invoices:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('si.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -388,16 +393,20 @@ export function SupplierInvoicesPage() {
                   <td>
                     <div className="flex-gap">
                       {(inv.status === 'draft' || inv.status === 'divergence') && (
-                        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                          onClick={e => { e.stopPropagation(); void handleConfirm(inv.id); }}>
-                          Confirmar
-                        </button>
+                        <Can permission="supplier_invoices:edit">
+                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                            onClick={e => { e.stopPropagation(); void handleConfirm(inv.id); }}>
+                            Confirmar
+                          </button>
+                        </Can>
                       )}
                       {(inv.status === 'draft' || inv.status === 'confirmed' || inv.status === 'divergence') && (
-                        <button className="btn btn-danger btn-sm"
-                          onClick={e => { e.stopPropagation(); void handleCancel(inv.id); }}>
-                          {t('c.del')}
-                        </button>
+                        <Can permission="supplier_invoices:delete">
+                          <button className="btn btn-danger btn-sm"
+                            onClick={e => { e.stopPropagation(); void handleCancel(inv.id); }}>
+                            {t('c.del')}
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>

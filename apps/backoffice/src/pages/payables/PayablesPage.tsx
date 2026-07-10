@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can }     from '../../rbac';
 
 function exportToXlsx(rows: any[], filename: string) {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -206,14 +207,18 @@ export function PayablesPage() {
       <div className="page-header">
         <h1>{t('pay.title')}</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" onClick={() => exportToXlsx(
-            items.map(i => ({ description: i.description, supplier_name: i.supplier_name, category: i.category, document_number: i.document_number, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status })),
-            `contas-a-pagar-${new Date().toISOString().slice(0,10)}.xlsx`
-          )}>↓ Exportar</button>
-          <button className="btn btn-primary btn-cta" onClick={() => {
-            setCreateOpen(true); setFormError('');
-            setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null, cost_center_id: null });
-          }}>{t('pay.new')}</button>
+          <Can permission="payables:export">
+            <button className="btn btn-secondary" onClick={() => exportToXlsx(
+              items.map(i => ({ description: i.description, supplier_name: i.supplier_name, category: i.category, document_number: i.document_number, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status })),
+              `contas-a-pagar-${new Date().toISOString().slice(0,10)}.xlsx`
+            )}>↓ Exportar</button>
+          </Can>
+          <Can permission="payables:create">
+            <button className="btn btn-primary btn-cta" onClick={() => {
+              setCreateOpen(true); setFormError('');
+              setForm({ supplier_id: null, supplier_name: '', category: 'other', description: '', document_number: '', amount: '', due_date: '', notes: '', recurrence: 'none', recurrence_day: null, recurrence_end_date: null, cost_center_id: null });
+            }}>{t('pay.new')}</button>
+          </Can>
         </div>
       </div>
 
@@ -484,8 +489,10 @@ export function PayablesPage() {
                           <td style={{ fontSize: 12 }}>{PAYMENT_METHODS.find(m => m.value === p.payment_method)?.label || p.payment_method}</td>
                           <td>
                             {selected.status !== 'cancelled' && (
-                              <button className="btn btn-danger btn-sm"
-                                onClick={() => handleDeletePayment(p.id)}>{t('pay.reverse')}</button>
+                              <Can permission="payables:edit">
+                                <button className="btn btn-danger btn-sm"
+                                  onClick={() => handleDeletePayment(p.id)}>{t('pay.reverse')}</button>
+                              </Can>
                             )}
                           </td>
                         </tr>
@@ -527,18 +534,22 @@ export function PayablesPage() {
                           placeholder={t('pay.referencePH')} />
                       </div>
                     </div>
-                    <button type="submit" className="btn btn-primary" disabled={payingSave} style={{ width: '100%' }}>
-                      {payingSave ? t('c.saving') : t('pay.registerPayment')}
-                    </button>
+                    <Can permission="payables:edit">
+                      <button type="submit" className="btn btn-primary" disabled={payingSave} style={{ width: '100%' }}>
+                        {payingSave ? t('c.saving') : t('pay.registerPayment')}
+                      </button>
+                    </Can>
                   </form>
                 </>
               )}
 
               {selected.status !== 'paid' && selected.status !== 'cancelled' && (
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleCancel(selected.id)}>
-                    {t('pay.cancel')}
-                  </button>
+                  <Can permission="payables:edit">
+                    <button className="btn btn-danger btn-sm" onClick={() => handleCancel(selected.id)}>
+                      {t('pay.cancel')}
+                    </button>
+                  </Can>
                 </div>
               )}
             </div>

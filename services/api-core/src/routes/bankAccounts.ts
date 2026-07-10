@@ -3,15 +3,33 @@ import {
   listBankAccounts, createBankAccount, updateBankAccount, deactivateBankAccount, setDefaultBankAccount,
   BankAccountDomainError,
 } from '../services/bankAccountService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
 
   const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
-  const maskSecret = (a: any) => ({ ...a, itau_client_secret: mask(a.itau_client_secret) });
+  // Mascara qualquer chave de `credentials` (jsonb genérico, migration 0064)
+  // que pareça sensível — nunca enumerada por provedor, cobre Itaú (secret) e
+  // C6 (secret + cert + key, o par de certificado é tão sensível quanto o
+  // secret) sem precisar de uma linha nova por banco. `itau_client_secret`
+  // (coluna legada, deprecated-mas-presente) segue mascarada por
+  // retrocompatibilidade de payload.
+  const SENSITIVE_CREDENTIAL_KEYS = /secret|key|cert/i;
+  const maskCredentials = (credentials: Record<string, string> | null | undefined) => {
+    if (!credentials) return credentials ?? null;
+    return Object.fromEntries(
+      Object.entries(credentials).map(([k, v]) => [k, SENSITIVE_CREDENTIAL_KEYS.test(k) ? mask(v) : v]),
+    );
+  };
+  const maskSecret = (a: any) => ({
+    ...a,
+    itau_client_secret: mask(a.itau_client_secret),
+    credentials: maskCredentials(a.credentials),
+  });
 
   /* ── GET /v1/bank-accounts ──────────────────────────────────────────── */
-  fastify.get('/bank-accounts', auth, async (request) => {
+  fastify.get('/bank-accounts', { ...auth, preHandler: [requirePermission('bank_accounts:view') ] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { company_id } = request.query as { company_id?: string };
     const rows = await listBankAccounts(tenantId, company_id);
@@ -19,7 +37,7 @@ export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/bank-accounts ─────────────────────────────────────────── */
-  fastify.post('/bank-accounts', auth, async (request, reply) => {
+  fastify.post('/bank-accounts', { ...auth, preHandler: [requirePermission('bank_accounts:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const body = request.body as any;
 
@@ -40,7 +58,7 @@ export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/bank-accounts/:id ────────────────────────────────────── */
-  fastify.patch('/bank-accounts/:id', auth, async (request, reply) => {
+  fastify.patch('/bank-accounts/:id', { ...auth, preHandler: [requirePermission('bank_accounts:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
 
@@ -57,7 +75,7 @@ export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/bank-accounts/:id ───────────────────────────────────── */
-  fastify.delete('/bank-accounts/:id', auth, async (request, reply) => {
+  fastify.delete('/bank-accounts/:id', { ...auth, preHandler: [requirePermission('bank_accounts:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
 
@@ -74,7 +92,7 @@ export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/bank-accounts/:id/set-default ────────────────────────── */
-  fastify.patch('/bank-accounts/:id/set-default', auth, async (request, reply) => {
+  fastify.patch('/bank-accounts/:id/set-default', { ...auth, preHandler: [requirePermission('bank_accounts:manage') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
 

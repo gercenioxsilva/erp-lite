@@ -97,6 +97,10 @@ export const users = pgTable('users', {
   // o callback só é avaliado tardiamente (mesmo padrão já usado por
   // salesOpportunities → sellers/proposals).
   access_profile_id: uuid('access_profile_id').references((): AnyPgColumn => accessProfiles.id, { onDelete: 'set null' }),
+  // Papel 'client' (portal de agendamento): vincula o login ao cadastro
+  // comercial. Não-único de propósito — dois responsáveis podem ter login
+  // para o mesmo aluno (migration 0063).
+  client_id:     uuid('client_id').references((): AnyPgColumn => clients.id, { onDelete: 'set null' }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -434,8 +438,16 @@ export const bankAccounts = pgTable('bank_accounts', {
   account_digit:          varchar('account_digit',          { length: 2   }).notNull(),
   billing_provider:       varchar('billing_provider',       { length: 30  }).notNull().default('brcode'),
   billing_days_to_expire: integer('billing_days_to_expire').notNull().default(30),
+  // Deprecated-mas-presentes desde a migration 0064 (sem DROP destrutivo,
+  // mesmo espírito da regra 41) — nenhuma rota escreve aqui diretamente mais.
   itau_client_id:         varchar('itau_client_id',     { length: 100 }),
   itau_client_secret:     varchar('itau_client_secret', { length: 255 }),
+  // Credenciais genéricas por provedor (migration 0064) — {client_id,
+  // client_secret} para Itaú/brcode, {client_id, client_secret, cert, key}
+  // para C6 (mTLS). Único ponto de leitura/escrita de credencial daqui em
+  // diante, para QUALQUER billing_provider — não precisa de migration nova
+  // pro próximo banco (Santander/Bradesco, já cogitados no enum).
+  credentials: jsonb('credentials'),
   is_default: boolean('is_default').notNull().default(true),
   is_active:  boolean('is_active').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1608,4 +1620,213 @@ export const payrollTaxBrackets = pgTable('payroll_tax_brackets', {
   rate:            decimal('rate', { precision: 6, scale: 4 }).notNull(),
   deduction_value: decimal('deduction_value', { precision: 15, scale: 2 }).notNull().default('0'),
   valid_from:      date('valid_from').notNull(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RBAC por papéis — catálogo module:action + papéis de sistema/custom
+// (migration 0062; catálogo é code-authoritative em rbac/permissions.ts e
+// semeado no boot por syncRbacCatalog). Convive com as tabelas de
+// access_profiles acima (migration 0059), que ficaram SUPERSEDED por este
+// modelo — mantidas apenas porque a migration já foi aplicada em ambientes.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── RBAC: catálogo de permissões + papéis (system + custom por tenant) ──────
+// permissions é global (semeado do catálogo em código). roles.tenant_id NULL =
+// papel de sistema (owner/admin/...); não-NULL = papel custom do tenant.
+// Índices únicos parciais (system: key; custom: tenant_id+key) ficam na migração
+// 0055 — Drizzle 0.36 não expressa UNIQUE parcial, e as migrações são a
+// autoridade do DDL aqui.
+export const permissions = pgTable('permissions', {
+  key:         varchar('key',    { length: 60 }).primaryKey(),
+  module:      varchar('module', { length: 40 }).notNull(),
+  action:      varchar('action', { length: 30 }).notNull(),
+  description: varchar('description', { length: 200 }),
+});
+
+export const roles = pgTable('roles', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+  key:         varchar('key',  { length: 40 }).notNull(),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 200 }),
+  is_system:   boolean('is_system').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const rolePermissions = pgTable('role_permissions', {
+  role_id:        uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
+  permission_key: varchar('permission_key', { length: 60 }).notNull().references(() => permissions.key, { onDelete: 'cascade' }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.role_id, t.permission_key] }),
+}));
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agendamento de Sessões com Pacotes — migration 0060
+// (design: docs/superpowers/specs/2026-07-09-scheduling-module-design.md)
+// Horários são wall-clock do tenant em varchar(5) 'HH:mm' zero-padded —
+// comparação lexicográfica ≡ cronológica; intervalos meio-abertos [início, fim).
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── scheduling_settings (1 linha por tenant, seed-on-read) ────────────────────
+export const schedulingSettings = pgTable('scheduling_settings', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().unique().references(() => tenants.id, { onDelete: 'cascade' }),
+  business_name:       varchar('business_name', { length: 255 }),
+  business_type:       varchar('business_type', { length: 120 }),
+  allow_self_booking:  boolean('allow_self_booking').notNull().default(false),
+  min_advance_hours:   integer('min_advance_hours').notNull().default(12),
+  cancel_window_hours: integer('cancel_window_hours').notNull().default(0),
+  timezone:            varchar('timezone', { length: 64 }).notNull().default('America/Sao_Paulo'),
+  onboarding_complete: boolean('onboarding_complete').notNull().default(false),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_professionals (staff agendável; login opcional) ────────────────
+export const schedulingProfessionals = pgTable('scheduling_professionals', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  user_id:    uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  name:       varchar('name',  { length: 255 }).notNull(),
+  email:      varchar('email', { length: 255 }),
+  phone:      varchar('phone', { length: 20 }),
+  bio:        text('bio'),
+  is_active:  boolean('is_active').notNull().default(true),
+  created_by: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_areas (recurso paralelo dentro de um profissional) ─────────────
+export const schedulingAreas = pgTable('scheduling_areas', {
+  id:                       uuid('id').primaryKey().defaultRandom(),
+  tenant_id:                uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:                     varchar('name', { length: 120 }).notNull(),
+  description:              text('description'),
+  default_duration_minutes: integer('default_duration_minutes').notNull(),
+  default_price:            decimal('default_price', { precision: 15, scale: 2 }).notNull().default('0'),
+  rules_text:               text('rules_text'),
+  is_active:                boolean('is_active').notNull().default(true),
+  created_by:               uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:               timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:               timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_professional_areas (vínculo N:N, replace-wholesale) ────────────
+export const schedulingProfessionalAreas = pgTable('scheduling_professional_areas', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id, { onDelete: 'cascade' }),
+  area_id:         uuid('area_id').notNull().references(() => schedulingAreas.id, { onDelete: 'cascade' }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_availability_rules (grade semanal; weekday 0=domingo…6=sábado,
+// mesma convenção de Date.getUTCDay()) ────────────────────────────────────────
+export const schedulingAvailabilityRules = pgTable('scheduling_availability_rules', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id, { onDelete: 'cascade' }),
+  weekday:         smallint('weekday').notNull(),
+  start_time:      varchar('start_time', { length: 5 }).notNull(),
+  end_time:        varchar('end_time',   { length: 5 }).notNull(),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_availability_exceptions ('block' sem horários = dia inteiro;
+// 'open' = abertura extra somada à grade) ─────────────────────────────────────
+export const schedulingAvailabilityExceptions = pgTable('scheduling_availability_exceptions', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id, { onDelete: 'cascade' }),
+  date:            date('date').notNull(),
+  kind:            varchar('kind', { length: 10 }).notNull(),
+  start_time:      varchar('start_time', { length: 5 }),
+  end_time:        varchar('end_time',   { length: 5 }),
+  note:            varchar('note', { length: 255 }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_package_templates (area_id NULL = qualquer área) ───────────────
+export const schedulingPackageTemplates = pgTable('scheduling_package_templates', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:          varchar('name', { length: 120 }).notNull(),
+  area_id:       uuid('area_id').references(() => schedulingAreas.id, { onDelete: 'set null' }),
+  session_count: integer('session_count').notNull(),
+  price:         decimal('price', { precision: 15, scale: 2 }).notNull().default('0'),
+  validity_days: integer('validity_days'),
+  is_active:     boolean('is_active').notNull().default(true),
+  created_by:    uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_client_packages (histórico financeiro, NUNCA deletado; saldo é
+// sempre derivado total-used; campos são snapshot do modelo na concessão) ─────
+export const schedulingClientPackages = pgTable('scheduling_client_packages', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  client_id:      uuid('client_id').notNull().references(() => clients.id),
+  template_id:    uuid('template_id').references(() => schedulingPackageTemplates.id, { onDelete: 'set null' }),
+  area_id:        uuid('area_id').references(() => schedulingAreas.id, { onDelete: 'set null' }),
+  name:           varchar('name', { length: 120 }).notNull(),
+  total_sessions: integer('total_sessions').notNull(),
+  used_sessions:  integer('used_sessions').notNull().default(0),
+  price:          decimal('price', { precision: 15, scale: 2 }).notNull().default('0'),
+  payment_status: varchar('payment_status', { length: 10 }).notNull().default('pending'),
+  status:         varchar('status', { length: 12 }).notNull().default('active'),
+  valid_until:    date('valid_until'),
+  notes:          text('notes'),
+  created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_sessions (intervalo meio-aberto [start,end); conflito = mesmo
+// profissional + mesma área + overlap em status bloqueante pending/confirmed;
+// client_name é snapshot denormalizado como service_visits.technician_name) ───
+export const schedulingSessions = pgTable('scheduling_sessions', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  professional_id: uuid('professional_id').notNull().references(() => schedulingProfessionals.id),
+  client_id:       uuid('client_id').notNull().references(() => clients.id),
+  client_name:     varchar('client_name', { length: 255 }).notNull(),
+  area_id:         uuid('area_id').notNull().references(() => schedulingAreas.id),
+  package_id:      uuid('package_id').references(() => schedulingClientPackages.id, { onDelete: 'set null' }),
+  date:            date('date').notNull(),
+  start_time:      varchar('start_time', { length: 5 }).notNull(),
+  end_time:        varchar('end_time',   { length: 5 }).notNull(),
+  status:          varchar('status', { length: 10 }).notNull().default('confirmed'),
+  requested_by:    varchar('requested_by', { length: 15 }).notNull().default('professional'),
+  decline_reason:  text('decline_reason'),
+  cancel_reason:   text('cancel_reason'),
+  canceled_at:     timestamp('canceled_at', { withTimezone: true }),
+  canceled_by:     uuid('canceled_by').references(() => users.id, { onDelete: 'set null' }),
+  completed_at:    timestamp('completed_at', { withTimezone: true }),
+  notes:           text('notes'),
+  created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_package_movements (append-only; débito atômico na conclusão;
+// idempotency_key 'session_completed:<session_id>' UNIQUE = backstop físico
+// contra débito duplo — mesmo padrão de cost_center_movements) ────────────────
+export const schedulingPackageMovements = pgTable('scheduling_package_movements', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  package_id:      uuid('package_id').notNull().references(() => schedulingClientPackages.id),
+  session_id:      uuid('session_id').references(() => schedulingSessions.id, { onDelete: 'set null' }),
+  direction:       varchar('direction', { length: 6 }).notNull(),
+  quantity:        integer('quantity').notNull().default(1),
+  balance_after:   integer('balance_after').notNull(),
+  reason:          varchar('reason', { length: 30 }).notNull(),
+  idempotency_key: varchar('idempotency_key', { length: 80 }).notNull(),
+  created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -4,6 +4,7 @@ import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
+import { Can }      from '../../rbac';
 import type { TKey } from '../../i18n/pt-BR';
 
 interface Proposal {
@@ -331,9 +332,11 @@ export function ProposalsPage() {
     <div>
       <div className="page-header">
         <h1>{t('prop.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('prop.new')}
-        </button>
+        <Can permission="proposals:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('prop.new')}
+          </button>
+        </Can>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -364,7 +367,9 @@ export function ProposalsPage() {
         ) : proposals.length === 0 ? (
           <div className="empty-state">
             {t('o.empty')}{' '}
-            <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('prop.new')}</button>
+            <Can permission="proposals:create">
+              <button className="btn btn-secondary btn-sm" onClick={openCreate}>{t('prop.new')}</button>
+            </Can>
           </div>
         ) : (
           <table>
@@ -400,17 +405,23 @@ export function ProposalsPage() {
                       </button>
                       {p.status === 'draft' && (
                         <>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>
-                            {t('c.edit')}
-                          </button>
-                          <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                            onClick={() => sendProposal(p.id)}>
-                            {t('prop.send')}
-                          </button>
-                          <button className="btn btn-danger btn-sm"
-                            onClick={() => cancelProposal(p.id)}>
-                            {t('prop.cancel')}
-                          </button>
+                          <Can permission="proposals:edit">
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>
+                              {t('c.edit')}
+                            </button>
+                          </Can>
+                          <Can permission="proposals:send">
+                            <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => sendProposal(p.id)}>
+                              {t('prop.send')}
+                            </button>
+                          </Can>
+                          <Can permission="proposals:edit">
+                            <button className="btn btn-danger btn-sm"
+                              onClick={() => cancelProposal(p.id)}>
+                              {t('prop.cancel')}
+                            </button>
+                          </Can>
                         </>
                       )}
                       {(p.status === 'sent' || p.status === 'viewed') && (
@@ -422,40 +433,50 @@ export function ProposalsPage() {
                             </button>
                           )}
                           {!p.converted_to_order_id && (
-                            <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                              onClick={() => convertToOrder(p.id)}>
-                              {t('prop.convert')}
-                            </button>
+                            <Can permission="proposals:edit">
+                              <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                                onClick={() => convertToOrder(p.id)}>
+                                {t('prop.convert')}
+                              </button>
+                            </Can>
                           )}
-                          <button className="btn btn-secondary btn-sm"
-                            onClick={() => duplicateProposal(p.id)}>
-                            {t('prop.duplicate')}
-                          </button>
+                          <Can permission="proposals:create">
+                            <button className="btn btn-secondary btn-sm"
+                              onClick={() => duplicateProposal(p.id)}>
+                              {t('prop.duplicate')}
+                            </button>
+                          </Can>
                         </>
                       )}
                       {p.status === 'accepted' && (
                         <>
                           {!p.converted_to_order_id ? (
-                            <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                              onClick={() => convertToOrder(p.id)}>
-                              {t('prop.convert')}
-                            </button>
+                            <Can permission="proposals:edit">
+                              <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                                onClick={() => convertToOrder(p.id)}>
+                                {t('prop.convert')}
+                              </button>
+                            </Can>
                           ) : (
                             <span style={{ fontSize: 12, color: 'var(--success)' }}>
                               {t('prop.converted')}
                             </span>
                           )}
+                          <Can permission="proposals:create">
+                            <button className="btn btn-secondary btn-sm"
+                              onClick={() => duplicateProposal(p.id)}>
+                              {t('prop.duplicate')}
+                            </button>
+                          </Can>
+                        </>
+                      )}
+                      {(p.status === 'rejected' || p.status === 'expired') && (
+                        <Can permission="proposals:create">
                           <button className="btn btn-secondary btn-sm"
                             onClick={() => duplicateProposal(p.id)}>
                             {t('prop.duplicate')}
                           </button>
-                        </>
-                      )}
-                      {(p.status === 'rejected' || p.status === 'expired') && (
-                        <button className="btn btn-secondary btn-sm"
-                          onClick={() => duplicateProposal(p.id)}>
-                          {t('prop.duplicate')}
-                        </button>
+                        </Can>
                       )}
                     </div>
                   </td>

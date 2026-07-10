@@ -7,11 +7,12 @@ import {
   transitionPurchaseOrder,
   PurchaseOrderDomainError,
 } from '../services/purchaseOrderService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/purchase-orders ──────────────────────────────────────────────── */
-  fastify.get('/purchase-orders', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/purchase-orders', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { status, search, supplier_id, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
@@ -48,7 +49,7 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/purchase-orders ─────────────────────────────────────────────── */
-  fastify.post('/purchase-orders', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/purchase-orders', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const b = request.body as any;
@@ -65,7 +66,7 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/purchase-orders/:id ──────────────────────────────────────────── */
-  fastify.get('/purchase-orders/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/purchase-orders/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
 
@@ -99,7 +100,7 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   // interpolação direta de string — vulnerável a SQL injection em
   // qualquer campo de texto (ex.: notes/supplier_name); corrigido usando
   // o Drizzle parametrizado (mesmo caminho de createPurchaseOrder).
-  fastify.patch('/purchase-orders/:id', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/purchase-orders/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     const b        = request.body as any;
@@ -135,7 +136,7 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/purchase-orders/:id/approve ─────────────────────────────────── */
-  fastify.post('/purchase-orders/:id/approve', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/purchase-orders/:id/approve', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
@@ -149,7 +150,7 @@ export const purchaseOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/purchase-orders/:id/cancel ──────────────────────────────────── */
-  fastify.post('/purchase-orders/:id/cancel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.post('/purchase-orders/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('purchase_orders:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
     try {

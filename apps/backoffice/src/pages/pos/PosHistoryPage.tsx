@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { Can } from '../../rbac';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -306,23 +307,27 @@ export function PosHistoryPage() {
                         </a>
                       )}
                       {sale.fiscal_status === 'erro_autorizacao' && (
-                        <button
-                          className="btn btn-primary btn-sm"
-                          style={{ width: 'auto' }}
-                          disabled={reissuing === sale.id}
-                          onClick={() => void handleReissue(sale.id)}
-                        >
-                          {reissuing === sale.id ? 'Enviando…' : 'Reemitir'}
-                        </button>
+                        <Can permission="pos:operate">
+                          <button
+                            className="btn btn-primary btn-sm"
+                            style={{ width: 'auto' }}
+                            disabled={reissuing === sale.id}
+                            onClick={() => void handleReissue(sale.id)}
+                          >
+                            {reissuing === sale.id ? 'Enviando…' : 'Reemitir'}
+                          </button>
+                        </Can>
                       )}
                       {sale.status !== 'cancelled' && (
-                        <button
-                          className="btn btn-danger btn-sm"
-                          style={{ width: 'auto' }}
-                          onClick={() => { setCancelTarget(sale); setCancelReason(''); }}
-                        >
-                          Cancelar
-                        </button>
+                        <Can permission="pos:operate">
+                          <button
+                            className="btn btn-danger btn-sm"
+                            style={{ width: 'auto' }}
+                            onClick={() => { setCancelTarget(sale); setCancelReason(''); }}
+                          >
+                            Cancelar
+                          </button>
+                        </Can>
                       )}
                     </div>
                   </td>
@@ -468,14 +473,16 @@ export function PosHistoryPage() {
               >
                 Voltar
               </button>
-              <button
-                className="btn btn-danger"
-                style={{ width: 'auto' }}
-                disabled={cancelling}
-                onClick={() => void handleCancelConfirm()}
-              >
-                {cancelling ? 'Cancelando…' : 'Confirmar cancelamento'}
-              </button>
+              <Can permission="pos:operate">
+                <button
+                  className="btn btn-danger"
+                  style={{ width: 'auto' }}
+                  disabled={cancelling}
+                  onClick={() => void handleCancelConfirm()}
+                >
+                  {cancelling ? 'Cancelando…' : 'Confirmar cancelamento'}
+                </button>
+              </Can>
             </div>
           </div>
         </div>

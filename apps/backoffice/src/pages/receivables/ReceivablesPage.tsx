@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { Can }     from '../../rbac';
 
 function exportToXlsx(rows: any[], filename: string) {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -271,13 +272,17 @@ export function ReceivablesPage() {
       <div className="page-header">
         <h1>{t('rec.title')}</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" onClick={() => exportToXlsx(
-            items.map(i => ({ description: i.description, client_name: i.client_name, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status, document_number: '' })),
-            `contas-a-receber-${new Date().toISOString().slice(0,10)}.xlsx`
-          )}>↓ Exportar</button>
-          <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '', cost_center_id: '' }); }}>
-            {t('rec.new')}
-          </button>
+          <Can permission="receivables:export">
+            <button className="btn btn-secondary" onClick={() => exportToXlsx(
+              items.map(i => ({ description: i.description, client_name: i.client_name, amount: i.amount, paid_amount: i.paid_amount, due_date: i.due_date, status: i.status, document_number: '' })),
+              `contas-a-receber-${new Date().toISOString().slice(0,10)}.xlsx`
+            )}>↓ Exportar</button>
+          </Can>
+          <Can permission="receivables:create">
+            <button className="btn btn-primary btn-cta" onClick={() => { setCreateOpen(true); setFormError(''); setForm({ client_id: '', description: '', amount: '', due_date: '', notes: '', cost_center_id: '' }); }}>
+              {t('rec.new')}
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -488,8 +493,10 @@ export function ReceivablesPage() {
                           <td style={{ fontSize: 12 }}>{PAYMENT_METHODS.find(m => m.value === p.payment_method)?.label || p.payment_method}</td>
                           <td>
                             {selected.status !== 'cancelled' && (
-                              <button className="btn btn-danger btn-sm"
-                                onClick={() => handleDeletePayment(p.id)}>{t('rec.reverse')}</button>
+                              <Can permission="receivables:edit">
+                                <button className="btn btn-danger btn-sm"
+                                  onClick={() => handleDeletePayment(p.id)}>{t('rec.reverse')}</button>
+                              </Can>
                             )}
                           </td>
                         </tr>
@@ -532,9 +539,11 @@ export function ReceivablesPage() {
                           placeholder={t('rec.referencePH')} />
                       </div>
                     </div>
-                    <button type="submit" className="btn btn-primary" disabled={payingSave} style={{ width: '100%' }}>
-                      {payingSave ? t('c.saving') : t('rec.registerPayment')}
-                    </button>
+                    <Can permission="receivables:edit">
+                      <button type="submit" className="btn btn-primary" disabled={payingSave} style={{ width: '100%' }}>
+                        {payingSave ? t('c.saving') : t('rec.registerPayment')}
+                      </button>
+                    </Can>
                   </form>
                 </>
               )}
@@ -609,9 +618,11 @@ export function ReceivablesPage() {
               {/* Cancelar conta */}
               {selected.status !== 'paid' && selected.status !== 'cancelled' && (
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleCancel(selected.id)}>
-                    {t('rec.cancel')}
-                  </button>
+                  <Can permission="receivables:edit">
+                    <button className="btn btn-danger btn-sm" onClick={() => handleCancel(selected.id)}>
+                      {t('rec.cancel')}
+                    </button>
+                  </Can>
                 </div>
               )}
             </div>

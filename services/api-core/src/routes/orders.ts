@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq, sql, and } from 'drizzle-orm';
 import { db, orders, orderItems, clients, inventory, inventoryMovements, materialComponents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
+import { requirePermission } from '../lib/requirePermission';
 
 interface ItemPayload {
   material_id?: string; name: string; sku?: string;
@@ -16,10 +17,10 @@ export function calcTotals(items: ItemPayload[], discount = 0, shipping = 0) {
 export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/orders ──────────────────────────────────────────────────── */
-  fastify.get('/orders', async (request, reply) => {
-    const { tenant_id, status, search, page = '1', per_page = '20' } =
+  fastify.get('/orders', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { status, search, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
@@ -35,13 +36,13 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                o.notes, o.created_at, o.cost_center_id, o.seller_id, c.id AS client_id,
                COALESCE(c.company_name, c.full_name) AS client_name
         FROM orders o JOIN clients c ON c.id = o.client_id
-        WHERE o.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+        WHERE o.tenant_id = ${tenantId} ${statusFilter} ${searchFilter}
         ORDER BY o.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
       db.execute<{ count: string }>(sql`
         SELECT COUNT(*) AS count FROM orders o JOIN clients c ON c.id = o.client_id
-        WHERE o.tenant_id = ${tenant_id} ${statusFilter} ${searchFilter}
+        WHERE o.tenant_id = ${tenantId} ${statusFilter} ${searchFilter}
       `),
     ]);
 
@@ -49,11 +50,16 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/orders ─────────────────────────────────────────────────── */
-  fastify.post('/orders', async (request, reply) => {
-    const { tenant_id, client_id, items, notes, discount = 0, shipping = 0, created_by, cost_center_id, seller_id } =
+  fastify.post('/orders', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:create')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { client_id, items, notes, discount = 0, shipping = 0, created_by, cost_center_id, seller_id } =
       request.body as any;
-    if (!tenant_id || !client_id)  return reply.badRequest('tenant_id and client_id are required');
+    if (!client_id)  return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
+
+    const [client] = await db.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, client_id), eq(clients.tenant_id, tenantId)));
+    if (!client) return reply.badRequest('client_id inválido para este tenant');
 
     const { subtotal, total } = calcTotals(items, discount, shipping);
 
@@ -62,10 +68,10 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         const { rows: [ord] } = await tx.execute<{ id: string; number: string; status: string; total: string }>(sql`
           WITH next AS (
             SELECT COALESCE(MAX(CASE WHEN number ~ '^[0-9]+$' THEN number::INTEGER END), 0) + 1 AS n
-            FROM orders WHERE tenant_id = ${tenant_id}
+            FROM orders WHERE tenant_id = ${tenantId}
           )
           INSERT INTO orders (tenant_id, client_id, number, notes, subtotal, discount, shipping, total, created_by, cost_center_id, seller_id)
-          SELECT ${tenant_id}, ${client_id}, LPAD(n::TEXT, 5, '0'), ${notes || null},
+          SELECT ${tenantId}, ${client_id}, LPAD(n::TEXT, 5, '0'), ${notes || null},
                  ${subtotal}, ${discount}, ${shipping}, ${total}, ${created_by || null}, ${cost_center_id || null}, ${seller_id || null}
           FROM next
           RETURNING id, number, status, total
@@ -94,12 +100,13 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/orders/:id ─────────────────────────────────────────────── */
-  fastify.get('/orders/:id', async (request, reply) => {
+  fastify.get('/orders/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [{ rows: [order] }, { rows: items }] = await Promise.all([
       db.execute<any>(sql`
         SELECT o.*, COALESCE(c.company_name, c.full_name) AS client_name, c.person_type, c.cnpj, c.cpf
-        FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ${id}
+        FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = ${id} AND o.tenant_id = ${tenantId}
       `),
       db.execute<any>(sql`SELECT * FROM order_items WHERE order_id = ${id} ORDER BY created_at`),
     ]);
@@ -108,12 +115,13 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PATCH /v1/orders/:id ───────────────────────────────────────────── */
-  fastify.patch('/orders/:id', async (request, reply) => {
+  fastify.patch('/orders/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:edit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const { client_id, notes, discount, shipping, items, cost_center_id, seller_id } = request.body as any;
 
     const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
-      .from(orders).where(eq(orders.id, id));
+      .from(orders).where(and(eq(orders.id, id), eq(orders.tenant_id, tenantId)));
     if (!order)              return reply.notFound('Pedido não encontrado');
     if (order.status !== 'draft') return reply.badRequest('Apenas pedidos em rascunho podem ser editados');
 
@@ -153,10 +161,11 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/orders/:id/confirm ────────────────────────────────────── */
-  fastify.post('/orders/:id/confirm', async (request, reply) => {
+  fastify.post('/orders/:id/confirm', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:edit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
-      .from(orders).where(eq(orders.id, id));
+      .from(orders).where(and(eq(orders.id, id), eq(orders.tenant_id, tenantId)));
     if (!order)               return reply.notFound('Pedido não encontrado');
     if (order.status !== 'draft') return reply.badRequest('Apenas rascunhos podem ser confirmados');
 
@@ -217,9 +226,11 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/orders/:id/deliver ────────────────────────────────────── */
-  fastify.post('/orders/:id/deliver', async (request, reply) => {
+  fastify.post('/orders/:id/deliver', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:edit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
-    const [order] = await db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, id));
+    const [order] = await db.select({ id: orders.id, status: orders.status }).from(orders)
+      .where(and(eq(orders.id, id), eq(orders.tenant_id, tenantId)));
     if (!order) return reply.notFound('Pedido não encontrado');
     if (order.status !== 'confirmed' && order.status !== 'invoiced')
       return reply.badRequest('Apenas pedidos confirmados ou faturados podem ser entregues');
@@ -229,10 +240,11 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/orders/:id/cancel ─────────────────────────────────────── */
-  fastify.post('/orders/:id/cancel', async (request, reply) => {
+  fastify.post('/orders/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:edit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
     const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
-      .from(orders).where(eq(orders.id, id));
+      .from(orders).where(and(eq(orders.id, id), eq(orders.tenant_id, tenantId)));
     if (!order) return reply.notFound('Pedido não encontrado');
     if (order.status === 'cancelled') return reply.badRequest('Pedido já cancelado');
     if (order.status === 'delivered') return reply.badRequest('Pedido já entregue não pode ser cancelado');

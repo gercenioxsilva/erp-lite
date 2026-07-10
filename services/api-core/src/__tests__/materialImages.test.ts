@@ -99,10 +99,12 @@ describe('material image validation logic', () => {
 
 describe('GET /v1/materials/:id/images', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -111,7 +113,7 @@ describe('GET /v1/materials/:id/images', () => {
     const chain = { from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), orderBy: vi.fn().mockResolvedValue([]) };
     mockDb.select.mockReturnValue(chain);
 
-    const res = await app.inject({ method: 'GET', url: `/v1/materials/${MATERIAL_ID}/images` });
+    const res = await app.inject({ method: 'GET', url: `/v1/materials/${MATERIAL_ID}/images`, headers: { Authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([]);
   });
@@ -124,7 +126,7 @@ describe('GET /v1/materials/:id/images', () => {
     const chain = { from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), orderBy: vi.fn().mockResolvedValue(mockImages) };
     mockDb.select.mockReturnValue(chain);
 
-    const res = await app.inject({ method: 'GET', url: `/v1/materials/${MATERIAL_ID}/images` });
+    const res = await app.inject({ method: 'GET', url: `/v1/materials/${MATERIAL_ID}/images`, headers: { Authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(200);
     const body = res.json() as typeof mockImages;
     expect(body).toHaveLength(2);
@@ -135,10 +137,12 @@ describe('GET /v1/materials/:id/images', () => {
 
 describe('POST /v1/materials/:id/images', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -147,6 +151,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, image_data: 'data:image/gif;base64,abc' },
     });
     expect(res.statusCode).toBe(400);
@@ -157,6 +162,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, image_data: 'data:text/plain;base64,abc' },
     });
     expect(res.statusCode).toBe(400);
@@ -166,6 +172,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, image_data: bigImage() },
     });
     expect(res.statusCode).toBe(400);
@@ -180,6 +187,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, image_data: VALID_JPEG },
     });
     expect(res.statusCode).toBe(400);
@@ -205,6 +213,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, image_data: VALID_JPEG },
     });
     expect(res.statusCode).toBe(201);
@@ -216,6 +225,7 @@ describe('POST /v1/materials/:id/images', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/v1/materials/${MATERIAL_ID}/images`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID },  // missing image_data
     });
     expect(res.statusCode).toBe(400);
@@ -224,10 +234,12 @@ describe('POST /v1/materials/:id/images', () => {
 
 describe('PATCH /v1/materials/:id/images/:imageId', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -239,6 +251,7 @@ describe('PATCH /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { is_cover: true },
     });
     expect(res.statusCode).toBe(404);
@@ -263,6 +276,7 @@ describe('PATCH /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { is_cover: true },
     });
     expect(res.statusCode).toBe(200);
@@ -285,6 +299,7 @@ describe('PATCH /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
       payload: { alt: 'New alt text' },
     });
     expect(res.statusCode).toBe(200);
@@ -293,10 +308,12 @@ describe('PATCH /v1/materials/:id/images/:imageId', () => {
 
 describe('DELETE /v1/materials/:id/images/:imageId', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -308,6 +325,7 @@ describe('DELETE /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -320,6 +338,7 @@ describe('DELETE /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(204);
   });
@@ -342,6 +361,7 @@ describe('DELETE /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(204);
     // Verify that update was called to promote next cover
@@ -361,6 +381,7 @@ describe('DELETE /v1/materials/:id/images/:imageId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/v1/materials/${MATERIAL_ID}/images/${IMAGE_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(204);
     expect(mockDb.update).not.toHaveBeenCalled();

@@ -2,11 +2,14 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, tenants } from '../db';
 import { getDefaultBankAccount, upsertDefaultBankAccount, BankAccountDomainError } from '../services/bankAccountService';
+import { requirePermission } from '../lib/requirePermission';
 
 const BANKING_FIELDS = [
   'bank_code', 'agency', 'account', 'account_digit',
   'billing_provider', 'billing_days_to_expire',
-  'itau_client_id', 'itau_client_secret',
+  'itau_client_id', 'itau_client_secret', // @deprecated — ver credentials
+  'credentials', // genérico por provedor (migration 0064) — {client_id,
+  // client_secret} pro Itaú, {client_id, client_secret, cert, key} pro C6
 ] as const;
 
 const MAX_LOGO_BYTES = 300 * 1024; // 300 KB base64 string limit
@@ -30,7 +33,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   // bankAccountService, não mais das colunas de tenants — retrocompatível no
   // shape da resposta, mas agora o segredo do Itaú vem mascarado (correção de
   // uma inconsistência: nfe_configs já mascarava tokens, tenants nunca mascarou).
-  fastify.get('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/tenant', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
@@ -38,6 +41,10 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
 
     const account = await getDefaultBankAccount(tenantId);
     const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
+    const credentials = account?.credentials as Record<string, string> | null | undefined;
+    const maskedCredentials = credentials
+      ? Object.fromEntries(Object.entries(credentials).map(([k, v]) => [k, /secret|key|cert/i.test(k) ? mask(v) : v]))
+      : null;
 
     return {
       ...tenant,
@@ -49,11 +56,12 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       billing_days_to_expire: account?.billing_days_to_expire  ?? 30,
       itau_client_id:         account?.itau_client_id          ?? null,
       itau_client_secret:     mask(account?.itau_client_secret),
+      credentials:            maskedCredentials,
     };
   });
 
   /* ── PATCH /v1/tenant ───────────────────────────────────────────────────── */
-  fastify.patch('/tenant', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.patch('/tenant', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const body     = request.body as any;
 
@@ -90,7 +98,8 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (err) {
         if (err instanceof BankAccountDomainError) {
           if (err.code === 'invalid_banking_data') return reply.badRequest((err.payload as any)?.message ?? err.code);
-          if (err.code === 'invalid_billing_provider') return reply.badRequest('billing_provider inválido. Valores válidos: brcode, itau, santander, bradesco');
+          if (err.code === 'invalid_billing_provider') return reply.badRequest('billing_provider inválido. Valores válidos: brcode, itau, c6, santander, bradesco');
+          if (err.code === 'invalid_credentials') return reply.badRequest(`Credenciais incompletas para ${(err.payload as any)?.provider}. Faltando: ${((err.payload as any)?.missing ?? []).join(', ')}`);
           if (err.code === 'invalid_billing_days_to_expire') return reply.badRequest('billing_days_to_expire deve ser um número inteiro entre 1 e 365');
           return reply.badRequest(err.code);
         }
@@ -106,7 +115,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/tenant/logo ────────────────────────────────────────────────── */
-  fastify.put('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.put('/tenant/logo', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { logo_url } = request.body as any;
 
@@ -125,7 +134,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/tenant/logo ─────────────────────────────────────────────── */
-  fastify.delete('/tenant/logo', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/tenant/logo', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ logo_url: null }).where(eq(tenants.id, tenantId));
@@ -133,7 +142,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── PUT /v1/tenant/proposal-banner ─────────────────────────────────────── */
-  fastify.put('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.put('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { banner_url } = request.body as any;
 
@@ -152,7 +161,7 @@ export const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── DELETE /v1/tenant/proposal-banner ──────────────────────────────────── */
-  fastify.delete('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.delete('/tenant/proposal-banner', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('company:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
 
     await db.update(tenants).set({ proposal_banner_url: null }).where(eq(tenants.id, tenantId));

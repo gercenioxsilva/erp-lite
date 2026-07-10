@@ -32,6 +32,7 @@ const COMPANY_ID = '33333333-3333-3333-3333-333333333333';
 
 describe('POST /v1/service-contracts — company_id (regra 40)', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -40,6 +41,9 @@ describe('POST /v1/service-contracts — company_id (regra 40)', () => {
     }));
     mockDb.execute.mockResolvedValue({ rows: [{ count: 0 }] });
     app = await buildApp();
+    // Sign a fake JWT so authenticate passes — tenantId matches TENANT_ID used
+    // throughout this file's mocked data/assertions.
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => { await app.close(); });
@@ -53,6 +57,7 @@ describe('POST /v1/service-contracts — company_id (regra 40)', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/service-contracts',
+      headers: { Authorization: `Bearer ${token}` },
       payload: {
         tenant_id: TENANT_ID, client_id: CLIENT_ID, company_id: COMPANY_ID,
         description: 'Manutenção mensal', start_date: '2026-01-01',
@@ -66,6 +71,7 @@ describe('POST /v1/service-contracts — company_id (regra 40)', () => {
 
 describe('POST /v1/service-contracts/:id/billings — resolução de empresa na emissão de NFS-e', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -99,6 +105,9 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
     }));
 
     app = await buildApp();
+    // Sign a fake JWT so authenticate passes — tenantId matches TENANT_ID used
+    // throughout this file's mocked data/assertions.
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
 
   afterEach(async () => {
@@ -111,6 +120,7 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
 
     const res = await app.inject({
       method: 'POST', url: '/v1/service-contracts/contract-1/billings',
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().message).toMatch(/Inscrição Municipal/);
@@ -121,6 +131,7 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
 
     const res = await app.inject({
       method: 'POST', url: '/v1/service-contracts/contract-1/billings',
+      headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().message).toMatch(/Configure os dados fiscais/);

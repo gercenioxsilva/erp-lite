@@ -47,11 +47,13 @@ function baseRow(overrides: Record<string, unknown> = {}) {
 
 describe('POST /v1/materials/import', () => {
   let app: FastifyInstance;
+  let token: string;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mockDb.transaction.mockImplementation(async (cb: any) => cb(mockDb));
     app = await buildApp();
+    token = app.jwt.sign({ tenantId: TENANT_ID, userId: 'user-1', role: 'admin' });
   });
   afterEach(async () => { await app.close(); });
 
@@ -60,6 +62,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow()] },
     });
 
@@ -80,6 +83,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow()], update_existing: true },
     });
 
@@ -101,6 +105,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow()], update_existing: true },
     });
 
@@ -118,6 +123,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow({ sku: 'PROD-NEW' })], update_existing: true },
     });
 
@@ -139,6 +145,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow({ sku: 'PROD-OBS', observacoes: 'Uso interno — lote 220' })] },
     });
 
@@ -153,6 +160,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow()], update_existing: true, dry_run: true },
     });
 
@@ -169,6 +177,7 @@ describe('POST /v1/materials/import', () => {
 
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [baseRow({ sku: 'PROD-NEW' })], dry_run: true },
     });
 
@@ -181,6 +190,7 @@ describe('POST /v1/materials/import', () => {
   it('linha sem "sku" continua sendo ignorada com erro (comportamento inalterado)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/v1/materials/import',
+      headers: { Authorization: `Bearer ${token}` },
       payload: { tenant_id: TENANT_ID, materials: [{ nome: 'Sem SKU' }] },
     });
 

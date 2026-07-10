@@ -1,18 +1,19 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, nfseInvoices, nfseEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
+import { requirePermission } from '../lib/requirePermission';
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
   /* ── GET /v1/nfse ───────────────────────────────────────────────────── */
-  fastify.get('/nfse', async (request, reply) => {
-    const { tenant_id, status, client_id, page = '1', per_page = '20' } =
+  fastify.get('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { status, client_id, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const limit  = Math.min(Number(per_page) || 20, 100);
     const offset = (Math.max(Number(page) || 1, 1) - 1) * limit;
@@ -22,7 +23,7 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
              COALESCE(c.company_name, c.full_name) AS client_name
       FROM nfse_invoices n
       LEFT JOIN clients c ON c.id = n.client_id
-      WHERE n.tenant_id = ${tenant_id}
+      WHERE n.tenant_id = ${tenantId}
         ${status    ? sql`AND n.nfse_status = ${status}`         : sql``}
         ${client_id ? sql`AND n.client_id = ${client_id}::uuid` : sql``}
       ORDER BY n.created_at DESC
@@ -31,7 +32,7 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [{ total }] } = await db.execute<{ total: number }>(sql`
       SELECT COUNT(*)::int AS total FROM nfse_invoices
-      WHERE tenant_id = ${tenant_id}
+      WHERE tenant_id = ${tenantId}
         ${status    ? sql`AND nfse_status = ${status}`         : sql``}
         ${client_id ? sql`AND client_id = ${client_id}::uuid` : sql``}
     `);
@@ -40,16 +41,15 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/nfse/:id ───────────────────────────────────────────────── */
-  fastify.get<{ Params: { id: string } }>('/nfse/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/nfse/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
-    const { tenant_id } = request.query as { tenant_id: string };
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const { rows } = await db.execute<any>(sql`
       SELECT n.*, COALESCE(c.company_name, c.full_name) AS client_name
       FROM nfse_invoices n
       LEFT JOIN clients c ON c.id = n.client_id
-      WHERE n.id = ${id} AND n.tenant_id = ${tenant_id}
+      WHERE n.id = ${id} AND n.tenant_id = ${tenantId}
     `);
     if (!rows[0]) return reply.notFound('NFS-e não encontrada');
 
@@ -63,28 +63,28 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── GET /v1/nfse/:id/events ────────────────────────────────────────── */
-  fastify.get<{ Params: { id: string } }>('/nfse/:id/events', async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/nfse/:id/events', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
     const rows = await db.select({
       event_type: nfseEvents.event_type, status_code: nfseEvents.status_code,
       protocol: nfseEvents.protocol, payload: nfseEvents.payload, created_at: nfseEvents.created_at,
-    }).from(nfseEvents).where(eq(nfseEvents.nfse_id, id))
+    }).from(nfseEvents).where(and(eq(nfseEvents.nfse_id, id), eq(nfseEvents.tenant_id, tenantId)))
       .orderBy(sql`${nfseEvents.created_at} DESC`);
     return rows;
   });
 
   /* ── POST /v1/nfse/:id/emit ─────────────────────────────────────────── */
   // Re-emit a rejected (or never-sent) NFS-e.
-  fastify.post<{ Params: { id: string } }>('/nfse/:id/emit', async (request, reply) => {
+  fastify.post<{ Params: { id: string } }>('/nfse/:id/emit', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:emit')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
-    const { tenant_id } = request.query as { tenant_id: string };
-    if (!tenant_id) return reply.badRequest('tenant_id is required');
 
     const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
     if (!queueUrl) return reply.badRequest('Emissão de NFS-e não configurada neste ambiente');
 
     const [nfse] = await db.select().from(nfseInvoices)
-      .where(sql`${nfseInvoices.id} = ${id} AND ${nfseInvoices.tenant_id} = ${tenant_id}`);
+      .where(sql`${nfseInvoices.id} = ${id} AND ${nfseInvoices.tenant_id} = ${tenantId}`);
     if (!nfse) return reply.notFound('NFS-e não encontrada');
 
     if (nfse.nfse_status === 'pending' || nfse.nfse_status === 'processing')
@@ -97,7 +97,7 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     // com emite_nfse=true.
     let cfg;
     try {
-      cfg = await resolveCompanyId(tenant_id, nfse.company_id, db, 'nfse');
+      cfg = await resolveCompanyId(tenantId, nfse.company_id, db, 'nfse');
     } catch (err) {
       const msg = err instanceof CompanyDomainError ? companyResolutionErrorMessage(err, 'NFS-e') : 'Configure os dados fiscais em Empresa → NF-e/NFS-e antes de emitir';
       return reply.badRequest(msg);
@@ -116,7 +116,7 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
     const message = buildNfseEmitMessage({
       nfse_id:      nfse.id,
-      tenant_id,
+      tenant_id:    tenantId,
       description:  nfse.description,
       amount:       Number(nfse.amount),
       iss_rate:     Number(nfse.iss_rate),

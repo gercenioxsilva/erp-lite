@@ -3,6 +3,7 @@ import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
+import { Can } from '../../rbac';
 
 interface Technician {
   id: string; name: string; email: string; phone: string | null;
@@ -116,9 +117,11 @@ export function TechniciansPage() {
     <div>
       <div className="page-header">
         <h1>{t('tech.title')}</h1>
-        <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-          + {t('tech.new')}
-        </button>
+        <Can permission="technicians:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+            + {t('tech.new')}
+          </button>
+        </Can>
       </div>
 
       <div style={{ marginBottom: 14 }}>
@@ -157,12 +160,14 @@ export function TechniciansPage() {
                     </span>
                   </td>
                   <td>
-                    <div className="flex-gap">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(tc)}>{t('c.edit')}</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(tc)}>
-                        {tc.is_active ? t('tech.deactivate') : t('tech.activate')}
-                      </button>
-                    </div>
+                    <Can permission="technicians:edit">
+                      <div className="flex-gap">
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(tc)}>{t('c.edit')}</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(tc)}>
+                          {tc.is_active ? t('tech.deactivate') : t('tech.activate')}
+                        </button>
+                      </div>
+                    </Can>
                   </td>
                 </tr>
               ))}

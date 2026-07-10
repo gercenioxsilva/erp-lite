@@ -6,6 +6,7 @@ import { computeCashflow } from '../services/cashflowService';
 import { computeAging } from '../services/agingService';
 import { parsePeriod } from '../lib/reportPeriod';
 import { requireModule } from '../lib/requireModule';
+import { requirePermission } from '../lib/requirePermission';
 import type { CashflowGranularity } from '../domain/cashflow/cashflowDomain';
 import { computeProposalsFunnel } from '../services/proposalsFunnelService';
 import { computeStockPosition } from '../services/stockPositionService';
@@ -17,7 +18,7 @@ import { computeMrr } from '../services/mrrService';
 export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /v1/reports/overdue — Inadimplência: receivables past due date
-  fastify.get('/reports/overdue', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/reports/overdue', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const result = await db.execute<any>(sql`
@@ -56,7 +57,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/top-products?days=30 — Top products by revenue (from confirmed orders)
-  fastify.get('/reports/top-products', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/reports/top-products', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
     const days     = Math.min(Math.max(Number(query.days ?? 30), 1), 365);
@@ -91,7 +92,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/commissions?from=&to= — Ranking de comissão por vendedor
-  fastify.get('/reports/commissions', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/reports/commissions', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     const { from, to } = request.query as Record<string, string>;
 
@@ -127,7 +128,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/dre?from=YYYY-MM-DD&to=YYYY-MM-DD — DRE Gerencial
-  fastify.get('/reports/dre', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/dre', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { from, to } = request.query as Record<string, string>;
 
@@ -138,7 +139,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/dre/categories — lista categorias DRE disponíveis para o tenant
-  fastify.get('/dre/categories', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/dre/categories', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
 
     const { rows } = await db.execute<any>(sql`
@@ -152,7 +153,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/cashflow?from=&to=&granularity=week|month — Fluxo de Caixa (realizado vs. projetado)
-  fastify.get('/reports/cashflow', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/cashflow', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -165,7 +166,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/aging?type=receivable|payable&as_of=YYYY-MM-DD — Posição de vencimentos
-  fastify.get('/reports/aging', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/aging', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -179,7 +180,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/expenses?from=&to=&group_by=category|cost_center|dre_category — Despesas (payables)
-  fastify.get('/reports/expenses', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/expenses', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -232,7 +233,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/reports/pos-cash?from=&to= — Fechamento de Caixa PDV (módulo opcional 'pos')
   fastify.get('/reports/pos-cash', {
     onRequest:   [(fastify as any).authenticate],
-    preHandler:  [requireModule('pos')],
+    preHandler:  [requireModule('pos'), requirePermission('reports:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
@@ -297,7 +298,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/sales?from=&to=&group_by=seller|client|cost_center|month — Faturamento
-  fastify.get('/reports/sales', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/sales', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -350,7 +351,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/proposals-funnel?from=&to= — Funil de conversão de propostas
-  fastify.get('/reports/proposals-funnel', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/proposals-funnel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -364,7 +365,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/reports/pos-payments?from=&to= — Vendas por forma de pagamento (módulo opcional 'pos')
   fastify.get('/reports/pos-payments', {
     onRequest:  [(fastify as any).authenticate],
-    preHandler: [requireModule('pos')],
+    preHandler: [requireModule('pos'), requirePermission('reports:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
@@ -389,13 +390,13 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/stock-position — Posição de estoque e ruptura (foto atual, sem período)
-  fastify.get('/reports/stock-position', { onRequest: [(fastify as any).authenticate] }, async (request) => {
+  fastify.get('/reports/stock-position', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request) => {
     const tenantId = (request as any).user.tenantId;
     return computeStockPosition({ tenantId }, db);
   });
 
   // GET /v1/reports/abc?from=&to=&metric=revenue|margin — Curva ABC de produtos
-  fastify.get('/reports/abc', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/abc', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -408,7 +409,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/kardex?from=&to=&material_id= — Kardex / giro de estoque
-  fastify.get('/reports/kardex', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/kardex', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -422,7 +423,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/reports/technician-productivity?from=&to= — Produtividade/SLA por técnico (módulo opcional 'service_orders')
   fastify.get('/reports/technician-productivity', {
     onRequest:  [(fastify as any).authenticate],
-    preHandler: [requireModule('service_orders')],
+    preHandler: [requireModule('service_orders'), requirePermission('reports:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
@@ -435,7 +436,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/recurring-revenue?as_of= — Receita recorrente (MRR)
-  fastify.get('/reports/recurring-revenue', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/recurring-revenue', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -446,7 +447,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/supplier-spend?from=&to= — Gasto por fornecedor
-  fastify.get('/reports/supplier-spend', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/supplier-spend', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 
@@ -497,7 +498,7 @@ export const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /v1/reports/tax-summary?from=&to= — Apuração de impostos / carga tributária
-  fastify.get('/reports/tax-summary', { onRequest: [(fastify as any).authenticate] }, async (request, reply) => {
+  fastify.get('/reports/tax-summary', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('reports:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const query    = request.query as Record<string, string>;
 

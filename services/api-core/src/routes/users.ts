@@ -1,36 +1,25 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { eq, ilike, or, and, sql } from 'drizzle-orm';
-import { db, users } from '../db';
+import { eq, ilike, or, and, isNull, sql } from 'drizzle-orm';
+import { db, users, roles } from '../db';
+import { requirePermission } from '../lib/requirePermission';
 import { sendSystemNotification } from '../lib/notificationsClient';
-import { requireRole } from '../lib/requireRole';
-import { assignUserProfile, AccessControlDomainError } from '../services/accessControlService';
 
-// ── Achado de segurança corrigido nesta entrega (RBAC) ──────────────────────
-// Antes: GET confiava em tenant_id vindo da query string, e PATCH/DELETE não
-// filtravam tenant_id nenhum — um usuário autenticado de QUALQUER tenant
-// conseguia listar/editar/desativar usuários de outro tenant só sabendo (ou
-// adivinhando) o UUID, inclusive promovendo alguém a role='owner'. `users` é
-// a tabela mais sensível do sistema (é literalmente quem consegue logar como
-// quem) — daqui pra baixo, tenant_id SEMPRE vem de request.user.tenantId
-// (JWT), nunca de query/body, em toda rota deste arquivo.
+// Papel atribuível = existe como papel de sistema ou papel custom deste tenant.
+async function isAssignableRole(tenantId: string, role: string): Promise<boolean> {
+  const rows = await db.select({ id: roles.id }).from(roles)
+    .where(and(eq(roles.key, role), or(eq(roles.tenant_id, tenantId), isNull(roles.tenant_id))));
+  return rows.length > 0;
+}
 
 export const usersRoutes: FastifyPluginAsync = async (fastify) => {
-  const auth      = { onRequest: [(fastify as any).authenticate] };
-  const ownerOnly = { onRequest: [(fastify as any).authenticate], preHandler: [requireRole('owner')] };
-
-  function handleDomainError(err: unknown, reply: any) {
-    if (err instanceof AccessControlDomainError) {
-      if (err.code === 'user_not_found' || err.code === 'profile_not_found') return reply.notFound(err.code);
-      if (err.code === 'actor_not_owner') return reply.code(403).send({ error: err.code });
-      return reply.code(422).send({ error: err.code, ...err.payload });
-    }
-    throw err;
-  }
+  const authenticate = (fastify as any).authenticate;
 
   /* ── GET /v1/users ──────────────────────────────────────────────────── */
-  fastify.get('/users', auth, async (request) => {
-    const tenantId = (request as any).user.tenantId;
+  fastify.get('/users', {
+    onRequest: [authenticate], preHandler: [requirePermission('users:view')],
+  }, async (request) => {
+    const { tenantId } = (request as any).user;
     const { search, page = '1', per_page = '20' } = request.query as Record<string, string>;
 
     const limit  = Math.min(Number(per_page) || 20, 100);
@@ -43,7 +32,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [rows, [cnt]] = await Promise.all([
       db.select({ id: users.id, email: users.email, name: users.name, role: users.role,
-                  status: users.status, access_profile_id: users.access_profile_id, created_at: users.created_at })
+                  status: users.status, created_at: users.created_at })
         .from(users).where(where)
         .orderBy(sql`${users.name} ASC`)
         .limit(limit).offset(offset),
@@ -53,39 +42,45 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     return { data: rows, total: cnt.count, page: Number(page), per_page: limit };
   });
 
-  /* ── POST /v1/users — owner apenas ─────────────────────────────────────── */
+  /* ── POST /v1/users ─────────────────────────────────────────────────── */
   fastify.post('/users', {
-    ...ownerOnly,
+    onRequest: [authenticate], preHandler: [requirePermission('users:create')],
     schema: {
       body: {
         type: 'object',
-        required: ['email', 'password'],
+        required: ['email', 'password', 'role'],
         properties: {
+          // tenant_id ainda aceito por compat, mas IGNORADO — o tenant vem do JWT.
+          tenant_id: { type: 'string', format: 'uuid' },
           email:     { type: 'string', format: 'email' },
           name:      { type: 'string', maxLength: 255 },
           password:  { type: 'string', minLength: 8 },
-          access_profile_id: { type: 'string', format: 'uuid', nullable: true },
+          role:      { type: 'string', minLength: 2, maxLength: 40 },
         },
         additionalProperties: false,
       },
     },
   }, async (request, reply) => {
-    const tenantId = (request as any).user.tenantId;
-    const { email, name, password, access_profile_id } = request.body as {
-      email: string; name?: string; password: string; access_profile_id?: string | null;
+    const actor = (request as any).user;
+    const tenantId = actor.tenantId;
+    const { email, name, password, role } = request.body as {
+      email: string; name?: string; password: string; role: string;
     };
+
+    if (!(await isAssignableRole(tenantId, role))) return reply.badRequest('Papel inválido');
+    if (role === 'owner' && actor.role !== 'owner') {
+      return reply.forbidden('Apenas o proprietário pode atribuir o papel de proprietário.');
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const displayName  = name?.trim() || email.split('@')[0];
 
     try {
       const [user] = await db.insert(users).values({
-        tenant_id: tenantId, email, name: displayName, password_hash: passwordHash,
-        role: 'user', status: 'active', access_profile_id: access_profile_id || null,
+        tenant_id: tenantId, email, name: displayName, password_hash: passwordHash, role, status: 'active',
       }).returning({ id: users.id, email: users.email, name: users.name, role: users.role,
-                    status: users.status, access_profile_id: users.access_profile_id, created_at: users.created_at });
+                    status: users.status, created_at: users.created_at });
 
-      // Send welcome e-mail with credentials — fire-and-forget, never blocks user creation
       sendSystemNotification({
         tenant_id: tenantId,
         type:      'user_welcome',
@@ -96,7 +91,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
           password,
           login_url: process.env.APP_URL ?? 'https://orquestraerp.com.br',
         },
-      }).catch(() => { /* e-mail failure must not fail the API response */ });
+      }).catch(() => { /* falha de e-mail não pode derrubar a criação */ });
 
       return reply.code(201).send(user);
     } catch (err: any) {
@@ -105,70 +100,74 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  /* ── PATCH /v1/users/:id — owner apenas ────────────────────────────────── */
+  /* ── PATCH /v1/users/:id ────────────────────────────────────────────── */
   fastify.patch('/users/:id', {
-    ...ownerOnly,
+    onRequest: [authenticate], preHandler: [requirePermission('users:edit')],
     schema: {
       body: {
         type: 'object',
         properties: {
-          name:               { type: 'string', maxLength: 255 },
-          status:             { type: 'string', enum: ['active', 'disabled'] },
-          password:           { type: 'string', minLength: 8 },
-          access_profile_id:  { type: 'string', format: 'uuid', nullable: true },
+          name:     { type: 'string', maxLength: 255 },
+          role:     { type: 'string', minLength: 2, maxLength: 40 },
+          status:   { type: 'string', enum: ['active', 'disabled'] },
+          password: { type: 'string', minLength: 8 },
         },
         additionalProperties: false,
       },
     },
   }, async (request, reply) => {
-    const tenantId = (request as any).user.tenantId;
-    const actorRole = (request as any).user.role;
-    const changedBy = (request as any).user.userId;
+    const actor = (request as any).user;
+    const tenantId = actor.tenantId;
     const { id } = request.params as { id: string };
-    const b = request.body as { name?: string; status?: string; password?: string; access_profile_id?: string | null };
+    const b = request.body as { name?: string; role?: string; status?: string; password?: string };
 
-    const [existing] = await db.select({ id: users.id, role: users.role })
-      .from(users).where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
+    // Escopo por tenant — corrige o antigo lookup global por id.
+    const [existing] = await db.select({ id: users.id, role: users.role }).from(users)
+      .where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Usuário não encontrado');
 
-    // owner nunca pode ser desabilitado por esta rota (nem por si, nem por
-    // outro owner) — não existe caminho de recuperação depois disso.
+    // Proteção portada do PR #141: o dono do tenant nunca pode ser
+    // desabilitado — seria lock-out do próprio negócio.
     if (existing.role === 'owner' && b.status === 'disabled') {
       return reply.code(422).send({ error: 'cannot_disable_owner' });
     }
 
-    try {
-      if (b.access_profile_id !== undefined) {
-        await assignUserProfile(id, tenantId, b.access_profile_id, actorRole, changedBy);
+    if (b.role !== undefined) {
+      if (!(await isAssignableRole(tenantId, b.role))) return reply.badRequest('Papel inválido');
+      if (b.role === 'owner' && actor.role !== 'owner') {
+        return reply.forbidden('Apenas o proprietário pode atribuir o papel de proprietário.');
       }
+    }
 
-      const updateData: Record<string, unknown> = {};
-      if (b.name     !== undefined) updateData.name   = b.name;
-      if (b.status   !== undefined) updateData.status = b.status;
-      if (b.password !== undefined) updateData.password_hash = await bcrypt.hash(b.password, 12);
+    const updateData: Record<string, unknown> = {};
+    if (b.name     !== undefined) updateData.name   = b.name;
+    if (b.role     !== undefined) updateData.role   = b.role;
+    if (b.status   !== undefined) updateData.status = b.status;
+    if (b.password !== undefined) updateData.password_hash = await bcrypt.hash(b.password, 12);
 
-      if (Object.keys(updateData).length) {
-        await db.update(users).set(updateData as any).where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
-      } else if (b.access_profile_id === undefined) {
-        return reply.badRequest('Nenhum campo para atualizar');
-      }
+    if (!Object.keys(updateData).length) return reply.badRequest('Nenhum campo para atualizar');
 
-      const [updated] = await db.select({ id: users.id, email: users.email, name: users.name, role: users.role,
-                                          status: users.status, access_profile_id: users.access_profile_id })
-        .from(users).where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
-      return updated;
-    } catch (err) { return handleDomainError(err, reply); }
+    const [updated] = await db.update(users)
+      .set(updateData as any)
+      .where(and(eq(users.id, id), eq(users.tenant_id, tenantId)))
+      .returning({ id: users.id, email: users.email, name: users.name, role: users.role, status: users.status });
+    return updated;
   });
 
-  /* ── DELETE /v1/users/:id (soft-delete) — owner apenas ─────────────────── */
-  fastify.delete('/users/:id', ownerOnly, async (request, reply) => {
-    const tenantId = (request as any).user.tenantId;
-    const { id }   = request.params as { id: string };
+  /* ── DELETE /v1/users/:id (soft-delete) ────────────────────────────── */
+  fastify.delete('/users/:id', {
+    onRequest: [authenticate], preHandler: [requirePermission('users:delete')],
+  }, async (request, reply) => {
+    const { tenantId } = (request as any).user;
+    const { id } = request.params as { id: string };
 
-    const [existing] = await db.select({ id: users.id, role: users.role })
-      .from(users).where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
-    if (!existing) return reply.notFound('Usuário não encontrado ou já desabilitado');
-    if (existing.role === 'owner') return reply.code(422).send({ error: 'cannot_disable_owner' });
+    const [target] = await db.select({ id: users.id, role: users.role }).from(users)
+      .where(and(eq(users.id, id), eq(users.tenant_id, tenantId)));
+    if (!target) return reply.notFound('Usuário não encontrado');
+    // Proteção portada do PR #141: nunca desabilitar o dono do tenant.
+    if (target.role === 'owner') {
+      return reply.code(422).send({ error: 'cannot_disable_owner' });
+    }
 
     const result = await db.update(users)
       .set({ status: 'disabled' })
