@@ -5,7 +5,14 @@ const BASE = import.meta.env.VITE_API_URL ?? '';
 export const AUTH_SIGNOUT_EVENT = 'auth:signout';
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    /** Corpo JSON parseado da resposta de erro — rotas de domínio (ex.:
+     *  agendamento) devolvem `{ error: <codigo>, ...payload }` sem `message`,
+     *  e a UI precisa do payload (ex.: conflicting.client_name). */
+    public readonly body?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -44,7 +51,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       localStorage.removeItem('token');
       window.dispatchEvent(new Event(AUTH_SIGNOUT_EVENT));
     }
-    throw new ApiError(err.message || `HTTP ${res.status}`, res.status);
+    throw new ApiError(err.message || err.error || `HTTP ${res.status}`, res.status, err);
   }
 
   const text = await res.text();
