@@ -7,6 +7,8 @@ import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
 import { Badge } from '../../ds/components/Badge';
 import { Can } from '../../rbac';
+import { SEGMENTS, getSegment } from '../../branding/segments';
+import { applyPalette, resetPalette } from '../../branding/BrandingProvider';
 
 interface Tenant {
   id: string; company_name: string; trade_name: string | null;
@@ -20,6 +22,8 @@ interface Tenant {
   itau_client_id: string | null; itau_client_secret: string | null; // @deprecated — ver credentials
   credentials: Record<string, string> | null; // genérico por provedor (migration 0064), mascarado na leitura
   simples_rbt12: string | null;
+  // Branding (migration 0065) — segment_key = preset; brand_* = override de cor.
+  segment_key: string | null; brand_primary: string | null; brand_accent: string | null;
 }
 
 interface NfeCfg {
@@ -93,10 +97,10 @@ const PROVIDERS = [
 ];
 
 export function CompanyPage() {
-  const { tenantId } = useAuth();
+  const { tenantId, refreshUser } = useAuth();
   const { t }        = useI18n();
 
-  const [tab, setTab] = useState<'general' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations'>(
+  const [tab, setTab] = useState<'general' | 'branding' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations'>(
     () => (new URLSearchParams(window.location.search).get('ml_status') ? 'integrations' : 'general'),
   );
   const [tenant, setTenant]     = useState<Tenant | null>(null);
@@ -126,6 +130,13 @@ export function CompanyPage() {
     street: '', street_number: '', complement: '', neighborhood: '',
     city: '', state: '', postal_code: '',
   });
+
+  // Branding (migration 0065): segmento + override de cor. brand_* vazio = usar
+  // a cor do preset do segmento. Preview ao vivo aplica as CSS vars na hora.
+  const [brandingForm, setBrandingForm] = useState({ segment_key: 'generic', brand_primary: '', brand_accent: '' });
+  const [brandingSaving, setBrandingSaving] = useState(false);
+  const [brandingSuccess, setBrandingSuccess] = useState('');
+  const [brandingError, setBrandingError] = useState('');
 
   const [bankForm, setBankForm] = useState({
     bank_code: '', agency: '', account: '', account_digit: '',
@@ -322,6 +333,11 @@ export function CompanyPage() {
         postal_code:   data.postal_code   || '',
       });
       setSimplesRbt12(data.simples_rbt12 != null ? String(data.simples_rbt12) : '');
+      setBrandingForm({
+        segment_key:   data.segment_key   || 'generic',
+        brand_primary: data.brand_primary || '',
+        brand_accent:  data.brand_accent  || '',
+      });
       const c = data.credentials || {};
       setBankForm({
         bank_code:              data.bank_code              || '',
@@ -365,6 +381,36 @@ export function CompanyPage() {
     } catch (err: any) {
       setError(err.message || t('comp.errSave'));
     } finally { setSaving(false); }
+  }
+
+  // Cor efetiva de preview: override manual, senão a cor do preset do segmento.
+  const brandingPreset  = getSegment(brandingForm.segment_key);
+  const effectivePrimary = brandingForm.brand_primary || brandingPreset.primary;
+  const effectiveAccent  = brandingForm.brand_accent  || brandingPreset.accent;
+
+  // Preview ao vivo enquanto a aba está aberta; ao sair, o BrandingProvider
+  // (controlado pelo /auth/me) volta a mandar — restauramos o estado salvo.
+  useEffect(() => {
+    if (tab !== 'branding') return;
+    applyPalette(effectivePrimary, effectiveAccent);
+    return () => { void refreshUser().catch(() => resetPalette()); };
+  }, [tab, effectivePrimary, effectiveAccent, refreshUser]);
+
+  async function handleBrandingSave(e: FormEvent) {
+    e.preventDefault(); setBrandingError(''); setBrandingSuccess('');
+    setBrandingSaving(true);
+    try {
+      await api.patch('/v1/tenant', {
+        segment_key:   brandingForm.segment_key,
+        brand_primary: brandingForm.brand_primary || null,
+        brand_accent:  brandingForm.brand_accent  || null,
+      });
+      setBrandingSuccess(t('comp.saved'));
+      await refreshUser();        // /auth/me atualiza → BrandingProvider reaplica
+      await loadTenant();
+    } catch (err: any) {
+      setBrandingError(err.message || t('comp.errSave'));
+    } finally { setBrandingSaving(false); }
   }
 
   async function loadNfeConfig() {
@@ -705,7 +751,7 @@ export function CompanyPage() {
 
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'banking', 'fiscal', 'notifications', 'integrations', 'modules'] as const).map(key => (
+        {(['general', 'branding', 'banking', 'fiscal', 'notifications', 'integrations', 'modules'] as const).map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -713,7 +759,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {key === 'general' ? t('comp.tabGeneral') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : key === 'integrations' ? t('comp.tabIntegrations') : t('comp.tabModules')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'branding' ? t('comp.tabBranding') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : key === 'integrations' ? t('comp.tabIntegrations') : t('comp.tabModules')}
           </button>
         ))}
       </div>
@@ -920,6 +966,71 @@ export function CompanyPage() {
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('comp.plan')}</div>
               <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{tenant?.plan}</div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'branding' && (
+        <div style={{ maxWidth: 640 }}>
+          <div className="card" style={{ padding: 24 }}>
+            <form onSubmit={handleBrandingSave} noValidate>
+              {brandingError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{brandingError}</div>}
+              {brandingSuccess && <div role="alert" className="alert alert-success" style={{ marginBottom: 16 }}>{brandingSuccess}</div>}
+
+              <h3 style={{ marginBottom: 4 }}>{t('comp.branding.title')}</h3>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.branding.hint')}</p>
+
+              {/* Segmento — troca cores/termos padrão */}
+              <div className="field">
+                <label>{t('comp.branding.segment')}</label>
+                <select value={brandingForm.segment_key}
+                  onChange={e => setBrandingForm(f => ({ ...f, segment_key: e.target.value }))}>
+                  {SEGMENTS.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
+                </select>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{t('comp.branding.segmentHint')}</span>
+              </div>
+
+              {/* Cores — override manual por cima do preset do segmento */}
+              <div className="field-row" style={{ marginTop: 4 }}>
+                <div className="field">
+                  <label>{t('comp.branding.primary')}</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input type="color" value={effectivePrimary} aria-label={t('comp.branding.primary')}
+                      onChange={e => setBrandingForm(f => ({ ...f, brand_primary: e.target.value }))}
+                      style={{ width: 44, height: 34, padding: 2, borderRadius: 6, cursor: 'pointer' }} />
+                    <code style={{ fontSize: 12, color: 'var(--muted)' }}>{effectivePrimary}</code>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>{t('comp.branding.accent')}</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input type="color" value={effectiveAccent} aria-label={t('comp.branding.accent')}
+                      onChange={e => setBrandingForm(f => ({ ...f, brand_accent: e.target.value }))}
+                      style={{ width: 44, height: 34, padding: 2, borderRadius: 6, cursor: 'pointer' }} />
+                    <code style={{ fontSize: 12, color: 'var(--muted)' }}>{effectiveAccent}</code>
+                  </div>
+                </div>
+              </div>
+
+              {(brandingForm.brand_primary || brandingForm.brand_accent) && (
+                <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto', marginBottom: 8 }}
+                  onClick={() => setBrandingForm(f => ({ ...f, brand_primary: '', brand_accent: '' }))}>
+                  {t('comp.branding.useSegmentColors')}
+                </button>
+              )}
+
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 16px' }}>
+                {t('comp.branding.logoNote')}
+              </p>
+
+              <div style={{ marginTop: 8 }}>
+                <Can permission="company:edit">
+                  <button type="submit" className="btn btn-primary" disabled={brandingSaving}>
+                    {brandingSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                </Can>
+              </div>
+            </form>
           </div>
         </div>
       )}

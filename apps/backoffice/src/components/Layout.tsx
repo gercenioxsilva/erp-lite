@@ -173,6 +173,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
+  const [tenantLogo, setTenantLogo] = useState<string | null>(null);
 
   const { data: subscription } = useSubscription();
   const trialDaysLeft =
@@ -311,6 +312,14 @@ export function Layout({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
+  // Logo do tenant na sidebar (branding) — buscado sob demanda (base64 grande,
+  // fora do /auth/me). Ausente → cai no logo do produto (GaxLogo).
+  useEffect(() => {
+    api.get<{ logo_url: string | null }>('/v1/tenant')
+      .then(data => setTenantLogo(data.logo_url ?? null))
+      .catch(() => {});
+  }, []);
+
   function closeMenu() {
     setIsMenuOpen(false);
   }
@@ -330,7 +339,9 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <aside className={`sidebar${isMenuOpen ? ' is-open' : ''}`}>
         <div className="sidebar-logo">
-          <GaxLogo size="sm" variant="full" theme="dark" />
+          {tenantLogo
+            ? <img src={tenantLogo} alt="" className="sidebar-logo-img" />
+            : <GaxLogo size="sm" variant="full" theme="dark" />}
         </div>
 
         <nav className="sidebar-nav">
