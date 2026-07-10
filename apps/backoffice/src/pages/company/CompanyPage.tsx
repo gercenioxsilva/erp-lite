@@ -110,6 +110,16 @@ export function CompanyPage() {
   const [bannerSaving, setBannerSaving] = useState(false);
   const bannerRef = useRef<HTMLInputElement>(null);
 
+  // Upload de certificado/chave C6 (mTLS) — mesmo padrão de fileRef/bannerRef
+  // acima, mas lendo como texto puro (readAsText), não base64: cert/key já são
+  // PEM (texto), diferente de logo/banner que são imagem binária.
+  const c6CertRef = useRef<HTMLInputElement>(null);
+  const c6KeyRef  = useRef<HTMLInputElement>(null);
+  const [c6CertFileName, setC6CertFileName] = useState('');
+  const [c6KeyFileName,  setC6KeyFileName]  = useState('');
+  const [c6CertWarning,  setC6CertWarning]  = useState('');
+  const [c6KeyWarning,   setC6KeyWarning]   = useState('');
+
   const [form, setForm] = useState({
     company_name: '', trade_name: '', state_reg: '', phone: '', website: '',
     street: '', street_number: '', complement: '', neighborhood: '',
@@ -207,6 +217,12 @@ export function CompanyPage() {
       c6_client_id: a.billing_provider === 'c6' ? (c.client_id || '') : '',
       c6_client_secret: '', c6_cert: '', c6_key: '',
     });
+    resetC6FileState();
+  }
+
+  function resetC6FileState() {
+    setC6CertFileName(''); setC6KeyFileName('');
+    setC6CertWarning(''); setC6KeyWarning('');
   }
 
   function selectBankAccount(id: string | 'new' | null) {
@@ -217,6 +233,7 @@ export function CompanyPage() {
         bank_code: '', agency: '', account: '', account_digit: '', billing_provider: 'itau', billing_days_to_expire: '30',
         itau_client_id: '', itau_client_secret: '', c6_client_id: '', c6_client_secret: '', c6_cert: '', c6_key: '',
       });
+      resetC6FileState();
       return;
     }
     if (id === null) { loadTenant(); return; } // conta padrão — fluxo legado
@@ -290,6 +307,7 @@ export function CompanyPage() {
         c6_client_id:           data.billing_provider === 'c6' ? (c.client_id || '') : '',
         c6_client_secret: '', c6_cert: '', c6_key: '',
       });
+      resetC6FileState();
     } catch (err: any) {
       setError(err.message || t('comp.errLoad'));
     } finally { setLoading(false); }
@@ -447,6 +465,62 @@ export function CompanyPage() {
     } catch (err: any) {
       setNfeError(err.message || t('comp.nfe.errSave'));
     } finally { setNfeSaving(false); }
+  }
+
+  const MAX_C6_CREDENTIAL_FILE_BYTES = 64 * 1024; // certificado/chave real tem poucos KB — limite defensivo
+
+  // Upload de certificado/chave C6: lê o arquivo local como TEXTO (readAsText,
+  // não readAsDataURL — cert/key já são PEM, não precisam de base64) e escreve
+  // no MESMO state que a textarea já escrevia — nenhuma outra parte do fluxo
+  // de save muda. `.crt`/`.key` não têm um `file.type` (MIME) confiável no
+  // browser (costuma vir vazio) — a checagem de tamanho é o único guard aqui,
+  // sem checar `file.type` (diferente de handleLogoChange, que checa MIME
+  // porque imagem tem um MIME confiável).
+  // Cada campo tem seu próprio critério de "parece certo" — chave privada
+  // pode vir como PRIVATE KEY (PKCS#8), RSA PRIVATE KEY ou EC PRIVATE KEY
+  // (PKCS#1/SEC1), por isso é uma regex, não um prefixo fixo como o de
+  // certificado (só existe uma forma de header pra certificado).
+  const isCertificatePem = (text: string) => text.trimStart().startsWith('-----BEGIN CERTIFICATE-----');
+  const isPrivateKeyPem  = (text: string) => /^-----BEGIN ((RSA|EC) )?PRIVATE KEY-----/.test(text.trimStart());
+
+  function readC6CredentialFile(
+    file: File,
+    field: 'c6_cert' | 'c6_key',
+    looksValid: (text: string) => boolean,
+    setFileName: (name: string) => void,
+    setWarning: (msg: string) => void,
+  ) {
+    setWarning('');
+    if (file.size > MAX_C6_CREDENTIAL_FILE_BYTES) {
+      setWarning(t('comp.bank.c6FileTooLarge'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = (ev.target?.result as string) ?? '';
+      setBankForm(f => ({ ...f, [field]: text }));
+      setFileName(file.name);
+      // Validação de formato só como aviso — não bloqueia salvar. A validação
+      // real continua no backend (assertC6Credentials), isso só pega o erro
+      // mais comum (usuário selecionou o arquivo errado nesse campo) antes de
+      // gastar um round-trip.
+      if (!looksValid(text)) {
+        setWarning(t('comp.bank.c6FileFormatWarning'));
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function handleC6CertFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) readC6CredentialFile(file, 'c6_cert', isCertificatePem, setC6CertFileName, setC6CertWarning);
+    if (c6CertRef.current) c6CertRef.current.value = '';
+  }
+
+  function handleC6KeyFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) readC6CredentialFile(file, 'c6_key', isPrivateKeyPem, setC6KeyFileName, setC6KeyWarning);
+    if (c6KeyRef.current) c6KeyRef.current.value = '';
   }
 
   async function handleBankSave(e: FormEvent) {
@@ -955,9 +1029,18 @@ export function CompanyPage() {
                         onChange={e => setBankForm(f => ({ ...f, c6_client_secret: e.target.value }))} />
                     </div>
                   </div>
+                  <input ref={c6CertRef} type="file" accept=".crt,.pem,.cer" style={{ display: 'none' }} onChange={handleC6CertFile} />
+                  <input ref={c6KeyRef}  type="file" accept=".key,.pem"      style={{ display: 'none' }} onChange={handleC6KeyFile} />
                   <div className="field-row">
                     <div className="field">
                       <label>{t('comp.bank.c6Cert')}</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => c6CertRef.current?.click()}>
+                          {t('comp.bank.c6SelectFile')}
+                        </button>
+                        {c6CertFileName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c6CertFileName}</span>}
+                      </div>
+                      {c6CertWarning && <div role="alert" className="alert alert-warning" style={{ marginBottom: 6, fontSize: 12 }}>{c6CertWarning}</div>}
                       <textarea rows={4} value={bankForm.c6_cert}
                         placeholder={t('comp.bank.c6CertPH')}
                         style={{ fontFamily: 'monospace', fontSize: 12 }}
@@ -965,6 +1048,13 @@ export function CompanyPage() {
                     </div>
                     <div className="field">
                       <label>{t('comp.bank.c6Key')}</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => c6KeyRef.current?.click()}>
+                          {t('comp.bank.c6SelectFile')}
+                        </button>
+                        {c6KeyFileName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c6KeyFileName}</span>}
+                      </div>
+                      {c6KeyWarning && <div role="alert" className="alert alert-warning" style={{ marginBottom: 6, fontSize: 12 }}>{c6KeyWarning}</div>}
                       <textarea rows={4} value={bankForm.c6_key}
                         placeholder={t('comp.bank.c6KeyPH')}
                         autoComplete="new-password"

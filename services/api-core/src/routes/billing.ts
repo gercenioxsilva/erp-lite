@@ -125,10 +125,14 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
       if (!rec) return reply.notFound('Conta a receber não encontrada');
       if (!rec.boleto_id) return { receivable_id: rec.id, boleto: null };
 
+      // tenant_id repetido aqui mesmo o boleto_id já vir de um `rec`
+      // tenant-scoped — isolamento nunca deve depender implicitamente de uma
+      // consulta anterior na mesma função (achado de auditoria de segurança
+      // da integração C6, regra 59).
       const [boleto] = await db
         .select()
         .from(boletos)
-        .where(eq(boletos.id, rec.boleto_id));
+        .where(and(eq(boletos.id, rec.boleto_id), eq(boletos.tenant_id, tenantId)));
 
       if (!boleto) return { receivable_id: rec.id, boleto: null };
 
@@ -171,7 +175,7 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
       await db.transaction(async (tx) => {
         await tx.update(boletos)
           .set({ status: 'expired' })
-          .where(eq(boletos.id, rec.boleto_id!));
+          .where(and(eq(boletos.id, rec.boleto_id!), eq(boletos.tenant_id, tenantId)));
 
         await tx.insert(boletoEvents).values({
           boleto_id:   rec.boleto_id!,
@@ -206,7 +210,7 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
       const events = await db
         .select()
         .from(boletoEvents)
-        .where(eq(boletoEvents.boleto_id, rec.boleto_id));
+        .where(and(eq(boletoEvents.boleto_id, rec.boleto_id), eq(boletoEvents.tenant_id, tenantId)));
 
       return {
         receivable_id: rec.id,

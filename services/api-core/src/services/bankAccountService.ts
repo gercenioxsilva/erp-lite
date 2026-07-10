@@ -192,9 +192,14 @@ export async function upsertDefaultBankAccount(
   // comportamento que PATCH /v1/tenant sempre teve.
   const merged = { ...existingDefault, ...input } as BankAccountInput;
   assertValid(merged);
+  // tenant_id repetido explicitamente na cláusula, mesmo o id já ter sido
+  // resolvido de forma tenant-scoped linhas acima (getDefaultBankAccount) —
+  // isolamento por tenant nunca deve depender implicitamente da ordem de
+  // chamadas dentro da função; blindagem contra um refator futuro que
+  // reordene isso sem perceber.
   const [row] = await db.update(bankAccounts).set({
     ...toValues(merged), updated_at: new Date(),
-  }).where(eq(bankAccounts.id, existingDefault.id)).returning();
+  }).where(and(eq(bankAccounts.id, existingDefault.id), eq(bankAccounts.tenant_id, tenantId))).returning();
 
   return row;
 }
@@ -208,7 +213,7 @@ export async function updateBankAccount(
 
   const [row] = await db.update(bankAccounts).set({
     ...toValues(merged), updated_at: new Date(),
-  }).where(eq(bankAccounts.id, bankAccountId)).returning();
+  }).where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.tenant_id, tenantId))).returning();
 
   return row;
 }
@@ -223,7 +228,8 @@ export async function deactivateBankAccount(tenantId: string, bankAccountId: str
     throw new BankAccountDomainError('cannot_deactivate_bank_account', { bankAccountId });
   }
 
-  await db.update(bankAccounts).set({ is_active: false, updated_at: new Date() }).where(eq(bankAccounts.id, bankAccountId));
+  await db.update(bankAccounts).set({ is_active: false, updated_at: new Date() })
+    .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.tenant_id, tenantId)));
 }
 
 /** Troca a conta padrão da empresa — desliga a antiga, liga a nova, em transação. */
@@ -233,9 +239,9 @@ export async function setDefaultBankAccount(tenantId: string, bankAccountId: str
 
   return db.transaction(async (tx: any) => {
     await tx.update(bankAccounts).set({ is_default: false, updated_at: new Date() })
-      .where(and(eq(bankAccounts.company_id, target.company_id), ne(bankAccounts.id, bankAccountId)));
+      .where(and(eq(bankAccounts.company_id, target.company_id), eq(bankAccounts.tenant_id, tenantId), ne(bankAccounts.id, bankAccountId)));
     const [row] = await tx.update(bankAccounts).set({ is_default: true, updated_at: new Date() })
-      .where(eq(bankAccounts.id, bankAccountId)).returning();
+      .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.tenant_id, tenantId))).returning();
     return row;
   });
 }
