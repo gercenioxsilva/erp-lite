@@ -14,7 +14,8 @@ const materialBody = {
     category: { type: 'string', maxLength: 100 }, brand: { type: 'string', maxLength: 100 },
     unit: { type: 'string', maxLength: 20, default: 'UN' },
     sale_price: { type: 'number', minimum: 0 }, cost_price: { type: 'number', minimum: 0 },
-    ncm_code: { type: 'string', maxLength: 10 }, tax_group: { type: 'string', maxLength: 50 },
+    ncm_code: { type: 'string', maxLength: 10 }, cfop: { type: 'string', maxLength: 4 },
+    tax_group: { type: 'string', maxLength: 50 },
     weight_kg: { type: 'number', minimum: 0 }, is_active: { type: 'boolean' },
     length_cm: { type: 'number', minimum: 0 }, width_cm: { type: 'number', minimum: 0 }, height_cm: { type: 'number', minimum: 0 },
     tracks_inventory: { type: 'boolean' },
@@ -91,6 +92,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
           sale_price:   String(b.sale_price ?? 0),
           cost_price:   String(b.cost_price ?? 0),
           ncm_code:     (b.ncm_code     ?? null) as string | null,
+          cfop:         (b.cfop         ?? null) as string | null,
           tax_group:    (b.tax_group    ?? null) as string | null,
           weight_kg:    (b.weight_kg    != null ? String(b.weight_kg) : null) as string | null,
           length_cm:    (b.length_cm    != null ? String(b.length_cm) : null) as string | null,
@@ -345,6 +347,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
         unit:         materials.unit,
         sale_price:   materials.sale_price,
         ncm_code:     materials.ncm_code,
+        cfop:         materials.cfop,
       })
       .from(materialComponents)
       .innerJoin(materials, eq(materials.id, materialComponents.component_id))
@@ -395,7 +398,7 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     const tenantId = (request as any).user.tenantId;
     const b = request.body as Record<string, unknown>;
     const allowed = ['sku','name','description','notes','type','category','brand','unit',
-                     'sale_price','cost_price','ncm_code','tax_group','weight_kg',
+                     'sale_price','cost_price','ncm_code','cfop','tax_group','weight_kg',
                      'length_cm','width_cm','height_cm',
                      'is_active','tracks_inventory'];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
