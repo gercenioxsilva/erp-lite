@@ -173,9 +173,17 @@ export function InvoiceNewPage() {
       // e cost_center_id sempre estiveram na resposta, só nunca eram lidos
       // aqui (regra 61). client_id sempre herdou certo; os outros dois
       // ficavam sempre em branco na tela, mesmo já vindo prontos do pedido.
+      // ncm_code/cfop de cada item agora vêm prontos do JOIN com materials
+      // (regra 62) — antes dependiam de recasar material_id contra a lista
+      // de materiais buscada à parte pela própria tela (paginada em até 500,
+      // carregada uma vez no mount), o que podia deixar NCM/CFOP vazios
+      // mesmo com o cadastro do produto correto.
       const detail = await api.get<{
         client_id: string; seller_id: string | null; cost_center_id: string | null;
-        items: Array<{ material_id: string | null; name: string; quantity: number; unit_price: number; }>;
+        items: Array<{
+          material_id: string | null; name: string; quantity: number; unit_price: number;
+          ncm_code: string | null; cfop: string | null;
+        }>;
       }>(`/v1/orders/${orderId}`);
       setFormClientId(detail.client_id);
       setFormSellerId(detail.seller_id ?? '');
@@ -186,18 +194,15 @@ export function InvoiceNewPage() {
       void handleCostCenterChange(detail.cost_center_id ?? '');
       setFormItems(
         detail.items.length > 0
-          ? detail.items.map(it => {
-              const mat = it.material_id ? materials.find(m => m.id === it.material_id) : undefined;
-              return {
-                _key: Math.random().toString(36).slice(2),
-                material_id: it.material_id ?? '',
-                name: it.name,
-                ncm_code: mat?.ncm_code ?? '',
-                cfop:     mat?.cfop     ?? '',
-                quantity: String(it.quantity),
-                unit_price: String(it.unit_price),
-              };
-            })
+          ? detail.items.map(it => ({
+              _key: Math.random().toString(36).slice(2),
+              material_id: it.material_id ?? '',
+              name: it.name,
+              ncm_code: it.ncm_code ?? '',
+              cfop:     it.cfop     ?? '',
+              quantity: String(it.quantity),
+              unit_price: String(it.unit_price),
+            }))
           : [newItem()],
       );
     } catch (err: unknown) {
