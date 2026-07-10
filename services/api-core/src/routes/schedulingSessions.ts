@@ -17,6 +17,14 @@ import {
   getAvailableSlots, getDashboard,
 } from '../services/schedulingSessionService';
 import { handleSchedulingDomainError } from './scheduling';
+import { syncSessionEvent, SyncAction } from '../services/googleCalendarService';
+
+// Sincroniza a sessão com o Google Calendar sem derrubar o fluxo principal
+// (fire-and-forget, mesmo padrão de sendSystemNotification). No-op silencioso
+// quando o profissional não tem agenda Google conectada.
+function syncGcal(sessionId: string, action: SyncAction) {
+  syncSessionEvent(sessionId, action).catch(() => { /* efeito colateral não bloqueia */ });
+}
 
 const HM_PATTERN = '^([01][0-9]|2[0-3]):[0-5][0-9]$';
 const DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$';
@@ -110,6 +118,7 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
         notes:          b.notes,
         createdBy:      userId,
       });
+      syncGcal(session.id, 'upsert'); // sessão staff nasce confirmada → evento
       return reply.code(201).send(session);
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
@@ -140,7 +149,7 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
       await assertSessionInScope(request, session.professional_id);
       // Mover para OUTRO profissional também precisa estar no escopo do ator.
       if (b.professional_id) await assertSessionInScope(request, b.professional_id);
-      return await updateSession(id, tenantId, {
+      const updated = await updateSession(id, tenantId, {
         professionalId: b.professional_id,
         areaId:         b.area_id,
         packageId:      b.package_id,
@@ -149,6 +158,8 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
         endTime:        b.end_time,
         notes:          b.notes,
       });
+      syncGcal(updated.id, 'upsert'); // horário/área/profissional mudou → atualiza evento
+      return updated;
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
 
@@ -160,7 +171,9 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const session = await getSessionOrThrow(id, tenantId);
       await assertSessionInScope(request, session.professional_id);
-      return await approveSession(id, tenantId);
+      const approved = await approveSession(id, tenantId);
+      syncGcal(approved.id, 'upsert'); // pendente aprovada → cria o evento
+      return approved;
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
 
@@ -181,7 +194,9 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const session = await getSessionOrThrow(id, tenantId);
       await assertSessionInScope(request, session.professional_id);
-      return await declineSession(id, tenantId, reason);
+      const declined = await declineSession(id, tenantId, reason);
+      syncGcal(declined.id, 'delete'); // recusada → remove evento (se houver)
+      return declined;
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
 
@@ -211,7 +226,9 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const session = await getSessionOrThrow(id, tenantId);
       await assertSessionInScope(request, session.professional_id);
-      return await cancelSession(id, tenantId, { byUserId: userId, reason });
+      const canceled = await cancelSession(id, tenantId, { byUserId: userId, reason });
+      syncGcal(canceled.id, 'delete'); // cancelada → remove evento (libera o horário)
+      return canceled;
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
 
@@ -221,6 +238,9 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const session = await getSessionOrThrow(id, tenantId);
       await assertSessionInScope(request, session.professional_id);
+      // Hard delete: remove o evento ANTES da linha sumir (syncSessionEvent lê
+      // o google_event_id da sessão; awaited pois nunca lança — swallow interno).
+      await syncSessionEvent(id, 'delete').catch(() => { /* não bloqueia a exclusão */ });
       await deleteSession(id, tenantId);
       return reply.code(204).send();
     } catch (err) { return handleSchedulingDomainError(err, reply); }
