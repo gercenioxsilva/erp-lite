@@ -82,8 +82,10 @@ export const billingRoutes: FastifyPluginAsync = async (fastify) => {
           account_digit:          account.account_digit,
           billing_provider:       account.billing_provider || 'itau',
           billing_days_to_expire: account.billing_days_to_expire || 30,
-          itau_client_id:         account.itau_client_id     ?? null,
-          itau_client_secret:     account.itau_client_secret ?? null,
+          // Genérico (migration 0064) — cada tenant usa a própria credencial,
+          // nunca um app compartilhado da plataforma (decisão explícita da
+          // integração C6; ver adapters/c6.ts no lambda-billing).
+          credentials:            (account.credentials as Record<string, string> | null) ?? null,
         },
       };
 

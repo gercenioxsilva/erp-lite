@@ -5,7 +5,9 @@
 import { eq, and, ne } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { bankAccounts } from '../db/schema';
-import { canDeactivate, BankAccountDomainError, type BankAccountLike } from '../domain/bankAccount/bankAccountDomain';
+import {
+  canDeactivate, assertProviderCredentials, BankAccountDomainError, type BankAccountLike,
+} from '../domain/bankAccount/bankAccountDomain';
 import { validateBankingData, isValidBillingProvider } from '../lib/banking';
 import { getDefaultCompany, resolveCompanyId } from './companyService';
 
@@ -23,8 +25,28 @@ export interface BankAccountInput {
   account_digit: string;
   billing_provider?: string;
   billing_days_to_expire?: number;
+  /** Genérico (migration 0064) — {client_id, client_secret} pro Itaú,
+   *  {client_id, client_secret, cert, key} pro C6. Fonte de verdade daqui em
+   *  diante para QUALQUER provedor. */
+  credentials?: Record<string, string> | null;
+  /** @deprecated aceitos por compatibilidade de payload (frontend/integrações
+   *  antigas); dobrados em `credentials` no service, nunca mais gravados nas
+   *  colunas originais (regra 41: deprecated-mas-presentes). */
   itau_client_id?: string | null;
   itau_client_secret?: string | null;
+}
+
+/** Resolve a credencial "final" desta chamada: `credentials` explícito vence;
+ * sem ele, dobra os campos legados itau_client_id/secret (compat); sem
+ * nenhum dos dois, `undefined` — quem chama decide o que fazer (em
+ * update/upsert, o merge com o registro atual já preserva o valor existente
+ * antes de chegar aqui). */
+function resolveCredentials(input: Partial<BankAccountInput>): Record<string, string> | null | undefined {
+  if (input.credentials !== undefined) return input.credentials;
+  if (input.itau_client_id || input.itau_client_secret) {
+    return { client_id: input.itau_client_id ?? '', client_secret: input.itau_client_secret ?? '' };
+  }
+  return undefined;
 }
 
 function assertValid(input: Partial<BankAccountInput>) {
@@ -45,9 +67,20 @@ function assertValid(input: Partial<BankAccountInput>) {
       throw new BankAccountDomainError('invalid_billing_days_to_expire', { billing_days_to_expire: input.billing_days_to_expire });
     }
   }
+  // Credencial só é validada quando efetivamente fornecida nesta chamada —
+  // conta bancária continua podendo ser cadastrada sem credencial ainda
+  // (mesmo comportamento leniente de sempre; a credencial só é indispensável
+  // na hora de emitir, não na hora de cadastrar a conta). Quando fornecida,
+  // porém, precisa estar completa pro provedor escolhido — evita descobrir um
+  // client_secret esquecido só quando o Lambda falhar na emissão.
+  const credentials = resolveCredentials(input);
+  if (credentials != null && input.billing_provider) {
+    assertProviderCredentials(input.billing_provider, credentials);
+  }
 }
 
 function toValues(input: BankAccountInput) {
+  const credentials = resolveCredentials(input);
   return {
     label: input.label ?? null,
     bank_code: input.bank_code,
@@ -56,8 +89,9 @@ function toValues(input: BankAccountInput) {
     account_digit: input.account_digit,
     billing_provider: input.billing_provider ?? 'brcode',
     billing_days_to_expire: input.billing_days_to_expire ?? 30,
-    itau_client_id: input.itau_client_id ?? null,
-    itau_client_secret: input.itau_client_secret ?? null,
+    credentials: credentials ?? null,
+    // itau_client_id/itau_client_secret: nunca mais escritas aqui (regra 41 —
+    // deprecated-mas-presentes, congeladas no valor anterior à migration 0064).
   };
 }
 

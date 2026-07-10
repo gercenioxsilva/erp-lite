@@ -10,6 +10,14 @@ export interface AppConfig {
   itauClientSecret: string;
   itauBaseUrl:      string;
   itauAuthUrl:      string;
+  // C6 — só as URLs de API (mesmas para todo tenant, não são segredo).
+  // Credenciais (client_id/secret/certificado) são POR TENANT, lidas da
+  // mensagem SQS (banking.credentials) — nunca aqui, ver adapters/c6.ts.
+  // Sem default: as URLs reais ainda não foram confirmadas (pendente de
+  // acesso ao portal developers.c6bank.com.br) — ficam vazias até serem
+  // configuradas de propósito, nunca um placeholder inventado.
+  c6BaseUrl: string;
+  c6AuthUrl: string;
 }
 
 declare module 'fastify' {
@@ -31,6 +39,9 @@ const configPlugin: FastifyPluginAsync = async (app) => {
     itauClientSecret: process.env.ITAU_CLIENT_SECRET ?? '',
     itauBaseUrl:      process.env.ITAU_BASE_URL       ?? 'https://api.itau.com.br',
     itauAuthUrl:      process.env.ITAU_AUTH_URL       ?? 'https://sts.itau.com.br/itauBank/api/v2/token',
+    // C6 — sem default (ver comentário na interface acima).
+    c6BaseUrl: process.env.C6_BASE_URL ?? '',
+    c6AuthUrl: process.env.C6_AUTH_URL ?? '',
   });
 };
 

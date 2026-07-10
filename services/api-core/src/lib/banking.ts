@@ -5,6 +5,7 @@ const VALID_BANK_CODES = {
   '033': 'Banco Santander',
   '104': 'Caixa Econômica Federal',
   '237': 'Bradesco',
+  '336': 'C6 Bank',
   '341': 'Itaú Unibanco',
   '389': 'Banco Mercantil',
   '422': 'Banco Safra',
@@ -99,7 +100,7 @@ export function formatAccount(account: string): string {
 /**
  * Valid billing providers (extensible for future integrations)
  */
-export const BILLING_PROVIDERS = ['brcode', 'itau', 'santander', 'bradesco'] as const;
+export const BILLING_PROVIDERS = ['brcode', 'itau', 'c6', 'santander', 'bradesco'] as const;
 export type BillingProvider = typeof BILLING_PROVIDERS[number];
 
 export function isValidBillingProvider(provider: string): provider is BillingProvider {

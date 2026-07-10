@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { canDeactivate, type BankAccountLike } from '../domain/bankAccount/bankAccountDomain';
+import {
+  canDeactivate, assertItauCredentials, assertC6Credentials, assertProviderCredentials,
+  BankAccountDomainError, type BankAccountLike,
+} from '../domain/bankAccount/bankAccountDomain';
 
 describe('canDeactivate', () => {
   const accounts: BankAccountLike[] = [
@@ -43,5 +46,63 @@ describe('canDeactivate', () => {
       { id: 'acc-second',  company_id: 'company-a', is_default: false, is_active: false },
     ];
     expect(canDeactivate(withInactive, 'acc-second')).toBe(true);
+  });
+});
+
+describe('assertItauCredentials', () => {
+  it('accepts client_id + client_secret', () => {
+    expect(() => assertItauCredentials({ client_id: 'a', client_secret: 'b' })).not.toThrow();
+  });
+
+  it('rejects missing client_secret', () => {
+    expect(() => assertItauCredentials({ client_id: 'a' })).toThrow(BankAccountDomainError);
+  });
+
+  it('rejects null credentials', () => {
+    expect(() => assertItauCredentials(null)).toThrow(BankAccountDomainError);
+  });
+
+  it('error payload lists exactly which keys are missing', () => {
+    try {
+      assertItauCredentials({ client_id: '' });
+    } catch (e) {
+      expect((e as BankAccountDomainError).code).toBe('invalid_credentials');
+      expect((e as BankAccountDomainError).payload).toMatchObject({ provider: 'itau', missing: ['client_id', 'client_secret'] });
+    }
+  });
+});
+
+describe('assertC6Credentials', () => {
+  it('accepts client_id + client_secret + cert + key', () => {
+    expect(() => assertC6Credentials({
+      client_id: 'a', client_secret: 'b', cert: '-----BEGIN CERTIFICATE-----', key: '-----BEGIN PRIVATE KEY-----',
+    })).not.toThrow();
+  });
+
+  it('rejects when cert/key are missing (C6 exige mTLS, diferente do Itaú)', () => {
+    expect(() => assertC6Credentials({ client_id: 'a', client_secret: 'b' })).toThrow(BankAccountDomainError);
+  });
+
+  it('error payload lists cert/key among the missing keys', () => {
+    try {
+      assertC6Credentials({ client_id: 'a', client_secret: 'b' });
+    } catch (e) {
+      expect((e as BankAccountDomainError).payload).toMatchObject({ provider: 'c6', missing: ['cert', 'key'] });
+    }
+  });
+});
+
+describe('assertProviderCredentials', () => {
+  it('dispatches to the itau validator', () => {
+    expect(() => assertProviderCredentials('itau', {})).toThrow(BankAccountDomainError);
+  });
+
+  it('dispatches to the c6 validator', () => {
+    expect(() => assertProviderCredentials('c6', { client_id: 'a', client_secret: 'b' })).toThrow(BankAccountDomainError);
+  });
+
+  it('is a no-op for providers without a credential contract yet (brcode/santander/bradesco)', () => {
+    expect(() => assertProviderCredentials('brcode', null)).not.toThrow();
+    expect(() => assertProviderCredentials('santander', null)).not.toThrow();
   });
 });

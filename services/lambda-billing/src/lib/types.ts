@@ -8,6 +8,12 @@ export interface BankingConfig {
   account_digit: string;
   billing_provider: string;
   billing_days_to_expire: number;
+  /** Genérico por provedor (migration 0064, api-core) — {client_id,
+   *  client_secret} pro Itaú, {client_id, client_secret, cert, key} pro C6.
+   *  Por tenant: cada tenant usa a própria credencial (diferente do Itaú
+   *  hoje, que usa um app compartilhado via env var da própria Lambda —
+   *  ver plugins/config.ts). */
+  credentials?: Record<string, string> | null;
 }
 
 export interface BillingEmitMessage {

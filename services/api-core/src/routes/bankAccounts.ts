@@ -9,7 +9,24 @@ export const bankAccountsRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate] };
 
   const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
-  const maskSecret = (a: any) => ({ ...a, itau_client_secret: mask(a.itau_client_secret) });
+  // Mascara qualquer chave de `credentials` (jsonb genérico, migration 0064)
+  // que pareça sensível — nunca enumerada por provedor, cobre Itaú (secret) e
+  // C6 (secret + cert + key, o par de certificado é tão sensível quanto o
+  // secret) sem precisar de uma linha nova por banco. `itau_client_secret`
+  // (coluna legada, deprecated-mas-presente) segue mascarada por
+  // retrocompatibilidade de payload.
+  const SENSITIVE_CREDENTIAL_KEYS = /secret|key|cert/i;
+  const maskCredentials = (credentials: Record<string, string> | null | undefined) => {
+    if (!credentials) return credentials ?? null;
+    return Object.fromEntries(
+      Object.entries(credentials).map(([k, v]) => [k, SENSITIVE_CREDENTIAL_KEYS.test(k) ? mask(v) : v]),
+    );
+  };
+  const maskSecret = (a: any) => ({
+    ...a,
+    itau_client_secret: mask(a.itau_client_secret),
+    credentials: maskCredentials(a.credentials),
+  });
 
   /* ── GET /v1/bank-accounts ──────────────────────────────────────────── */
   fastify.get('/bank-accounts', { ...auth, preHandler: [requirePermission('bank_accounts:view') ] }, async (request) => {

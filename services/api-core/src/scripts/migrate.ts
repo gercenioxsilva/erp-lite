@@ -93,6 +93,7 @@ const migrations = [
   '0061_tenant_activation.sql',
   '0062_rbac.sql',
   '0063_scheduling.sql',
+  '0064_bank_account_credentials.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

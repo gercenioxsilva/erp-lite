@@ -128,6 +128,29 @@ describe('POST /v1/receivables/:id/emit-boleto — resolução de conta bancári
     expect(sentBody.days_to_expire).toBe(15);
   });
 
+  it('repassa credentials genérico (migration 0064) na mensagem SQS, por tenant — não usa mais itau_client_id/secret', async () => {
+    accountRows = [{
+      id: ACCOUNT_OTHER, company_id: COMPANY_ID, tenant_id: TENANT_ID, is_default: false, is_active: true,
+      bank_code: '336', agency: '9999', account: '55555', account_digit: '1',
+      billing_provider: 'c6', billing_days_to_expire: 15,
+      credentials: { client_id: 'c6-id', client_secret: 'c6-secret', cert: 'CERT', key: 'KEY' },
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/receivables/${RECEIVABLE_ID}/emit-boleto`,
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { bank_account_id: ACCOUNT_OTHER },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.banking.bank_code).toBe('336');
+    expect(sentBody.banking.credentials).toEqual({ client_id: 'c6-id', client_secret: 'c6-secret', cert: 'CERT', key: 'KEY' });
+    expect(sentBody.banking.itau_client_id).toBeUndefined();
+    expect(sentBody.banking.itau_client_secret).toBeUndefined();
+  });
+
   it('retorna 400 quando o tenant não tem nenhuma conta bancária configurada', async () => {
     accountRows = [];
 

@@ -438,8 +438,16 @@ export const bankAccounts = pgTable('bank_accounts', {
   account_digit:          varchar('account_digit',          { length: 2   }).notNull(),
   billing_provider:       varchar('billing_provider',       { length: 30  }).notNull().default('brcode'),
   billing_days_to_expire: integer('billing_days_to_expire').notNull().default(30),
+  // Deprecated-mas-presentes desde a migration 0064 (sem DROP destrutivo,
+  // mesmo espírito da regra 41) — nenhuma rota escreve aqui diretamente mais.
   itau_client_id:         varchar('itau_client_id',     { length: 100 }),
   itau_client_secret:     varchar('itau_client_secret', { length: 255 }),
+  // Credenciais genéricas por provedor (migration 0064) — {client_id,
+  // client_secret} para Itaú/brcode, {client_id, client_secret, cert, key}
+  // para C6 (mTLS). Único ponto de leitura/escrita de credencial daqui em
+  // diante, para QUALQUER billing_provider — não precisa de migration nova
+  // pro próximo banco (Santander/Bradesco, já cogitados no enum).
+  credentials: jsonb('credentials'),
   is_default: boolean('is_default').notNull().default(true),
   is_active:  boolean('is_active').notNull().default(true),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
