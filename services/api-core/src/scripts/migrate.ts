@@ -95,6 +95,7 @@ const migrations = [
   '0063_scheduling.sql',
   '0064_bank_account_credentials.sql',
   '0065_tenant_branding.sql',
+  '0066_google_calendar.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

@@ -1816,9 +1816,35 @@ export const schedulingSessions = pgTable('scheduling_sessions', {
   canceled_by:     uuid('canceled_by').references(() => users.id, { onDelete: 'set null' }),
   completed_at:    timestamp('completed_at', { withTimezone: true }),
   notes:           text('notes'),
+  // Mapa sessão → evento no Google Calendar (migration 0066) — nullable, só
+  // preenchido quando a sessão foi sincronizada; permite update/delete depois.
+  google_event_id: varchar('google_event_id', { length: 255 }),
   created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── scheduling_calendar_connections (integração Google Calendar, migration 0066)
+// Conexão OAuth por PROFISSIONAL — cada um conecta a própria conta Google e vê
+// os próprios atendimentos. Espelho de marketplace_connections. ─────────────────
+export const schedulingCalendarConnections = pgTable('scheduling_calendar_connections', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  professional_id:      uuid('professional_id').notNull().references(() => schedulingProfessionals.id, { onDelete: 'cascade' }),
+  provider:             varchar('provider', { length: 30 }).notNull().default('google'),
+  google_account_email: varchar('google_account_email', { length: 255 }),
+  access_token:         text('access_token'),
+  refresh_token:        text('refresh_token'),
+  token_expires_at:     timestamp('token_expires_at', { withTimezone: true }),
+  scope:                varchar('scope', { length: 255 }),
+  calendar_id:          varchar('calendar_id', { length: 255 }).notNull().default('primary'),
+  status:               varchar('status', { length: 20 }).notNull().default('disconnected'),
+  connected_at:         timestamp('connected_at', { withTimezone: true }),
+  connected_by:         uuid('connected_by').references(() => users.id, { onDelete: 'set null' }),
+  disconnected_at:      timestamp('disconnected_at', { withTimezone: true }),
+  last_refreshed_at:    timestamp('last_refreshed_at', { withTimezone: true }),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── scheduling_package_movements (append-only; débito atômico na conclusão;

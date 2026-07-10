@@ -50,6 +50,7 @@ import { rbacRoutes }            from './routes/rbac';
 import { schedulingRoutes }      from './routes/scheduling';
 import { schedulingSessionsRoutes } from './routes/schedulingSessions';
 import { schedulingPortalRoutes }   from './routes/schedulingPortal';
+import { calendarIntegrationRoutes } from './routes/calendarIntegration';
 import { subscriptionGuard } from './middleware/subscriptionGuard';
 import { technicianRoleGuard } from './middleware/technicianRoleGuard';
 import { clientRoleGuard } from './middleware/clientRoleGuard';
@@ -148,6 +149,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(schedulingRoutes,         { prefix: '/v1' });
   await app.register(schedulingSessionsRoutes, { prefix: '/v1' });
   await app.register(schedulingPortalRoutes,   { prefix: '/v1' });
+  await app.register(calendarIntegrationRoutes, { prefix: '/v1' });
 
   // Ativação de conta roda antes de assinatura/papel — é o gate mais
   // fundamental (identidade confirmada), faz sentido que ganhe prioridade

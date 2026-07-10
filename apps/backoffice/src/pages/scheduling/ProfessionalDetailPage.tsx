@@ -35,6 +35,13 @@ interface AvailabilityException {
   note:       string | null;
 }
 
+interface GcalStatus {
+  connected: boolean;
+  status?: string;
+  google_account_email?: string | null;
+  connected_at?: string | null;
+}
+
 interface AvailabilityResp {
   weekly:     { id: string; weekday: number; start_time: string; end_time: string }[];
   exceptions: AvailabilityException[];
@@ -105,6 +112,51 @@ export function ProfessionalDetailPage() {
   const [accessForm,   setAccessForm]   = useState({ email: '', password: '' });
   const [savingAccess, setSavingAccess] = useState(false);
   const [accessError,  setAccessError]  = useState('');
+
+  // ── (f) Google Calendar ────────────────────────────────────────────────────
+  const [gcal, setGcal] = useState<GcalStatus | null>(null);
+  const [gcalBusy, setGcalBusy] = useState(false);
+  const [gcalMsg, setGcalMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  async function loadGcalStatus() {
+    try {
+      setGcal(await api.get<GcalStatus>(`/v1/integrations/google/status?professional_id=${id}`));
+    } catch { setGcal(null); }
+  }
+
+  // Lê ?gcal_status do retorno do OAuth (uma vez), mostra alerta e recarrega status.
+  useEffect(() => {
+    if (!id) return;
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('gcal_status');
+    if (status === 'connected') setGcalMsg({ kind: 'ok', text: 'Google Calendar conectado.' });
+    else if (status === 'error') setGcalMsg({ kind: 'err', text: 'Não foi possível conectar ao Google Calendar. Tente novamente.' });
+    if (status) window.history.replaceState({}, '', `/scheduling/professionals/${id}`);
+    void loadGcalStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function connectGcal() {
+    setGcalBusy(true);
+    try {
+      const r = await api.get<{ authorization_url: string }>(`/v1/integrations/google/connect?professional_id=${id}`);
+      window.location.href = r.authorization_url;
+    } catch (err) {
+      modal.error(err);
+      setGcalBusy(false);
+    }
+  }
+
+  async function disconnectGcal() {
+    const ok = await modal.confirm({ title: 'Desconectar Google Calendar?', message: 'As sessões deixarão de ser sincronizadas com a agenda do Google. Eventos já criados não são removidos.', danger: true });
+    if (!ok) return;
+    setGcalBusy(true);
+    try {
+      await api.delete(`/v1/integrations/google?professional_id=${id}`);
+      await loadGcalStatus();
+    } catch (err) { modal.error(err); }
+    finally { setGcalBusy(false); }
+  }
 
   // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -514,6 +566,45 @@ export function ProfessionalDetailPage() {
             fallback={<span style={{ fontSize: 13, color: 'var(--muted)' }}>Este profissional ainda não possui acesso.</span>}>
             <button className="btn btn-primary" style={{ width: 'auto' }} onClick={openAccessDrawer}>
               Criar acesso
+            </button>
+          </Can>
+        )}
+      </div>
+
+      {/* ── (f) Google Calendar ──────────────────────────────────────── */}
+      <div className="card" style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <h3 style={{ fontSize: 15, margin: 0 }}>Google Calendar</h3>
+          {gcal?.connected && <Badge variant="confirmed">Conectado</Badge>}
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+          Conecte a agenda do Google deste profissional para que as sessões apareçam automaticamente no calendário dele.
+        </p>
+
+        {gcalMsg && (
+          <div className={`alert ${gcalMsg.kind === 'ok' ? 'alert-success' : 'alert-error'}`} role="alert" style={{ marginBottom: 12 }}>
+            {gcalMsg.text}
+          </div>
+        )}
+
+        {gcal?.connected ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {gcal.google_account_email && (
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                Conta: <strong style={{ color: 'var(--text)' }}>{gcal.google_account_email}</strong>
+              </span>
+            )}
+            <Can permission="scheduling:manage">
+              <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={disconnectGcal} disabled={gcalBusy}>
+                {gcalBusy ? '…' : 'Desconectar'}
+              </button>
+            </Can>
+          </div>
+        ) : (
+          <Can permission="scheduling:manage"
+            fallback={<span style={{ fontSize: 13, color: 'var(--muted)' }}>Nenhuma agenda do Google conectada.</span>}>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={connectGcal} disabled={gcalBusy}>
+              {gcalBusy ? 'Redirecionando…' : 'Conectar Google Calendar'}
             </button>
           </Can>
         )}
