@@ -651,9 +651,12 @@ const ptBR = {
   'comp.bank.c6ClientSecret':    'Client Secret',
   'comp.bank.c6ClientSecretPH':  'client_secret fornecido pelo C6',
   'comp.bank.c6Cert':            'Certificado (.crt)',
-  'comp.bank.c6CertPH':          'Cole o conteúdo do arquivo .crt',
+  'comp.bank.c6CertPH':          'Selecione o arquivo .crt, ou cole o conteúdo aqui',
   'comp.bank.c6Key':             'Chave privada (.key)',
-  'comp.bank.c6KeyPH':           'Cole o conteúdo do arquivo .key',
+  'comp.bank.c6KeyPH':           'Selecione o arquivo .key, ou cole o conteúdo aqui',
+  'comp.bank.c6SelectFile':      'Selecionar arquivo',
+  'comp.bank.c6FileTooLarge':    'Arquivo muito grande — certificados e chaves reais têm poucos KB. Confira se selecionou o arquivo certo.',
+  'comp.bank.c6FileFormatWarning':'O conteúdo não parece estar no formato esperado (PEM). Confira se não trocou o certificado pela chave, ou vice-versa.',
 
   // ── Configuração NF-e (aba Fiscal) ────────────────────────────────────
   'comp.nfe.title':       'Configuração NF-e (Focus NF-e / SEFAZ)',

@@ -595,9 +595,12 @@ const en: Record<TKey, string> = {
   'comp.bank.c6ClientSecret':    'Client Secret',
   'comp.bank.c6ClientSecretPH':  'client_secret provided by C6',
   'comp.bank.c6Cert':            'Certificate (.crt)',
-  'comp.bank.c6CertPH':          'Paste the .crt file contents',
+  'comp.bank.c6CertPH':          'Select the .crt file, or paste the contents here',
   'comp.bank.c6Key':             'Private key (.key)',
-  'comp.bank.c6KeyPH':           'Paste the .key file contents',
+  'comp.bank.c6KeyPH':           'Select the .key file, or paste the contents here',
+  'comp.bank.c6SelectFile':      'Select file',
+  'comp.bank.c6FileTooLarge':    'File too large — real certificates and keys are only a few KB. Double-check you selected the right file.',
+  'comp.bank.c6FileFormatWarning':'The contents don\'t look like the expected format (PEM). Check you didn\'t swap the certificate for the key, or vice versa.',
 
   // ── NF-e Configuration (Fiscal tab) ───────────────────────────────────
   'comp.nfe.title':       'NF-e Configuration (Focus NF-e / SEFAZ)',

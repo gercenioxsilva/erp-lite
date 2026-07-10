@@ -189,6 +189,7 @@ textarea { resize: vertical; min-height: 72px; }
 .alert { padding: 10px 14px; border-radius: var(--r-sm); font-size: var(--text-sm); margin-bottom: 14px; font-weight: 500; }
 .alert-error   { background: #fef2f2; color: var(--danger);  border: 1.5px solid #fecaca; }
 .alert-success { background: #f0fdf4; color: var(--success); border: 1.5px solid #bbf7d0; }
+.alert-warning { background: #fffbeb; color: var(--warning); border: 1.5px solid #fde68a; }
 
 /* ── App shell ─────────────────────────────────────────────────────────── */
 .app-shell { display: flex; min-height: 100vh; }
