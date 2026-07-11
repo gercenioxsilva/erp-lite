@@ -97,6 +97,7 @@ const migrations = [
   '0065_tenant_branding.sql',
   '0065_receivables_invoice_idempotency.sql',
   '0066_google_calendar.sql',
+  '0067_whatsapp_integration.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

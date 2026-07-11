@@ -35,6 +35,7 @@ interface Client {
   consumer_type: string;
   is_active:     boolean;
   notes:         string | null;
+  whatsapp_opt_in: boolean;
 }
 
 interface ClientContact {
@@ -166,6 +167,7 @@ const EMPTY_FORM = {
   neighborhood: '', city: '', state: 'SP', country: 'BR',
   icms_taxpayer: '9' as string, consumer_type: '0' as string,
   notes: '',
+  whatsapp_opt_in: false,
 };
 
 const EMPTY_CONTACT = {
@@ -298,6 +300,7 @@ export function ClientsPage() {
       icms_taxpayer: c.icms_taxpayer ?? '9',
       consumer_type: c.consumer_type ?? '0',
       notes:         c.notes         ?? '',   // ← bug fix: preenche notes existentes
+      whatsapp_opt_in: c.whatsapp_opt_in ?? false,
     });
     setFormError('');
     setDrawerOpen(true);
@@ -368,6 +371,7 @@ export function ClientsPage() {
         icms_taxpayer: form.icms_taxpayer,
         consumer_type: form.consumer_type,
         notes:         form.notes         || undefined,
+        whatsapp_opt_in: form.whatsapp_opt_in,
       };
       if (editing) await api.patch(`/v1/clients/${editing.id}`, payload);
       else         await api.post('/v1/clients', payload);
@@ -787,6 +791,18 @@ export function ClientsPage() {
                 <div className="field">
                   <label>{t('cl.notes')}</label>
                   <textarea value={form.notes} onChange={setF('notes')} rows={3} />
+                </div>
+
+                <div className="field">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.whatsapp_opt_in}
+                      onChange={e => setForm(f => ({ ...f, whatsapp_opt_in: e.target.checked }))}
+                      style={{ width: 'auto' }}
+                    />
+                    {t('cl.whatsappOptIn')}
+                  </label>
                 </div>
 
                 {/* ── Contatos (somente no modo edição) ─────────────── */}

@@ -11,9 +11,9 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. Fatos que mudam com frequência (schema exato, lista de rotas) **apontam para o código-fonte em vez de serem copiados aqui** — copiar gera drift (este README já teve isso corrigido uma vez; não repetir).
 
-1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`.
+1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`.
 
-2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration).
+2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration), whatsapp (account + templates + automations + messages + webhook público `/public/whatsapp/webhook`).
 
 3. **Nunca inventar componentes, hooks ou classes CSS.** Componentes React em `apps/backoffice/src/components/` e `apps/backoffice/src/pages/`. Classes CSS em `apps/backoffice/src/index.css` — ler antes de usar. Padrão de abas usa **inline styles**, não classes CSS (ver `CompanyPage.tsx`).
 
@@ -139,7 +139,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
 
 65. **Agendamento (Scheduling): módulo opcional (`requireModule('scheduling')`).** Profissionais (`scheduling_professionals`) com áreas de atuação (`scheduling_areas`, vínculo N:N via `scheduling_professional_areas`), grade semanal de disponibilidade + exceções (`scheduling_availability_rules`/`scheduling_availability_exceptions`), sessões agendadas (`scheduling_sessions`), pacotes de cliente com movimentação de saldo (`scheduling_client_packages`/`scheduling_package_movements`) e sync opcional com Google Calendar (`scheduling_calendar_connections`, `routes/calendarIntegration.ts`). Rotas em `routes/scheduling*.ts`, frontend em `pages/scheduling/`.
 
-63. **Dropdown de centro de custo sempre vazio em "Novo Pedido" (`OrdersPage.tsx`) — causa raiz: `GET /v1/cost-centers/active` devolvia um array "nu" (`return rows`) em vez de `{ data: [...] }`, o contrato usado por todo o resto da API (inclusive pelo próprio `GET /v1/cost-centers`, sem o `/active`).** Sem centro de custo escolhido no pedido, a nota fiscal gerada a partir dele também não tinha centro de custo (regra 61 só herda o que o pedido já tem) — impacto direto na contabilidade, exatamente como reportado. Achado: já existia um teste de regressão (`costCentersActive.test.ts`) descrevendo esse bug e as 4 telas afetadas, escrito mas nunca commitado nem com a correção aplicada. **Fix: `routes/costCenters.ts` (`GET /cost-centers/active`) passa a devolver `{ data: rows }`.** Duas telas (`EmployeesPage.tsx`, `PayablesPage.tsx`) já tratavam a resposta como array puro (`Array.isArray(d) ? d : []`) — corrigidas nesta mesma correção pra ler `d.data ?? []`, senão ficariam quebradas pela mudança de contrato. As outras quatro (`OrdersPage.tsx`, `InvoiceNewPage.tsx`, `InvoicesPage.tsx`, `ReceivablesPage.tsx`) já esperavam `{ data: [...] }` — corrigidas automaticamente, sem mudança de código nelas. Sempre por tenant (`WHERE tenant_id = ...`, sem alteração no filtro).
+66. **WhatsApp — Cobranças e Notificações: módulo opcional pago (`requireModule('whatsapp')`), MVP de mensagens transacionais por template, nunca caixa de entrada/chatbot.** 5 eventos fixos disparam mensagem — `invoice_due_soon`/`invoice_overdue` (N dias antes/depois do vencimento, `whatsappBillingWorker.ts`, mesmo molde de `dueSoonWorker.ts`), `payment_confirmed` (`POST /receivables/:id/payments`, na quitação total), `fiscal_document_authorized` (`nfeResultsWorker.ts`, autorização SEFAZ), `proposal_sent` (`POST /proposals/:id/send`). Conteúdo dos 5 templates é fixo pelo sistema — nunca editável pelo tenant (evita reprovação/uso indevido); `provider_template_id` (Content SID do Twilio) é por tenant, registrado depois de aprovado (passo operacional, fora do escopo de código).
+    - **Credenciais 100% por tenant (`whatsapp_accounts.credentials` jsonb) — nunca um app Twilio compartilhado da plataforma**, mesmo padrão do C6 Bank (regra 59). Isso elimina o próprio risco que a regra 43 documenta (segredo de plataforma esquecido no Terraform) — não existe segredo de plataforma pra esquecer, só duas URLs de fila (não segredo) no ambiente do ECS/Lambda.
+    - **Nova Lambda dedicada (`services/lambda-whatsapp`), mesmo padrão arquitetural de boleto/fiscal/marketplace**: rota enfileira em `WHATSAPP_REQUESTS_QUEUE_URL` → Lambda chama a API do Twilio (Content API, variáveis numeradas `{{1}}`, `{{2}}`... — `whatsappMessageService.ts` monta a ordem a partir de `WHATSAPP_TEMPLATES[key].variables`, nunca por nome) → resultado volta por `WHATSAPP_RESULTS_QUEUE_URL` → `whatsappResultsWorker.ts` (in-process) atualiza `whatsapp_messages`. Status de entrega/leitura chegam depois, só por webhook (`POST /v1/public/whatsapp/webhook`), nunca pela fila de resultado.
+    - **Webhook do Twilio não carrega tenant nenhum — resolvido pelo próprio número WhatsApp** (`From` no status callback, `To` na mensagem recebida) contra `whatsapp_accounts.whatsapp_number`, ANTES de validar a assinatura (o auth_token pra validar é por tenant). Assinatura verificada manualmente (`verifyTwilioSignature`, HMAC-SHA1 + `timingSafeEqual`, sem SDK `twilio` — regra 5) contra uma URL sempre montada a partir de `APP_URL`, nunca de `request.protocol/hostname` (proxy/CloudFront podem divergir do que o Twilio assinou). Idempotência via `whatsapp_webhook_events` (mesmo padrão de `marketplace_webhook_events`) — sempre responde 200 rápido, mesmo em erro/assinatura inválida.
+    - **Idempotência de disparo automático via a própria `whatsapp_messages`, nenhuma coluna nova em `receivables`/`invoices`/`proposals`**: antes de enviar, `whatsappAutomationService.ts` confere se já existe mensagem daquele `template_key` pra aquele documento de origem — reaproveita a tabela de auditoria como ledger, mesmo espírito de `accrueCommission()` usar `idempotency_key`.
+    - **Consentimento LGPD é campo direto em `clients`** (`whatsapp_opt_in`/`whatsapp_opt_in_at`/`whatsapp_opt_out_at`, migration 0067) — relação 1:1, mesmo raciocínio de `tenants.activated_at` não precisar de tabela própria. Resposta exata "SAIR" (case-insensitive, `isOptOutReply()`) no webhook revoga o opt-in automaticamente. MVP manda mensagem só pro telefone principal do cliente (`mobile` com fallback `phone`), nunca por `client_contacts` — limitação documentada.
+    - **Billing do módulo em si fica fora do escopo desta fase, deliberadamente** — módulo é ativado pelo mesmo mecanismo genérico de `tenant_modules` que os módulos gratuitos já usam (`PATCH /v1/tenant/modules/:key`); cobrança comercial acontece fora do sistema até validar com os primeiros tenants. Franquia/excedente por mensagem, Embedded Signup/Coexistence e caixa de entrada/chatbot ficam para uma fase futura, documentados como fora de escopo, não esquecimento (mesmo espírito da regra 33/40).
 
 ---
 
@@ -159,6 +165,7 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
 | Cobrança | Itaú API v2 OAuth2 `client_credentials` (app compartilhado da plataforma) · C6 Bank OAuth2 `client_credentials` + mTLS (credenciais por tenant, regra 59) — ambos via `lambda-billing`, boleto + Pix |
 | Marketplace | Mercado Livre API OAuth2 `authorization_code` — sync preço/estoque + import de pedido (`lambda-marketplace`) |
 | Assinatura SaaS | Stripe Checkout + Billing Portal + webhook (regra 43) — opt-in via `STRIPE_SECRET_KEY` |
+| WhatsApp | Twilio WhatsApp Business Platform (Content API) — credenciais 100% por tenant, sem secret de plataforma (`lambda-whatsapp`), módulo opcional cobrado à parte (regra 66) |
 
 ### Camadas (DDD simplificado)
 
@@ -212,6 +219,7 @@ C4Context
     System_Ext(ml, "Mercado Livre API", "Marketplace — OAuth2 por empresa/CNPJ: conexão, webhook, sync de preço/estoque, importação de pedido")
     System_Ext(stripe, "Stripe", "Checkout + Billing Portal + webhook — assinatura SaaS, opt-in")
     System_Ext(gcal, "Google Calendar API", "Sync opcional de agenda — módulo de Agendamento")
+    System_Ext(twilio, "Twilio WhatsApp API", "BSP — envio de template e recebimento de status/reply via webhook — credenciais por tenant, módulo opcional")
 
     Rel(user, erp, "Opera via browser", "HTTPS")
     Rel(client, erp, "Acessa portal /p/:token", "HTTPS (sem autenticação)")
@@ -225,6 +233,9 @@ C4Context
     Rel(erp, ml, "Conecta via OAuth2, sincroniza preço/estoque e importa pedidos", "REST HTTPS")
     Rel(erp, stripe, "Checkout, portal de billing e webhook de assinatura", "REST HTTPS")
     Rel(erp, gcal, "Sincroniza sessões agendadas", "REST HTTPS OAuth2")
+    Rel(erp, twilio, "Envia mensagem de template (cobrança, pagamento, NF-e, orçamento)", "REST HTTPS")
+    Rel(twilio, erp, "Status callback (sent/delivered/read/failed) e reply (opt-out SAIR)", "Webhook POST")
+    Rel(erp, client, "Notifica por WhatsApp (opt-in LGPD)", "Twilio")
 ```
 
 ---
@@ -249,6 +260,7 @@ C4Container
         Container(lbilling, "lambda-billing", "Node 22 · ECR Container", "Emite boleto/Pix via Itaú ou C6 Bank (adapter por bank_accounts.billing_provider). Salva PDF no S3")
         Container(lnotif, "lambda-notifications", "Node 22 · ECR Container", "Renderiza templates HTML e envia via SES v2. Rebuild obrigatório ao adicionar tipo")
         Container(lmarket, "lambda-marketplace", "Node 22 · ECR Container", "OAuth2 refresh, sync de preço/estoque e import de pedido via API do Mercado Livre")
+        Container(lwa, "lambda-whatsapp", "Node 22 · ECR Container", "Envia template via Twilio (adapter por whatsapp_accounts.provider). Sem secret de plataforma — credenciais 100% por tenant")
     }
 
     System_Ext(focus, "Focus NF-e API", "Gateway fiscal")
@@ -257,6 +269,7 @@ C4Container
     System_Ext(ses, "Amazon SES v2", "Relay de e-mail")
     System_Ext(ml, "Mercado Livre API", "OAuth2 + sync + pedidos")
     System_Ext(stripe, "Stripe", "Assinatura SaaS")
+    System_Ext(twilio, "Twilio WhatsApp API", "Envio de template + webhook de status/reply")
 
     Rel(user, cdn, "Acessa via browser", "HTTPS")
     Rel(client, cdn, "Acessa /p/:token", "HTTPS")
@@ -270,6 +283,7 @@ C4Container
     Rel(sqs, lbilling, "Trigger billing-requests", "SQS Event Source Mapping")
     Rel(sqs, lnotif, "Trigger notifications", "SQS Event Source Mapping")
     Rel(sqs, lmarket, "Trigger marketplace-sync-requests", "SQS Event Source Mapping")
+    Rel(sqs, lwa, "Trigger whatsapp-requests", "SQS Event Source Mapping")
     Rel(lfiscal, focus, "POST /v2/nfe ou /v2/nfse", "REST HTTPS")
     Rel(lfiscal, s3data, "Salva XML", "AWS SDK PutObject")
     Rel(lbilling, itau, "OAuth2 token + POST /boletos", "REST HTTPS")
@@ -278,6 +292,8 @@ C4Container
     Rel(lnotif, ses, "SendEmail com template HTML", "AWS SDK v3")
     Rel(lmarket, ml, "OAuth2 refresh + PUT/GET items/orders", "REST HTTPS")
     Rel(api, ml, "OAuth2 connect/callback + recebe webhook", "REST HTTPS")
+    Rel(lwa, twilio, "POST /Messages.json (Content API, credenciais do tenant)", "REST HTTPS Basic Auth")
+    Rel(api, twilio, "Recebe webhook de status/reply (assinatura validada por tenant)", "REST HTTPS")
 ```
 
 ---
@@ -356,6 +372,7 @@ flowchart LR
         BK["Itaú / C6 Bank"]
         ML["Mercado Livre"]
         ST["Stripe"]
+        TW["Twilio WhatsApp"]
     end
 
     OW --> UC1["Emitir NF-e / NFS-e / Simples Remessa"]
@@ -364,6 +381,7 @@ flowchart LR
     OW --> UC4["Fechar Folha de Pagamento"]
     OW --> UC5["Consultar DRE Gerencial"]
     OW --> UC6["Gerenciar Centro de Custo"]
+    OW --> UC19["Configurar Automações de WhatsApp (opcional)"]
 
     VD --> UC7["Criar Pedido de Venda"]
     VD --> UC8["Enviar Proposta Comercial"]
@@ -387,6 +405,12 @@ flowchart LR
     UC17 --> ML
     UC3 --> UC18["Ativar Assinatura SaaS"]
     UC18 --> ST
+    UC19 --> UC20["Notificar Cliente via WhatsApp\n(cobrança, pagamento, NF-e, orçamento)"]
+    UC14 --> UC20
+    UC15 --> UC20
+    UC1 --> UC20
+    UC8 --> UC20
+    UC20 --> TW
 ```
 
 ---
@@ -768,6 +792,55 @@ sequenceDiagram
 
 ---
 
+### WhatsApp — Envio de Template e Webhook de Status (Twilio)
+
+```mermaid
+sequenceDiagram
+    actor SYS as Evento de negócio<br/>(pagamento, NF-e, proposta, dueSoon/overdue)
+    participant AS as whatsappAutomationService.ts
+    participant MS as whatsappMessageService.ts
+    participant A as api-core (ECS)
+    participant Q as SQS whatsapp-requests
+    participant L as lambda-whatsapp
+    participant TW as Twilio WhatsApp API
+    participant R as SQS whatsapp-results
+    actor C as Cliente Final
+
+    SYS->>AS: notifyPaymentConfirmed() / notifyInvoiceDueSoon() / ...
+    AS->>AS: alreadyDispatched()? — checa whatsapp_messages por (tenant, template_key, ref_id)
+    AS->>MS: sendTemplateMessage() se automação habilitada e ainda não enviado
+    MS->>MS: assertCanSend() — conta conectada, template aprovado,<br/>automação habilitada, cliente com opt-in, telefone válido (toE164BR)
+    MS->>MS: monta variables[] na ORDEM canônica do template (Content API usa {{1}},{{2}}... — não nomeado)
+    MS->>A: INSERT whatsapp_messages (status='queued')
+    MS->>Q: sendMessage — credentials do tenant embutidas no payload
+    A-->>SYS: fire-and-forget (nunca bloqueia a rota de origem)
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>L: TwilioAdapter — Basic Auth com account_sid/auth_token do payload (nunca lido de env var)
+    L->>TW: POST /Messages.json {From, To, ContentSid, ContentVariables:{"1":...,"2":...}}
+    TW-->>L: {sid, status}
+    L->>R: sendMessage — resultado (sid ou erro)
+
+    Note over A: whatsappResultsWorker (long-poll SQS, in-process ECS)
+    R-->>A: Mensagem de resultado
+    A->>A: UPDATE whatsapp_messages SET status='sent'|'failed', provider_message_id=...
+    A->>A: INSERT whatsapp_message_events (append-only)
+
+    TW--)A: Webhook POST /v1/public/whatsapp/webhook (status callback)
+    Note over A: resolveWebhookAccount() por número (From) ANTES de validar assinatura —<br/>credenciais são por tenant, não dá pra validar sem saber de quem é
+    A->>A: verifyTwilioSignature() com o auth_token DAQUELE tenant (HMAC-SHA1 manual, sem SDK)
+    A->>A: INSERT whatsapp_webhook_events (idempotência por MessageSid+status, UNIQUE)
+    A->>A: UPDATE whatsapp_messages SET status='delivered'|'read'|'failed', delivered_at/read_at=...
+    A-->>TW: 200 sempre (mesmo em erro/duplicado — nunca faz Twilio reter)
+
+    C--)TW: Responde "SAIR"
+    TW--)A: Webhook POST (mensagem recebida, To = número do tenant)
+    A->>A: isOptOutReply() → UPDATE clients SET whatsapp_opt_in=false, whatsapp_opt_out_at=now()
+    Note over A,C: Daí em diante assertCanSend() bloqueia qualquer novo envio a esse cliente (client_not_opted_in)
+```
+
+---
+
 ### Fluxo de Notificações por E-mail
 
 ```mermaid
@@ -852,6 +925,7 @@ flowchart TD
 | PDV / NFC-e *(opcional)* | `/pos`, `/pos/caixa`, `/pos/sales`, `/pos/terminals`, `/pos/sessions` | pos_terminals, pos_sessions, pos_cash_movements, pos_sales, pos_sale_items, pos_sale_payments |
 | Agendamento *(opcional)* | `/scheduling`, `/scheduling/calendar`, `/scheduling/professionals`, `/scheduling/areas`, `/scheduling/package-templates`, `/scheduling/settings` | scheduling_professionals, scheduling_areas, scheduling_availability_rules/exceptions, scheduling_sessions, scheduling_client_packages, scheduling_calendar_connections |
 | Assinatura SaaS *(opt-in via `STRIPE_SECRET_KEY`)* | `/subscription` | plans, billing_events |
+| WhatsApp — Cobranças e Notificações *(opcional, cobrado à parte)* | `/company` (aba Integrações), `/whatsapp` | whatsapp_accounts, whatsapp_message_templates, whatsapp_automations, whatsapp_messages, whatsapp_message_events, whatsapp_webhook_events |
 
 ---
 

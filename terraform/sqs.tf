@@ -161,6 +161,56 @@ resource "aws_cloudwatch_metric_alarm" "marketplace_sync_dlq_depth" {
   tags = { Environment = var.environment }
 }
 
+# ── SQS queues for WhatsApp — Cobranças e Notificações ────────────────────────
+# whatsapp_requests: api-core (ECS) publica o envio de template → lambda-whatsapp
+# consome → publica o resultado em whatsapp_results → whatsappResultsWorker
+# (api-core) consome e persiste no Postgres. Status de entrega/leitura chegam
+# depois por webhook (POST /v1/public/whatsapp/webhook), não por esta fila.
+
+resource "aws_sqs_queue" "whatsapp_dlq" {
+  name                      = "erp-lite-whatsapp-dlq-${var.environment}"
+  message_retention_seconds = 1209600 # 14 days
+  tags                      = { Environment = var.environment }
+}
+
+resource "aws_sqs_queue" "whatsapp_requests" {
+  name                       = "erp-lite-whatsapp-requests-${var.environment}"
+  visibility_timeout_seconds = 30 # >= Lambda timeout (15s)
+  message_retention_seconds  = 86400
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.whatsapp_dlq.arn
+    maxReceiveCount      = 3
+  })
+
+  tags = { Environment = var.environment }
+}
+
+resource "aws_sqs_queue" "whatsapp_results" {
+  name                       = "erp-lite-whatsapp-results-${var.environment}"
+  visibility_timeout_seconds = 30
+  message_retention_seconds  = 86400
+  receive_wait_time_seconds  = 15 # long-poll
+  tags                       = { Environment = var.environment }
+}
+
+resource "aws_cloudwatch_metric_alarm" "whatsapp_dlq_depth" {
+  alarm_name          = "erp-lite-whatsapp-dlq-${var.environment}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "WhatsApp message failed 3× and landed in DLQ — manual intervention required"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = { QueueName = aws_sqs_queue.whatsapp_dlq.name }
+
+  tags = { Environment = var.environment }
+}
+
 # ── IAM: ECS task role permissions for SQS ────────────────────────────────────
 resource "aws_iam_role_policy" "ecs_task_sqs" {
   name = "nfe-notifications-billing-sqs"
@@ -203,6 +253,16 @@ resource "aws_iam_role_policy" "ecs_task_sqs" {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.marketplace_sync_results.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.whatsapp_requests.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Resource = aws_sqs_queue.whatsapp_results.arn
       }
     ]
   })

@@ -30,6 +30,8 @@ import { bankAccountsRoutes }       from './routes/bankAccounts';
 import { marketplaceIntegrationRoutes }   from './routes/marketplaceIntegration';
 import { materialMarketplaceLinksRoutes } from './routes/materialMarketplaceLinks';
 import { marketplaceWebhookRoutes }       from './routes/marketplaceWebhook';
+import { whatsappRoutes }           from './routes/whatsapp';
+import { whatsappWebhookRoutes }    from './routes/whatsappWebhook';
 import { serviceContractsRoutes }   from './routes/serviceContracts';
 import { materialImagesRoutes }     from './routes/materialImages';
 import { dashboardRoutes }                                          from './routes/dashboard';
@@ -62,6 +64,8 @@ import { startContractBillingWorker, stopContractBillingWorker }   from './worke
 import { startRecurringPayablesWorker, stopRecurringPayablesWorker } from './workers/recurringPayablesWorker';
 import { startDueSoonWorker, stopDueSoonWorker }                    from './workers/dueSoonWorker';
 import { startMarketplaceSyncResultsWorker, stopMarketplaceSyncResultsWorker } from './workers/marketplaceSyncResultsWorker';
+import { startWhatsAppResultsWorker, stopWhatsAppResultsWorker } from './workers/whatsappResultsWorker';
+import { startWhatsAppBillingWorker, stopWhatsAppBillingWorker } from './workers/whatsappBillingWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -128,6 +132,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(marketplaceIntegrationRoutes,   { prefix: '/v1' });
   await app.register(materialMarketplaceLinksRoutes, { prefix: '/v1' });
   await app.register(marketplaceWebhookRoutes,       { prefix: '/v1' });
+  await app.register(whatsappRoutes,           { prefix: '/v1' });
+  await app.register(whatsappWebhookRoutes,    { prefix: '/v1' });
   await app.register(serviceContractsRoutes,   { prefix: '/v1' });
   await app.register(materialImagesRoutes,     { prefix: '/v1' });
   await app.register(dashboardRoutes,          { prefix: '/v1' });
@@ -171,6 +177,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     startRecurringPayablesWorker();
     startDueSoonWorker();
     startMarketplaceSyncResultsWorker();
+    startWhatsAppResultsWorker();
+    startWhatsAppBillingWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
@@ -179,6 +187,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     stopRecurringPayablesWorker();
     stopDueSoonWorker();
     stopMarketplaceSyncResultsWorker();
+    stopWhatsAppResultsWorker();
+    stopWhatsAppBillingWorker();
   });
 
   return app;

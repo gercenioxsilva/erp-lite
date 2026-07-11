@@ -84,6 +84,11 @@ resource "aws_ecs_task_definition" "api_core" {
       { name = "MERCADOLIVRE_CLIENT_SECRET", value = var.mercado_livre_client_secret },
       { name = "STRIPE_SECRET_KEY", value = var.stripe_secret_key },
       { name = "STRIPE_WEBHOOK_SECRET", value = var.stripe_webhook_secret },
+      # Sem segredo de plataforma aqui — credenciais WhatsApp (Twilio) são por
+      # tenant, lidas de whatsapp_accounts.credentials (regra 59, mesmo
+      # racional do C6 Bank).
+      { name = "WHATSAPP_REQUESTS_QUEUE_URL", value = aws_sqs_queue.whatsapp_requests.url },
+      { name = "WHATSAPP_RESULTS_QUEUE_URL", value = aws_sqs_queue.whatsapp_results.url },
     ]
 
     logConfiguration = {

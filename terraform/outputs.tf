@@ -87,6 +87,11 @@ output "lambda_marketplace_name" {
   value       = aws_lambda_function.marketplace.function_name
 }
 
+output "lambda_whatsapp_name" {
+  description = "Lambda whatsapp function name (used by CI to force-update and wait)"
+  value       = aws_lambda_function.whatsapp.function_name
+}
+
 output "notifications_dlq_url" {
   description = "Notifications DLQ URL (used by CI to check for failed messages)"
   value       = aws_sqs_queue.notifications_dlq.url
@@ -100,4 +105,9 @@ output "nfe_dlq_url" {
 output "marketplace_sync_dlq_url" {
   description = "Marketplace sync (Mercado Livre) DLQ URL (used by CI to check for failed messages)"
   value       = aws_sqs_queue.marketplace_sync_dlq.url
+}
+
+output "whatsapp_dlq_url" {
+  description = "WhatsApp DLQ URL (used by CI to check for failed messages)"
+  value       = aws_sqs_queue.whatsapp_dlq.url
 }

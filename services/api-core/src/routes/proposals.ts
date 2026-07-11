@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
 import { requirePermission } from '../lib/requirePermission';
+import { notifyProposalSent } from '../services/whatsappAutomationService';
 
 function calcProposalTotals(items: any[], discount = 0, shipping = 0) {
   const subtotal = items.reduce((s: number, it: any) => {
@@ -347,6 +348,10 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
         total:           Number(p.total).toFixed(2),
       },
     }).catch(err => fastify.log.error({ event: 'proposal_email_error', error: String(err) }));
+
+    // WhatsApp — Cobranças e Notificações: canal independente do e-mail, não
+    // bloqueado pela exigência de p.client_email acima. Fire-and-forget.
+    void notifyProposalSent(tenantId, { id, client_id: p.client_id, number: p.number });
 
     return { ok: true, token, link: proposalLink };
   });
