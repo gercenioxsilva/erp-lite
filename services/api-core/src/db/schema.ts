@@ -1307,16 +1307,18 @@ export const taxStRules = pgTable('tax_st_rules', {
 }));
 
 // ── tax_simples_nacional_brackets ─────────────────────────────────────────────────
-// Anexo I (Comércio), LC 123/2006 pós-reforma 2018 — tabela legal estável.
+// Anexos I–V, LC 123/2006 pós-reforma 2018. Versionada por ano de vigência
+// (migration 0070) — parametrização anual sem mudança de código.
 export const taxSimplesNacionalBrackets = pgTable('tax_simples_nacional_brackets', {
-  anexo:            char('anexo', { length: 1 }).notNull().default('I'),
+  vigencia_ano:     smallint('vigencia_ano').notNull().default(2018),
+  anexo:            varchar('anexo', { length: 3 }).notNull().default('I'),
   faixa:            smallint('faixa').notNull(),
   rbt12_min:        decimal('rbt12_min', { precision: 15, scale: 2 }).notNull(),
   rbt12_max:        decimal('rbt12_max', { precision: 15, scale: 2 }).notNull(),
   aliquota_nominal: decimal('aliquota_nominal', { precision: 5, scale: 2 }).notNull(),
   parcela_deduzir:  decimal('parcela_deduzir',  { precision: 15, scale: 2 }).notNull(),
 }, (t) => ({
-  pk: primaryKey({ columns: [t.anexo, t.faixa] }),
+  pk: primaryKey({ columns: [t.vigencia_ano, t.anexo, t.faixa] }),
 }));
 
 // ──────────────────────────────────────────────────────────────────────────────

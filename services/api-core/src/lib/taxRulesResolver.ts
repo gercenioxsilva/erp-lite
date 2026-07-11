@@ -129,13 +129,21 @@ export async function getStRule(
 //   Alíquota efetiva (%) = Aliq. Nominal − (Parcela a Deduzir × 100 / RBT12)
 
 export async function getSimplesEffectiveRate(
-  rbt12: number, db: DrizzleDB, anexo = 'I',
+  rbt12: number, db: DrizzleDB, anexo = 'I', vigenciaAno?: number,
 ): Promise<number> {
   if (rbt12 <= 0) return 0;
 
+  // Tabela versionada por vigência (migration 0070): usa a vigência mais
+  // recente <= ano pedido (default: ano corrente). Sem este filtro, múltiplos
+  // vintages retornariam N linhas e rows[0] seria arbitrário.
+  const ano = vigenciaAno ?? new Date().getFullYear();
   const { rows } = await db.execute<{ aliquota_nominal: string; parcela_deduzir: string }>(
     sql`SELECT aliquota_nominal, parcela_deduzir FROM tax_simples_nacional_brackets
-        WHERE anexo = ${anexo} AND ${rbt12} BETWEEN rbt12_min AND rbt12_max`
+        WHERE anexo = ${anexo} AND ${rbt12} BETWEEN rbt12_min AND rbt12_max
+          AND vigencia_ano = (
+            SELECT MAX(vigencia_ano) FROM tax_simples_nacional_brackets
+            WHERE anexo = ${anexo} AND vigencia_ano <= ${ano}
+          )`
   );
   const bracket = rows[0];
   if (!bracket) throw new TaxRuleNotFoundError('simples_bracket_not_found', { rbt12, anexo });
