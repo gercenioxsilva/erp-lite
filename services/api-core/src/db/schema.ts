@@ -2202,6 +2202,67 @@ export const reconciliationRules = pgTable('reconciliation_rules', {
   updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Consolidação (migration 0073) ────────────────────────────────────────────
+export const consolidationRules = pgTable('consolidation_rules', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:   uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  client_id:    uuid('client_id'),
+  contract_id:  uuid('contract_id'),
+  strategy:     varchar('strategy', { length: 12 }).notNull().default('monthly'),
+  service_code: varchar('service_code', { length: 10 }),
+  is_active:    boolean('is_active').notNull().default(true),
+  created_by:   uuid('created_by'),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDrafts = pgTable('fiscal_document_drafts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  client_id:         uuid('client_id'),
+  rule_id:           uuid('rule_id'),
+  strategy_snapshot: varchar('strategy_snapshot', { length: 12 }).notNull(),
+  doc_type:          varchar('doc_type', { length: 6 }).notNull().default('nfse'),
+  competency_ref:    char('competency_ref', { length: 7 }).notNull(),
+  service_code:      varchar('service_code', { length: 10 }),
+  grouping_key:      varchar('grouping_key', { length: 200 }).notNull(),
+  status:            varchar('status', { length: 12 }).notNull().default('open'),
+  amount:            decimal('amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  simples_effective_rate: decimal('simples_effective_rate', { precision: 6, scale: 4 }),
+  rbt12:             decimal('rbt12', { precision: 15, scale: 2 }),
+  anexo:             varchar('anexo', { length: 3 }),
+  iss_rate:          decimal('iss_rate', { precision: 5, scale: 2 }),
+  iss_value:         decimal('iss_value', { precision: 15, scale: 2 }),
+  iss_retido:        boolean('iss_retido').notNull().default(false),
+  nfse_id:           uuid('nfse_id'),
+  error_message:     text('error_message'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDraftLines = pgTable('fiscal_document_draft_lines', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  draft_id:       uuid('draft_id').notNull().references(() => fiscalDocumentDrafts.id, { onDelete: 'cascade' }),
+  transaction_id: uuid('transaction_id').notNull().references(() => importedTransactions.id, { onDelete: 'cascade' }),
+  service_code:   varchar('service_code', { length: 10 }),
+  amount:         decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  sale_date:      date('sale_date'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDraftEvents = pgTable('fiscal_document_draft_events', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  draft_id:   uuid('draft_id').notNull().references(() => fiscalDocumentDrafts.id, { onDelete: 'cascade' }),
+  event_type: varchar('event_type', { length: 40 }).notNull(),
+  payload:    jsonb('payload'),
+  created_by: uuid('created_by'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const acquirerAccounts = pgTable('acquirer_accounts', {
   id:              uuid('id').primaryKey().defaultRandom(),
   tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
