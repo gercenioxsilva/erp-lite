@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
+import multipart from '@fastify/multipart';
 import jwt from '@fastify/jwt';
 // customersRoutes: import removida junto com o registro abaixo (hotfix de
 // segurança 2026-07-08) — ver comentário na chamada de app.register comentada.
@@ -27,6 +28,7 @@ import { clientContactsRoutes }     from './routes/clientContacts';
 import { supplierContactsRoutes }   from './routes/supplierContacts';
 import { companiesRoutes }          from './routes/companies';
 import { fiscalCompanyConfigRoutes } from './routes/fiscalCompanyConfig';
+import { fiscalImportsRoutes }       from './routes/fiscalImports';
 import { bankAccountsRoutes }       from './routes/bankAccounts';
 import { marketplaceIntegrationRoutes }   from './routes/marketplaceIntegration';
 import { materialMarketplaceLinksRoutes } from './routes/materialMarketplaceLinks';
@@ -82,6 +84,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, { origin: true });
   await app.register(sensible);
+  // Upload de arquivos de importação fiscal (OFX/CSV/XLSX) — parse no backend.
+  // Limite acima do bodyLimit JSON: extratos reais chegam a dezenas de MB.
+  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1, parts: 20 } });
   await app.register(jwt, {
     secret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
   });
@@ -130,6 +135,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(supplierContactsRoutes,   { prefix: '/v1' });
   await app.register(companiesRoutes,          { prefix: '/v1' });
   await app.register(fiscalCompanyConfigRoutes, { prefix: '/v1' });
+  await app.register(fiscalImportsRoutes,      { prefix: '/v1' });
   await app.register(bankAccountsRoutes,       { prefix: '/v1' });
   await app.register(marketplaceIntegrationRoutes,   { prefix: '/v1' });
   await app.register(materialMarketplaceLinksRoutes, { prefix: '/v1' });

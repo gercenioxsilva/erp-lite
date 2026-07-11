@@ -2083,3 +2083,82 @@ export const fiscalCertificates = pgTable('fiscal_certificates', {
   created_by:  uuid('created_by'),
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Importação multi-fonte (migration 0071) ──────────────────────────────────
+// Molde do importador Mercado Livre: batch (auditoria do upload, original no
+// S3 + checksum) + LEDGER CANÔNICO imported_transactions (dedup físico por
+// UNIQUE tenant+dedup_key; raw jsonb preserva o não-mapeado). O motor de
+// conciliação (0072) é o ÚNICO escritor de reconciliation_status.
+export const importBatches = pgTable('import_batches', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  source_kind:        varchar('source_kind', { length: 20 }).notNull(),
+  source_template_id: uuid('source_template_id'),
+  original_filename:  varchar('original_filename', { length: 255 }).notNull(),
+  s3_key:             text('s3_key'),
+  checksum_sha256:    char('checksum_sha256', { length: 64 }).notNull(),
+  byte_size:          integer('byte_size').notNull().default(0),
+  content_type:       varchar('content_type', { length: 100 }),
+  status:             varchar('status', { length: 20 }).notNull().default('received'),
+  total_rows:         integer('total_rows').notNull().default(0),
+  inserted_rows:      integer('inserted_rows').notNull().default(0),
+  duplicate_rows:     integer('duplicate_rows').notNull().default(0),
+  error_rows:         integer('error_rows').notNull().default(0),
+  error_message:      text('error_message'),
+  uploaded_by:        uuid('uploaded_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  processed_at:       timestamp('processed_at', { withTimezone: true }),
+});
+
+export const importSourceTemplates = pgTable('import_source_templates', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  name:              varchar('name', { length: 80 }).notNull(),
+  source_kind:       varchar('source_kind', { length: 20 }).notNull().default('csv'),
+  provider_hint:     varchar('provider_hint', { length: 30 }),
+  column_map:        jsonb('column_map').notNull(),
+  delimiter:         varchar('delimiter', { length: 3 }),
+  encoding:          varchar('encoding', { length: 10 }).notNull().default('utf8'),
+  date_format:       varchar('date_format', { length: 20 }).notNull().default('DD/MM/YYYY'),
+  decimal_separator: char('decimal_separator', { length: 1 }).notNull().default(','),
+  has_header:        boolean('has_header').notNull().default(true),
+  skip_rows:         smallint('skip_rows').notNull().default(0),
+  dedup_strategy:    varchar('dedup_strategy', { length: 12 }).notNull().default('auto'),
+  is_active:         boolean('is_active').notNull().default(true),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const importedTransactions = pgTable('imported_transactions', {
+  id:                    uuid('id').primaryKey().defaultRandom(),
+  tenant_id:             uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:            uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  batch_id:              uuid('batch_id').notNull().references(() => importBatches.id, { onDelete: 'cascade' }),
+  source:                varchar('source', { length: 10 }).notNull(),
+  source_kind:           varchar('source_kind', { length: 20 }).notNull(),
+  dedup_key:             varchar('dedup_key', { length: 200 }).notNull(),
+  occurred_at:           timestamp('occurred_at', { withTimezone: true }),
+  nsu:                   varchar('nsu', { length: 40 }),
+  authorization_code:    varchar('authorization_code', { length: 40 }),
+  acquirer:              varchar('acquirer', { length: 40 }),
+  card_brand:            varchar('card_brand', { length: 30 }),
+  customer_name:         varchar('customer_name', { length: 255 }),
+  customer_document:     varchar('customer_document', { length: 14 }),
+  gross_amount:          decimal('gross_amount', { precision: 15, scale: 2 }),
+  fee_amount:            decimal('fee_amount', { precision: 15, scale: 2 }),
+  net_amount:            decimal('net_amount', { precision: 15, scale: 2 }),
+  installments:          smallint('installments'),
+  payment_method:        varchar('payment_method', { length: 30 }),
+  establishment:         varchar('establishment', { length: 120 }),
+  terminal_serial:       varchar('terminal_serial', { length: 60 }),
+  bank_account_ref:      varchar('bank_account_ref', { length: 60 }),
+  fitid:                 varchar('fitid', { length: 120 }),
+  memo:                  text('memo'),
+  trn_type:              varchar('trn_type', { length: 20 }),
+  amount:                decimal('amount', { precision: 15, scale: 2 }),
+  raw:                   jsonb('raw').notNull(),
+  reconciliation_status: varchar('reconciliation_status', { length: 20 }).notNull().default('pending'),
+  created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
