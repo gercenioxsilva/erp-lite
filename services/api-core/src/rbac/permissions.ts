@@ -57,6 +57,8 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   // têm tudo por código e papéis custom podem receber o grant.
   employees:                { label: 'Funcionários (RH)',   actions: { view: 'Ver funcionários', manage: 'Gerenciar funcionários' } },
   payroll:                  { label: 'Folha de Pagamento',  actions: { view: 'Ver folha', manage: 'Calcular/gerenciar folha' } },
+  // WhatsApp — Cobranças e Notificações (módulo opcional pago 'whatsapp').
+  whatsapp: { label: 'WhatsApp', actions: { view: 'Ver conta, automações e mensagens', manage: 'Conectar conta e configurar automações' } },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

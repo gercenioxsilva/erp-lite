@@ -188,6 +188,7 @@ export function Layout({ children }: { children: ReactNode }) {
       // catálogo de permissões ainda (RBAC follow-up) — ficam sem `permission`
       // de propósito, visíveis a qualquer usuário autenticado por enquanto.
       ...(enabledModules.includes('sales_pipeline') ? [{ to: '/sales-pipeline', label: t('nav.salesPipeline') }] : []),
+      ...(enabledModules.includes('whatsapp') ? [{ to: '/whatsapp', label: t('nav.whatsapp'), permission: 'whatsapp:view' }] : []),
       { to: '/proposals', label: t('nav.proposals'), permission: 'proposals:view' },
       { to: '/orders',    label: t('nav.orders'),    permission: 'orders:view'    },
       { to: '/invoices',  label: t('nav.invoices'),  permission: 'invoices:view'  },

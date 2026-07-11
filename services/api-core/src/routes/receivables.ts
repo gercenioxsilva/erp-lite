@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { eq, and, or, ilike, sql, desc, gte, lte } from 'drizzle-orm';
 import { db, receivables, receivablePayments, clients } from '../db';
 import { requirePermission } from '../lib/requirePermission';
+import { notifyPaymentConfirmed } from '../services/whatsappAutomationService';
 
 const VALID_STATUSES  = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
 const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -172,6 +173,7 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
     const [rec] = await db.select({
       id: receivables.id, status: receivables.status,
       amount: receivables.amount, paid_amount: receivables.paid_amount,
+      client_id: receivables.client_id, description: receivables.description,
     }).from(receivables).where(and(eq(receivables.id, id), eq(receivables.tenant_id, tenantId)));
 
     if (!rec) return reply.notFound('Conta a receber não encontrada');
@@ -195,6 +197,15 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
 
       return pay;
     });
+
+    // WhatsApp — Cobranças e Notificações: só na quitação total (mesmo
+    // template não cobre pagamento parcial nesta v1). Fire-and-forget, nunca
+    // bloqueia a resposta.
+    if (newStatus === 'paid') {
+      void notifyPaymentConfirmed(tenantId, {
+        id: rec.id, client_id: rec.client_id, description: rec.description, amount: rec.amount,
+      });
+    }
 
     return reply.code(201).send({ ...payment, new_status: newStatus, new_paid_amount: newPaidAmt });
   });

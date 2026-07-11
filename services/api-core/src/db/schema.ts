@@ -150,6 +150,13 @@ export const clients = pgTable('clients', {
   // Misc
   is_active: boolean('is_active').notNull().default(true),
   notes:     text('notes'),
+  // Consentimento WhatsApp (migration 0067) — relação 1:1 com o cliente,
+  // mesmo raciocínio de tenants.activated_at ser coluna direta em vez de
+  // tabela separada. MVP manda mensagem só pro telefone principal do
+  // cliente (mobile, com fallback pra phone), não por client_contacts.
+  whatsapp_opt_in:     boolean('whatsapp_opt_in').notNull().default(false),
+  whatsapp_opt_in_at:  timestamp('whatsapp_opt_in_at',  { withTimezone: true }),
+  whatsapp_opt_out_at: timestamp('whatsapp_opt_out_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1862,4 +1869,94 @@ export const schedulingPackageMovements = pgTable('scheduling_package_movements'
   idempotency_key: varchar('idempotency_key', { length: 80 }).notNull(),
   created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── WhatsApp — Cobranças e Notificações (migration 0067) ───────────────────────
+// Módulo opcional pago. MVP: mensagens de template disparadas por evento do
+// ERP (cobrança a vencer/vencida, pagamento confirmado, nota fiscal emitida,
+// proposta enviada) via BSP (Twilio nesta fase). Credenciais são POR TENANT
+// (jsonb genérico, mesmo padrão de bank_accounts.credentials — nunca um app
+// compartilhado da plataforma), nunca cacheadas.
+
+// 1 conta por tenant nesta fase (multi-número fica pra depois).
+export const whatsappAccounts = pgTable('whatsapp_accounts', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().unique().references(() => tenants.id, { onDelete: 'cascade' }),
+  provider:        varchar('provider', { length: 30 }).notNull().default('twilio'),
+  credentials:     jsonb('credentials'),
+  whatsapp_number: varchar('whatsapp_number', { length: 20 }),
+  display_name:    varchar('display_name', { length: 100 }),
+  status:          varchar('status', { length: 20 }).notNull().default('pending'),
+  connected_at:    timestamp('connected_at', { withTimezone: true }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Conteúdo é fixo pelo sistema (nunca editável pelo tenant); provider_template_id
+// é o Content SID do Twilio, preenchido depois de aprovado (passo manual/
+// operacional, fora do escopo de código).
+export const whatsappMessageTemplates = pgTable('whatsapp_message_templates', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  template_key:         varchar('template_key', { length: 40 }).notNull(),
+  provider_template_id: varchar('provider_template_id', { length: 100 }),
+  status:               varchar('status', { length: 20 }).notNull().default('pending_approval'),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 1 linha por (tenant, template_key) — desligada por padrão. config carrega
+// {days_before}/{days_after} pros 2 eventos de proximidade de vencimento;
+// vazio pros 3 eventos disparados na hora.
+export const whatsappAutomations = pgTable('whatsapp_automations', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  template_key: varchar('template_key', { length: 40 }).notNull(),
+  enabled:      boolean('enabled').notNull().default(false),
+  config:       jsonb('config').notNull().default({}),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// 1 linha por mensagem enviada. Referências pro documento de origem são
+// nullable e mutuamente exclusivas na prática — mesmo padrão de FK nullable
+// opcional já usado em receivables.service_order_id.
+export const whatsappMessages = pgTable('whatsapp_messages', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  client_id:            uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  phone_e164:           varchar('phone_e164', { length: 20 }).notNull(),
+  template_key:         varchar('template_key', { length: 40 }).notNull(),
+  receivable_id:        uuid('receivable_id').references(() => receivables.id, { onDelete: 'set null' }),
+  invoice_id:           uuid('invoice_id').references(() => invoices.id, { onDelete: 'set null' }),
+  proposal_id:          uuid('proposal_id').references(() => proposals.id, { onDelete: 'set null' }),
+  provider_message_id:  varchar('provider_message_id', { length: 100 }),
+  status:               varchar('status', { length: 20 }).notNull().default('queued'),
+  status_reason:        text('status_reason'),
+  sent_at:              timestamp('sent_at', { withTimezone: true }),
+  delivered_at:         timestamp('delivered_at', { withTimezone: true }),
+  read_at:              timestamp('read_at', { withTimezone: true }),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Append-only, mesmo padrão de nfe_events/boleto_events.
+export const whatsappMessageEvents = pgTable('whatsapp_message_events', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull(),
+  whatsapp_message_id:  uuid('whatsapp_message_id').notNull().references(() => whatsappMessages.id, { onDelete: 'cascade' }),
+  event_type:           varchar('event_type', { length: 30 }).notNull(),
+  payload:              jsonb('payload'),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Idempotência de webhook inbound (status callback + mensagem recebida),
+// mesmo padrão de marketplace_webhook_events.
+export const whatsappWebhookEvents = pgTable('whatsapp_webhook_events', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  provider:        varchar('provider', { length: 30 }).notNull().default('twilio'),
+  idempotency_key: varchar('idempotency_key', { length: 200 }).notNull().unique(),
+  status:          varchar('status', { length: 20 }).notNull().default('received'),
+  error_message:   text('error_message'),
+  received_at:     timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  processed_at:    timestamp('processed_at', { withTimezone: true }),
 });
