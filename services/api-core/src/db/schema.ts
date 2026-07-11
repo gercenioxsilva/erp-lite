@@ -2162,3 +2162,57 @@ export const importedTransactions = pgTable('imported_transactions', {
   reconciliation_status: varchar('reconciliation_status', { length: 20 }).notNull().default('pending'),
   created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Conciliação (migration 0072) ─────────────────────────────────────────────
+// Ledger de matches (append-only + reversão auditada). Vínculo POLIMÓRFICO
+// target_type/target_id cobre alvos sem receivable (pedido/agenda). Este
+// motor é o ÚNICO escritor de imported_transactions.reconciliation_status.
+export const reconciliationMatches = pgTable('reconciliation_matches', {
+  id:                      uuid('id').primaryKey().defaultRandom(),
+  tenant_id:               uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:              uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  imported_transaction_id: uuid('imported_transaction_id').notNull().references(() => importedTransactions.id, { onDelete: 'cascade' }),
+  target_type:             varchar('target_type', { length: 24 }).notNull(),
+  target_id:               uuid('target_id'),
+  receivable_id:           uuid('receivable_id'),
+  receivable_payment_id:   uuid('receivable_payment_id'),
+  amount_matched:          decimal('amount_matched', { precision: 15, scale: 2 }).notNull(),
+  score:                   decimal('score', { precision: 5, scale: 4 }).notNull().default('0'),
+  matched_keys:            jsonb('matched_keys'),
+  match_method:            varchar('match_method', { length: 10 }).notNull().default('auto'),
+  status:                  varchar('status', { length: 12 }).notNull().default('suggested'),
+  dedup_key:               varchar('dedup_key', { length: 200 }).notNull(),
+  matched_by:              uuid('matched_by'),
+  confirmed_at:            timestamp('confirmed_at', { withTimezone: true }),
+  reversed_by:             uuid('reversed_by'),
+  reversed_at:             timestamp('reversed_at', { withTimezone: true }),
+  created_at:              timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const reconciliationRules = pgTable('reconciliation_rules', {
+  id:                     uuid('id').primaryKey().defaultRandom(),
+  tenant_id:              uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:             uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  amount_tolerance:       decimal('amount_tolerance', { precision: 15, scale: 2 }).notNull().default('0.01'),
+  date_window_days:       smallint('date_window_days').notNull().default(3),
+  auto_confirm_threshold: decimal('auto_confirm_threshold', { precision: 5, scale: 4 }).notNull().default('0.90'),
+  match_net_amount:       boolean('match_net_amount').notNull().default(true),
+  is_active:              boolean('is_active').notNull().default(true),
+  created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const acquirerAccounts = pgTable('acquirer_accounts', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:      uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  label:           varchar('label', { length: 80 }).notNull(),
+  provider:        varchar('provider', { length: 30 }).notNull(),
+  merchant_id:     varchar('merchant_id', { length: 60 }),
+  terminal_serial: varchar('terminal_serial', { length: 60 }),
+  fee_schedule:    jsonb('fee_schedule'),
+  credentials:     jsonb('credentials'),
+  is_active:       boolean('is_active').notNull().default(true),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
