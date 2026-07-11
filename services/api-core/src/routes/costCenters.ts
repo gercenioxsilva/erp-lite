@@ -63,7 +63,12 @@ export const costCentersRoutes: FastifyPluginAsync = async (fastify) => {
       ORDER BY code ASC, name ASC
     `);
 
-    return rows;
+    // { data: [...] } — mesmo contrato de GET /cost-centers e de todo outro
+    // endpoint de listagem da API. Antes devolvia o array "nu", o que deixava
+    // o dropdown de centro de custo sempre vazio em qualquer tela que já
+    // esperava `.data` (OrdersPage, InvoiceNewPage, InvoicesPage,
+    // ReceivablesPage) — sem erro no console, só a lista silenciosamente vazia.
+    return { data: rows };
   });
 
   /* ── POST /v1/cost-centers ──────────────────────────────────────────────── */
