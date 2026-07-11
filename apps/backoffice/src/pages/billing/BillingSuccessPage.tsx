@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import { api } from '../../lib/api';
 import type { SubscriptionData } from '../../hooks/useSubscription';
+import { trackEvent } from '../../lib/analytics';
 
 // The Checkout redirect can race the Stripe webhook — poll briefly instead of
 // always claiming success immediately.
@@ -28,6 +29,7 @@ export function BillingSuccessPage() {
       try {
         const data = await api.get<SubscriptionData>('/v1/subscription');
         if (data.status !== 'trial') {
+          trackEvent('subscription_activated', { plan: data.plan ?? '' });
           setState('success');
           return;
         }

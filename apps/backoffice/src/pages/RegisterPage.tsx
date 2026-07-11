@@ -10,6 +10,7 @@ import { SEGMENTS } from '../branding/segments';
 import { api, actionErrorMessage } from '../lib/api';
 import { useSubscription } from '../hooks/useSubscription';
 import { PlanCard } from './billing/PlanCard';
+import { trackEvent } from '../lib/analytics';
 
 type TFn = (key: TKey) => string;
 
@@ -288,6 +289,7 @@ export function RegisterPage() {
         password:     form.password,
         segment_key:  form.segment_key,
       });
+      trackEvent('sign_up_completed', { segment_key: form.segment_key });
       setStep(3);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('r.errFailed'));
@@ -323,7 +325,7 @@ export function RegisterPage() {
           {error && <div className="alert alert-error" role="alert">{error}</div>}
 
           {step === 1 && (
-            <CompanyStep form={form} set={set} onNext={() => goToStep(2)} t={t} />
+            <CompanyStep form={form} set={set} onNext={() => { trackEvent('sign_up_step_company'); goToStep(2); }} t={t} />
           )}
 
           {step === 2 && (
