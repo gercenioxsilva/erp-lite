@@ -912,6 +912,38 @@ export const nfseInvoices = pgTable('nfse_invoices', {
   nfse_xml_s3_key:     text('nfse_xml_s3_key'),
   created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Motor multi-provider (migration 0074): ciclo completo com adapters próprios.
+  provider:            varchar('provider', { length: 16 }),
+  municipio_ibge:      varchar('municipio_ibge', { length: 10 }),
+  ambiente:            smallint('ambiente').notNull().default(2),
+  rps_numero:          integer('rps_numero'),
+  rps_serie:           varchar('rps_serie', { length: 5 }),
+  lote_protocolo:      varchar('lote_protocolo', { length: 60 }),
+  nfse_pdf_s3_key:     text('nfse_pdf_s3_key'),
+  cancel_reason:       text('cancel_reason'),
+  cancel_date:         timestamp('cancel_date', { withTimezone: true }),
+  substitute_of_id:    uuid('substitute_of_id'),
+  iss_retido:          boolean('iss_retido').notNull().default(false),
+  deducoes:            decimal('deducoes', { precision: 15, scale: 2 }),
+  idempotency_key:     varchar('idempotency_key', { length: 160 }),
+});
+
+// Registry GLOBAL município → provider/versão/endpoints/perfil de assinatura
+// (migration 0074, regra 33 — sem tenant_id). Adicionar prefeitura = 1 linha.
+export const nfseMunicipalities = pgTable('nfse_municipalities', {
+  codigo_ibge:       varchar('codigo_ibge', { length: 10 }).primaryKey(),
+  uf:                char('uf', { length: 2 }).notNull(),
+  nome:              varchar('nome', { length: 120 }).notNull(),
+  provider:          varchar('provider', { length: 16 }).notNull(),
+  abrasf_versao:     varchar('abrasf_versao', { length: 8 }),
+  perfil:            varchar('perfil', { length: 20 }),
+  endpoint_homolog:  text('endpoint_homolog'),
+  endpoint_producao: text('endpoint_producao'),
+  signature_algo:    varchar('signature_algo', { length: 12 }).notNull().default('rsa-sha1'),
+  c14n:              varchar('c14n', { length: 10 }).notNull().default('inclusive'),
+  lote_assincrono:   boolean('lote_assincrono').notNull().default(true),
+  ativo:             boolean('ativo').notNull().default(true),
+  notes:             text('notes'),
 });
 
 // ── nfse_events ───────────────────────────────────────────────────────────────

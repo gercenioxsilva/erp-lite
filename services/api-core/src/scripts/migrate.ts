@@ -104,6 +104,7 @@ const migrations = [
   '0071_fiscal_imports.sql',
   '0072_fiscal_reconciliation.sql',
   '0073_fiscal_consolidation.sql',
+  '0074_nfse_engine.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
