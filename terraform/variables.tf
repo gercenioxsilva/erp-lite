@@ -130,6 +130,12 @@ variable "mercado_livre_client_secret" {
   default     = ""
 }
 
+variable "lambda_whatsapp_image_tag" {
+  description = "Docker image tag for lambda-whatsapp (ECR)"
+  type        = string
+  default     = "latest"
+}
+
 variable "stripe_secret_key" {
   description = "Stripe secret key (sk_live_... em produção) — assinatura SaaS. Vazio = módulo de billing fica desabilitado (isStripeEnabled() retorna false, subscriptionGuard vira no-op)."
   type        = string

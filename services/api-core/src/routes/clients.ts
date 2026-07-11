@@ -23,6 +23,9 @@ const clientBody = {
     country: { type: 'string', maxLength: 2 },
     icms_taxpayer: { type: 'string', enum: ['1', '2', '9'] }, consumer_type: { type: 'string', enum: ['0', '1'] },
     is_active: { type: 'boolean' }, notes: { type: 'string' },
+    // Consentimento WhatsApp (migration 0067) — LGPD, opt-in explícito do
+    // cliente final pra receber cobranças/documentos pelo WhatsApp.
+    whatsapp_opt_in: { type: 'boolean' },
   },
   additionalProperties: false,
 };
@@ -75,6 +78,8 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       country:      (b.country      ?? 'BR') as string,
       icms_taxpayer, consumer_type,
       notes: (b.notes ?? null) as string | null,
+      whatsapp_opt_in:    Boolean(b.whatsapp_opt_in),
+      whatsapp_opt_in_at: b.whatsapp_opt_in ? new Date() : null,
     }).returning();
     return reply.code(201).send(client);
   });
@@ -207,9 +212,18 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       'full_name','cpf','birth_date','rg','rg_issuer','rg_issue_date',
       'email','phone','mobile','zip_code','street','street_number','complement',
       'neighborhood','city','state','country','icms_taxpayer','consumer_type','is_active','notes',
+      'whatsapp_opt_in',
     ];
-    const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
+    const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k))) as Record<string, unknown>;
     if (!Object.keys(updateData).length) return reply.badRequest('No fields to update');
+
+    // Carimba data/hora do consentimento (ou da revogação, se desmarcado pelo
+    // backoffice) — mesmo racional do opt-out via webhook "SAIR"
+    // (whatsappWebhookService.ts), só que aqui é o próprio tenant editando.
+    if ('whatsapp_opt_in' in updateData) {
+      if (updateData.whatsapp_opt_in) updateData.whatsapp_opt_in_at = new Date();
+      else                             updateData.whatsapp_opt_out_at = new Date();
+    }
 
     const [updated] = await db.update(clients).set(updateData as any).where(and(eq(clients.id, id), eq(clients.tenant_id, tenantId))).returning();
     return updated;

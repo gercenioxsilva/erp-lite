@@ -60,6 +60,10 @@ const MANAGER = Array.from(new Set([
   'billing:view',
   'tax:view',
   'marketplace:view',
+  // Mesmo racional de bank_accounts:view — ver conta/automações/mensagens é
+  // operacional, mas conectar credenciais (whatsapp:manage) fica só com
+  // owner/admin (mesma trava de bank_accounts:manage).
+  'whatsapp:view',
 // Configuração do agendamento (fuso, antecedência, auto-agendamento) é
 // decisão do dono/admin, não operação — gestor fica de fora.
 ])).filter((k) => k !== 'scheduling:settings');

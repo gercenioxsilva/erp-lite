@@ -7,6 +7,7 @@ import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 import { createReceivableFromInvoice } from '../services/receivableService';
+import { notifyFiscalDocumentAuthorized } from '../services/whatsappAutomationService';
 
 interface NfeResultMessage {
   invoice_id:         string;
@@ -244,6 +245,12 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       console.error(JSON.stringify({ event: 'receivable_creation_error', invoice_id, error: String(recvErr) }));
     }
     // ─────────────────────────────────────────────────────────────────────────
+
+    // WhatsApp — Cobranças e Notificações (módulo opcional pago). Nunca lança
+    // (fire-and-forget, mesma filosofia de sendNotificationIfEnabled) — a
+    // própria função já engole erro de elegibilidade (automação desligada,
+    // conta não conectada, cliente sem opt-in etc.).
+    void notifyFiscalDocumentAuthorized(result.tenant_id, { id: invoice_id, client_id: inv.client_id, number, total: inv.total });
 
     if (inv.client_email) {
       await sendNotificationIfEnabled({
