@@ -22,6 +22,7 @@ import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
+import { FiscalPage } from './pages/fiscal/FiscalPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { VerifyEmailPage }    from './pages/auth/VerifyEmailPage';
@@ -135,6 +136,7 @@ function GuardedRoutes() {
             de develop, sem chave no catálogo de permissões ainda — deixados sem
             gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
         <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
+        <Route path="/fiscal"          element={gate('fiscal:view', <FiscalPage />)} />
         <Route path="/proposals"       element={gate('proposals:view', <ProposalsPage />)} />
         <Route path="/reports"              element={gate('reports:view', <ReportsPage />)} />
         <Route path="/reports/cashflow"     element={gate('reports:view', <CashflowPage />)} />

@@ -1889,6 +1889,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   hr:             { titleKey: 'comp.modules.hr',              descKey: 'comp.modules.hrDesc' },
   scheduling:     { titleKey: 'comp.modules.scheduling',      descKey: 'comp.modules.schedulingDesc' },
   whatsapp:       { titleKey: 'comp.modules.whatsapp',        descKey: 'comp.modules.whatsappDesc' },
+  fiscal:         { titleKey: 'comp.modules.fiscal',          descKey: 'comp.modules.fiscalDesc' },
 };
 
 // Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o

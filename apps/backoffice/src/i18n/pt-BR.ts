@@ -1391,6 +1391,8 @@ const ptBR = {
   'comp.modules.schedulingDesc': 'Agenda de sessões com pacotes: profissionais, áreas de atuação, disponibilidade, pacotes de sessões do cliente e portal de auto-agendamento.',
   'comp.modules.whatsapp':     'WhatsApp — Cobranças e Notificações',
   'comp.modules.whatsappDesc': 'Mensagens automáticas pelo WhatsApp vinculadas a eventos do ERP: cobrança a vencer/vencida, pagamento confirmado, nota fiscal emitida, proposta enviada. Módulo cobrado à parte.',
+  'comp.modules.fiscal':       'Gestão Fiscal — Simples Nacional',
+  'comp.modules.fiscalDesc':   'Importação de vendas (OFX/CSV/Excel), conciliação automática, consolidação em notas e emissão de NFS-e com apuração do Simples Nacional.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',

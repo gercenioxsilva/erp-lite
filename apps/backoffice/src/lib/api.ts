@@ -58,10 +58,37 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
 
+/** Upload multipart (importação fiscal): o browser define o Content-Type
+ *  com boundary — nunca setar manualmente. Mesmo tratamento de erro/401. */
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const token = localStorage.getItem('token');
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+  } catch {
+    throw new ApiError('Sem conexão com o servidor', 0);
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    if (res.status === 401 && token) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event(AUTH_SIGNOUT_EVENT));
+    }
+    throw new ApiError(err.message || err.error || `HTTP ${res.status}`, res.status, err);
+  }
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : ({} as T);
+}
+
 export const api = {
   get:    <T>(path: string)               => request<T>('GET',    path),
   post:   <T>(path: string, body: unknown) => request<T>('POST',   path, body),
   put:    <T>(path: string, body: unknown) => request<T>('PUT',    path, body),
   patch:  <T>(path: string, body: unknown) => request<T>('PATCH',  path, body),
   delete: <T>(path: string)               => request<T>('DELETE', path),
+  postForm: <T>(path: string, form: FormData) => requestForm<T>(path, form),
 };

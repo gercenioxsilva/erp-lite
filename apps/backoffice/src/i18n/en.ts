@@ -1393,6 +1393,8 @@ const en: Record<TKey, string> = {
   'comp.modules.schedulingDesc': 'Session scheduling with packages: professionals, service areas, availability, client session packages, and self-booking portal.',
   'comp.modules.whatsapp':     'WhatsApp — Billing and Notifications',
   'comp.modules.whatsappDesc': 'Automatic WhatsApp messages tied to ERP events: invoice due soon/overdue, payment confirmed, fiscal document issued, proposal sent. Billed separately.',
+  'comp.modules.fiscal':       'Tax Management — Simples Nacional',
+  'comp.modules.fiscalDesc':   'Sales import (OFX/CSV/Excel), automatic reconciliation, invoice consolidation and NFS-e issuance with Simples Nacional assessment.',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',
