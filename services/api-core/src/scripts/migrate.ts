@@ -99,6 +99,7 @@ const migrations = [
   '0066_google_calendar.sql',
   '0067_whatsapp_integration.sql',
   '0068_fiscal_core.sql',
+  '0069_fiscal_company_config.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

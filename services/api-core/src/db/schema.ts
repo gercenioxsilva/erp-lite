@@ -1991,3 +1991,93 @@ export const fiscalEvents = pgTable('fiscal_events', {
   idempotency_key:    varchar('idempotency_key', { length: 160 }),
   created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Cadastro fiscal por empresa (migration 0069) ─────────────────────────────
+// Tabela FILHA 1:1 de nfe_configs — o cadastro profundo do Simples/NFS-e fica
+// atrás do módulo 'fiscal' sem acoplar ao CRUD base de empresa. Campos já
+// existentes em nfe_configs são lidos por JOIN, nunca duplicados.
+export const fiscalCompanyConfig = pgTable('fiscal_company_config', {
+  id:                        uuid('id').primaryKey().defaultRandom(),
+  tenant_id:                 uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:                uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }).unique(),
+  // MEI = DAS-SIMEI fixo; apuração percentual é bloqueada para MEI no MVP.
+  enquadramento:             varchar('enquadramento', { length: 3 }).notNull().default('ME'),
+  optante_simples:           boolean('optante_simples').notNull().default(false),
+  data_opcao_simples:        date('data_opcao_simples'),
+  // Início de atividade (<12 meses) proporcionaliza o RBT12 (LC123 art.18 §§1-2).
+  data_abertura:             date('data_abertura'),
+  anexo_padrao:              smallint('anexo_padrao'),
+  fator_r_aplicavel:         boolean('fator_r_aplicavel').notNull().default(false),
+  regime_apuracao:           varchar('regime_apuracao', { length: 12 }).notNull().default('competencia'),
+  iss_retido_padrao:         boolean('iss_retido_padrao').notNull().default(false),
+  iss_fixo:                  boolean('iss_fixo').notNull().default(false),
+  iss_fixo_valor:            decimal('iss_fixo_valor', { precision: 15, scale: 2 }),
+  retencao_federal:          boolean('retencao_federal').notNull().default(false),
+  retencoes:                 jsonb('retencoes'),
+  // Bootstrap de RBT12 na transição (sem documentos internos no histórico).
+  receita_acumulada_abertura: decimal('receita_acumulada_abertura', { precision: 15, scale: 2 }),
+  rbt12_manual:              decimal('rbt12_manual', { precision: 15, scale: 2 }),
+  nfse_provider:             varchar('nfse_provider', { length: 16 }).notNull().default('focus'),
+  nfse_provider_profile:     varchar('nfse_provider_profile', { length: 24 }),
+  rps_serie:                 varchar('rps_serie', { length: 5 }).notNull().default('1'),
+  rps_proximo_numero:        integer('rps_proximo_numero').notNull().default(1),
+  lote_proximo_numero:       integer('lote_proximo_numero').notNull().default(1),
+  created_by:                uuid('created_by'),
+  created_at:                timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:                timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalCompanyCnae = pgTable('fiscal_company_cnae', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:   uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  codigo:       varchar('codigo', { length: 9 }).notNull(),
+  descricao:    varchar('descricao', { length: 255 }),
+  is_principal: boolean('is_principal').notNull().default(false),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalCompanyServiceCode = pgTable('fiscal_company_service_code', {
+  id:               uuid('id').primaryKey().defaultRandom(),
+  tenant_id:        uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:       uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  codigo_lc116:     varchar('codigo_lc116', { length: 10 }).notNull(),
+  codigo_municipal: varchar('codigo_municipal', { length: 20 }),
+  descricao:        varchar('descricao', { length: 255 }),
+  aliquota_iss:     decimal('aliquota_iss', { precision: 5, scale: 2 }),
+  iss_retido:       boolean('iss_retido').notNull().default(false),
+  anexo:            smallint('anexo'),
+  is_default:       boolean('is_default').notNull().default(false),
+  created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Folha + pró-labore por competência ('YYYY-MM') — insumo rolling-12m do Fator R.
+export const fiscalCompanyPayrollMonth = pgTable('fiscal_company_payroll_month', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:       varchar('competencia', { length: 7 }).notNull(),
+  folha_amount:      decimal('folha_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  pro_labore_amount: decimal('pro_labore_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  source:            varchar('source', { length: 14 }).notNull().default('manual'),
+  created_by:        uuid('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Certificado A1 por empresa — credentials {pfx_base64, senha} em texto puro
+// (padrão bank_accounts.credentials; KMS = Fase 2). 1 ativo por empresa
+// (UNIQUE parcial); trocar = desativar anterior + inserir (histórico auditável).
+export const fiscalCertificates = pgTable('fiscal_certificates', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  credentials: jsonb('credentials').notNull(),
+  cn:          varchar('cn', { length: 255 }),
+  not_before:  timestamp('not_before', { withTimezone: true }),
+  not_after:   timestamp('not_after', { withTimezone: true }),
+  thumbprint:  varchar('thumbprint', { length: 64 }),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
