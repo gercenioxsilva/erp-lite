@@ -64,9 +64,13 @@ const MANAGER = Array.from(new Set([
   // operacional, mas conectar credenciais (whatsapp:manage) fica só com
   // owner/admin (mesma trava de bank_accounts:manage).
   'whatsapp:view',
+  // Gestão Fiscal: a operação (importar/conciliar/consolidar/apurar/emitir) é
+  // do gestor; o certificado A1 (manage_certificate) fica só com owner/admin —
+  // mesma trava de bank_accounts:manage/whatsapp:manage.
+  ...keysOf(['fiscal']),
 // Configuração do agendamento (fuso, antecedência, auto-agendamento) é
 // decisão do dono/admin, não operação — gestor fica de fora.
-])).filter((k) => k !== 'scheduling:settings');
+])).filter((k) => k !== 'scheduling:settings' && k !== 'fiscal:manage_certificate');
 
 const USER = Array.from(new Set([
   'dashboard:view',

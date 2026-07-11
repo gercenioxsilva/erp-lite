@@ -59,6 +59,25 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   payroll:                  { label: 'Folha de Pagamento',  actions: { view: 'Ver folha', manage: 'Calcular/gerenciar folha' } },
   // WhatsApp — Cobranças e Notificações (módulo opcional pago 'whatsapp').
   whatsapp: { label: 'WhatsApp', actions: { view: 'Ver conta, automações e mensagens', manage: 'Conectar conta e configurar automações' } },
+  // Gestão Fiscal — Simples Nacional (módulo opcional 'fiscal'). Um módulo
+  // único com todas as ações do pipeline importar→conciliar→consolidar→
+  // apurar→emitir; 'manage_certificate' fica fora do Gestor (certificado A1
+  // é a identidade digital da empresa — mesma trava de bank_accounts:manage).
+  fiscal: {
+    label: 'Gestão Fiscal',
+    actions: {
+      view:               'Ver dados fiscais (importações, conciliação, notas, apuração)',
+      import:             'Importar vendas (OFX/CSV/Excel)',
+      reconcile:          'Conciliar vendas e pagamentos',
+      consolidate:        'Configurar regras e consolidar vendas em notas',
+      config:             'Configurar cadastro fiscal da empresa (CNAE, Simples, provedor NFS-e)',
+      manage_certificate: 'Enviar/remover certificado digital A1',
+      apurar:             'Apurar Simples Nacional (PGDAS-D)',
+      emit:               'Emitir NFS-e consolidada',
+      cancel:             'Cancelar NFS-e emitida',
+      substitute:         'Substituir NFS-e emitida',
+    },
+  },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

@@ -1,23 +1,10 @@
 import { sql } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { receivables } from '../db/schema';
+import { isUniqueConstraintViolation } from '../lib/pgErrors';
 
 export type DrizzleDB = typeof _db;
 export type Receivable = typeof receivables.$inferSelect;
-
-// Mesmo helper de detecção de violação de UNIQUE já usado em
-// commissionService.ts — não duplicado por acidente, é o padrão estabelecido
-// pra idempotência neste projeto (Postgres, código 23505).
-function isUniqueConstraintViolation(err: unknown): boolean {
-  if (err instanceof Error) {
-    const pgErr = err as Error & { code?: string };
-    if (pgErr.code === '23505') return true;
-    if (err.message.includes('unique') || err.message.includes('duplicate') || err.message.includes('23505')) {
-      return true;
-    }
-  }
-  return false;
-}
 
 export interface CreateReceivableFromInvoiceArgs {
   tenantId:    string;

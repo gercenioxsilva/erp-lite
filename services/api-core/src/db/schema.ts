@@ -287,6 +287,9 @@ export const orders = pgTable('orders', {
   // Mercado Livre (migration 0048, regra 42) — pedido importado de um marketplace
   marketplace_order_id: varchar('marketplace_order_id', { length: 50 }),
   origin: varchar('origin', { length: 20 }).notNull().default('erp'),
+  // Empresa/CNPJ da venda (migration 0068) — receita atribuível por empresa
+  // para RBT12/apuração multiempresa; NULL = tenant ainda sem empresa cadastrada.
+  company_id: uuid('company_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -1183,6 +1186,9 @@ export const posSales = pgTable('pos_sales', {
   cancel_reason:   text('cancel_reason'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Empresa/CNPJ da venda (migration 0068) — receita de PDV atribuível por
+  // empresa para RBT12/apuração multiempresa.
+  company_id:      uuid('company_id'),
 });
 
 // ── pos_sale_items ────────────────────────────────────────────────────────────
@@ -1959,4 +1965,29 @@ export const whatsappWebhookEvents = pgTable('whatsapp_webhook_events', {
   error_message:   text('error_message'),
   received_at:     timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
   processed_at:    timestamp('processed_at', { withTimezone: true }),
+});
+
+// ── fiscal_events (migration 0068) ────────────────────────────────────────────
+// ÍNDICE UNIFICADO de auditoria do módulo Fiscal, append-only (nunca UPDATE/
+// DELETE). Dono único: 0068_fiscal_core. Os *_events por agregado continuam
+// como log detalhado; o dashboard de auditoria lê daqui. Escrita SEMPRE via
+// fiscalAuditService.record() (mascara segredos e aplica idempotência 23505).
+export const fiscalEvents = pgTable('fiscal_events', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  aggregate_type:     varchar('aggregate_type', { length: 40 }).notNull(),
+  aggregate_id:       uuid('aggregate_id'),
+  event_type:         varchar('event_type', { length: 60 }).notNull(),
+  // NULL = sistema (worker/job agendado).
+  actor_user_id:      uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  source_file_s3_key: text('source_file_s3_key'),
+  xml_s3_key:         text('xml_s3_key'),
+  pdf_s3_key:         text('pdf_s3_key'),
+  payload_hash:       varchar('payload_hash', { length: 64 }),
+  request_payload:    jsonb('request_payload'),
+  response_payload:   jsonb('response_payload'),
+  attempt:            integer('attempt'),
+  idempotency_key:    varchar('idempotency_key', { length: 160 }),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
