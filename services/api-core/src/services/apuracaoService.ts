@@ -19,6 +19,7 @@ import {
   assertApuravelPorPercentual, resolveAnexoByFatorR, windowCompetencias, SimplesDomainError,
 } from '../domain/simples/simplesDomain';
 import { validateCompetencia } from '../domain/fiscal/fiscalCompanyConfigDomain';
+import { buildGuia } from '../domain/fiscal/guiaDomain';
 import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
 import { postEntry } from './accountingService';
 import { linesForDasPayment } from '../domain/accounting/accountingDomain';
@@ -170,28 +171,18 @@ export async function exportApuracao(tenantId: string, apuracaoId: string, actor
     tenant_id: tenantId, apuracao_id: row.id, event_type: 'exported', created_by: actorUserId,
   });
 
-  return {
-    aviso: 'O PGDAS-D não possui API oficial de transmissão. Lance os valores abaixo manualmente no portal (www8.receita.fazenda.gov.br) — este export é a memória de cálculo assistida.',
-    competencia: row.competencia,
-    passos: [
-      '1. Acesse o PGDAS-D no portal do Simples Nacional com certificado ou código de acesso.',
-      `2. Selecione o período de apuração ${row.competencia}.`,
-      `3. Informe a receita bruta do mês: R$ ${row.receita_competencia}.`,
-      '4. Confira a RBT12 calculada pelo portal contra a memória abaixo.',
-      '5. Segregue as receitas por atividade/anexo conforme a memória.',
-      '6. Confira o DAS apurado com o valor estimado e gere o DAS para pagamento.',
-    ],
-    valores: {
-      rbt12: row.rbt12, receita_competencia: row.receita_competencia,
-      das_total: row.das_total, fator_r: row.fator_r, sublimite_excedido: row.sublimite_excedido,
-      tributos: {
-        irpj: row.valor_irpj, csll: row.valor_csll, cofins: row.valor_cofins, pis: row.valor_pis,
-        cpp: row.valor_cpp, icms: row.valor_icms, ipi: row.valor_ipi, iss: row.valor_iss,
-        iss_retido_abatido: row.iss_retido,
-      },
-    },
-    memoria: row.memoria,
-  };
+  return buildGuia(row);
+}
+
+/** Guia de impostos read-only (E8): mesmo conteúdo do export, SEM marcar
+ *  status='exported'. Junta o nome da empresa para o cabeçalho da tela. */
+export async function getGuia(tenantId: string, apuracaoId: string, db: DrizzleDB = _db) {
+  const [row] = await db.select().from(simplesApuracao)
+    .where(and(eq(simplesApuracao.id, apuracaoId), eq(simplesApuracao.tenant_id, tenantId)));
+  if (!row) throw new SimplesDomainError('apuracao_not_found', { apuracaoId });
+  const { rows: [company] } = await db.execute<{ razao_social: string | null; cnpj: string | null }>(sql`
+    SELECT razao_social, cnpj FROM nfe_configs WHERE id = ${row.company_id}`);
+  return { empresa: company?.razao_social ?? null, cnpj: company?.cnpj ?? null, ...buildGuia(row) };
 }
 
 export async function listApuracoes(tenantId: string, companyId: string | null, db: DrizzleDB = _db) {

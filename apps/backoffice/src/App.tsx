@@ -68,6 +68,7 @@ import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
 import { EmployeesPage }       from './pages/employees/EmployeesPage';
 import { PayrollPage }         from './pages/payroll/PayrollPage';
 import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
+import { GuiaImpostosPrintPage } from './pages/fiscal/GuiaImpostosPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
@@ -220,6 +221,7 @@ export function App() {
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
               <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
+              <Route path="/fiscal/apuracao/:id/guia" element={<GuiaImpostosPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />

@@ -16,7 +16,8 @@ vi.mock('../lib/anthropicClient', () => ({
 }));
 vi.mock('../services/fiscalScoreService', () => ({ computeScore: vi.fn() }));
 vi.mock('../services/simuladorService', () => ({ getProjecao: vi.fn() }));
-vi.mock('../services/apuracaoService', () => ({ listApuracoes: vi.fn(async () => []) }));
+const { listApuracoesMock } = vi.hoisted(() => ({ listApuracoesMock: vi.fn() }));
+vi.mock('../services/apuracaoService', () => ({ listApuracoes: listApuracoesMock }));
 vi.mock('../services/fiscalAlertService', () => ({ listAlerts: vi.fn(async () => []) }));
 vi.mock('../services/fiscalRevenueService', () => ({ revenueByCompetencia: vi.fn(async () => ({})) }));
 vi.mock('../services/companyService', () => ({
@@ -51,6 +52,7 @@ beforeEach(() => {
   recordMock.mockReset(); recordMock.mockResolvedValue({ duplicate: false, event: null });
   resolveCompanyMock.mockReset();
   resolveCompanyMock.mockResolvedValue({ id: 'comp-1', aliquota_iss_padrao: '5', codigo_servico_padrao: '0107' });
+  listApuracoesMock.mockReset(); listApuracoesMock.mockResolvedValue([]);
 });
 
 describe('propose_nfse', () => {
@@ -103,6 +105,36 @@ describe('propose_nfse', () => {
     const db = queuedDb([{ rows: [{ n: 0 }] }, { rows: [{ id: 'client-1', nome: 'ACME' }] }]);
 
     const r = await runAssistant({ tenantId: TENANT, userId: USER, message: 'gera nota de zero' }, db);
+    expect(r.action).toBeUndefined();
+  });
+});
+
+describe('get_guia_impostos', () => {
+  const guiaResponse = (competencia: string) => ({
+    stop_reason: 'tool_use',
+    content: [{ type: 'tool_use', id: 'tg1', name: 'get_guia_impostos', input: { competencia } }],
+    usage: { input_tokens: 100, output_tokens: 20 },
+  });
+
+  it('competência apurada → action open_guia com DAS e vencimento', async () => {
+    listApuracoesMock.mockResolvedValue([{ id: 'ap-1', competencia: '2026-06', das_total: '4040.00' }]);
+    createMock
+      .mockResolvedValueOnce(guiaResponse('2026-06'))
+      .mockResolvedValueOnce(textResponse('Aqui está sua guia de junho.'));
+    const db = queuedDb([{ rows: [{ n: 0 }] }]);
+
+    const r = await runAssistant({ tenantId: TENANT, userId: USER, message: 'gera a guia de junho' }, db);
+    expect(r.action).toEqual({ type: 'open_guia', apuracaoId: 'ap-1', competencia: '2026-06', dasTotal: 4040, vencimento: '2026-07-20' });
+  });
+
+  it('competência não apurada → sem action (instrui a apurar)', async () => {
+    listApuracoesMock.mockResolvedValue([]);
+    createMock
+      .mockResolvedValueOnce(guiaResponse('2026-06'))
+      .mockResolvedValueOnce(textResponse('Apure a competência primeiro.'));
+    const db = queuedDb([{ rows: [{ n: 0 }] }]);
+
+    const r = await runAssistant({ tenantId: TENANT, userId: USER, message: 'guia de junho' }, db);
     expect(r.action).toBeUndefined();
   });
 });

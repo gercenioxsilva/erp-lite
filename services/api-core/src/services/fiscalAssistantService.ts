@@ -14,6 +14,7 @@ import { getAnthropic, assistantModel } from '../lib/anthropicClient';
 import { record as recordFiscalEvent } from './fiscalAuditService';
 import { getProjecao } from './simuladorService';
 import { listApuracoes } from './apuracaoService';
+import { dasDueDate } from '../domain/fiscal/alertRulesDomain';
 import { computeScore } from './fiscalScoreService';
 import { listAlerts } from './fiscalAlertService';
 import { revenueByCompetencia } from './fiscalRevenueService';
@@ -124,6 +125,11 @@ const TOOLS: Anthropic.Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'get_guia_impostos',
+    description: 'Busca a apuração de uma competência (YYYY-MM) e prepara o documento imprimível para pagar os impostos do mês (DAS, vencimento, passos do portal). Se a competência ainda não foi apurada, avise o usuário para apurar primeiro na tela de Apuração.',
+    input_schema: { type: 'object', properties: { competencia: { type: 'string', description: 'competência YYYY-MM' } }, required: ['competencia'], additionalProperties: false },
+  },
 ];
 
 /** Últimos 12 meses (inclui o atual), formato YYYY-MM. */
@@ -210,6 +216,18 @@ function buildToolExecutor(tenantId: string, companyId: string | null | undefine
       case 'propose_nfse': {
         state.action = { type: 'nfse_proposal', draft: await buildNfseDraft(tenantId, companyId, input, db) };
         return { ok: true, note: 'Rascunho pronto. Peça ao usuário para revisar e confirmar na tela.' };
+      }
+      case 'get_guia_impostos': {
+        const competencia = String(input.competencia ?? '');
+        const rows = await listApuracoes(tenantId, companyId ?? null, db);
+        const row = rows.find((r: any) => r.competencia === competencia);
+        if (!row) return { exists: false, note: `Competência ${competencia} ainda não foi apurada. Peça ao usuário para apurar na tela de Apuração antes de gerar a guia.` };
+        const vencimento = dasDueDate(competencia).toISOString().slice(0, 10);
+        state.action = {
+          type: 'open_guia', apuracaoId: (row as any).id, competencia,
+          dasTotal: Number((row as any).das_total ?? 0), vencimento,
+        };
+        return { exists: true, das_total: (row as any).das_total, vencimento };
       }
       default:
         throw new Error(`tool desconhecida: ${name}`);

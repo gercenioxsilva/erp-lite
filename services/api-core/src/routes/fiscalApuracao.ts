@@ -10,7 +10,7 @@ import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
 import { SimplesDomainError } from '../domain/simples/simplesDomain';
 import { db } from '../db';
 import {
-  apurarCompetencia, exportApuracao, listApuracoes, registerDasPayment, estimadoVsPago,
+  apurarCompetencia, exportApuracao, getGuia, listApuracoes, registerDasPayment, estimadoVsPago,
 } from '../services/apuracaoService';
 
 export const fiscalApuracaoRoutes: FastifyPluginAsync = async (fastify) => {
@@ -54,6 +54,15 @@ export const fiscalApuracaoRoutes: FastifyPluginAsync = async (fastify) => {
     const { tenantId, userId } = (request as any).user;
     const { id } = request.params as { id: string };
     try { return await exportApuracao(tenantId, id, userId); }
+    catch (err) { return handleError(err, reply); }
+  });
+
+  // Guia de impostos (E8): read-only, SEM marcar exported — alimenta a tela
+  // imprimível e o card do assistente.
+  fastify.get('/fiscal/apuracao/:id/guia', guard('fiscal:view'), async (request, reply) => {
+    const { tenantId } = (request as any).user;
+    const { id } = request.params as { id: string };
+    try { return await getGuia(tenantId, id); }
     catch (err) { return handleError(err, reply); }
   });
 
