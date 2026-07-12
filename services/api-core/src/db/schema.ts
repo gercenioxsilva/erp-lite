@@ -2195,6 +2195,93 @@ export const importedTransactions = pgTable('imported_transactions', {
   created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Apuração PGDAS-D (migration 0075) ────────────────────────────────────────
+export const simplesApuracao = pgTable('simples_apuracao', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:        char('competencia', { length: 7 }).notNull(),
+  rbt12:              decimal('rbt12', { precision: 15, scale: 2 }).notNull(),
+  rbt12_source:       varchar('rbt12_source', { length: 10 }).notNull().default('ledger'),
+  receita_competencia: decimal('receita_competencia', { precision: 15, scale: 2 }).notNull(),
+  fator_r:            decimal('fator_r', { precision: 6, scale: 4 }),
+  sublimite_excedido: boolean('sublimite_excedido').notNull().default(false),
+  das_total:          decimal('das_total', { precision: 15, scale: 2 }).notNull(),
+  valor_irpj:         decimal('valor_irpj', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_csll:         decimal('valor_csll', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_cofins:       decimal('valor_cofins', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_pis:          decimal('valor_pis', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_cpp:          decimal('valor_cpp', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_icms:         decimal('valor_icms', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_ipi:          decimal('valor_ipi', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_iss:          decimal('valor_iss', { precision: 15, scale: 2 }).notNull().default('0'),
+  iss_retido:         decimal('iss_retido', { precision: 15, scale: 2 }).notNull().default('0'),
+  memoria:            jsonb('memoria').notNull(),
+  status:             varchar('status', { length: 14 }).notNull().default('calculated'),
+  created_by:         uuid('created_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const simplesApuracaoEvents = pgTable('simples_apuracao_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  apuracao_id: uuid('apuracao_id').notNull().references(() => simplesApuracao.id, { onDelete: 'cascade' }),
+  event_type:  varchar('event_type', { length: 30 }).notNull(),
+  payload:     jsonb('payload'),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const dasPayments = pgTable('das_payments', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia: char('competencia', { length: 7 }).notNull(),
+  paid_at:     date('paid_at').notNull(),
+  amount:      decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  source:      varchar('source', { length: 14 }).notNull().default('manual'),
+  reference:   varchar('reference', { length: 100 }),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Repartição do DAS por tributo (GLOBAL, regra 33; seed na 0075).
+export const taxSimplesRepartition = pgTable('tax_simples_repartition', {
+  vigencia_ano: smallint('vigencia_ano').notNull(),
+  anexo:        varchar('anexo', { length: 3 }).notNull(),
+  faixa:        smallint('faixa').notNull(),
+  irpj:         decimal('irpj', { precision: 6, scale: 4 }).notNull().default('0'),
+  csll:         decimal('csll', { precision: 6, scale: 4 }).notNull().default('0'),
+  cofins:       decimal('cofins', { precision: 6, scale: 4 }).notNull().default('0'),
+  pis:          decimal('pis', { precision: 6, scale: 4 }).notNull().default('0'),
+  cpp:          decimal('cpp', { precision: 6, scale: 4 }).notNull().default('0'),
+  icms:         decimal('icms', { precision: 6, scale: 4 }).notNull().default('0'),
+  ipi:          decimal('ipi', { precision: 6, scale: 4 }).notNull().default('0'),
+  iss:          decimal('iss', { precision: 6, scale: 4 }).notNull().default('0'),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.vigencia_ano, t.anexo, t.faixa] }),
+}));
+
+// Ledger de receita segregada (migration 0070) — base do RBT12 por empresa.
+export const fiscalRevenueMonthly = pgTable('fiscal_revenue_monthly', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:          uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:         char('competencia', { length: 7 }).notNull(),
+  anexo:               smallint('anexo'),
+  municipio_ibge:      varchar('municipio_ibge', { length: 10 }),
+  cnae:                char('cnae', { length: 7 }),
+  receita_bruta:       decimal('receita_bruta', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_tributavel:  decimal('receita_tributavel', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_isenta:      decimal('receita_isenta', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_com_retencao: decimal('receita_com_retencao', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_exportacao:  decimal('receita_exportacao', { precision: 15, scale: 2 }).notNull().default('0'),
+  source_doc_type:     varchar('source_doc_type', { length: 20 }).notNull(),
+  source_doc_id:       uuid('source_doc_id'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Conciliação (migration 0072) ─────────────────────────────────────────────
 // Ledger de matches (append-only + reversão auditada). Vínculo POLIMÓRFICO
 // target_type/target_id cobre alvos sem receivable (pedido/agenda). Este

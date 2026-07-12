@@ -23,7 +23,8 @@ import { getOrCreateConfig, getEmissionReadiness, listServiceCodes } from './fis
 import { record as recordFiscalEvent } from './fiscalAuditService';
 import { isUniqueConstraintViolation } from '../lib/pgErrors';
 import { toNumber, toDecimalString, round2 } from '../lib/money';
-import { assertApuravelPorPercentual, computeRbt12, windowCompetencias } from '../domain/simples/simplesDomain';
+import { assertApuravelPorPercentual } from '../domain/simples/simplesDomain';
+import { resolveRbt12 } from './fiscalRevenueService';
 import {
   computeGroupingKey, resolveRule, competencyOf, Strategy, STRATEGIES,
   ConsolidationDomainError, RuleForResolution,
@@ -146,24 +147,9 @@ export async function calculateDraft(tenantId: string, draftId: string, actorUse
   const config = await getOrCreateConfig(tenantId, draft.company_id, db);
   assertApuravelPorPercentual(config.enquadramento); // MEI bloqueado
 
-  // RBT12: ledger de receita se existir; bootstrap manual do cadastro como fallback.
-  const janela = windowCompetencias(draft.competency_ref);
-  const { rows } = await db.execute<{ competencia: string; total: string }>(
-    sql`SELECT competencia, SUM(receita_bruta) AS total FROM fiscal_revenue_monthly
-        WHERE tenant_id = ${tenantId} AND company_id = ${draft.company_id}
-          AND competencia IN (${sql.join(janela.map((c) => sql`${c}`), sql`, `)})
-        GROUP BY competencia`
-  );
-  let rbt12: number;
-  if (rows.length > 0) {
-    const receitas: Record<string, number> = Object.fromEntries(rows.map((r) => [r.competencia, Number(r.total)]));
-    rbt12 = computeRbt12({ receitasPorCompetencia: receitas, competencia: draft.competency_ref, dataAbertura: config.data_abertura });
-  } else {
-    rbt12 = toNumber(config.rbt12_manual ?? config.receita_acumulada_abertura);
-    if (rbt12 <= 0) throw new ConsolidationDomainError('rbt12_unavailable', {
-      hint: 'Sem receita no ledger e sem rbt12_manual no cadastro fiscal.',
-    });
-  }
+  // RBT12: fonte única compartilhada com a apuração (ledger com
+  // proporcionalização de início de atividade / bootstrap manual).
+  const { rbt12 } = await resolveRbt12(tenantId, draft.company_id, draft.competency_ref, config, db);
 
   const anexo = draft.anexo ?? (config.anexo_padrao ? ['I', 'II', 'III', 'IV', 'V'][config.anexo_padrao - 1] : 'III');
   const effective = await getSimplesEffectiveRate(rbt12, db as any, anexo, Number(draft.competency_ref.slice(0, 4)));
