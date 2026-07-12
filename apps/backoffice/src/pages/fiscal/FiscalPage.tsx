@@ -28,6 +28,12 @@ interface Apuracao {
   fator_r: string | null; sublimite_excedido: boolean; status: string;
 }
 interface DasSummaryRow { competencia: string; estimado: number; pago: number }
+interface Simulacao {
+  projecao: { receitaConsiderada: number; rbt12: number; aliquotaEfetiva: number; dasProjetado: number; faixa: number; sublimiteExcedido: boolean };
+  distancia: { faixaAtual: number; faltaParaProximaFaixa: number | null; efetivaNaProximaFaixa: number | null };
+  anexo: string; fator_r: number | null;
+  cenarios_rapidos: Array<{ label: string; das: number; deltaDas: number; mudouFaixa: boolean }>;
+}
 
 const money = (v: string | null) => (v ? BRL.format(Number(v)) : '—');
 
@@ -66,6 +72,7 @@ export function FiscalPage() {
   const [pending, setPending] = useState<PendingTx[]>([]);
   const [apuracoes, setApuracoes] = useState<Apuracao[]>([]);
   const [dasSummary, setDasSummary] = useState<DasSummaryRow[]>([]);
+  const [sim, setSim] = useState<Simulacao | null>(null);
   const previousMonth = () => {
     const d = new Date(); d.setMonth(d.getMonth() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -90,6 +97,8 @@ export function FiscalPage() {
     setPending(p.data.slice(0, 8));
     setApuracoes(a.data.slice(0, 8));
     setDasSummary(ds.data);
+    // Simulador falha com 422 (MEI/sem RBT12) — card simplesmente não aparece.
+    api.get<Simulacao>('/v1/fiscal/simulator').then(setSim).catch(() => setSim(null));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -159,6 +168,47 @@ export function FiscalPage() {
           </div>
         ))}
       </div>
+
+      {sim && (
+        <Card title={`Simulador de DAS — ${new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })} · Anexo ${sim.anexo}${sim.fator_r != null ? ` · Fator R ${(sim.fator_r * 100).toFixed(1)}%` : ''}`}>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>DAS projetado do mês</div>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{BRL.format(sim.projecao.dasProjetado)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>efetiva {sim.projecao.aliquotaEfetiva.toFixed(2)}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>Receita considerada</div>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{BRL.format(sim.projecao.receitaConsiderada)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>ledger + pipeline</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>RBT12 · faixa {sim.projecao.faixa}</div>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{BRL.format(sim.projecao.rbt12)}</div>
+              <div style={{ fontSize: 12, color: sim.distancia.faltaParaProximaFaixa != null ? '#d97706' : 'var(--muted)' }}>
+                {sim.distancia.faltaParaProximaFaixa != null
+                  ? `faltam ${BRL.format(sim.distancia.faltaParaProximaFaixa)} p/ faixa ${sim.distancia.faixaAtual + 1}${sim.distancia.efetivaNaProximaFaixa != null ? ` (efetiva ${sim.distancia.efetivaNaProximaFaixa.toFixed(2)}%)` : ''}`
+                  : 'última faixa'}
+              </div>
+            </div>
+          </div>
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+            <tbody>
+              {sim.cenarios_rapidos.map((c) => (
+                <tr key={c.label} style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
+                  <td style={{ padding: '6px 4px' }}>Se emitir {c.label} hoje</td>
+                  <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600 }}>novo DAS {BRL.format(c.das)}</td>
+                  <td style={{ padding: '6px 4px', textAlign: 'right', color: 'var(--muted, #64748b)' }}>+{BRL.format(c.deltaDas)}</td>
+                  <td style={{ padding: '6px 4px' }}>{c.mudouFaixa ? <Badge value="muda de faixa" /> : null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {sim.projecao.sublimiteExcedido && (
+            <p style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>⚠ RBT12 acima do sublimite de R$3,6M — ICMS/ISS fora do DAS.</p>
+          )}
+        </Card>
+      )}
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
         <Card title="Importações recentes">

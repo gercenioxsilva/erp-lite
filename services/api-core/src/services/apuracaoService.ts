@@ -26,7 +26,7 @@ export type Apuracao = typeof simplesApuracao.$inferSelect;
 
 const ANEXO_LABEL = ['I', 'II', 'III', 'IV', 'V'] as const;
 
-async function loadBrackets(anexo: string, ano: number, db: DrizzleDB): Promise<BracketRow[]> {
+export async function loadBrackets(anexo: string, ano: number, db: DrizzleDB): Promise<BracketRow[]> {
   const { rows } = await db.execute<any>(
     sql`SELECT faixa, rbt12_min, rbt12_max, aliquota_nominal, parcela_deduzir
         FROM tax_simples_nacional_brackets
@@ -41,7 +41,7 @@ async function loadBrackets(anexo: string, ano: number, db: DrizzleDB): Promise<
   }));
 }
 
-async function loadReparticao(anexo: string, ano: number, db: DrizzleDB): Promise<ReparticaoRow[]> {
+export async function loadReparticao(anexo: string, ano: number, db: DrizzleDB): Promise<ReparticaoRow[]> {
   const { rows } = await db.execute<any>(
     sql`SELECT * FROM tax_simples_repartition
         WHERE anexo = ${anexo} AND vigencia_ano = (
@@ -58,7 +58,7 @@ async function loadReparticao(anexo: string, ano: number, db: DrizzleDB): Promis
 }
 
 /** Folha 12m (folha+pró-labore) da janela anterior à competência. */
-async function folha12m(tenantId: string, companyId: string, competencia: string, db: DrizzleDB) {
+export async function folha12m(tenantId: string, companyId: string, competencia: string, db: DrizzleDB) {
   const janela = windowCompetencias(competencia);
   const rows = await db.select().from(fiscalCompanyPayrollMonth)
     .where(and(eq(fiscalCompanyPayrollMonth.tenant_id, tenantId), eq(fiscalCompanyPayrollMonth.company_id, companyId)));
