@@ -55,6 +55,16 @@ describe('runInconsistencyChecks', () => {
     expect(out.filter((f) => f.rule === 'das_above_moving_avg')).toHaveLength(1);
   });
 
+  it('ISS retido divergente do padrão do cadastro vira warning', () => {
+    const out = runInconsistencyChecks({
+      ...EMPTY,
+      issMismatches: [{ id: 'n5', issRetidoNota: true, issRetidoConfig: false }],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ rule: 'iss_retention_mismatch', severity: 'warning' });
+    expect(out[0].refs[0].id).toBe('n5');
+  });
+
   it('CNAE ausente e NFS-e sem service_code viram findings', () => {
     const out = runInconsistencyChecks({
       ...EMPTY, hasCnaePrincipal: false, nfseSemServiceCode: [{ id: 'n9' }],

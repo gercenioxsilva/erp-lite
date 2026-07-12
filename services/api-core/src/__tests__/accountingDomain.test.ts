@@ -6,8 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateEntry, linesForAuthorization, linesForReceivablePayment,
-  linesForDasPayment, linesForPosCashMovement, computeTrialBalance,
-  computeBalanceSheet, AccountingDomainError,
+  linesForDasPayment, linesForPayablePayment, linesForPosCashMovement,
+  computeTrialBalance, computeBalanceSheet, AccountingDomainError,
 } from '../domain/accounting/accountingDomain';
 
 describe('validateEntry (partidas dobradas)', () => {
@@ -77,6 +77,13 @@ describe('DAS e POS', () => {
     expect(linesForDasPayment({ amount: 4040 })).toEqual([
       { accountKey: 'despesa_simples', side: 'debit', amount: 4040 },
       { accountKey: 'bancos', side: 'credit', amount: 4040 },
+    ]);
+  });
+
+  it('pagamento de payable: D-conta de despesa informada / C-Bancos', () => {
+    expect(linesForPayablePayment({ amount: 750, expenseKey: 'despesa_aluguel' })).toEqual([
+      { accountKey: 'despesa_aluguel', side: 'debit', amount: 750 },
+      { accountKey: 'bancos', side: 'credit', amount: 750 },
     ]);
   });
 
