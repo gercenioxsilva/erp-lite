@@ -7,9 +7,40 @@ import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 import { requirePermission } from '../lib/requirePermission';
 import { enqueueAbrasfCancel } from '../services/nfseProviderService';
+import { createAndEmitNfse, NfseCreateError } from '../services/nfseCreateService';
+import { FiscalLockError } from '../services/fiscalPeriodLockGuard';
 import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
+
+  /* ── POST /v1/nfse ──────────────────────────────────────────────────── */
+  // Emissão avulsa: cria + emite numa tacada. É o alvo do "Aceitar" do
+  // rascunho proposto pelo assistente IA (o modelo nunca chama isto).
+  fastify.post('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:emit')] }, async (request, reply) => {
+    const { tenantId, userId } = (request as any).user;
+    const b = request.body as {
+      client_id?: string; amount?: number; description?: string; service_code?: string;
+      iss_rate?: number; iss_retido?: boolean; company_id?: string; due_date?: string; idempotency_key?: string;
+    };
+    if (!b?.client_id || !b?.description || b?.amount == null) {
+      return reply.badRequest('client_id, description e amount são obrigatórios');
+    }
+    try {
+      const result = await createAndEmitNfse(tenantId, {
+        clientId: b.client_id, amount: Number(b.amount), description: b.description,
+        serviceCode: b.service_code ?? null, issRate: b.iss_rate ?? null, issRetido: b.iss_retido,
+        companyId: b.company_id ?? null, dueDate: b.due_date ?? null, idempotencyKey: b.idempotency_key ?? null,
+      }, userId);
+      return reply.code(result.duplicate ? 200 : 201).send({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof NfseCreateError) return reply.code(422).send({ error: err.code, ...err.payload });
+      if (err instanceof FiscalLockError) return reply.code(422).send({ error: err.code, ...err.payload });
+      if (err instanceof CompanyDomainError) {
+        return reply.badRequest(companyResolutionErrorMessage(err, 'NFS-e'));
+      }
+      throw err;
+    }
+  });
 
   /* ── GET /v1/nfse ───────────────────────────────────────────────────── */
   fastify.get('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:view')] }, async (request, reply) => {

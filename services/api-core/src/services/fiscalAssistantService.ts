@@ -6,6 +6,7 @@
 //       conteúdo de conversa (LGPD);
 //   (d) cap diário de chamadas por tenant (contagem em fiscal_events).
 
+import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { sql } from 'drizzle-orm';
 import { db as _db } from '../db';
@@ -16,9 +17,30 @@ import { listApuracoes } from './apuracaoService';
 import { computeScore } from './fiscalScoreService';
 import { listAlerts } from './fiscalAlertService';
 import { revenueByCompetencia } from './fiscalRevenueService';
-import { resolveCompanyId } from './companyService';
+import { resolveCompanyId, CompanyDomainError } from './companyService';
+import { lastEmissionDefaults } from './nfseCreateService';
 
 export type DrizzleDB = typeof _db;
+
+/** Rascunho de NFS-e proposto pela IA — a UI renderiza e o usuário confirma.
+ *  O modelo NUNCA emite; só produz este objeto (via tool propose_nfse). */
+export interface NfseDraft {
+  client_id: string;
+  client_name: string;
+  company_id: string | null;
+  amount: number;
+  service_code: string;
+  iss_rate: number;
+  iss_retido: boolean;
+  description: string;
+  competencia: string;
+  idempotency_key: string;
+}
+
+/** Ação estruturada que acompanha a resposta textual (card na UI). */
+export type AssistantAction =
+  | { type: 'nfse_proposal'; draft: NfseDraft }
+  | { type: 'open_guia'; apuracaoId: string; competencia: string; dasTotal: number; vencimento: string };
 
 const MAX_TOKENS = 1500;
 const MAX_HISTORY_MESSAGES = 12;
@@ -39,9 +61,10 @@ REGRAS INEGOCIÁVEIS:
 1. NUNCA calcule DAS, alíquota efetiva, RBT12, Fator R ou qualquer valor tributário por conta própria. Todo número da sua resposta DEVE vir de um tool_result desta conversa.
 2. Ao citar um número, informe a competência e a fonte (qual ferramenta o forneceu).
 3. Se as ferramentas não retornarem o dado pedido, diga claramente que não tem essa informação — não estime, não extrapole.
-4. Você é somente-leitura: não promete emitir, pagar, alterar ou cancelar nada.
-5. Não dê aconselhamento jurídico; para decisões tributárias definitivas, recomende o contador.
-6. Responda em português do Brasil, de forma curta e direta.`;
+4. Você NÃO executa nada. Pode PROPOR a emissão de uma NFS-e chamando a ferramenta propose_nfse (o rascunho vira um card que o usuário aceita ou cancela na tela) e pode indicar a guia de impostos com get_guia_impostos — mas a emissão/geração só acontece se o usuário confirmar. Nunca afirme que emitiu, pagou, alterou ou cancelou algo.
+5. Para propor uma nota "como da última vez", use find_client para achar o cliente e get_client_emission_defaults para reaproveitar código de serviço/ISS da última emissão; só então chame propose_nfse.
+6. Não dê aconselhamento jurídico; para decisões tributárias definitivas, recomende o contador.
+7. Responda em português do Brasil, de forma curta e direta.`;
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -74,6 +97,33 @@ const TOOLS: Anthropic.Tool[] = [
     description: 'Top 5 clientes por faturamento em notas autorizadas nos últimos 12 meses (nome, total, quantidade de notas). Campos mínimos — sem documento/contato.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
+  {
+    name: 'find_client',
+    description: 'Busca clientes do tenant por nome/CNPJ/CPF (top 5). Use para localizar o cliente antes de propor uma NFS-e. Retorna id e nome.',
+    input_schema: { type: 'object', properties: { query: { type: 'string', description: 'nome, CNPJ ou CPF do cliente' } }, required: ['query'], additionalProperties: false },
+  },
+  {
+    name: 'get_client_emission_defaults',
+    description: 'Padrões da última NFS-e autorizada do cliente (código de serviço, alíquota ISS, ISS retido, descrição, último valor) — a base do "como fiz da última vez".',
+    input_schema: { type: 'object', properties: { client_id: { type: 'string' } }, required: ['client_id'], additionalProperties: false },
+  },
+  {
+    name: 'propose_nfse',
+    description: 'Monta um RASCUNHO de NFS-e para o usuário revisar e confirmar na tela (NÃO emite). Passe client_id (obtido via find_client) e amount; service_code/iss_rate/iss_retido/description são opcionais e, se omitidos, herdam da última emissão ou do cadastro. Retorne ao usuário confirmando que o rascunho está pronto para aceitar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string' },
+        amount: { type: 'number' },
+        service_code: { type: 'string' },
+        iss_rate: { type: 'number' },
+        iss_retido: { type: 'boolean' },
+        description: { type: 'string' },
+      },
+      required: ['client_id', 'amount'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Últimos 12 meses (inclui o atual), formato YYYY-MM. */
@@ -93,9 +143,14 @@ function truncateToolOutput(value: unknown): string {
   return `${text.slice(0, TOOL_OUTPUT_MAX_CHARS)}…[truncado]`;
 }
 
-/** Executor read-only — tenantId/companyId vêm da closure (JWT), nunca do modelo. */
-function buildToolExecutor(tenantId: string, companyId: string | null | undefined, db: DrizzleDB) {
-  return async (name: string): Promise<unknown> => {
+/** Estado mutável do loop capturado pelo executor (proposta/ação). */
+interface ToolState { action: AssistantAction | null }
+
+/** Executor — tenantId/companyId vêm da closure (JWT), nunca do modelo.
+ *  As leituras são puras; propose_nfse/get_guia_impostos apenas STASHAM uma
+ *  ação em `state` (a execução real fica na UI + endpoint determinístico). */
+function buildToolExecutor(tenantId: string, companyId: string | null | undefined, db: DrizzleDB, state: ToolState) {
+  return async (name: string, input: Record<string, unknown>): Promise<unknown> => {
     switch (name) {
       case 'get_simulator':
         return getProjecao(tenantId, companyId, db);
@@ -134,9 +189,76 @@ function buildToolExecutor(tenantId: string, companyId: string | null | undefine
           GROUP BY 1 ORDER BY 2 DESC LIMIT 5`);
         return rows;
       }
+      case 'find_client': {
+        const q = String(input.query ?? '').trim();
+        if (!q) return [];
+        const like = `%${q}%`;
+        const { rows } = await db.execute<any>(sql`
+          SELECT id, COALESCE(company_name, trade_name, full_name, 'Sem nome') AS nome
+          FROM clients
+          WHERE tenant_id = ${tenantId}
+            AND (company_name ILIKE ${like} OR trade_name ILIKE ${like} OR full_name ILIKE ${like}
+                 OR cnpj = ${q} OR cpf = ${q})
+          ORDER BY COALESCE(company_name, full_name) LIMIT 5`);
+        return rows;
+      }
+      case 'get_client_emission_defaults': {
+        const clientId = String(input.client_id ?? '');
+        await assertClientInTenant(tenantId, clientId, db);
+        return (await lastEmissionDefaults(tenantId, clientId, db)) ?? { note: 'sem emissão anterior para este cliente' };
+      }
+      case 'propose_nfse': {
+        state.action = { type: 'nfse_proposal', draft: await buildNfseDraft(tenantId, companyId, input, db) };
+        return { ok: true, note: 'Rascunho pronto. Peça ao usuário para revisar e confirmar na tela.' };
+      }
       default:
         throw new Error(`tool desconhecida: ${name}`);
     }
+  };
+}
+
+async function assertClientInTenant(tenantId: string, clientId: string, db: DrizzleDB): Promise<Record<string, unknown>> {
+  const { rows } = await db.execute<any>(sql`
+    SELECT id, COALESCE(company_name, trade_name, full_name, 'Sem nome') AS nome
+    FROM clients WHERE id = ${clientId} AND tenant_id = ${tenantId}`);
+  if (!rows[0]) throw new Error('cliente não encontrado neste tenant');
+  return rows[0];
+}
+
+/** Normaliza o rascunho: valida cliente ∈ tenant e preenche defaults faltantes
+ *  server-side (o modelo não precisa saber código de serviço/alíquota). */
+async function buildNfseDraft(
+  tenantId: string, companyId: string | null | undefined, input: Record<string, unknown>, db: DrizzleDB,
+): Promise<NfseDraft> {
+  const clientId = String(input.client_id ?? '');
+  const amount = Number(input.amount);
+  if (!(amount > 0)) throw new Error('valor inválido para a nota');
+  const client = await assertClientInTenant(tenantId, clientId, db);
+
+  const defaults = await lastEmissionDefaults(tenantId, clientId, db);
+  let companyResolvedId: string | null = null;
+  let aliquotaPadrao = 0;
+  let codigoPadrao: string | null = null;
+  try {
+    const cfg = await resolveCompanyId(tenantId, companyId ?? null, db, 'nfse');
+    companyResolvedId = cfg.id;
+    aliquotaPadrao = Number(cfg.aliquota_iss_padrao ?? 0);
+    codigoPadrao = cfg.codigo_servico_padrao ?? null;
+  } catch (err) {
+    // company_selection_required etc. — o endpoint de execução resolve/valida
+    // de novo; o rascunho segue com company_id null.
+    if (!(err instanceof CompanyDomainError)) throw err;
+  }
+
+  const serviceCode = (input.service_code as string) || defaults?.service_code || codigoPadrao || '';
+  const issRate = input.iss_rate != null ? Number(input.iss_rate) : (defaults?.iss_rate ?? aliquotaPadrao);
+  const issRetido = input.iss_retido != null ? Boolean(input.iss_retido) : (defaults?.iss_retido ?? false);
+  const description = (input.description as string) || defaults?.description || 'Serviços prestados';
+
+  return {
+    client_id: clientId, client_name: String(client.nome), company_id: companyResolvedId,
+    amount, service_code: serviceCode, iss_rate: issRate, iss_retido: issRetido,
+    description, competencia: new Date().toISOString().slice(0, 7), idempotency_key: randomUUID(),
   };
 }
 
@@ -182,7 +304,8 @@ export async function runAssistant(args: RunAssistantArgs, db: DrizzleDB = _db) 
     { role: 'user' as const, content: args.message },
   ];
 
-  const execTool = buildToolExecutor(args.tenantId, args.companyId, db);
+  const state: ToolState = { action: null };
+  const execTool = buildToolExecutor(args.tenantId, args.companyId, db, state);
   const toolsUsed: string[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
@@ -211,7 +334,7 @@ export async function runAssistant(args: RunAssistantArgs, db: DrizzleDB = _db) 
       toolUses.map(async (tu) => {
         toolsUsed.push(tu.name);
         try {
-          return { type: 'tool_result' as const, tool_use_id: tu.id, content: truncateToolOutput(await execTool(tu.name)) };
+          return { type: 'tool_result' as const, tool_use_id: tu.id, content: truncateToolOutput(await execTool(tu.name, (tu.input ?? {}) as Record<string, unknown>)) };
         } catch (err) {
           return {
             type: 'tool_result' as const, tool_use_id: tu.id, is_error: true,
@@ -243,6 +366,8 @@ export async function runAssistant(args: RunAssistantArgs, db: DrizzleDB = _db) 
       model: assistantModel(), iterations, tools_used: toolsUsed,
       input_tokens: inputTokens, output_tokens: outputTokens,
       stop_reason: response?.stop_reason ?? null,
+      // §8(c): só o TIPO da ação — nunca dados do cliente/valores.
+      action_type: state.action?.type ?? null,
     },
   }, db).catch((err) => console.error(JSON.stringify({ level: 'error', msg: 'assistant_usage_log_failed', err: String(err) })));
 
@@ -250,5 +375,6 @@ export async function runAssistant(args: RunAssistantArgs, db: DrizzleDB = _db) 
     reply,
     tools_used: toolsUsed,
     usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+    action: state.action ?? undefined,
   };
 }
