@@ -34,6 +34,7 @@ import { fiscalConsolidationRoutes }  from './routes/fiscalConsolidation';
 import { fiscalApuracaoRoutes }       from './routes/fiscalApuracao';
 import { fiscalSimulatorRoutes }      from './routes/fiscalSimulator';
 import { fiscalScoreRoutes }          from './routes/fiscalScore';
+import { fiscalAlertsRoutes }         from './routes/fiscalAlerts';
 import { bankAccountsRoutes }       from './routes/bankAccounts';
 import { marketplaceIntegrationRoutes }   from './routes/marketplaceIntegration';
 import { materialMarketplaceLinksRoutes } from './routes/materialMarketplaceLinks';
@@ -74,6 +75,7 @@ import { startDueSoonWorker, stopDueSoonWorker }                    from './work
 import { startMarketplaceSyncResultsWorker, stopMarketplaceSyncResultsWorker } from './workers/marketplaceSyncResultsWorker';
 import { startWhatsAppResultsWorker, stopWhatsAppResultsWorker } from './workers/whatsappResultsWorker';
 import { startWhatsAppBillingWorker, stopWhatsAppBillingWorker } from './workers/whatsappBillingWorker';
+import { startFiscalAlertsWorker, stopFiscalAlertsWorker } from './workers/fiscalAlertsWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -146,6 +148,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fiscalApuracaoRoutes,      { prefix: '/v1' });
   await app.register(fiscalSimulatorRoutes,     { prefix: '/v1' });
   await app.register(fiscalScoreRoutes,         { prefix: '/v1' });
+  await app.register(fiscalAlertsRoutes,        { prefix: '/v1' });
   await app.register(bankAccountsRoutes,       { prefix: '/v1' });
   await app.register(marketplaceIntegrationRoutes,   { prefix: '/v1' });
   await app.register(materialMarketplaceLinksRoutes, { prefix: '/v1' });
@@ -197,6 +200,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     startMarketplaceSyncResultsWorker();
     startWhatsAppResultsWorker();
     startWhatsAppBillingWorker();
+    startFiscalAlertsWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
@@ -207,6 +211,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     stopMarketplaceSyncResultsWorker();
     stopWhatsAppResultsWorker();
     stopWhatsAppBillingWorker();
+    stopFiscalAlertsWorker();
   });
 
   return app;

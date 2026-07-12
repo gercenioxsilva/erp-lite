@@ -2195,6 +2195,34 @@ export const importedTransactions = pgTable('imported_transactions', {
   created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Central de alertas fiscais (migration 0076) ──────────────────────────────
+// Dedupe físico por dedupe_key TEXT NOT NULL + UNIQUE parcial WHERE status
+// <> 'resolved' (resolvido pode recorrer como nova linha). Escrita SEMPRE via
+// fiscalAlertService (catch-23505 → touch last_detected_at).
+export const fiscalAlerts = pgTable('fiscal_alerts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  rule_key:          varchar('rule_key', { length: 40 }).notNull(),
+  severity:          varchar('severity', { length: 8 }).notNull(),
+  title:             varchar('title', { length: 200 }).notNull(),
+  detail:            text('detail'),
+  payload:           jsonb('payload'),
+  ref_type:          varchar('ref_type', { length: 24 }),
+  ref_id:            uuid('ref_id'),
+  periodo:           char('periodo', { length: 7 }),
+  dedupe_key:        varchar('dedupe_key', { length: 160 }).notNull(),
+  status:            varchar('status', { length: 12 }).notNull().default('open'),
+  acknowledged_by:   uuid('acknowledged_by'),
+  acknowledged_at:   timestamp('acknowledged_at', { withTimezone: true }),
+  resolved_by:       uuid('resolved_by'),
+  resolved_at:       timestamp('resolved_at', { withTimezone: true }),
+  resolution:        varchar('resolution', { length: 8 }),
+  email_sent:        boolean('email_sent').notNull().default(false),
+  first_detected_at: timestamp('first_detected_at', { withTimezone: true }).notNull().defaultNow(),
+  last_detected_at:  timestamp('last_detected_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Apuração PGDAS-D (migration 0075) ────────────────────────────────────────
 export const simplesApuracao = pgTable('simples_apuracao', {
   id:                 uuid('id').primaryKey().defaultRandom(),

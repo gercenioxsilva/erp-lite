@@ -28,6 +28,10 @@ interface Apuracao {
   fator_r: string | null; sublimite_excedido: boolean; status: string;
 }
 interface DasSummaryRow { competencia: string; estimado: number; pago: number }
+interface FiscalAlert {
+  id: string; rule_key: string; severity: 'info' | 'warning' | 'critical';
+  title: string; periodo: string | null; status: string; last_detected_at: string;
+}
 interface ScoreData {
   score: number;
   breakdown: Array<{ category: string; points: number; max: number; issues: string[] }>;
@@ -79,6 +83,7 @@ export function FiscalPage() {
   const [dasSummary, setDasSummary] = useState<DasSummaryRow[]>([]);
   const [sim, setSim] = useState<Simulacao | null>(null);
   const [score, setScore] = useState<ScoreData | null>(null);
+  const [alerts, setAlerts] = useState<FiscalAlert[]>([]);
   const previousMonth = () => {
     const d = new Date(); d.setMonth(d.getMonth() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -106,6 +111,8 @@ export function FiscalPage() {
     // Simulador/score falham com 422 (MEI/sem RBT12) — cards não aparecem.
     api.get<Simulacao>('/v1/fiscal/simulator').then(setSim).catch(() => setSim(null));
     api.get<ScoreData>('/v1/fiscal/score').then(setScore).catch(() => setScore(null));
+    api.get<{ data: FiscalAlert[] }>('/v1/fiscal/alerts?status=open,acknowledged&limit=20')
+      .then((r) => setAlerts(r.data)).catch(() => setAlerts([]));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -175,6 +182,31 @@ export function FiscalPage() {
           </div>
         ))}
       </div>
+
+      {alerts.length > 0 && (
+        <Card title={`🔔 Alertas fiscais (${alerts.length})`}>
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+            <tbody>
+              {alerts.map((a) => (
+                <tr key={a.id} style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
+                  <td style={{ padding: '6px 4px', width: 90 }}><Badge value={a.severity} /></td>
+                  <td style={{ padding: '6px 4px' }}>{a.title}{a.periodo ? ` · ${a.periodo}` : ''}</td>
+                  <td style={{ padding: '6px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {can('fiscal:acknowledge') && a.status === 'open' && (
+                      <button className="btn btn-sm" disabled={!!busy}
+                        onClick={() => run('Alerta', () => api.post(`/v1/fiscal/alerts/${a.id}/acknowledge`, {}))}>OK</button>
+                    )}
+                    {can('fiscal:acknowledge') && (
+                      <button className="btn btn-sm" disabled={!!busy} style={{ marginLeft: 4 }}
+                        onClick={() => run('Alerta', () => api.post(`/v1/fiscal/alerts/${a.id}/resolve`, {}))}>Resolver</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
 
       {score && (
         <Card title="Saúde Fiscal">
