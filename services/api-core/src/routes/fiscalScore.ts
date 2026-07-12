@@ -3,6 +3,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
 import { requirePermission } from '../lib/requirePermission';
+import { isAssistantEnabled } from '../lib/anthropicClient';
 import { CompanyDomainError } from '../services/companyService';
 import { computeScore } from '../services/fiscalScoreService';
 import { detectInconsistencies } from '../services/fiscalInconsistencyService';
@@ -25,7 +26,7 @@ export const fiscalScoreRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/fiscal/score', guard, async (request, reply) => {
     const { tenantId } = (request as any).user;
     const q = request.query as { company_id?: string };
-    try { return await computeScore(tenantId, q.company_id); }
+    try { return { ...(await computeScore(tenantId, q.company_id)), assistantEnabled: isAssistantEnabled() }; }
     catch (err) { return handleError(err, reply); }
   });
 

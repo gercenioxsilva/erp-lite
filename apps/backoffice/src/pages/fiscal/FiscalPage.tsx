@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
+import { AssistantChat } from './AssistantChat';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -36,6 +37,7 @@ interface ScoreData {
   score: number;
   breakdown: Array<{ category: string; points: number; max: number; issues: string[] }>;
   findings: Array<{ rule: string; severity: string; title: string }>;
+  assistantEnabled?: boolean;
 }
 interface Simulacao {
   projecao: { receitaConsiderada: number; rbt12: number; aliquotaEfetiva: number; dasProjetado: number; faixa: number; sublimiteExcedido: boolean };
@@ -238,6 +240,12 @@ export function FiscalPage() {
               )}
             </div>
           </div>
+        </Card>
+      )}
+
+      {score?.assistantEnabled && (
+        <Card title="🤖 Assistente Fiscal">
+          <AssistantChat />
         </Card>
       )}
 
