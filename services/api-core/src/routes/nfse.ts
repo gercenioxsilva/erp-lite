@@ -6,6 +6,8 @@ import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 import { requirePermission } from '../lib/requirePermission';
+import { enqueueAbrasfCancel } from '../services/nfseProviderService';
+import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -141,5 +143,27 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
       ok: true, nfse_status: 'processing',
       message: 'NFS-e enviada para processamento. Acompanhe o status em tempo real.',
     });
+  });
+
+  /* ── POST /v1/nfse/:id/cancel ───────────────────────────────────────── */
+  // Cancelamento via adapter próprio (motor 0074): assina o
+  // InfPedidoCancelamento no api-core e enfileira action:'cancel'.
+  fastify.post('/nfse/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:cancel')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const userId   = (request as any).user.userId;
+    const { id }   = request.params as { id: string };
+    const body     = request.body as { reason?: string };
+    if (!body?.reason) return reply.badRequest('reason é obrigatório');
+
+    try {
+      const result = await enqueueAbrasfCancel(tenantId, id, body.reason, userId);
+      return reply.code(202).send({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof FiscalDomainError) {
+        if (err.code === 'nfse_not_found') return reply.notFound('NFS-e não encontrada');
+        return reply.code(422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 };

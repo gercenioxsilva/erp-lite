@@ -317,6 +317,28 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
           nfse_verify_code, nfse_protocol, nfse_auth_date,
           nfse_pdf_url, nfse_xml_s3_key, nfse_reject_reason } = result;
 
+  // ── Cancelamento (motor próprio 0074, action:'cancel') ──────────────────
+  // NfseResultMessage tipa nfse_status como authorized|rejected (contrato do
+  // Focus); o transporte ABRASF publica 'cancelled' — daí o cast local.
+  if ((result as any).action === 'cancel') {
+    if ((nfse_status as string) === 'cancelled') {
+      await db.update(nfseInvoices)
+        .set({ nfse_status: 'cancelled', cancel_date: new Date() })
+        .where(and(eq(nfseInvoices.id, nfse_id), eq(nfseInvoices.nfse_status, 'authorized')));
+      await db.insert(nfseEvents).values({
+        nfse_id, tenant_id, event_type: 'cancellation', payload: { nfse_number },
+      });
+      console.info(JSON.stringify({ event: 'nfse_result_cancelled', nfse_id }));
+    } else {
+      await db.insert(nfseEvents).values({
+        nfse_id, tenant_id, event_type: 'cancellation_rejected',
+        payload: { reason: nfse_reject_reason ?? null },
+      });
+      console.warn(JSON.stringify({ event: 'nfse_cancel_rejected', nfse_id, reason: nfse_reject_reason }));
+    }
+    return;
+  }
+
   if (nfse_status === 'authorized') {
     await db.update(nfseInvoices)
       .set({
@@ -340,6 +362,12 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
     });
 
     console.info(JSON.stringify({ event: 'nfse_result_authorized', nfse_id, nfse_number }));
+
+    // Draft de consolidação vinculado (0073): autorização fecha o ciclo.
+    await db.execute(sql`
+      UPDATE fiscal_document_drafts SET status = 'emitted', updated_at = NOW()
+      WHERE nfse_id = ${nfse_id} AND status = 'emitting'
+    `);
 
     const { rows: [inv] } = await db.execute<{
       amount: string; iss_value: string; company_id: string | null; iss_retido: boolean | null;
@@ -392,6 +420,13 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
       event_type: 'emission_rejected',
       payload:    { nfse_reject_reason },
     });
+
+    // Draft vinculado volta para 'failed' com o motivo — reenvio recalcula/emite.
+    await db.execute(sql`
+      UPDATE fiscal_document_drafts
+      SET status = 'failed', error_message = ${nfse_reject_reason || 'rejeitada'}, updated_at = NOW()
+      WHERE nfse_id = ${nfse_id} AND status = 'emitting'
+    `);
 
     console.warn(JSON.stringify({ event: 'nfse_result_rejected', nfse_id, nfse_reject_reason }));
 

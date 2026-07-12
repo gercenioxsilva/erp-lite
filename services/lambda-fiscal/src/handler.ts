@@ -2,6 +2,7 @@ import type { SQSHandler } from 'aws-lambda';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
 import { processRecord, processNfseRecord, processRemessaRecord } from './services/nfeService';
+import { processAbrasfRecord } from './services/abrasfTransport';
 
 // Singleton: reuses Fastify app (AWS clients + FocusNfe cache) across warm invocations.
 // buildApp() already calls app.ready() so the app is fully initialized on first call.
@@ -19,7 +20,11 @@ export const handler: SQSHandler = async (event) => {
   for (const record of event.Records) {
     try {
       const body = JSON.parse(record.body);
-      if (body.type === 'nfse') {
+      if (body.type === 'nfse' && body.provider === 'abrasf') {
+        // Motor próprio (0074): o XML chega ASSINADO do api-core — aqui é só
+        // transporte SOAP. Focus continua no ramo abaixo (sem provider).
+        await processAbrasfRecord(app, record);
+      } else if (body.type === 'nfse') {
         await processNfseRecord(app, record);
       } else if (body.type === 'remessa') {
         await processRemessaRecord(app, record);

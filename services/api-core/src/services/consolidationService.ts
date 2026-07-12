@@ -20,6 +20,7 @@ import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { getSimplesEffectiveRate } from '../lib/taxRulesResolver';
 import { getOrCreateConfig, getEmissionReadiness, listServiceCodes } from './fiscalCompanyConfigService';
+import { enqueueAbrasfEmission } from './nfseProviderService';
 import { record as recordFiscalEvent } from './fiscalAuditService';
 import { isUniqueConstraintViolation } from '../lib/pgErrors';
 import { toNumber, toDecimalString, round2 } from '../lib/money';
@@ -199,6 +200,24 @@ export async function emitDraft(tenantId: string, draftId: string, actorUserId: 
   }).returning();
 
   await db.update(fiscalDocumentDrafts).set({ nfse_id: nfse.id }).where(eq(fiscalDocumentDrafts.id, draft.id));
+
+  // Provider próprio (ABRASF): monta+assina no api-core e enfileira com o
+  // XML pronto — o lambda só transporta. Focus permanece o fallback.
+  const fiscalConfig = await getOrCreateConfig(tenantId, draft.company_id, db);
+  if (fiscalConfig.nfse_provider === 'abrasf') {
+    const { enqueued, simulated } = await enqueueAbrasfEmission(tenantId, nfse.id, db);
+    await db.update(fiscalDocumentDrafts)
+      .set({ status: enqueued ? 'emitting' : 'emitted', updated_at: new Date() })
+      .where(eq(fiscalDocumentDrafts.id, draft.id));
+    await draftEvent(draft.id, tenantId, 'emission_requested', { nfse_id: nfse.id, enqueued, provider: 'abrasf', simulated }, actorUserId, db);
+    await recordFiscalEvent({
+      tenantId, companyId: draft.company_id, aggregateType: 'draft', aggregateId: draft.id,
+      eventType: 'emission_requested',
+      requestPayload: { nfse_id: nfse.id, provider: 'abrasf' },
+      idempotencyKey: `draft_emit:${draft.id}`,
+    }, db);
+    return { draft_id: draft.id, nfse_id: nfse.id, enqueued };
+  }
 
   // Transporte existente: NFE_REQUESTS + type:'nfse' (+action p/ o motor 0074).
   const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
