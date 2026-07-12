@@ -4,6 +4,7 @@ import { db, receivables, receivablePayments, clients } from '../db';
 import { requirePermission } from '../lib/requirePermission';
 import { notifyPaymentConfirmed } from '../services/whatsappAutomationService';
 import { registerReceivablePayment, ReceivablePaymentError } from '../services/receivableService';
+import { reverseEntry } from '../services/accountingService';
 
 const VALID_STATUSES  = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
 const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -210,6 +211,10 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
       await tx.update(receivables).set({ paid_amount: String(newPaidAmt.toFixed(2)), status: newStatus })
         .where(eq(receivables.id, id));
     });
+
+    // Estorno contábil (fire-and-forget): reverte o recebimento excluído.
+    void reverseEntry(tenantId, { sourceType: 'receivable_payment', sourceId: paymentId, reason: 'pagamento excluído' }, null)
+      .catch((err) => console.error(JSON.stringify({ event: 'accounting_reverse_error', source: 'receivable_payment', id: paymentId, error: String(err) })));
 
     return { ok: true, new_status: newStatus, new_paid_amount: newPaidAmt };
   });

@@ -8,6 +8,7 @@ import { InconsistencyFinding } from './inconsistencyDomain';
 import { FATOR_R_THRESHOLD } from '../simples/simplesDomain';
 import { BracketRow } from '../simples/apuracaoDomain';
 import { faixaDoRbt12 } from '../simples/simuladorDomain';
+import { nationalHolidays, isBusinessDay } from './holidays';
 
 export type AlertRuleKey =
   | 'das_due' | 'certificado_expirando' | 'mudou_de_faixa'
@@ -31,12 +32,18 @@ export function buildDedupeKey(c: AlertCandidate): string {
   return `${c.ruleKey}|${c.refId ?? '-'}|${c.periodo ?? '-'}`;
 }
 
-/** Vencimento do DAS: dia 20 do mês seguinte à competência; fim de semana
- *  prorroga para o próximo dia útil (feriados = limitação documentada). */
+/** Vencimento do DAS: dia 20 do mês seguinte à competência; fim de semana e
+ *  feriados NACIONAIS prorrogam para o próximo dia útil (municipais/estaduais
+ *  ficam fora de escopo — ver holidays.ts). */
 export function dasDueDate(competencia: string): Date {
   const [y, m] = competencia.split('-').map(Number);
   const due = new Date(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 20);
-  while (due.getDay() === 0 || due.getDay() === 6) due.setDate(due.getDate() + 1);
+  let holidays = nationalHolidays(due.getFullYear());
+  while (!isBusinessDay(due, holidays)) {
+    due.setDate(due.getDate() + 1);
+    // Prorrogação pode cruzar a virada de ano (dez→jan).
+    if (due.getDate() === 1 && due.getMonth() === 0) holidays = nationalHolidays(due.getFullYear());
+  }
   return due;
 }
 
