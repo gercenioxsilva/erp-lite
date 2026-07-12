@@ -19,6 +19,7 @@ import {
   assertApuravelPorPercentual, resolveAnexoByFatorR, windowCompetencias, SimplesDomainError,
 } from '../domain/simples/simplesDomain';
 import { validateCompetencia } from '../domain/fiscal/fiscalCompanyConfigDomain';
+import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
 import { apurarSimples, BracketRow, ReparticaoRow } from '../domain/simples/apuracaoDomain';
 
 export type DrizzleDB = typeof _db;
@@ -76,6 +77,7 @@ export async function apurarCompetencia(
 ): Promise<Apuracao> {
   validateCompetencia(competencia);
   const config = await getOrCreateConfig(tenantId, companyId, db);
+  await assertCompetenciaAberta(tenantId, config.company_id, competencia, db);
   assertApuravelPorPercentual(config.enquadramento);
   if (!config.optante_simples) throw new SimplesDomainError('empresa_nao_optante');
 

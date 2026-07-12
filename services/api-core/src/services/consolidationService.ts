@@ -21,6 +21,7 @@ import { buildNfseEmitMessage } from '../lib/nfse';
 import { getSimplesEffectiveRate } from '../lib/taxRulesResolver';
 import { getOrCreateConfig, getEmissionReadiness, listServiceCodes } from './fiscalCompanyConfigService';
 import { enqueueAbrasfEmission } from './nfseProviderService';
+import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
 import { record as recordFiscalEvent } from './fiscalAuditService';
 import { isUniqueConstraintViolation } from '../lib/pgErrors';
 import { toNumber, toDecimalString, round2 } from '../lib/money';
@@ -141,6 +142,7 @@ export async function calculateDraft(tenantId: string, draftId: string, actorUse
   const [draft] = await db.select().from(fiscalDocumentDrafts)
     .where(and(eq(fiscalDocumentDrafts.id, draftId), eq(fiscalDocumentDrafts.tenant_id, tenantId)));
   if (!draft) throw new ConsolidationDomainError('draft_not_found', { draftId });
+  await assertCompetenciaAberta(tenantId, draft.company_id, draft.competency_ref, db);
   if (!['open', 'sealed', 'calculated'].includes(draft.status)) {
     throw new ConsolidationDomainError('draft_not_calculable', { status: draft.status });
   }
@@ -178,6 +180,7 @@ export async function emitDraft(tenantId: string, draftId: string, actorUserId: 
   const [draft] = await db.select().from(fiscalDocumentDrafts)
     .where(and(eq(fiscalDocumentDrafts.id, draftId), eq(fiscalDocumentDrafts.tenant_id, tenantId)));
   if (!draft) throw new ConsolidationDomainError('draft_not_found', { draftId });
+  await assertCompetenciaAberta(tenantId, draft.company_id, draft.competency_ref, db);
   if (draft.nfse_id) throw new ConsolidationDomainError('draft_already_emitted', { nfse_id: draft.nfse_id });
   if (draft.status !== 'calculated') throw new ConsolidationDomainError('draft_not_calculated', { status: draft.status });
 

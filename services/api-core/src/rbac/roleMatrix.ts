@@ -70,7 +70,7 @@ const MANAGER = Array.from(new Set([
   ...keysOf(['fiscal']),
 // Configuração do agendamento (fuso, antecedência, auto-agendamento) é
 // decisão do dono/admin, não operação — gestor fica de fora.
-])).filter((k) => k !== 'scheduling:settings' && k !== 'fiscal:manage_certificate');
+])).filter((k) => k !== 'scheduling:settings' && k !== 'fiscal:manage_certificate' && k !== 'fiscal:reopen');
 
 const USER = Array.from(new Set([
   'dashboard:view',

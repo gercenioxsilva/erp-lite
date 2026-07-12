@@ -165,6 +165,12 @@ export function FiscalPage() {
               Consolidar
             </button>
           )}
+          {can('fiscal:close') && (
+            <button className="btn" disabled={!!busy} style={{ fontWeight: 700 }}
+              onClick={() => run('Fechamento', () => api.post('/v1/fiscal/close-competencia', { competencia }))}>
+              🔒 Fechar competência
+            </button>
+          )}
         </div>
       </header>
 

@@ -74,6 +74,8 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
       manage_certificate: 'Enviar/remover certificado digital A1',
       apurar:             'Apurar Simples Nacional (PGDAS-D)',
       acknowledge:        'Reconhecer/resolver alertas fiscais',
+      close:              'Fechar competência (checklist + trava)',
+      reopen:             'Reabrir competência travada',
       emit:               'Emitir NFS-e consolidada',
       cancel:             'Cancelar NFS-e emitida',
       substitute:         'Substituir NFS-e emitida',

@@ -2195,6 +2195,37 @@ export const importedTransactions = pgTable('imported_transactions', {
   created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Fechamento de competência (migration 0077) ───────────────────────────────
+// FECHAR ≠ TRAVAR: runs = checklist executável; locks = trava explícita
+// (enforcement único via fiscalClosingService.assertCompetenciaAberta).
+export const fiscalClosingRuns = pgTable('fiscal_closing_runs', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia: char('competencia', { length: 7 }).notNull(),
+  status:      varchar('status', { length: 24 }).notNull().default('running'),
+  steps:       jsonb('steps').notNull().default({}),
+  report:      jsonb('report'),
+  started_by:  uuid('started_by'),
+  started_at:  timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finished_at: timestamp('finished_at', { withTimezone: true }),
+});
+
+export const fiscalPeriodLocks = pgTable('fiscal_period_locks', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:     uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:    char('competencia', { length: 7 }).notNull(),
+  status:         varchar('status', { length: 10 }).notNull().default('locked'),
+  closing_run_id: uuid('closing_run_id'),
+  report:         jsonb('report'),
+  locked_by:      uuid('locked_by'),
+  locked_at:      timestamp('locked_at', { withTimezone: true }).notNull().defaultNow(),
+  unlocked_by:    uuid('unlocked_by'),
+  unlocked_at:    timestamp('unlocked_at', { withTimezone: true }),
+  unlock_reason:  text('unlock_reason'),
+});
+
 // ── Central de alertas fiscais (migration 0076) ──────────────────────────────
 // Dedupe físico por dedupe_key TEXT NOT NULL + UNIQUE parcial WHERE status
 // <> 'resolved' (resolvido pode recorrer como nova linha). Escrita SEMPRE via

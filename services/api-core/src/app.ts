@@ -35,6 +35,7 @@ import { fiscalApuracaoRoutes }       from './routes/fiscalApuracao';
 import { fiscalSimulatorRoutes }      from './routes/fiscalSimulator';
 import { fiscalScoreRoutes }          from './routes/fiscalScore';
 import { fiscalAlertsRoutes }         from './routes/fiscalAlerts';
+import { fiscalClosingRoutes }        from './routes/fiscalClosing';
 import { bankAccountsRoutes }       from './routes/bankAccounts';
 import { marketplaceIntegrationRoutes }   from './routes/marketplaceIntegration';
 import { materialMarketplaceLinksRoutes } from './routes/materialMarketplaceLinks';
@@ -149,6 +150,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fiscalSimulatorRoutes,     { prefix: '/v1' });
   await app.register(fiscalScoreRoutes,         { prefix: '/v1' });
   await app.register(fiscalAlertsRoutes,        { prefix: '/v1' });
+  await app.register(fiscalClosingRoutes,       { prefix: '/v1' });
   await app.register(bankAccountsRoutes,       { prefix: '/v1' });
   await app.register(marketplaceIntegrationRoutes,   { prefix: '/v1' });
   await app.register(materialMarketplaceLinksRoutes, { prefix: '/v1' });

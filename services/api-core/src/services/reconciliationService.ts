@@ -12,6 +12,7 @@ import { importedTransactions, reconciliationMatches, reconciliationRules, recei
 import { registerReceivablePayment } from './receivableService';
 import { record as recordFiscalEvent } from './fiscalAuditService';
 import { isUniqueConstraintViolation } from '../lib/pgErrors';
+import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
 import { toNumber, toDecimalString } from '../lib/money';
 import {
   TxForMatch, ReceivableCandidate, MatchRule, rankCandidates, decideOutcome,
@@ -170,6 +171,8 @@ export async function confirmMatchManual(
     .where(and(eq(importedTransactions.id, txId), eq(importedTransactions.tenant_id, tenantId)));
   if (!row) throw new ReconciliationDomainError('transaction_not_found', { txId });
   if (row.reconciliation_status === 'matched') throw new ReconciliationDomainError('already_matched');
+  const txCompetencia = (row.occurred_at ?? row.created_at).toISOString().slice(0, 7);
+  await assertCompetenciaAberta(tenantId, row.company_id, txCompetencia, db);
 
   const [cand] = await db.select().from(receivables)
     .where(and(eq(receivables.id, receivableId), eq(receivables.tenant_id, tenantId)));
