@@ -1,6 +1,6 @@
 # Módulo Fiscal + Contábil (Simples Nacional)
 
-> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations **0068–0078** · 1138 testes · 79 migrations validadas do zero.
+> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations **0068–0078** · ~1179 testes · 79 migrations validadas do zero.
 > Documento gerado a partir do código em 2026-07-12. Cobre: **o que foi feito**, **como funciona**, **o que é configurável** e **o que é preciso para funcionar**.
 
 ---
@@ -12,15 +12,16 @@ O módulo transforma o ERP num sistema que cobre grande parte da operação cont
 ```
 importar (OFX/CSV/XLSX) → conciliar → consolidar → emitir NFS-e → apurar DAS (PGDAS-D)
         → simular → alertar → fechar competência → travar → contabilizar (dupla entrada)
-        → perguntar ao Assistente Fiscal IA
+        → conversar com o Assistente Fiscal IA (que também propõe notas e a guia de impostos)
 ```
 
-Foi entregue em **duas rodadas**:
+Foi entregue em **três rodadas**:
 
 | Rodada | Migrations | Entregas |
 |---|---|---|
 | 1 | 0068–0075 | Auditoria unificada, cadastro fiscal por empresa, tabelas do Simples versionadas, importação, conciliação, consolidação, motor NFS-e ABRASF próprio (assinatura A1), apuração PGDAS-D completa, ciclo agendado 23:59, receita→RBT12 auto-alimentado |
 | 2 | 0076–0078 | Simulador de DAS + what-if (E1), Score Fiscal + detector de inconsistências (E2), Central de alertas (E3), Robô de fechamento + trava de competência (E4), Motor contábil de dupla entrada (E5), Assistente Fiscal IA (E6) |
+| 3 | — (sem migration) | Assistente **propõe** NFS-e com confirmação humana (E7), **guia de impostos** do mês imprimível (E8), pontas soltas: seams contábeis de POS/payable + estornos, **feriados nacionais** no vencimento do DAS, CRUD de regras de conciliação e de municípios (E9) |
 
 **Fora do escopo (próxima rodada):** OCR de documentos e Fiscal Engine API pública (`/v1/engine/*` + `api_keys`) — migration 0079 reservada.
 
@@ -179,6 +180,15 @@ Seams automáticos (fire-and-forget — erro nunca quebra o fluxo de negócio, s
 
 Loop tool-use manual: máx. **6 iterações**, `max_tokens` 1500, histórico cortado a 12 mensagens, tool output truncado a 4 KB, mensagem ≤2000 chars. Modelo `claude-sonnet-5` (override por `ANTHROPIC_MODEL`), **sem `temperature`** (o modelo rejeita). Sem `ANTHROPIC_API_KEY` → 503 `assistant_disabled` e a UI **nem renderiza o card** (gating por `assistantEnabled` do `/v1/fiscal/score`).
 
+### 2.13 Assistente que propõe ações (E7 — sem migration)
+
+Além de responder, o assistente pode **propor** duas ações; **o modelo nunca executa** — ele devolve um objeto `action` que a UI transforma em card, e a execução real passa por um endpoint determinístico com todos os gates de sempre.
+
+- **Emitir NFS-e "como da última vez"**: tools read-only `find_client` (busca por nome/CNPJ), `get_client_emission_defaults` (código de serviço/ISS/descrição da última nota autorizada) e `propose_nfse`. O executor de `propose_nfse` valida o cliente contra o tenant **server-side** (o `client_id` do modelo é sempre reconferido) e monta o rascunho com defaults preenchidos e um `idempotency_key`. `runAssistant` devolve `action = {type:'nfse_proposal', draft}`; a UI renderiza um card com Cliente/Valor/Código/ISS/Competência e botões **Aceitar** (só com `nfse:emit`) / **Cancelar**. Aceitar chama `POST /v1/nfse` → `createAndEmitNfse`, que revalida cliente ∈ tenant, resolve a empresa emitente, roda `getEmissionReadiness` (422 lista pendências), `assertCompetenciaAberta`, cria receivable + nfse numa transação e enfileira a emissão (ABRASF assina no api-core, senão Focus). `idempotency_key` (UNIQUE tenant+chave) evita duplo-clique. Prompt injection num nome de cliente não emite nada: o modelo só produz o rascunho, o humano confirma.
+- **Guia de impostos do mês** (E8): tool read-only `get_guia_impostos(competencia)` — acha a apuração da competência; se não existe, instrui a apurar; se existe, devolve `action = {type:'open_guia', apuracaoId, dasTotal, vencimento}`. A UI abre `/fiscal/apuracao/:id/guia` numa nova aba — página **imprimível** (padrão `window.print()`, sem lib de PDF) com DAS, **vencimento em dia útil**, repartição por tributo, os 6 passos do portal e o aviso legal (não é a guia oficial com código de barras — essa só o PGDAS-D gera). O backend serve `GET /v1/fiscal/apuracao/:id/guia` (read-only, **sem** o efeito colateral `exported` do `/export`), reusando o builder puro `domain/fiscal/guiaDomain`.
+
+Auditoria (LGPD): `fiscal_events` guarda apenas o **tipo** da ação proposta (`action_type`), nunca dados do cliente ou valores. A emissão em si audita `nfse_created`.
+
 ---
 
 ## 3. Referência de API (todas sob `/v1`, JWT obrigatório)
@@ -205,8 +215,11 @@ Legenda de permissão: tudo em `/v1/fiscal/*` e `/v1/accounting/*` exige também
 | POST `/fiscal/imports` (multipart, ≤25 MB) · POST `/fiscal/imports/:id/reprocess` | fiscal:import |
 | GET `/fiscal/imports[/:id]` · GET `/fiscal/import-templates` | fiscal:view |
 | POST/DELETE `/fiscal/import-templates[/:id]` | fiscal:import |
-| GET `/fiscal/reconciliation/transactions` · `.../:id/candidates` · `/fiscal/reconciliation/summary` | fiscal:view |
+| GET `/fiscal/reconciliation/transactions` · `.../:id/candidates` · `/fiscal/reconciliation/summary` · `/fiscal/reconciliation/rules` | fiscal:view |
 | POST `/fiscal/reconciliation/transactions/:id/match` · `.../:id/ignore` · `/fiscal/reconciliation/run` | fiscal:reconcile |
+| POST/PUT/DELETE `/fiscal/reconciliation/rules[/:id]` (regras de conciliação — antes só SQL) | fiscal:reconcile |
+| GET `/fiscal/nfse-municipalities` (registro global) | fiscal:view |
+| POST/DELETE `/fiscal/nfse-municipalities[/:codigoIbge]` (**só owner/admin** — global) | fiscal:config + owner/admin |
 
 ### Consolidação e NFS-e
 
@@ -216,6 +229,7 @@ Legenda de permissão: tudo em `/v1/fiscal/*` e `/v1/accounting/*` exige também
 | POST/DELETE `/fiscal/consolidation/rules[/:id]` · POST `.../drafts/:id/calculate` · POST `/fiscal/consolidation/run` | fiscal:consolidate |
 | POST `/fiscal/consolidation/drafts/:id/emit` · POST `/fiscal/consolidation/run-scheduled` | fiscal:emit |
 | GET `/nfse[/:id[/events]]` | nfse:view (sem gate de módulo) |
+| **POST `/nfse`** (emissão avulsa: cria+emite; alvo do "Aceitar" do assistente) | nfse:emit |
 | POST `/nfse/:id/emit` | nfse:emit |
 | POST `/nfse/:id/cancel` (motivo obrigatório; só provider abrasf) | nfse:cancel |
 
@@ -367,10 +381,10 @@ Sem AWS real: filas/buckets vêm do LocalStack (`scripts/localstack-init.sh`); e
 
 - **PGDAS-D não tem API oficial** — o sistema calcula e gera o roteiro; a transmissão no portal GOV.BR é manual (aviso explícito no export).
 - **MEI** — cadastro aceito, mas apuração/simulação percentual bloqueadas (DAS-SIMEI é fixo).
-- **Feriados** não entram na prorrogação do vencimento do DAS (só fim de semana) — limitação documentada.
+- **Feriados nacionais** entram na prorrogação do vencimento do DAS (fixos + móveis via Páscoa, `domain/fiscal/holidays.ts`). Feriados **municipais/estaduais** permanecem fora de escopo (variam por cidade, sem cadastro).
 - **Lote assíncrono ABRASF** (aceito com protocolo, sem número) deixa a nota em `processing` — a reconsulta (`consultarLote`) entra na homologação por município.
-- **Sem UI/API**: `reconciliation_rules`, `acquirer_accounts`, `nfse_municipalities`, plano de contas custom (`contabil:manage` declarada, sem rota) — configuração via SQL por enquanto.
-- **Seams contábeis de POS (suprimento/sangria) e pagamento de payable** existem no domínio e nos testes, mas **ainda não estão ligados** aos serviços (os `source_types` estão no CHECK; ligar é tarefa pequena de próxima rodada).
+- **Sem UI/API** (ainda via SQL): `acquirer_accounts`, plano de contas custom (`contabil:manage` declarada, sem rota). `reconciliation_rules` ganhou CRUD + painel (rodada 3); `nfse_municipalities` ganhou GET + write owner/admin (rodada 3).
+- **Seams contábeis de POS (suprimento/sangria), pagamento de payable e estorno de pagamentos** agora estão ligados (rodada 3): postam/estornam no razão fire-and-forget. Falta apenas o gate de módulo `contabil` nesses seams (postam mesmo com o módulo desligado — o razão é preenchido de qualquer forma).
 - Posting contábil é **fire-and-forget**: falha vira log (`accounting_post_error`) sem alertar o usuário; os seams postam mesmo com o módulo `contabil` desligado (o gate é só nas rotas).
 - O worker usa **a data do processamento** como competência da receita/lançamento da autorização (não a data de emissão da nota) — coerente com a política de late-arriving.
 - Relatórios contábeis são **tenant-wide** (multi-empresa consolidado); estorno não passa pela trava de competência (deliberado: corrigir erro não pode ser bloqueado).
