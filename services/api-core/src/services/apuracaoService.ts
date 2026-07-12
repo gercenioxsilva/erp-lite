@@ -20,6 +20,8 @@ import {
 } from '../domain/simples/simplesDomain';
 import { validateCompetencia } from '../domain/fiscal/fiscalCompanyConfigDomain';
 import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
+import { postEntry } from './accountingService';
+import { linesForDasPayment } from '../domain/accounting/accountingDomain';
 import { apurarSimples, BracketRow, ReparticaoRow } from '../domain/simples/apuracaoDomain';
 
 export type DrizzleDB = typeof _db;
@@ -213,6 +215,13 @@ export async function registerDasPayment(
     tenantId, companyId: args.companyId, aggregateType: 'das_payment', aggregateId: row.id,
     eventType: 'das_paid', actorUserId, requestPayload: { competencia: args.competencia, amount: args.amount },
   }, db);
+  // Posting contábil: DAS lança na competência da APURAÇÃO (não a do pagamento).
+  void postEntry({
+    tenantId, companyId: args.companyId, sourceType: 'das_payment', sourceId: row.id,
+    entryDate: args.paidAt, competencia: args.competencia,
+    description: `DAS Simples Nacional ${args.competencia}`,
+    lines: linesForDasPayment({ amount: args.amount }), postedBy: actorUserId,
+  }, db).catch((err) => console.error(JSON.stringify({ event: 'accounting_post_error', source: 'das_payment', id: row.id, error: String(err) })));
   return row;
 }
 

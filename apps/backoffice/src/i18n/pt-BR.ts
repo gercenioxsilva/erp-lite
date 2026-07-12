@@ -1393,6 +1393,8 @@ const ptBR = {
   'comp.modules.whatsappDesc': 'Mensagens automáticas pelo WhatsApp vinculadas a eventos do ERP: cobrança a vencer/vencida, pagamento confirmado, nota fiscal emitida, proposta enviada. Módulo cobrado à parte.',
   'comp.modules.fiscal':       'Gestão Fiscal — Simples Nacional',
   'comp.modules.fiscalDesc':   'Importação de vendas (OFX/CSV/Excel), conciliação automática, consolidação em notas e emissão de NFS-e com apuração do Simples Nacional.',
+  'comp.modules.contabil':     'Contabilidade Automática',
+  'comp.modules.contabilDesc': 'Razão de dupla entrada alimentado pelas emissões e pagamentos: livro diário, balancete, livro caixa, DRE contábil e balanço.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',

@@ -61,6 +61,8 @@ export async function createReceivableFromInvoice(
 import { eq, and } from 'drizzle-orm';
 import { receivablePayments } from '../db/schema';
 import { notifyPaymentConfirmed } from './whatsappAutomationService';
+import { postEntry, resolveRegime } from './accountingService';
+import { linesForReceivablePayment } from '../domain/accounting/accountingDomain';
 
 export const VALID_PAYMENT_METHODS = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
 
@@ -102,6 +104,7 @@ export async function registerReceivablePayment(
     id: receivables.id, status: receivables.status,
     amount: receivables.amount, paid_amount: receivables.paid_amount,
     client_id: receivables.client_id, description: receivables.description,
+    invoice_id: receivables.invoice_id, service_order_id: receivables.service_order_id,
   }).from(receivables)
     .where(and(eq(receivables.id, args.receivableId), eq(receivables.tenant_id, args.tenantId)));
 
@@ -132,6 +135,29 @@ export async function registerReceivablePayment(
       id: rec.id, client_id: rec.client_id, description: rec.description, amount: rec.amount,
     });
   }
+
+  // ── Posting contábil (fire-and-forget, idempotente por payment.id) ──────
+  // hasPriorAuthorization ≈ recebível vinculado a documento fiscal (a
+  // autorização posta no regime competência); sem doc → receita direta.
+  void (async () => {
+    try {
+      const { regime, companyId } = await resolveRegime(args.tenantId, null, db);
+      await postEntry({
+        tenantId: args.tenantId, companyId,
+        sourceType: 'receivable_payment', sourceId: payment.id,
+        entryDate: args.paymentDate, competencia: args.paymentDate.slice(0, 7),
+        description: `Recebimento — ${rec.description ?? 'conta a receber'}`,
+        lines: linesForReceivablePayment({
+          amount: payAmt,
+          viaBank: args.paymentMethod !== 'cash',
+          hasPriorAuthorization: !!rec.invoice_id,
+          serviceRevenue: !rec.invoice_id, // sem NF-e assume serviço
+        }, regime),
+      }, db);
+    } catch (err) {
+      console.error(JSON.stringify({ event: 'accounting_post_error', source: 'receivable_payment', id: payment.id, error: String(err) }));
+    }
+  })();
 
   return { payment, newStatus, newPaidAmount: newPaidAmt };
 }

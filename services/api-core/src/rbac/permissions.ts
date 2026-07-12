@@ -81,6 +81,15 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
       substitute:         'Substituir NFS-e emitida',
     },
   },
+  // Contabilidade automática (módulo opcional 'contabil') — dupla entrada.
+  contabil: {
+    label: 'Contabilidade',
+    actions: {
+      view:   'Ver razão, balancete, livros e balanço',
+      post:   'Lançamentos manuais e estornos',
+      manage: 'Plano de contas e backfill',
+    },
+  },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

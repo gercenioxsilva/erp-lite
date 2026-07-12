@@ -8,6 +8,8 @@ import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 import { createReceivableFromInvoice } from '../services/receivableService';
 import { recordRevenue } from '../services/fiscalRevenueService';
+import { postEntry, resolveRegime } from '../services/accountingService';
+import { linesForAuthorization } from '../domain/accounting/accountingDomain';
 import { runScheduled as runScheduledConsolidation } from '../services/consolidationService';
 
 /** Ciclo fiscal 23:59: roda o consolidar→validar→emitir de cada tenant com o
@@ -291,6 +293,20 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       } catch (revErr) {
         console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', invoice_id, error: String(revErr) }));
       }
+      // Posting contábil da autorização (regime competência posta; caixa no-op).
+      try {
+        const { regime } = await resolveRegime(result.tenant_id, inv.company_id, db);
+        await postEntry({
+          tenantId: result.tenant_id, companyId: inv.company_id,
+          sourceType: 'invoice_authorized', sourceId: invoice_id,
+          entryDate: new Date().toISOString().slice(0, 10),
+          competencia: new Date().toISOString().slice(0, 7),
+          description: `NF-e nº ${number} autorizada`,
+          lines: linesForAuthorization({ kind: 'invoice', gross: Number(inv.total), issRetido: 0 }, regime),
+        }, db);
+      } catch (accErr) {
+        console.error(JSON.stringify({ event: 'accounting_post_error', source: 'invoice_authorized', invoice_id, error: String(accErr) }));
+      }
     }
 
     if (inv.client_email) {
@@ -416,6 +432,22 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
         }, db);
       } catch (revErr) {
         console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', nfse_id, error: String(revErr) }));
+      }
+      try {
+        const { regime } = await resolveRegime(tenant_id, inv.company_id, db);
+        await postEntry({
+          tenantId: tenant_id, companyId: inv.company_id,
+          sourceType: 'nfse_authorized', sourceId: nfse_id,
+          entryDate: new Date().toISOString().slice(0, 10),
+          competencia: new Date().toISOString().slice(0, 7),
+          description: `NFS-e nº ${nfse_number ?? ''} autorizada`,
+          lines: linesForAuthorization({
+            kind: 'nfse', gross: Number(inv.amount),
+            issRetido: inv.iss_retido ? Number(inv.iss_value) : 0,
+          }, regime),
+        }, db);
+      } catch (accErr) {
+        console.error(JSON.stringify({ event: 'accounting_post_error', source: 'nfse_authorized', nfse_id, error: String(accErr) }));
       }
     }
 

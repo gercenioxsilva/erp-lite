@@ -2195,6 +2195,44 @@ export const importedTransactions = pgTable('imported_transactions', {
   created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Motor contábil de dupla entrada (migration 0078) ─────────────────────────
+export const chartOfAccounts = pgTable('chart_of_accounts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }), // NULL = global
+  code:              varchar('code', { length: 20 }).notNull(),
+  name:              varchar('name', { length: 120 }).notNull(),
+  nature:            varchar('nature', { length: 10 }).notNull(),
+  normal_balance:    varchar('normal_balance', { length: 6 }).notNull(),
+  is_postable:       boolean('is_postable').notNull().default(true),
+  system_key:        varchar('system_key', { length: 40 }),
+  dre_category_code: varchar('dre_category_code', { length: 30 }),
+  is_active:         boolean('is_active').notNull().default(true),
+});
+
+export const journalEntries = pgTable('journal_entries', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:           uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  entry_date:           date('entry_date').notNull(),
+  competencia:          char('competencia', { length: 7 }).notNull(),
+  source_type:          varchar('source_type', { length: 30 }).notNull(),
+  source_id:            uuid('source_id'),
+  description:          varchar('description', { length: 200 }).notNull(),
+  reversed_by_entry_id: uuid('reversed_by_entry_id'),
+  posted_by:            uuid('posted_by'),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const journalLines = pgTable('journal_lines', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  entry_id:   uuid('entry_id').notNull().references(() => journalEntries.id, { onDelete: 'cascade' }),
+  account_id: uuid('account_id').notNull().references(() => chartOfAccounts.id),
+  side:       varchar('side', { length: 6 }).notNull(),
+  amount:     decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  line_order: smallint('line_order').notNull().default(0),
+});
+
 // ── Fechamento de competência (migration 0077) ───────────────────────────────
 // FECHAR ≠ TRAVAR: runs = checklist executável; locks = trava explícita
 // (enforcement único via fiscalClosingService.assertCompetenciaAberta).
