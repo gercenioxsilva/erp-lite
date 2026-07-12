@@ -28,6 +28,11 @@ interface Apuracao {
   fator_r: string | null; sublimite_excedido: boolean; status: string;
 }
 interface DasSummaryRow { competencia: string; estimado: number; pago: number }
+interface ScoreData {
+  score: number;
+  breakdown: Array<{ category: string; points: number; max: number; issues: string[] }>;
+  findings: Array<{ rule: string; severity: string; title: string }>;
+}
 interface Simulacao {
   projecao: { receitaConsiderada: number; rbt12: number; aliquotaEfetiva: number; dasProjetado: number; faixa: number; sublimiteExcedido: boolean };
   distancia: { faixaAtual: number; faltaParaProximaFaixa: number | null; efetivaNaProximaFaixa: number | null };
@@ -73,6 +78,7 @@ export function FiscalPage() {
   const [apuracoes, setApuracoes] = useState<Apuracao[]>([]);
   const [dasSummary, setDasSummary] = useState<DasSummaryRow[]>([]);
   const [sim, setSim] = useState<Simulacao | null>(null);
+  const [score, setScore] = useState<ScoreData | null>(null);
   const previousMonth = () => {
     const d = new Date(); d.setMonth(d.getMonth() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -97,8 +103,9 @@ export function FiscalPage() {
     setPending(p.data.slice(0, 8));
     setApuracoes(a.data.slice(0, 8));
     setDasSummary(ds.data);
-    // Simulador falha com 422 (MEI/sem RBT12) — card simplesmente não aparece.
+    // Simulador/score falham com 422 (MEI/sem RBT12) — cards não aparecem.
     api.get<Simulacao>('/v1/fiscal/simulator').then(setSim).catch(() => setSim(null));
+    api.get<ScoreData>('/v1/fiscal/score').then(setScore).catch(() => setScore(null));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -168,6 +175,33 @@ export function FiscalPage() {
           </div>
         ))}
       </div>
+
+      {score && (
+        <Card title="Saúde Fiscal">
+          <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{
+              width: 88, height: 88, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 28, fontWeight: 800, color: '#fff',
+              background: score.score >= 90 ? '#16a34a' : score.score >= 70 ? '#d97706' : '#dc2626',
+            }}>{score.score}</div>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              {score.findings.length === 0 && score.breakdown.every((b) => b.points === 0) ? (
+                <p style={{ fontSize: 13, color: 'var(--muted, #64748b)', margin: 0 }}>Nenhum problema detectado. 🎉</p>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+                  {score.findings.slice(0, 5).map((f, i) => (
+                    <li key={i} style={{ color: f.severity === 'critical' ? '#dc2626' : 'inherit' }}>{f.title}</li>
+                  ))}
+                  {score.breakdown.filter((b) => b.category !== 'inconsistencias' && b.points > 0).flatMap((b) => b.issues.slice(0, 2)).map((issue, i) => (
+                    <li key={`b${i}`}>{issue}</li>
+                  ))}
+                  {score.findings.length > 5 && <li style={{ color: 'var(--muted)' }}>+{score.findings.length - 5} outros…</li>}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {sim && (
         <Card title={`Simulador de DAS — ${new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })} · Anexo ${sim.anexo}${sim.fator_r != null ? ` · Fator R ${(sim.fator_r * 100).toFixed(1)}%` : ''}`}>
