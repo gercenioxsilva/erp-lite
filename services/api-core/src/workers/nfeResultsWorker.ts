@@ -7,6 +7,7 @@ import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 import { createReceivableFromInvoice } from '../services/receivableService';
+import { recordRevenue } from '../services/fiscalRevenueService';
 import { notifyFiscalDocumentAuthorized } from '../services/whatsappAutomationService';
 
 interface NfeResultMessage {
@@ -109,10 +110,10 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
   if (nfe_status === 'authorized') {
     const { rows: [inv] } = await db.execute<{
       tenant_id: string; serie: string; number: string | null;
-      client_id: string | null; total: string;
+      client_id: string | null; total: string; company_id: string | null;
       client_name: string | null; client_email: string | null;
     }>(sql`
-      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total,
+      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM invoices i
@@ -252,6 +253,24 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
     // conta não conectada, cliente sem opt-in etc.).
     void notifyFiscalDocumentAuthorized(result.tenant_id, { id: invoice_id, client_id: inv.client_id, number, total: inv.total });
 
+    // ── Projeção de receita fiscal (fire-and-forget, idempotente por doc) ────
+    // Alimenta fiscal_revenue_monthly → RBT12 calculado por empresa (módulo
+    // fiscal). NF-e = receita de comércio (Anexo I). Mesmo racional da regra
+    // 60: a nota autorizada é o fato gerador; UNIQUE(source_doc) impede dupla
+    // contagem no redelivery do SQS.
+    if (inv.company_id) {
+      try {
+        await recordRevenue({
+          tenantId: result.tenant_id, companyId: inv.company_id,
+          competencia: new Date().toISOString().slice(0, 7),
+          anexo: 1, amount: Number(inv.total),
+          sourceDocType: 'invoice', sourceDocId: invoice_id,
+        }, db);
+      } catch (revErr) {
+        console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', invoice_id, error: String(revErr) }));
+      }
+    }
+
     if (inv.client_email) {
       await sendNotificationIfEnabled({
         tenant_id: result.tenant_id, type: 'nfe_authorized',
@@ -323,15 +342,33 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
     console.info(JSON.stringify({ event: 'nfse_result_authorized', nfse_id, nfse_number }));
 
     const { rows: [inv] } = await db.execute<{
-      amount: string; iss_value: string;
+      amount: string; iss_value: string; company_id: string | null; iss_retido: boolean | null;
       client_name: string | null; client_email: string | null;
     }>(sql`
-      SELECT n.amount, n.iss_value,
+      SELECT n.amount, n.iss_value, n.company_id, n.iss_retido,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM nfse_invoices n LEFT JOIN clients c ON c.id = n.client_id
       WHERE n.id = ${nfse_id}
     `);
+
+    // Projeção de receita fiscal (fire-and-forget, idempotente por documento):
+    // NFS-e autorizada = receita de serviço no ledger do RBT12; o anexo (III/IV/V)
+    // é resolvido na apuração pelo cadastro/Fator R, não aqui.
+    if (inv?.company_id) {
+      try {
+        await recordRevenue({
+          tenantId: tenant_id, companyId: inv.company_id,
+          competencia: new Date().toISOString().slice(0, 7),
+          amount: Number(inv.amount),
+          comRetencao: inv.iss_retido ? Number(inv.amount) : 0,
+          sourceDocType: 'nfse', sourceDocId: nfse_id,
+        }, db);
+      } catch (revErr) {
+        console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', nfse_id, error: String(revErr) }));
+      }
+    }
+
     if (inv?.client_email) {
       await sendNotificationIfEnabled({
         tenant_id, type: 'nfse_authorized',
