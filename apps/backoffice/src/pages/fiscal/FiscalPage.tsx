@@ -23,6 +23,11 @@ interface PendingTx {
   gross_amount: string | null; net_amount: string | null; amount: string | null; memo: string | null;
   reconciliation_status: string;
 }
+interface Apuracao {
+  id: string; competencia: string; rbt12: string; das_total: string;
+  fator_r: string | null; sublimite_excedido: boolean; status: string;
+}
+interface DasSummaryRow { competencia: string; estimado: number; pago: number }
 
 const money = (v: string | null) => (v ? BRL.format(Number(v)) : '—');
 
@@ -59,21 +64,32 @@ export function FiscalPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [pending, setPending] = useState<PendingTx[]>([]);
+  const [apuracoes, setApuracoes] = useState<Apuracao[]>([]);
+  const [dasSummary, setDasSummary] = useState<DasSummaryRow[]>([]);
+  const previousMonth = () => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const [competencia, setCompetencia] = useState(previousMonth());
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const [s, b, d, p] = await Promise.all([
+    const [s, b, d, p, a, ds] = await Promise.all([
       api.get<Record<string, number>>('/v1/fiscal/reconciliation/summary').catch(() => ({})),
       api.get<{ data: Batch[] }>('/v1/fiscal/imports').catch(() => ({ data: [] })),
       api.get<{ data: Draft[] }>('/v1/fiscal/consolidation/drafts').catch(() => ({ data: [] })),
       api.get<{ data: PendingTx[] }>('/v1/fiscal/reconciliation/transactions?status=pending,unmatched').catch(() => ({ data: [] })),
+      api.get<{ data: Apuracao[] }>('/v1/fiscal/apuracao').catch(() => ({ data: [] })),
+      api.get<{ data: DasSummaryRow[] }>('/v1/fiscal/das-summary').catch(() => ({ data: [] })),
     ]);
     setSummary(s);
     setBatches(b.data.slice(0, 8));
     setDrafts(d.data.slice(0, 8));
     setPending(p.data.slice(0, 8));
+    setApuracoes(a.data.slice(0, 8));
+    setDasSummary(ds.data);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -178,6 +194,55 @@ export function FiscalPage() {
                     <td style={{ padding: '6px 4px' }}><Badge value={t.reconciliation_status} /></td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+
+        <Card
+          title="Apuração Simples Nacional (PGDAS-D)"
+          action={can('fiscal:apurar') ? (
+            <span style={{ display: 'flex', gap: 6 }}>
+              <input type="month" value={competencia} onChange={(e) => setCompetencia(e.target.value)}
+                style={{ fontSize: 12, padding: '2px 6px', border: '1px solid var(--border, #e2e8f0)', borderRadius: 6 }} />
+              <button className="btn btn-sm" disabled={!!busy}
+                onClick={() => run('Apuração', () => api.post('/v1/fiscal/apuracao', { competencia }))}>
+                Apurar
+              </button>
+            </span>
+          ) : undefined}
+        >
+          {apuracoes.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Nenhuma competência apurada. O cálculo gera a memória completa — a transmissão no portal PGDAS-D permanece manual (sem API oficial).
+            </p>
+          ) : (
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <tbody>
+                {apuracoes.map((a) => {
+                  const pago = dasSummary.find((r) => r.competencia === a.competencia)?.pago ?? 0;
+                  return (
+                    <tr key={a.id} style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
+                      <td style={{ padding: '6px 4px', fontWeight: 600 }}>{a.competencia}</td>
+                      <td style={{ padding: '6px 4px', fontSize: 11 }}>
+                        RBT12 {money(a.rbt12)}{a.fator_r ? ` · Fator R ${(Number(a.fator_r) * 100).toFixed(1)}%` : ''}
+                        {a.sublimite_excedido ? ' · SUBLIMITE' : ''}
+                      </td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 700 }}>DAS {money(a.das_total)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right', fontSize: 12, color: pago >= Number(a.das_total) ? '#16a34a' : 'var(--muted, #64748b)' }}>
+                        pago {BRL.format(pago)}
+                      </td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                        {can('fiscal:apurar') && (
+                          <button className="btn btn-sm" disabled={!!busy}
+                            onClick={() => run('Export PGDAS-D', () => api.get(`/v1/fiscal/apuracao/${a.id}/export`))}>
+                            Roteiro
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

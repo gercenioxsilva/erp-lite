@@ -8,6 +8,24 @@ import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 import { createReceivableFromInvoice } from '../services/receivableService';
 import { recordRevenue } from '../services/fiscalRevenueService';
+import { runScheduled as runScheduledConsolidation } from '../services/consolidationService';
+
+/** Ciclo fiscal 23:59: roda o consolidar→validar→emitir de cada tenant com o
+ *  módulo 'fiscal' habilitado. Erro em um tenant nunca derruba os demais. */
+async function runFiscalScheduledCycle(): Promise<void> {
+  const { rows } = await db.execute<{ tenant_id: string }>(sql`
+    SELECT tenant_id FROM tenant_modules WHERE module_key = 'fiscal' AND enabled = true
+  `);
+  console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_start', tenants: rows.length }));
+  for (const { tenant_id } of rows) {
+    try {
+      const result = await runScheduledConsolidation(tenant_id);
+      console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_tenant', tenant_id, ...result, errors: result.errors.length }));
+    } catch (err) {
+      console.error(JSON.stringify({ event: 'fiscal_scheduled_cycle_error', tenant_id, error: String(err) }));
+    }
+  }
+}
 import { notifyFiscalDocumentAuthorized } from '../services/whatsappAutomationService';
 
 interface NfeResultMessage {
@@ -83,6 +101,10 @@ async function poll(queueUrl: string): Promise<void> {
             await processNfseResult(body as NfseResultMessage);
           } else if (body.type === 'remessa') {
             await processRemessaResult(body as RemessaResultMessage);
+          } else if (body.type === 'fiscal_consolidation_run') {
+            // Ciclo agendado 23:59 (EventBridge → esta fila): consolida →
+            // valida → emite por tenant com o módulo fiscal habilitado.
+            await runFiscalScheduledCycle();
           } else {
             await processResult(body as NfeResultMessage);
           }
