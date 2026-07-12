@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
 import { AssistantChat } from './AssistantChat';
+import { ReconciliationRulesCard } from './ReconciliationRulesCard';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -328,6 +329,12 @@ export function FiscalPage() {
             </table>
           )}
         </Card>
+
+        {can('fiscal:view') && (
+          <Card title="Regras de conciliação">
+            <ReconciliationRulesCard canEdit={can('fiscal:reconcile')} />
+          </Card>
+        )}
 
         <Card
           title="Apuração Simples Nacional (PGDAS-D)"
