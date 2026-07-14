@@ -30,6 +30,46 @@ export interface CreateTechnicianArgs {
   phone?:    string | null;
   cpf:       string;
   specialty?: string | null;
+  // Presente quando o operador confirmou vincular um usuário JÁ EXISTENTE
+  // (ver findLinkableUser) em vez de criar um login novo — evita a colisão
+  // em UNIQUE(tenant_id, email) que hoje trava o cadastro sem saída (regra 67).
+  linkExistingUserId?: string;
+}
+
+export interface LinkableUserCheck {
+  linkable: boolean;
+  reason?:  'not_found' | 'already_technician' | 'is_owner';
+  user?:    { id: string; name: string | null; role: string };
+}
+
+/**
+ * Verifica se um e-mail já pertence a um usuário do tenant e, se sim, se dá
+ * pra vinculá-lo como técnico. Chamado tanto pelo frontend (checagem
+ * proativa antes de enviar o form) quanto implicitamente pela regra de
+ * negócio de createTechnician (regra 67).
+ */
+export async function findLinkableUser(
+  tenantId: string, email: string, db: DrizzleDB = _db,
+): Promise<LinkableUserCheck> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  const [existingUser] = await db.select({ id: users.id, name: users.name, role: users.role })
+    .from(users)
+    .where(and(eq(users.tenant_id, tenantId), eq(users.email, normalizedEmail)));
+
+  if (!existingUser) return { linkable: false, reason: 'not_found' };
+
+  // Nunca converter o dono da conta — perderia acesso a tudo além do portal
+  // de técnico (technicianRoleGuard restringe role='technician' a um
+  // allowlist mínimo de rotas).
+  if (existingUser.role === 'owner') return { linkable: false, reason: 'is_owner', user: existingUser };
+
+  const [existingTechnician] = await db.select({ id: technicians.id })
+    .from(technicians)
+    .where(and(eq(technicians.tenant_id, tenantId), eq(technicians.user_id, existingUser.id)));
+  if (existingTechnician) return { linkable: false, reason: 'already_technician', user: existingUser };
+
+  return { linkable: true, user: existingUser };
 }
 
 export async function createTechnician(args: CreateTechnicianArgs, db: DrizzleDB = _db) {
@@ -38,6 +78,45 @@ export async function createTechnician(args: CreateTechnicianArgs, db: DrizzleDB
   if (!args.name.trim()) throw new TechnicianServiceError('name_required');
 
   const email = args.email.toLowerCase().trim();
+
+  if (args.linkExistingUserId) {
+    const check = await findLinkableUser(args.tenantId, email, db);
+    if (!check.linkable || check.user?.id !== args.linkExistingUserId) {
+      throw new TechnicianServiceError('user_not_linkable');
+    }
+
+    let technician;
+    try {
+      technician = await db.transaction(async (tx) => {
+        // access_profile_id some — technician nunca usa perfil RBAC, seu
+        // acesso é 100% definido pelo role (mesma invariante documentada em
+        // db/schema.ts na coluna access_profile_id).
+        await tx.update(users)
+          .set({ role: 'technician', access_profile_id: null, updated_at: new Date() })
+          .where(eq(users.id, args.linkExistingUserId!));
+
+        const [created] = await tx.insert(technicians).values({
+          tenant_id: args.tenantId,
+          user_id:   args.linkExistingUserId!,
+          name:      args.name.trim(),
+          email,
+          phone:     args.phone || null,
+          cpf,
+          specialty: args.specialty || null,
+        }).returning();
+
+        return created;
+      });
+    } catch (err: any) {
+      if (err.code === '23505') throw new TechnicianServiceError('email_already_registered');
+      throw err;
+    }
+
+    // Sem e-mail de convite aqui — a conta já existe e já tem senha própria,
+    // só o papel de acesso mudou.
+    return technician;
+  }
+
   const randomPassword = crypto.randomBytes(24).toString('hex'); // nunca exposto — só placeholder até o convite ser aceito
   const passwordHash = await bcrypt.hash(randomPassword, 12);
   const inviteToken = crypto.randomUUID().replace(/-/g, '');

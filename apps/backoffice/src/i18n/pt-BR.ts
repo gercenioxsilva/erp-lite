@@ -1489,6 +1489,11 @@ const ptBR = {
   'tech.resendInvite': 'Reenviar convite / redefinir senha',
   'tech.resendInviteConfirm': 'Enviar um novo link de definição de senha para este técnico? O link anterior deixa de funcionar.',
   'tech.resendInviteSent': 'Convite reenviado! O técnico vai receber um novo link por e-mail.',
+  'tech.linkExisting.title':   'Vincular usuário existente?',
+  'tech.linkExisting.message': 'Este e-mail já pertence ao usuário abaixo. Vincular como técnico vai substituir o acesso atual dele pelo Portal do Técnico — ele perde acesso a qualquer outra tela do sistema. Usuário:',
+  'tech.linkExisting.confirm': 'Vincular como técnico',
+  'tech.linkExisting.blockedOwner': 'Este e-mail pertence ao dono da conta — não é possível transformá-lo em técnico.',
+  'tech.linkExisting.alreadyTechnician': 'Este e-mail já pertence a um técnico cadastrado.',
 
   // ── Portal do técnico ─────────────────────────────────────────────────────
   'tp.loginTitle':     'Portal do Técnico',

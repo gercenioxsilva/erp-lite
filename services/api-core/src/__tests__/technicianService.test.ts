@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { updateTechnician, resendTechnicianInvite, TechnicianServiceError } from '../services/technicianService';
+import {
+  updateTechnician, resendTechnicianInvite, findLinkableUser, createTechnician, TechnicianServiceError,
+} from '../services/technicianService';
+import { users, technicians } from '../db/schema';
 
 // Edição de técnico (nunca senha) e reenvio de convite — corrigem o problema
 // real de onboarding: tenant com baixa maturidade digital digita e-mail/CPF
@@ -116,5 +119,123 @@ describe('resendTechnicianInvite', () => {
     const call = (sendSystemNotification as any).mock.calls[0][0];
     expect(call.type).toBe('technician_welcome');
     expect(call.data.set_password_link).toContain(tokenUpdate!.password_reset_token);
+  });
+});
+
+// ── Vínculo de usuário existente (regra 67) ─────────────────────────────────
+// Cobre o bug real: operador tenta cadastrar como técnico alguém que já tem
+// login no tenant (criado como 'user' comum) e o cadastro travava com 409
+// "E-mail já cadastrado" sem nenhuma ação de recuperação.
+
+const OWNER_USER  = { id: 'owner-1', name: 'Dona da Conta', role: 'owner' };
+const NORMAL_USER = { id: 'user-2',  name: 'Yan Teste',     role: 'user' };
+
+function makeLinkMockDb(opts: {
+  userRow?:       Record<string, unknown> | null;
+  technicianRow?: Record<string, unknown> | null;
+}) {
+  const insertedTechnicians: Record<string, unknown>[] = [];
+  const userUpdates: Record<string, unknown>[] = [];
+
+  const db: any = {
+    transaction: async (cb: any) => cb(db),
+    select: vi.fn(() => ({
+      from: (table: unknown) => ({
+        where: () => {
+          if (table === users)       return Promise.resolve(opts.userRow ? [opts.userRow] : []);
+          if (table === technicians) return Promise.resolve(opts.technicianRow ? [opts.technicianRow] : []);
+          return Promise.resolve([]);
+        },
+      }),
+    })),
+    update: vi.fn(() => ({
+      set: (data: Record<string, unknown>) => {
+        userUpdates.push(data);
+        return { where: () => Promise.resolve(undefined) };
+      },
+    })),
+    insert: vi.fn(() => ({
+      values: (data: Record<string, unknown>) => {
+        insertedTechnicians.push(data);
+        return { returning: () => Promise.resolve([{ id: 'new-tech-id', ...data }]) };
+      },
+    })),
+  };
+
+  return { db, insertedTechnicians, userUpdates };
+}
+
+describe('findLinkableUser', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('devolve not_found quando nenhum usuário tem esse e-mail no tenant', async () => {
+    const { db } = makeLinkMockDb({ userRow: null });
+    await expect(findLinkableUser(TENANT_ID, 'novo@example.com', db))
+      .resolves.toEqual({ linkable: false, reason: 'not_found' });
+  });
+
+  it('bloqueia o dono da conta — nunca vira técnico', async () => {
+    const { db } = makeLinkMockDb({ userRow: OWNER_USER });
+    const result = await findLinkableUser(TENANT_ID, 'owner@example.com', db);
+    expect(result.linkable).toBe(false);
+    expect(result.reason).toBe('is_owner');
+    expect(result.user).toMatchObject({ id: OWNER_USER.id });
+  });
+
+  it('bloqueia quando o usuário já é técnico (duplicata de verdade)', async () => {
+    const { db } = makeLinkMockDb({ userRow: NORMAL_USER, technicianRow: { id: 'tech-existing' } });
+    const result = await findLinkableUser(TENANT_ID, 'yan@example.com', db);
+    expect(result.linkable).toBe(false);
+    expect(result.reason).toBe('already_technician');
+  });
+
+  it('devolve linkable=true para um usuário comum sem técnico vinculado ainda', async () => {
+    const { db } = makeLinkMockDb({ userRow: NORMAL_USER, technicianRow: null });
+    const result = await findLinkableUser(TENANT_ID, 'yan@example.com', db);
+    expect(result).toEqual({ linkable: true, user: NORMAL_USER });
+  });
+});
+
+describe('createTechnician — vínculo de usuário existente', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('vincula o usuário existente em vez de criar um login novo', async () => {
+    const { db, insertedTechnicians, userUpdates } = makeLinkMockDb({ userRow: NORMAL_USER, technicianRow: null });
+    const { sendSystemNotification } = await import('../lib/notificationsClient');
+
+    const technician = await createTechnician({
+      tenantId: TENANT_ID, name: 'Yan Teste', email: 'yan@example.com',
+      cpf: '52998224725', specialty: 'Ar condicionado',
+      linkExistingUserId: NORMAL_USER.id,
+    }, db);
+
+    expect(technician).toMatchObject({ user_id: NORMAL_USER.id });
+    expect(insertedTechnicians).toHaveLength(1);
+    expect(insertedTechnicians[0]).toMatchObject({ user_id: NORMAL_USER.id, tenant_id: TENANT_ID });
+
+    // Nunca insere um novo users — só atualiza o papel/perfil do que já existe.
+    expect(userUpdates).toHaveLength(1);
+    expect(userUpdates[0]).toMatchObject({ role: 'technician', access_profile_id: null });
+
+    // Conta já existe e já tem senha própria — não é um convite novo.
+    expect(sendSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it('lança user_not_linkable quando o usuário não é mais elegível (ex.: virou técnico entre a checagem e o submit)', async () => {
+    const { db } = makeLinkMockDb({ userRow: NORMAL_USER, technicianRow: { id: 'tech-existing' } });
+
+    await expect(createTechnician({
+      tenantId: TENANT_ID, name: 'Yan Teste', email: 'yan@example.com',
+      cpf: '52998224725', linkExistingUserId: NORMAL_USER.id,
+    }, db)).rejects.toMatchObject({ code: 'user_not_linkable' });
+  });
+
+  it('lança user_not_linkable quando o id enviado não bate com o usuário encontrado pelo e-mail', async () => {
+    const { db } = makeLinkMockDb({ userRow: NORMAL_USER, technicianRow: null });
+
+    await expect(createTechnician({
+      tenantId: TENANT_ID, name: 'Yan Teste', email: 'yan@example.com',
+      cpf: '52998224725', linkExistingUserId: 'outro-id-qualquer',
+    }, db)).rejects.toMatchObject({ code: 'user_not_linkable' });
   });
 });

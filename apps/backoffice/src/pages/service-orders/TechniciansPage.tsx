@@ -10,6 +10,11 @@ interface Technician {
   cpf: string; specialty: string | null; is_active: boolean;
 }
 interface ListResp { data: Technician[]; total: number; page: number; per_page: number; }
+interface LinkableUserCheck {
+  linkable: boolean;
+  reason?:  'not_found' | 'already_technician' | 'is_owner';
+  user?:    { id: string; name: string | null; role: string };
+}
 
 function maskCPF(cpf: string): string {
   const d = cpf.replace(/\D/g, '');
@@ -68,11 +73,48 @@ export function TechniciansPage() {
     if (!email.trim()) { setFormError(t('tech.email') + ' *'); return; }
     if (!cpf.trim())   { setFormError(t('tech.cpf')   + ' *'); return; }
     setSaving(true); setFormError('');
+
+    // Checagem proativa (regra 67): se o e-mail já pertence a um usuário do
+    // tenant, oferece vincular esse usuário como técnico em vez de deixar o
+    // POST estourar 409 sem nenhuma ação de recuperação. Só faz sentido na
+    // criação — ao editar, o técnico já está vinculado a um user_id.
+    let linkExistingUserId: string | undefined;
+    if (!editing) {
+      try {
+        const check = await api.get<LinkableUserCheck>(`/v1/technicians/check-email?email=${encodeURIComponent(email.trim())}`);
+        if (check.reason === 'is_owner') {
+          setFormError(t('tech.linkExisting.blockedOwner'));
+          setSaving(false);
+          return;
+        }
+        if (check.reason === 'already_technician') {
+          setFormError(t('tech.linkExisting.alreadyTechnician'));
+          setSaving(false);
+          return;
+        }
+        if (check.linkable && check.user) {
+          const ok = await modal.confirm({
+            title:        t('tech.linkExisting.title'),
+            message:      `${t('tech.linkExisting.message')} "${check.user.name ?? email.trim()}".`,
+            confirmLabel: t('tech.linkExisting.confirm'),
+            danger:       true,
+          });
+          if (!ok) { setSaving(false); return; }
+          linkExistingUserId = check.user.id;
+        }
+      } catch {
+        // Falha na checagem proativa não deve travar o cadastro normal —
+        // segue pro POST, que ainda valida de verdade (o 409 original
+        // continua como rede de segurança).
+      }
+    }
+
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: name.trim(), email: email.trim(), phone: phone || undefined,
         cpf: cpf.replace(/\D/g, ''), specialty: specialty || undefined,
       };
+      if (linkExistingUserId) payload.link_existing_user_id = linkExistingUserId;
       if (editing) await api.patch(`/v1/technicians/${editing.id}`, payload);
       else         await api.post('/v1/technicians', payload);
       setDrawerOpen(false);
