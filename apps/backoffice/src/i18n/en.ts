@@ -1491,6 +1491,11 @@ const en: Record<TKey, string> = {
   'tech.resendInvite': 'Resend invite / reset password',
   'tech.resendInviteConfirm': 'Send a new password-setup link to this technician? The previous link stops working.',
   'tech.resendInviteSent': 'Invite resent! The technician will receive a new link by email.',
+  'tech.linkExisting.title':   'Link existing user?',
+  'tech.linkExisting.message': 'This email already belongs to the user below. Linking them as a technician will replace their current access with the Technician Portal — they lose access to any other screen in the system. User:',
+  'tech.linkExisting.confirm': 'Link as technician',
+  'tech.linkExisting.blockedOwner': 'This email belongs to the account owner — it cannot be turned into a technician.',
+  'tech.linkExisting.alreadyTechnician': 'This email already belongs to a registered technician.',
 
   // ── Technician portal ─────────────────────────────────────────────────────
   'tp.loginTitle':     'Technician Portal',
