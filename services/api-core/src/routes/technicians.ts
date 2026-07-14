@@ -3,7 +3,7 @@ import { requireModule } from '../lib/requireModule';
 import { requirePermission } from '../lib/requirePermission';
 import {
   createTechnician, listTechnicians, setTechnicianActive, updateTechnician,
-  resendTechnicianInvite, TechnicianServiceError,
+  resendTechnicianInvite, findLinkableUser, TechnicianServiceError,
 } from '../services/technicianService';
 
 export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
@@ -20,11 +20,25 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
     });
   });
 
+  // ── GET /v1/technicians/check-email ─────────────────────────────────────
+  // Checagem proativa (regra 67): antes de submeter o form, o frontend
+  // consulta se o e-mail já pertence a um usuário do tenant e, se sim, se dá
+  // pra vinculá-lo como técnico — evita o dead-end de "E-mail já cadastrado"
+  // sem nenhuma ação de recuperação.
+  fastify.get('/technicians/check-email', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('technicians:create') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { email } = request.query as { email?: string };
+    if (!email?.trim()) return reply.badRequest('email é obrigatório');
+
+    return findLinkableUser(tenantId, email);
+  });
+
   // ── POST /v1/technicians ────────────────────────────────────────────────
   fastify.post('/technicians', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('technicians:create') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
-    const { name, email, phone, cpf, specialty } = request.body as {
+    const { name, email, phone, cpf, specialty, link_existing_user_id } = request.body as {
       name: string; email: string; phone?: string; cpf: string; specialty?: string;
+      link_existing_user_id?: string;
     };
 
     if (!name?.trim())  return reply.badRequest('name é obrigatório');
@@ -32,12 +46,16 @@ export const techniciansRoutes: FastifyPluginAsync = async (fastify) => {
     if (!cpf?.trim())   return reply.badRequest('cpf é obrigatório');
 
     try {
-      const technician = await createTechnician({ tenantId, name, email, phone, cpf, specialty });
+      const technician = await createTechnician({
+        tenantId, name, email, phone, cpf, specialty,
+        linkExistingUserId: link_existing_user_id,
+      });
       return reply.code(201).send(technician);
     } catch (err) {
       if (err instanceof TechnicianServiceError) {
         if (err.code === 'invalid_cpf') return reply.badRequest('CPF inválido');
         if (err.code === 'email_already_registered') return reply.conflict('E-mail já cadastrado');
+        if (err.code === 'user_not_linkable') return reply.conflict('Usuário não pode ser vinculado — recarregue e tente novamente');
         return reply.badRequest(err.code);
       }
       throw err;

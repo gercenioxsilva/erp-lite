@@ -12,6 +12,7 @@ vi.mock('../services/technicianService', () => ({
   setTechnicianActive:     vi.fn(),
   updateTechnician:        vi.fn(),
   resendTechnicianInvite:  vi.fn(),
+  findLinkableUser:        vi.fn(),
   TechnicianServiceError: class TechnicianServiceError extends Error {
     code: string;
     constructor(code: string) { super(code); this.code = code; }
@@ -116,5 +117,79 @@ describe('POST /v1/technicians/:id/resend-invite', () => {
       headers: { authorization: `Bearer ${token(app)}` }, payload: {},
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// GET /v1/technicians/check-email + POST /v1/technicians (regra 67) — cobre
+// só o contrato HTTP; a lógica de elegibilidade em si é testada isoladamente
+// em technicianService.test.ts (findLinkableUser / createTechnician).
+describe('GET /v1/technicians/check-email', () => {
+  let app: FastifyInstance;
+  let findLinkableUser: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectOnce([{ enabled: true }]));
+    findLinkableUser = (await import('../services/technicianService')).findLinkableUser as any;
+    app = await buildApp();
+  });
+  afterEach(async () => { await app.close(); });
+
+  it('200 com o resultado da checagem de elegibilidade', async () => {
+    findLinkableUser.mockResolvedValue({ linkable: true, user: { id: 'user-2', name: 'Yan Teste', role: 'user' } });
+    const res = await app.inject({
+      method: 'GET', url: '/v1/technicians/check-email?email=yan@example.com',
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ linkable: true });
+  });
+
+  it('400 sem o parâmetro email', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/v1/technicians/check-email',
+      headers: { authorization: `Bearer ${token(app)}` },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('401 sem token de autenticação', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/technicians/check-email?email=x@example.com' });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('POST /v1/technicians', () => {
+  let app: FastifyInstance;
+  let createTechnician: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectOnce([{ enabled: true }]));
+    createTechnician = (await import('../services/technicianService')).createTechnician as any;
+    app = await buildApp();
+  });
+  afterEach(async () => { await app.close(); });
+
+  it('201 e repassa link_existing_user_id pro serviço', async () => {
+    createTechnician.mockResolvedValue({ id: TECH_ID, user_id: 'user-2' });
+    const res = await app.inject({
+      method: 'POST', url: '/v1/technicians',
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { name: 'Yan Teste', email: 'yan@example.com', cpf: '52998224725', link_existing_user_id: 'user-2' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(createTechnician).toHaveBeenCalledWith(expect.objectContaining({ linkExistingUserId: 'user-2' }));
+  });
+
+  it('409 quando o usuário deixou de ser elegível entre a checagem e o submit', async () => {
+    const { TechnicianServiceError } = await import('../services/technicianService');
+    createTechnician.mockRejectedValue(new (TechnicianServiceError as any)('user_not_linkable'));
+    const res = await app.inject({
+      method: 'POST', url: '/v1/technicians',
+      headers: { authorization: `Bearer ${token(app)}` },
+      payload: { name: 'Yan Teste', email: 'yan@example.com', cpf: '52998224725', link_existing_user_id: 'user-2' },
+    });
+    expect(res.statusCode).toBe(409);
   });
 });
