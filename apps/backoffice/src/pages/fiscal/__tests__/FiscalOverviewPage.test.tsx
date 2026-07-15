@@ -87,4 +87,21 @@ describe('FiscalOverviewPage', () => {
     expect(cards[1]).toHaveTextContent('Empresa Boa');
     expect(cards[1]).toHaveTextContent('90');
   });
+
+  it('mostra erro com opção de retry quando o fetch do overview falha, sem redirecionar em silêncio', async () => {
+    mockGet.mockRejectedValue(new Error('network error'));
+    render(<MemoryRouter><FiscalOverviewPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Não foi possível carregar o painel fiscal.')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('fiscal-overview-card')).toHaveLength(0);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    const retryButton = screen.getByRole('button', { name: 'Tentar novamente' });
+    mockGet.mockResolvedValueOnce({ data: [COMPANY_OK, COMPANY_RUIM] });
+    const user = userEvent.setup();
+    await user.click(retryButton);
+
+    const cards = await screen.findAllByTestId('fiscal-overview-card');
+    expect(cards).toHaveLength(2);
+  });
 });

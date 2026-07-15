@@ -49,7 +49,7 @@ export function GuiaImpostosPrintPage() {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
         <h2>Guia não encontrada</h2>
-        <button className="btn btn-secondary btn-sm print-hide" style={{ width: 'auto', marginTop: 16 }} onClick={() => navigate('/fiscal')}>← Fiscal</button>
+        <button className="btn btn-secondary btn-sm print-hide" style={{ width: 'auto', marginTop: 16 }} onClick={() => navigate('/fiscal/pipeline')}>← Fiscal</button>
       </div>
     );
   }

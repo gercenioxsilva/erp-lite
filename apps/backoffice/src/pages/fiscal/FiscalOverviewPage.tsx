@@ -36,11 +36,18 @@ function urgencyRank(c: CompanyOverview): number {
 export function FiscalOverviewPage() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<CompanyOverview[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
+  function fetchOverview() {
+    setLoadError(false);
+    setCompanies(null);
     api.get<{ data: CompanyOverview[] }>('/v1/fiscal/companies-overview')
       .then((r) => setCompanies(r.data))
-      .catch(() => setCompanies([]));
+      .catch(() => setLoadError(true));
+  }
+
+  useEffect(() => {
+    fetchOverview();
   }, []);
 
   useEffect(() => {
@@ -48,6 +55,19 @@ export function FiscalOverviewPage() {
       navigate('/fiscal/pipeline', { replace: true });
     }
   }, [companies, navigate]);
+
+  if (loadError) {
+    return (
+      <div style={{ display: 'grid', gap: 12, justifyItems: 'start' }}>
+        <p style={{ fontSize: 14, color: '#dc2626', margin: 0 }}>
+          Não foi possível carregar o painel fiscal.
+        </p>
+        <button type="button" className="btn btn-sm" onClick={fetchOverview}>
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   if (companies === null) {
     return (
