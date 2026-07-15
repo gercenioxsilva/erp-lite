@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
@@ -63,6 +64,7 @@ export function NfsePage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
+  const navigate = useNavigate();
 
   const [items,   setItems]   = useState<Nfse[]>([]);
   const [total,   setTotal]   = useState(0);
@@ -156,6 +158,11 @@ export function NfsePage() {
     <div>
       <div className="page-header">
         <h1>{t('nfse.title')}</h1>
+        <Can permission="nfse:create">
+          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={() => navigate('/nfse/new')}>
+            {t('nfse.new')}
+          </button>
+        </Can>
       </div>
 
       {/* KPI bar */}
@@ -327,11 +334,11 @@ export function NfsePage() {
           )}
         </Drawer.Body>
         <Drawer.Footer>
-          {detail?.nfse_status === 'rejected' && (
+          {(!detail?.nfse_status || detail?.nfse_status === 'rejected') && (
             <Can permission="nfse:emit">
               <button type="button" className="btn btn-primary" style={{ marginRight: 'auto' }}
                 disabled={reemitting} onClick={() => void handleReemit()}>
-                {reemitting ? t('c.saving') : t('nfse.reemit')}
+                {reemitting ? t('c.saving') : detail?.nfse_status === 'rejected' ? t('nfse.reemit') : t('nfse.emit')}
               </button>
             </Can>
           )}

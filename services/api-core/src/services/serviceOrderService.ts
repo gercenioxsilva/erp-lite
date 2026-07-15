@@ -2,11 +2,12 @@
 // Orquestra a lógica de domínio + persistência. Mesmo padrão de
 // purchaseOrderService.ts.
 
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { serviceOrders, serviceOrderItems } from '../db/schema';
 import {
   assertServiceOrderTransition,
+  assertServiceOrderEditable,
   calcServiceOrderTotals,
   validateServiceOrderCreate,
   ServiceOrderDomainError,
@@ -63,6 +64,53 @@ export async function createServiceOrder(args: ServiceOrderCreate, db: DrizzleDB
     for (const it of items) {
       await tx.insert(serviceOrderItems).values({
         service_order_id: so.id,
+        material_id:  it.materialId || null,
+        description:  it.description.trim(),
+        quantity:     String(it.quantity),
+        unit_price:   String(it.unit_price),
+        total:        String(Math.round(it.quantity * it.unit_price * 100) / 100),
+      });
+    }
+
+    return so;
+  });
+}
+
+export type ServiceOrderUpdate = Omit<ServiceOrderCreate, 'tenantId' | 'createdBy'>;
+
+// Substitui header + itens por completo (delete + reinsert), só permitido
+// em 'draft' — mesmo padrão de updatePurchaseOrder()/updateSupplierInvoice().
+export async function updateServiceOrder(
+  id: string, tenantId: string, args: ServiceOrderUpdate, db: DrizzleDB = _db,
+) {
+  const items = args.items ?? [];
+  validateServiceOrderCreate({ title: args.title, type: args.type, items });
+
+  const { subtotal, total } = calcServiceOrderTotals(items);
+
+  return db.transaction(async (tx) => {
+    const { rows: [existing] } = await tx.execute<{ status: string }>(
+      sql`SELECT status FROM service_orders WHERE id = ${id} AND tenant_id = ${tenantId}`,
+    );
+    if (!existing) throw new ServiceOrderDomainError('service_order_not_found', { id });
+    assertServiceOrderEditable(existing.status as ServiceOrderStatus);
+
+    const [so] = await tx.update(serviceOrders).set({
+      client_id:      args.clientId      || null,
+      cost_center_id: args.costCenterId  || null,
+      title:          args.title.trim(),
+      description:    args.description   || null,
+      type:           args.type,
+      subtotal:       String(subtotal),
+      total:          String(total),
+      updated_at:     new Date(),
+    }).where(and(eq(serviceOrders.id, id), eq(serviceOrders.tenant_id, tenantId))).returning();
+
+    await tx.delete(serviceOrderItems).where(eq(serviceOrderItems.service_order_id, id));
+
+    for (const it of items) {
+      await tx.insert(serviceOrderItems).values({
+        service_order_id: id,
         material_id:  it.materialId || null,
         description:  it.description.trim(),
         quantity:     String(it.quantity),
