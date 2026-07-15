@@ -23,6 +23,10 @@ function scoreColor(score: number): string {
   return score >= 90 ? '#16a34a' : score >= 70 ? '#d97706' : '#dc2626';
 }
 
+// Ordena empresas por urgência: scores mais baixos (piores) primeiro, depois erros, depois sem config.
+// Empresas com erros de carregamento (error: true) recebem -1 e ficam menos urgentes que
+// empresas com alertas críticos confirmados (ex: 2 críticos = -170), pois um estado confirmado
+// é mais acionável que uma falha opaca de sincronização.
 function urgencyRank(c: CompanyOverview): number {
   if (c.error) return -1;
   if (!c.has_fiscal_config) return 1000;

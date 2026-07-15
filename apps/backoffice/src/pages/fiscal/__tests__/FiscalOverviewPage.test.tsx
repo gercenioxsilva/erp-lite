@@ -36,6 +36,11 @@ const COMPANY_SEM_CADASTRO = {
   score: null, alerts: null, competencia_atual: null, das: null, error: false,
 };
 
+const COMPANY_ERRO = {
+  company_id: 'co-4', company_name: 'Empresa Erro', has_fiscal_config: true,
+  score: null, alerts: null, competencia_atual: null, das: null, error: true,
+};
+
 describe('FiscalOverviewPage', () => {
   it('renderiza um card por empresa, ordenado por urgência (score mais baixo primeiro)', async () => {
     mockGet.mockResolvedValue({ data: [COMPANY_OK, COMPANY_RUIM, COMPANY_SEM_CADASTRO] });
@@ -65,5 +70,21 @@ describe('FiscalOverviewPage', () => {
     render(<MemoryRouter><FiscalOverviewPage /></MemoryRouter>);
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/fiscal/pipeline', { replace: true }));
+  });
+
+  it('renderiza card isolado de erro sem quebrar siblings', async () => {
+    mockGet.mockResolvedValue({ data: [COMPANY_OK, COMPANY_ERRO] });
+    render(<MemoryRouter><FiscalOverviewPage /></MemoryRouter>);
+
+    const cards = await screen.findAllByTestId('fiscal-overview-card');
+    expect(cards).toHaveLength(2);
+
+    // Card de erro deve mostrar mensagem de erro (error: -1 é mais urgente que score: 90)
+    expect(cards[0]).toHaveTextContent('Empresa Erro');
+    expect(cards[0]).toHaveTextContent('Não foi possível carregar');
+
+    // Card normal deve renderizar sem ser afetado
+    expect(cards[1]).toHaveTextContent('Empresa Boa');
+    expect(cards[1]).toHaveTextContent('90');
   });
 });
