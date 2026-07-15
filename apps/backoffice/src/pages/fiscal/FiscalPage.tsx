@@ -4,6 +4,7 @@
 // sobre estes mesmos endpoints.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
 import { AssistantChat } from './AssistantChat';
@@ -87,6 +88,9 @@ export function FiscalPage() {
   const [sim, setSim] = useState<Simulacao | null>(null);
   const [score, setScore] = useState<ScoreData | null>(null);
   const [alerts, setAlerts] = useState<FiscalAlert[]>([]);
+  const [companies, setCompanies] = useState<{ id: string; razao_social: string; is_default: boolean }[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const companyId = searchParams.get('company_id') ?? '';
   const previousMonth = () => {
     const d = new Date(); d.setMonth(d.getMonth() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -96,13 +100,19 @@ export function FiscalPage() {
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies')
+      .then((r) => setCompanies(r.data)).catch(() => setCompanies([]));
+  }, []);
+
   const load = useCallback(async () => {
+    const q = companyId ? `?company_id=${companyId}` : '';
     const [s, b, d, p, a, ds] = await Promise.all([
       api.get<Record<string, number>>('/v1/fiscal/reconciliation/summary').catch(() => ({})),
       api.get<{ data: Batch[] }>('/v1/fiscal/imports').catch(() => ({ data: [] })),
       api.get<{ data: Draft[] }>('/v1/fiscal/consolidation/drafts').catch(() => ({ data: [] })),
       api.get<{ data: PendingTx[] }>('/v1/fiscal/reconciliation/transactions?status=pending,unmatched').catch(() => ({ data: [] })),
-      api.get<{ data: Apuracao[] }>('/v1/fiscal/apuracao').catch(() => ({ data: [] })),
+      api.get<{ data: Apuracao[] }>(`/v1/fiscal/apuracao${q}`).catch(() => ({ data: [] })),
       api.get<{ data: DasSummaryRow[] }>('/v1/fiscal/das-summary').catch(() => ({ data: [] })),
     ]);
     setSummary(s);
@@ -112,11 +122,11 @@ export function FiscalPage() {
     setApuracoes(a.data.slice(0, 8));
     setDasSummary(ds.data);
     // Simulador/score falham com 422 (MEI/sem RBT12) — cards não aparecem.
-    api.get<Simulacao>('/v1/fiscal/simulator').then(setSim).catch(() => setSim(null));
-    api.get<ScoreData>('/v1/fiscal/score').then(setScore).catch(() => setScore(null));
+    api.get<Simulacao>(`/v1/fiscal/simulator${q}`).then(setSim).catch(() => setSim(null));
+    api.get<ScoreData>(`/v1/fiscal/score${q}`).then(setScore).catch(() => setScore(null));
     api.get<{ data: FiscalAlert[] }>('/v1/fiscal/alerts?status=open,acknowledged&limit=20')
       .then((r) => setAlerts(r.data)).catch(() => setAlerts([]));
-  }, []);
+  }, [companyId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -145,6 +155,18 @@ export function FiscalPage() {
           <p style={{ margin: '4px 0 0', color: 'var(--muted, #64748b)', fontSize: 13 }}>
             Importar vendas → conciliar → consolidar → emitir NFS-e (Simples Nacional)
           </p>
+          {companies.length > 1 && (
+            <div style={{ marginTop: 8 }}>
+              <label htmlFor="fiscal-company" style={{ fontSize: 12, color: 'var(--muted, #64748b)', marginRight: 6 }}>Empresa</label>
+              <select id="fiscal-company" value={companyId}
+                onChange={(e) => setSearchParams(e.target.value ? { company_id: e.target.value } : {})}>
+                <option value="">Todas</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.razao_social}{c.is_default ? ' (padrão)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {can('fiscal:import') && (
