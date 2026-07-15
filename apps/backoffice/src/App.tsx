@@ -23,6 +23,7 @@ import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { FiscalPage } from './pages/fiscal/FiscalPage';
+import { FiscalOverviewPage } from './pages/fiscal/FiscalOverviewPage';
 import { AccountingPage } from './pages/accounting/AccountingPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
@@ -138,7 +139,8 @@ function GuardedRoutes() {
             de develop, sem chave no catálogo de permissões ainda — deixados sem
             gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
         <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
-        <Route path="/fiscal"          element={gate('fiscal:view', <FiscalPage />)} />
+        <Route path="/fiscal"          element={gate('fiscal:view', <FiscalOverviewPage />)} />
+        <Route path="/fiscal/pipeline" element={gate('fiscal:view', <FiscalPage />)} />
         <Route path="/contabil"        element={gate('contabil:view', <AccountingPage />)} />
         <Route path="/proposals"       element={gate('proposals:view', <ProposalsPage />)} />
         <Route path="/reports"              element={gate('reports:view', <ReportsPage />)} />
