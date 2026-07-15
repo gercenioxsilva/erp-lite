@@ -33,6 +33,19 @@ function currentCompetencia(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function errorOverview(companyId: string, companyName: string): CompanyOverview {
+  return {
+    company_id: companyId,
+    company_name: companyName,
+    has_fiscal_config: true,
+    score: null,
+    alerts: null,
+    competencia_atual: null,
+    das: null,
+    error: true,
+  };
+}
+
 async function hasFiscalConfig(tenantId: string, companyId: string, db: DrizzleDB): Promise<boolean> {
   const rows = await db.select().from(fiscalCompanyConfig)
     .where(and(eq(fiscalCompanyConfig.tenant_id, tenantId), eq(fiscalCompanyConfig.company_id, companyId)));
@@ -89,10 +102,7 @@ async function buildConfiguredOverview(
       das, error: false,
     };
   } catch {
-    return {
-      company_id: companyId, company_name: companyName, has_fiscal_config: true,
-      score: null, alerts: null, competencia_atual: null, das: null, error: true,
-    };
+    return errorOverview(companyId, companyName);
   }
 }
 
@@ -102,7 +112,14 @@ export async function getCompaniesOverview(tenantId: string, db: DrizzleDB = _db
   const result: CompanyOverview[] = [];
 
   for (const company of companies) {
-    const configured = await hasFiscalConfig(tenantId, company.id, db);
+    let configured: boolean;
+    try {
+      configured = await hasFiscalConfig(tenantId, company.id, db);
+    } catch {
+      result.push(errorOverview(company.id, company.razao_social));
+      continue;
+    }
+
     if (!configured) {
       result.push({
         company_id: company.id, company_name: company.razao_social, has_fiscal_config: false,

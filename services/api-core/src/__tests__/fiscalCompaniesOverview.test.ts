@@ -44,13 +44,13 @@ describe('getCompaniesOverview', () => {
       .mockResolvedValueOnce({ score: 85, breakdown: [], findings: [{ rule: 'missing_cnae', severity: 'warning', title: 'x' }], computedAt: '' } as any)
       .mockResolvedValueOnce({ score: 40, breakdown: [], findings: [{ rule: 'iss_retention_mismatch', severity: 'critical', title: 'y' }], computedAt: '' } as any);
     vi.mocked(getClosingStatus)
-      .mockResolvedValueOnce({ run: null, lock: null })
+      .mockResolvedValueOnce({ run: null, lock: null } as any)
       .mockResolvedValueOnce({ run: { status: 'completed' }, lock: { status: 'locked' } } as any);
     vi.mocked(listApuracoes)
       .mockResolvedValueOnce([{ competencia: '2026-06', das_total: '1000.00' }] as any)
       .mockResolvedValueOnce([{ competencia: '2026-06', das_total: '2000.00' }] as any);
 
-    const result = await getCompaniesOverview('tenant-1', mockDb);
+    const result = await getCompaniesOverview('tenant-1', mockDb as any);
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
@@ -71,7 +71,7 @@ describe('getCompaniesOverview', () => {
     vi.mocked(listCompanies).mockResolvedValue([{ id: 'co-3', razao_social: 'Empresa Três' } as any]);
     mockDb.select.mockReturnValueOnce(selectReturning([])); // sem fiscal_company_config
 
-    const result = await getCompaniesOverview('tenant-1', mockDb);
+    const result = await getCompaniesOverview('tenant-1', mockDb as any);
 
     expect(result).toEqual([{
       company_id: 'co-3', company_name: 'Empresa Três', has_fiscal_config: false,
@@ -94,12 +94,45 @@ describe('getCompaniesOverview', () => {
     vi.mocked(computeScore)
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce({ score: 100, breakdown: [], findings: [], computedAt: '' } as any);
-    vi.mocked(getClosingStatus).mockResolvedValue({ run: null, lock: null });
+    vi.mocked(getClosingStatus).mockResolvedValue({ run: null, lock: null } as any);
     vi.mocked(listApuracoes).mockResolvedValue([]);
 
-    const result = await getCompaniesOverview('tenant-1', mockDb);
+    const result = await getCompaniesOverview('tenant-1', mockDb as any);
 
     expect(result[0]).toMatchObject({ company_id: 'co-4', has_fiscal_config: true, error: true, score: null });
     expect(result[1]).toMatchObject({ company_id: 'co-5', has_fiscal_config: true, error: false, score: 100 });
+  });
+
+  it('falha isolada em hasFiscalConfig não derruba outras empresas', async () => {
+    vi.mocked(listCompanies).mockResolvedValue([
+      { id: 'co-6', razao_social: 'Empresa Seis' } as any,
+      { id: 'co-7', razao_social: 'Empresa Sete' } as any,
+    ]);
+    // co-6: hasFiscalConfig throws; co-7: tem fiscal_company_config + dasPayments
+    mockDb.select
+      .mockReturnValueOnce({ from: () => ({ where: vi.fn().mockRejectedValue(new Error('DB error')) }) })
+      .mockReturnValueOnce(selectReturning([{ id: 'cfg-7' }]))
+      .mockReturnValueOnce(selectReturning([{ id: 'pay-7' }])); // co-7: das da última apuração já foi pago
+    vi.mocked(computeScore).mockResolvedValueOnce({
+      score: 75,
+      breakdown: [],
+      findings: [{ rule: 'missing_doc', severity: 'info', title: 'x' }],
+      computedAt: '',
+    } as any);
+    vi.mocked(getClosingStatus).mockResolvedValueOnce({ run: null, lock: null } as any);
+    vi.mocked(listApuracoes).mockResolvedValueOnce([{ competencia: '2026-06', das_total: '500.00' }] as any);
+
+    const result = await getCompaniesOverview('tenant-1', mockDb as any);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      company_id: 'co-6', company_name: 'Empresa Seis', has_fiscal_config: true,
+      score: null, alerts: null, competencia_atual: null, das: null, error: true,
+    });
+    expect(result[1]).toMatchObject({
+      company_id: 'co-7', company_name: 'Empresa Sete', has_fiscal_config: true,
+      score: 75, error: false,
+      alerts: { critical: 0, warning: 0, info: 1 },
+    });
   });
 });
