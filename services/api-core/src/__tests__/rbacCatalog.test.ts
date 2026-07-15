@@ -57,4 +57,8 @@ describe('matriz de papéis de sistema', () => {
     expect(SYSTEM_ROLE_PERMISSIONS.user).not.toContain('users:view');
     expect(SYSTEM_ROLE_PERMISSIONS.user).not.toContain('roles:manage');
   });
+
+  it('user (operador): vê técnicos — precisa pra agendar visita de Ordem de Serviço', () => {
+    expect(SYSTEM_ROLE_PERMISSIONS.user).toContain('technicians:view');
+  });
 });

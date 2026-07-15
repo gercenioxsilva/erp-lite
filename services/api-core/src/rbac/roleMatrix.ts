@@ -44,7 +44,7 @@ const OPERATIONAL = [
 // Subconjunto do dia a dia para o Operador (escrita leve, sem excluir).
 const OPERATOR_MODULES = [
   'clients', 'orders', 'proposals', 'invoices', 'materials', 'stock',
-  'receivables', 'payables', 'pos', 'service_orders',
+  'receivables', 'payables', 'pos', 'service_orders', 'technicians',
 ];
 
 const OWNER = ALL_PERMISSION_KEYS;

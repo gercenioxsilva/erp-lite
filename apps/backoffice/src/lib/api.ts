@@ -55,7 +55,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   const text = await res.text();
-  return text ? (JSON.parse(text) as T) : ({} as T);
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError('Resposta inválida do servidor', res.status);
+  }
 }
 
 /** Upload multipart (importação fiscal): o browser define o Content-Type
