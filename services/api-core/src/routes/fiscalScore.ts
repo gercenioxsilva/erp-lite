@@ -7,6 +7,7 @@ import { isAssistantEnabled } from '../lib/anthropicClient';
 import { CompanyDomainError } from '../services/companyService';
 import { computeScore } from '../services/fiscalScoreService';
 import { detectInconsistencies } from '../services/fiscalInconsistencyService';
+import { getCompaniesOverview } from '../services/fiscalCompaniesOverviewService';
 
 export const fiscalScoreRoutes: FastifyPluginAsync = async (fastify) => {
   const authenticate = (fastify as any).authenticate;
@@ -35,5 +36,10 @@ export const fiscalScoreRoutes: FastifyPluginAsync = async (fastify) => {
     const q = request.query as { company_id?: string; competencia?: string };
     try { return { data: await detectInconsistencies(tenantId, q.company_id, q.competencia ?? null) }; }
     catch (err) { return handleError(err, reply); }
+  });
+
+  fastify.get('/fiscal/companies-overview', guard, async (request) => {
+    const { tenantId } = (request as any).user;
+    return { data: await getCompaniesOverview(tenantId) };
   });
 };
