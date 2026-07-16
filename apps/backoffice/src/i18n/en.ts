@@ -792,6 +792,20 @@ const en: Record<TKey, string> = {
   'nfse.status.processing': 'Processing…',
   'nfse.status.authorized': 'Authorized',
   'nfse.status.rejected':   'Rejected',
+  'nfse.emit':          'Issue NFS-e',
+
+  // ── Standalone NFS-e (new) ───────────────────────────────────────────
+  'nfse.new':              '+ New NFS-e',
+  'nfse.newTitle':         'New standalone NFS-e',
+  'nfse.selectClient':     'Select a client…',
+  'nfse.serviceCodePH':    'E.g.: 14.01',
+  'nfse.issRate':          'ISS rate (%)',
+  'nfse.periodStart':      'Period start (optional)',
+  'nfse.periodEnd':        'Period end (optional)',
+  'nfse.create':           'Create NFS-e',
+  'nfse.errNoClient':      'Select a client',
+  'nfse.errNoDescription': 'Description is required',
+  'nfse.errNoAmount':      'Amount must be greater than zero',
 
   // ── NF-e monitoring panel ─────────────────────────────────────────────
   'nfe.col':         'NF-e SEFAZ',
@@ -1456,6 +1470,9 @@ const en: Record<TKey, string> = {
   'so.printNoVisits':  'No visits recorded yet.',
   'so.printNotFound':  'Service order not found.',
   'so.errNoTitle':     'Title is required',
+  'so.edit':           'Edit',
+  'so.editTitle':      'Edit Service Order',
+  'so.save':           'Save changes',
   'so.billingTitle':        'Billing',
   'so.billingDueDate':      'Due date',
   'so.billingEmitNfse':     'Also issue NFS-e',

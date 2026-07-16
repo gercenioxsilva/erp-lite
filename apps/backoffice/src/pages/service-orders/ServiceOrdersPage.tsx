@@ -11,7 +11,7 @@ interface ServiceOrder {
   id: string; number: string; title: string; type: string; status: string;
   total: number; created_at: string; client_name: string | null;
 }
-interface ServiceOrderItemRow { id: string; description: string; quantity: number; unit_price: number; total: number; }
+interface ServiceOrderItemRow { id: string; material_id: string | null; description: string; quantity: number; unit_price: number; total: number; }
 interface VisitRow {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   technician_name: string | null; technician_current_name: string | null; report_notes: string | null;
@@ -68,6 +68,7 @@ export function ServiceOrdersPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing]       = useState<ServiceOrderDetail | null>(null);
+  const [editMode, setEditMode]     = useState(false);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
 
@@ -131,6 +132,7 @@ export function ServiceOrdersPage() {
 
   function openCreate() {
     setEditing(null);
+    setEditMode(false);
     setFormTitle(''); setFormDescription(''); setFormType('maintenance'); setFormClientId('');
     setFormItems([newItem()]);
     setFormError('');
@@ -142,12 +144,37 @@ export function ServiceOrdersPage() {
     setFormError('');
     setDrawerOpen(true);
     setEditing(null);
+    setEditMode(false);
     try {
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${o.id}`);
       setEditing(detail);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('c.loading'));
     }
+  }
+
+  // Só entra em modo de edição a partir de uma OS já carregada em 'draft'
+  // (regra 52-like: assertServiceOrderEditable no backend) — pré-preenche o
+  // mesmo formulário usado na criação.
+  function startEdit() {
+    if (!editing) return;
+    setFormTitle(editing.title);
+    setFormDescription(editing.description ?? '');
+    setFormType(editing.type);
+    setFormClientId(editing.client_id ?? '');
+    setFormItems(
+      editing.items.length > 0
+        ? editing.items.map(it => ({
+            _key: Math.random().toString(36).slice(2),
+            material_id: it.material_id ?? '',
+            description: it.description,
+            quantity: String(it.quantity),
+            unit_price: String(it.unit_price),
+          }))
+        : [newItem()],
+    );
+    setFormError('');
+    setEditMode(true);
   }
 
   function addItem() { setFormItems(prev => [...prev, newItem()]); }
@@ -171,19 +198,27 @@ export function ServiceOrdersPage() {
     e.preventDefault();
     if (!formTitle.trim()) { setFormError(t('so.errNoTitle')); return; }
     setSaving(true); setFormError('');
+    const payload = {
+      title: formTitle.trim(),
+      description: formDescription || undefined,
+      type: formType,
+      client_id: formClientId || undefined,
+      items: formItems.filter(it => it.description.trim()).map(it => ({
+        materialId: it.material_id || undefined,
+        description: it.description.trim(),
+        quantity: Number(it.quantity), unit_price: Number(it.unit_price),
+      })),
+    };
     try {
-      await api.post('/v1/service-orders', {
-        title: formTitle.trim(),
-        description: formDescription || undefined,
-        type: formType,
-        client_id: formClientId || undefined,
-        items: formItems.filter(it => it.description.trim()).map(it => ({
-          materialId: it.material_id || undefined,
-          description: it.description.trim(),
-          quantity: Number(it.quantity), unit_price: Number(it.unit_price),
-        })),
-      });
-      setDrawerOpen(false);
+      if (editMode && editing) {
+        await api.patch(`/v1/service-orders/${editing.id}`, payload);
+        const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
+        setEditing(detail);
+        setEditMode(false);
+      } else {
+        await api.post('/v1/service-orders', payload);
+        setDrawerOpen(false);
+      }
       void load();
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('cl.errSave'));
@@ -314,11 +349,14 @@ export function ServiceOrdersPage() {
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(760px, 96vw)' }}>
             <div className="drawer-header">
-              <h2>{editing ? `#${editing.number} — ${editing.title}` : t('so.new')}</h2>
+              <h2>
+                {editMode && editing ? `${t('so.editTitle')} — #${editing.number}`
+                  : editing ? `#${editing.number} — ${editing.title}` : t('so.new')}
+              </h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
-            {editing ? (
+            {editing && !editMode ? (
               <div className="drawer-body">
                 {formError && <div className="alert alert-error" role="alert">{formError}</div>}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
@@ -484,6 +522,13 @@ export function ServiceOrdersPage() {
                     onClick={() => window.open(`/service-orders/${editing.id}/print`, '_blank', 'noopener')}>
                     {t('so.printView')}
                   </button>
+                  {editing.status === 'draft' && (
+                    <Can permission="service_orders:edit">
+                      <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={startEdit}>
+                        {t('so.edit')}
+                      </button>
+                    </Can>
+                  )}
                   {editing.status !== 'cancelled' && editing.status !== 'completed' && (
                     <Can permission="service_orders:edit">
                       <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
@@ -578,9 +623,12 @@ export function ServiceOrdersPage() {
                 </div>
 
                 <div className="drawer-footer">
-                  <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.cancel')}</button>
+                  <button type="button" className="btn btn-secondary"
+                    onClick={() => editMode ? setEditMode(false) : setDrawerOpen(false)}>
+                    {t('c.cancel')}
+                  </button>
                   <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                    {saving ? t('c.saving') : t('so.new')}
+                    {saving ? t('c.saving') : editMode ? t('so.save') : t('so.new')}
                   </button>
                 </div>
               </form>

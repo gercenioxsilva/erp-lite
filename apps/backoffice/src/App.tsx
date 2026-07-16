@@ -21,6 +21,7 @@ import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
+import { NfseNewPage }     from './pages/nfse/NfseNewPage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
@@ -131,6 +132,7 @@ function GuardedRoutes() {
         <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
         <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
         <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
+        <Route path="/nfse/new"    element={gate('nfse:create', <NfseNewPage />)} />
         {/* TODO(follow-up RBAC): simples-remessa e sales-pipeline são módulos novos
             de develop, sem chave no catálogo de permissões ainda — deixados sem
             gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
