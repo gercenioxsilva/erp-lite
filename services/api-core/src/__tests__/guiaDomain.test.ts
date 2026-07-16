@@ -31,7 +31,7 @@ describe('buildGuia', () => {
     expect(g.valores.das_total).toBe('4040.00');
     expect(g.valores.tributos.iss).toBe('1292.80');
     expect(g.passos).toHaveLength(6);
-    expect(g.aviso).toContain('não a guia oficial');
+    expect(g.aviso).toContain('não é a guia oficial');
     expect(g.memoria).toEqual({ porAnexo: [] });
   });
 

@@ -73,6 +73,7 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
       config:             'Configurar cadastro fiscal da empresa (CNAE, Simples, provedor NFS-e)',
       manage_certificate: 'Enviar/remover certificado digital A1',
       apurar:             'Apurar Simples Nacional (PGDAS-D)',
+      transmit:           'Transmitir PGDAS-D e gerar DAS na Receita (ato irreversível, com custo)',
       acknowledge:        'Reconhecer/resolver alertas fiscais',
       close:              'Fechar competência (checklist + trava)',
       reopen:             'Reabrir competência travada',

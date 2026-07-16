@@ -20,7 +20,7 @@ export interface ApuracaoRowLike {
 }
 
 export const GUIA_AVISO =
-  'O PGDAS-D não possui API oficial de transmissão. Lance os valores abaixo manualmente no portal (www8.receita.fazenda.gov.br) — este documento é a memória de cálculo assistida, não a guia oficial com código de barras (essa só o portal gera).';
+  'Memória de cálculo assistida do PGDAS-D. Você pode transmitir a declaração e gerar o DAS oficial direto pela integração com a Receita (SERPRO Integra Contador), quando configurada — ou lançar estes valores manualmente no portal (www8.receita.fazenda.gov.br). Este documento não é a guia oficial com código de barras; essa vem da transmissão (botão) ou do portal.';
 
 export function buildRoteiroPassos(competencia: string, receita: string | null): string[] {
   return [

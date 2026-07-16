@@ -61,18 +61,25 @@ export async function loadReparticao(anexo: string, ano: number, db: DrizzleDB):
   }));
 }
 
-/** Folha 12m (folha+pró-labore) da janela anterior à competência. */
+/** Folha 12m (folha+pró-labore) da janela anterior à competência.
+ *  Devolve também porCompetencia (folhasSalario do payload PGDAS-D) — o Map já
+ *  era montado e descartado; o caller da apuração ignora o campo extra. */
 export async function folha12m(tenantId: string, companyId: string, competencia: string, db: DrizzleDB) {
   const janela = windowCompetencias(competencia);
   const rows = await db.select().from(fiscalCompanyPayrollMonth)
     .where(and(eq(fiscalCompanyPayrollMonth.tenant_id, tenantId), eq(fiscalCompanyPayrollMonth.company_id, companyId)));
   const map = new Map(rows.map((r) => [r.competencia, r]));
   let total = 0, meses = 0;
+  const porCompetencia: Array<{ competencia: string; valor: number }> = [];
   for (const c of janela) {
     const row = map.get(c);
-    if (row) { total += toNumber(row.folha_amount) + toNumber(row.pro_labore_amount); meses++; }
+    if (row) {
+      const valor = round2(toNumber(row.folha_amount) + toNumber(row.pro_labore_amount));
+      total += valor; meses++;
+      porCompetencia.push({ competencia: c, valor });
+    }
   }
-  return { total: round2(total), meses };
+  return { total: round2(total), meses, porCompetencia };
 }
 
 export async function apurarCompetencia(
@@ -216,15 +223,21 @@ export async function registerDasPayment(
   return row;
 }
 
-/** Estimado vs pago (dashboard) — últimos 12 meses. */
-export async function estimadoVsPago(tenantId: string, db: DrizzleDB = _db) {
+/** Estimado vs pago (dashboard) — últimos 12 meses.
+ *  companyId=null mantém o rollup tenant-wide (compat); com companyId, filtra
+ *  AS DUAS metades — o estimado E a subquery correlacionada do pago. Filtrar só
+ *  o SELECT externo deixaria o pago tenant-wide e reintroduziria a supressão de
+ *  alerta (o pago inflado por empresas irmãs esconde o DAS não pago de uma). */
+export async function estimadoVsPago(tenantId: string, companyId: string | null = null, db: DrizzleDB = _db) {
   const { rows } = await db.execute<any>(
     sql`SELECT a.competencia,
                SUM(a.das_total) AS estimado,
                COALESCE((SELECT SUM(p.amount) FROM das_payments p
-                         WHERE p.tenant_id = a.tenant_id AND p.competencia = a.competencia), 0) AS pago
+                         WHERE p.tenant_id = a.tenant_id AND p.competencia = a.competencia
+                           AND (${companyId}::uuid IS NULL OR p.company_id = ${companyId}::uuid)), 0) AS pago
         FROM simples_apuracao a
         WHERE a.tenant_id = ${tenantId}
+          AND (${companyId}::uuid IS NULL OR a.company_id = ${companyId}::uuid)
         GROUP BY a.tenant_id, a.competencia
         ORDER BY a.competencia DESC LIMIT 12`
   );

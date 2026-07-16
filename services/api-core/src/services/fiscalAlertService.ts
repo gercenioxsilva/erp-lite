@@ -34,7 +34,9 @@ async function loadSnapshot(tenantId: string, companyId: string, db: DrizzleDB):
   const competencia = hoje.toISOString().slice(0, 7);
 
   const [evp, [cert], [company]] = await Promise.all([
-    estimadoVsPago(tenantId, db),
+    // POR EMPRESA: sem o companyId o pago vinha tenant-wide e o pago inflado por
+    // empresas irmãs suprimia o alerta de DAS não pago desta empresa.
+    estimadoVsPago(tenantId, companyId, db),
     db.select({ not_after: fiscalCertificates.not_after }).from(fiscalCertificates)
       .where(and(eq(fiscalCertificates.company_id, companyId), eq(fiscalCertificates.is_active, true))),
     db.select({ ibge: nfeConfigs.codigo_municipio_ibge }).from(nfeConfigs).where(eq(nfeConfigs.id, companyId)),

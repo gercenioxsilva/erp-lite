@@ -2343,6 +2343,29 @@ export const dasPayments = pgTable('das_payments', {
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Transmissão PGDAS-D via SERPRO Integra Contador (0079). Agregado SEPARADO de
+// simples_apuracao (que tem status próprio clobbered pelo export). status:
+// building|sent|confirmed|failed|failed_unknown (failed_unknown é TERMINAL —
+// Declarar não é idempotente; nunca auto-retry).
+export const pgdasdTransmissions = pgTable('pgdasd_transmissions', {
+  id:                    uuid('id').primaryKey().defaultRandom(),
+  tenant_id:             uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:            uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  apuracao_id:           uuid('apuracao_id').notNull().references(() => simplesApuracao.id, { onDelete: 'cascade' }),
+  competencia:           char('competencia', { length: 7 }).notNull(),
+  indicador_transmissao: boolean('indicador_transmissao').notNull().default(false),
+  status:                varchar('status', { length: 16 }).notNull().default('building'),
+  payload_dados:         jsonb('payload_dados').notNull(),
+  numero_declaracao:     varchar('numero_declaracao', { length: 30 }),
+  valores_rfb:           jsonb('valores_rfb'),
+  das_pdf_s3_key:        varchar('das_pdf_s3_key', { length: 255 }),
+  erro_codigo:           varchar('erro_codigo', { length: 60 }),
+  erro_mensagem:         text('erro_mensagem'),
+  created_by:            uuid('created_by'),
+  created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:            timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Repartição do DAS por tributo (GLOBAL, regra 33; seed na 0075).
 export const taxSimplesRepartition = pgTable('tax_simples_repartition', {
   vigencia_ano: smallint('vigencia_ano').notNull(),

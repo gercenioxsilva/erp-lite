@@ -1,7 +1,9 @@
 # Módulo Fiscal + Contábil (Simples Nacional)
 
-> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations **0068–0078** · ~1179 testes · 79 migrations validadas do zero.
-> Documento gerado a partir do código em 2026-07-12. Cobre: **o que foi feito**, **como funciona**, **o que é configurável** e **o que é preciso para funcionar**.
+> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations **0068–0079** · ~1179 testes · 79+ migrations validadas do zero.
+> Documento gerado a partir do código em 2026-07-12 (atualizado 2026-07-16 com a transmissão PGDAS-D via SERPRO). Cobre: **o que foi feito**, **como funciona**, **o que é configurável** e **o que é preciso para funcionar**.
+>
+> **Correção importante (2026-07-16):** a premissa anterior "o PGDAS-D não tem API oficial de transmissão" era **FALSA**. A **SERPRO Integra Contador** transmite o PGDAS-D (`TRANSDECLARACAO11`) e gera o DAS oficial em PDF (`GERARDAS12`) — ver §2.14. A transmissão foi implementada na migration 0079; onde este documento ainda disser "sem API oficial", vale o §2.14.
 
 ---
 
@@ -23,7 +25,9 @@ Foi entregue em **três rodadas**:
 | 2 | 0076–0078 | Simulador de DAS + what-if (E1), Score Fiscal + detector de inconsistências (E2), Central de alertas (E3), Robô de fechamento + trava de competência (E4), Motor contábil de dupla entrada (E5), Assistente Fiscal IA (E6) |
 | 3 | — (sem migration) | Assistente **propõe** NFS-e com confirmação humana (E7), **guia de impostos** do mês imprimível (E8), pontas soltas: seams contábeis de POS/payable + estornos, **feriados nacionais** no vencimento do DAS, CRUD de regras de conciliação e de municípios (E9) |
 
-**Fora do escopo (próxima rodada):** OCR de documentos e Fiscal Engine API pública (`/v1/engine/*` + `api_keys`) — migration 0079 reservada.
+**Fora do escopo (próxima rodada):** OCR de documentos e Fiscal Engine API pública (`/v1/engine/*` + `api_keys`).
+
+**Rodada 4 (migration 0079):** transmissão PGDAS-D + geração do DAS oficial via SERPRO Integra Contador — ver §2.14.
 
 ### Arquitetura
 
@@ -95,7 +99,7 @@ Score ≥ threshold (default **0,90**) e sem empate → **auto-confirma**: cria 
 - **Teto de 5% do ISS** com redistribuição proporcional do excedente entre os demais tributos; **sublimite R$ 3,6M** tira ICMS/ISS do DAS *sem* redistribuição (recolhidos por fora); **Anexo IV sem CPP** (INSS patronal via GPS); **ISS retido** pelo tomador abatido proporcionalmente; **empresa mista** soma vários anexos.
 - **MEI é bloqueado** (`mei_das_fixo_nao_suportado`) — DAS-SIMEI é valor fixo.
 
-Resultado: upsert idempotente em `simples_apuracao` (memória de cálculo completa em JSONB) + eventos. **Não há transmissão ao portal** (o PGDAS-D não tem API oficial): `GET /v1/fiscal/apuracao/:id/export` devolve o **roteiro assistido** de 6 passos com os valores exatos por tributo. `POST /v1/fiscal/das-payments` registra o DAS pago; `GET /v1/fiscal/das-summary` mostra estimado vs pago das últimas 12 competências.
+Resultado: upsert idempotente em `simples_apuracao` (memória de cálculo completa em JSONB) + eventos. `GET /v1/fiscal/apuracao/:id/export` devolve o **roteiro assistido** de 6 passos com os valores exatos por tributo (para quem lança no portal manualmente). `POST /v1/fiscal/das-payments` registra o DAS pago; `GET /v1/fiscal/das-summary` mostra estimado vs pago das últimas 12 competências. **A transmissão automática do PGDAS-D e a geração do DAS oficial estão em §2.14 (SERPRO Integra Contador).**
 
 ### 2.7 Simulador de DAS (E1 — sem migration, 100% stateless)
 
@@ -189,6 +193,28 @@ Além de responder, o assistente pode **propor** duas ações; **o modelo nunca 
 
 Auditoria (LGPD): `fiscal_events` guarda apenas o **tipo** da ação proposta (`action_type`), nunca dados do cliente ou valores. A emissão em si audita `nfse_created`.
 
+### 2.14 Transmissão PGDAS-D + DAS oficial (Rodada 4 — migration 0079, SERPRO Integra Contador)
+
+Corrige a premissa falsa "o PGDAS-D não tem API oficial". A **SERPRO Integra Contador** (SERPRO + RFB, em produção) transmite a declaração e gera o DAS:
+
+- `TRANSDECLARACAO11` → `POST /Declarar` transmite; `GERARDAS12` → `POST /Emitir` devolve o **DAS oficial em PDF base64** (código de barras + PIX); `CONSULTIMADECREC14` consulta a última declaração.
+- Auth **mTLS** com **e-CNPJ A1** (.pfx) + Basic `consumerKey:consumerSecret` + header `Role-Type: TERCEIROS` → `access_token` **e** `jwt_token` (`src/lib/serproClient.ts`, `node:https`, zero deps novas). Custo ≈ **R$0,96/mês**; sem mensalidade/fidelidade. **Procuração dispensada** ao declarar o próprio CNPJ (contratante = autor = contribuinte).
+
+**Arquitetura (molde do assistente IA — gating por env):**
+- **Domínio puro** (`src/domain/pgdasd/`): `atividadesDomain` (`resolveIdAtividade` — enum 1..43, **não** LC116/CNAE; dev de software = **11**), `payloadDomain` (`buildTransdeclaracaoDados` — `pa` numérico, `valoresParaComparacao` sem zeros), `readinessDomain` (lista **todos** os bloqueios; inclui `ledger_incompleto` — a única classe de erro que a conferência não pega), `responseDomain` (parse defensivo do retorno + diff).
+- **Serviço** (`src/services/pgdasdService.ts`): readiness → conferir → transmitir → gerar DAS. **Sem SQS** (HTTP síncrono; redelivery sobre declaração não-idempotente é o pior transporte).
+- **`pgdasd_transmissions`** (agregado separado — **não** um status em `simples_apuracao`, que é clobbered pelo `/export`). `UNIQUE` parcial em-voo (`indicador_transmissao AND status IN ('building','sent')`) impede duplo-clique; **não** `UNIQUE(apuracao_id)` (proibiria retificadora). `status: building|sent|confirmed|failed|failed_unknown`.
+
+**Disciplina legal:**
+1. **Conferência** (`indicadorTransmissao=false`, `indicadorComparacao=true`): a RFB calcula e devolve os números dela **sem transmitir** — R$0,40, **zero efeito jurídico**. Rede de segurança antes do ato.
+2. **Transmissão** (`=true`): ato **irreversível**. Exige `confirmar:true` no corpo. Persiste o número **antes** de gerar o DAS. **Nunca faz blind-retry do Declarar** — timeout depois dos bytes saírem ⇒ `failed_unknown` (TERMINAL; reconciliar via `CONSULTIMADECREC14`), nunca `failed`.
+3. **`indicadorComparacao` sempre true**: divergência de R$0,01 bloqueia. RFB no Anexo V vs nós no III ⇒ guard funcionando (investigar o Fator R, não contornar).
+4. **RBAC**: `fiscal:transmit` fica **fora** do Gestor por padrão (só owner/admin) — protocola declaração federal e gasta dinheiro.
+
+**Casos ainda não suportados (guard 422, nunca adivinhados):** ISS fixo, ISS retido (`qualificacoesTributarias` não documentada pela SERPRO), multi-anexo, sublimite, exportação, retificadora, `rbt12_source='manual'` (sem quebra mensal). Cada um vira um motivo de readiness.
+
+**Verificado:** motor + payload reproduzem o DAS real 02/2026 (R$168,00) ao centavo (teste golden). Cliente SERPRO, parse, diff e a classificação `failed_unknown` testados com a **rede mockada**. **A verificação de ponta a ponta contra a SERPRO real exige contrato + e-CNPJ A1** (roda fora do CI).
+
 ---
 
 ## 3. Referência de API (todas sob `/v1`, JWT obrigatório)
@@ -241,6 +267,15 @@ Legenda de permissão: tudo em `/v1/fiscal/*` e `/v1/accounting/*` exige também
 | POST `/fiscal/apuracao` · GET `/fiscal/apuracao/:id/export` · POST `/fiscal/das-payments` | fiscal:apurar |
 | GET `/fiscal/simulator` · POST `/fiscal/simulator/what-if` | fiscal:view |
 | GET `/fiscal/score` (inclui `assistantEnabled`) · GET `/fiscal/inconsistencies` | fiscal:view |
+
+### PGDAS-D via SERPRO (§2.14 — 503 sem credenciais SERPRO)
+
+| Método/Rota | Permissão |
+|---|---|
+| GET `/fiscal/apuracao/:id/pgdasd/readiness` · `.../pgdasd/payload` · `.../pgdasd/transmissions` | fiscal:view |
+| POST `/fiscal/apuracao/:id/pgdasd/conferir` (dry-run, R$0,40, sem efeito legal) | **fiscal:transmit** |
+| POST `/fiscal/apuracao/:id/pgdasd/transmitir` (corpo `{confirmar:true}`; ato irreversível) | **fiscal:transmit** |
+| POST `/fiscal/pgdasd/transmissions/:tid/das` (gera o DAS oficial em PDF) | **fiscal:transmit** |
 
 ### Alertas, fechamento, trava
 
@@ -323,6 +358,10 @@ Papéis **custom por tenant** podem receber qualquer grant pela tela de perfis.
 | `ANTHROPIC_API_KEY` | — | **liga o Assistente Fiscal IA**; ausente = 503 + card oculto |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5` | modelo do assistente (lido a cada chamada) |
 | `ASSISTANT_DAILY_CAP` | `50` | mensagens/dia/tenant do assistente |
+| `SERPRO_CONSUMER_KEY` / `SERPRO_CONSUMER_SECRET` | — | **liga a transmissão PGDAS-D** (§2.14); ausente = rotas pgdasd 503 |
+| `SERPRO_MTLS_PFX_BASE64` / `SERPRO_MTLS_PFX_PASSWORD` | — | e-CNPJ A1 (.pfx) do mTLS — **o mesmo usado para contratar na loja SERPRO** |
+| `SERPRO_ENV` | `trial` | `producao` \| `trial` (gateway Integra Contador) |
+| `FISCAL_DOCS_BUCKET` | (→ `FISCAL_IMPORTS_BUCKET`) | S3 do DAS gerado. Ausente: PDF devolvido inline (base64) |
 | `NOTIFICATIONS_QUEUE_URL` | — | fila de e-mail (alertas critical, notas emitidas). Ausente: envio ignorado com warn |
 | `AWS_REGION` / `AWS_ENDPOINT_URL` | us-east-1 / — | clientes SQS/S3 (LocalStack em dev) |
 | `JWT_SECRET`, `PORT`, `HOST`, `NODE_ENV`, `LOG_LEVEL` | — | básicos do serviço |

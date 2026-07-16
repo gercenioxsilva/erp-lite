@@ -37,7 +37,10 @@ export interface RecordFiscalEventResult {
   event: FiscalEvent | null; // null somente quando duplicate=true
 }
 
-const SECRET_KEY_PATTERN = /senha|password|token|secret|credential|pfx|private_key|client_secret/i;
+// consumer_key NÃO casa com 'secret'/'token' (consumer_secret casa via 'secret');
+// incluído explicitamente. NÃO usar um /key/ cru — mascararia idempotency_key,
+// dedupe_key e afins que são payload legítimo.
+const SECRET_KEY_PATTERN = /senha|password|token|secret|credential|pfx|private_key|client_secret|consumer_key/i;
 const MAX_PAYLOAD_DEPTH = 6;
 
 /**

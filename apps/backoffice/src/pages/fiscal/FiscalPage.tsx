@@ -3,7 +3,7 @@
 // telas dedicadas (upload guiado, cadastro fiscal completo, apuração) evoluem
 // sobre estes mesmos endpoints.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
@@ -50,6 +50,28 @@ interface Simulacao {
 
 const money = (v: string | null) => (v ? BRL.format(Number(v)) : '—');
 
+// PGDAS-D via SERPRO Integra Contador (0079).
+interface PgdasdReadiness { ready: boolean; reasons: string[]; mesesFaltantes: string[]; enabled: boolean; }
+interface PgdasdTx {
+  id: string; status: string; indicador_transmissao: boolean;
+  numero_declaracao: string | null; competencia: string;
+}
+interface PgdasdState { readiness?: PgdasdReadiness; txs?: PgdasdTx[]; loading?: boolean; open?: boolean; }
+
+const READINESS_LABEL: Record<string, string> = {
+  mei_nao_suportado: 'MEI não é suportado (DAS fixo)',
+  nao_optante: 'Empresa não optante do Simples',
+  sem_receita_na_competencia: 'Sem receita na competência',
+  rbt12_source_manual: 'RBT12 é bootstrap manual (sem quebra mensal para a RFB)',
+  ledger_incompleto: 'Faltam meses de receita no ledger',
+  iss_fixo_nao_suportado: 'ISS fixo ainda não suportado',
+  iss_retido_nao_suportado: 'ISS retido ainda não suportado',
+  multi_anexo_nao_suportado: 'Mais de um anexo na competência',
+  sublimite_nao_suportado: 'Sublimite excedido (ICMS/ISS por fora)',
+  exportacao_nao_suportada: 'Receita de exportação não suportada',
+  inscricao_municipal_ausente: 'Inscrição municipal ausente',
+};
+
 const STATUS_COLOR: Record<string, string> = {
   parsed: '#16a34a', partially_failed: '#d97706', failed: '#dc2626', received: '#64748b', parsing: '#2563eb',
   open: '#2563eb', calculated: '#7c3aed', emitting: '#d97706', emitted: '#16a34a',
@@ -62,6 +84,81 @@ function Badge({ value }: { value: string }) {
       padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600,
       color: '#fff', background: STATUS_COLOR[value] ?? '#64748b',
     }}>{value}</span>
+  );
+}
+
+function PgdasdPanel({ state, canTransmit, busy, onConferir, onTransmitir, onBaixarDas }: {
+  state: PgdasdState;
+  canTransmit: boolean;
+  busy: boolean;
+  onConferir: () => void;
+  onTransmitir: () => void;
+  onBaixarDas: (tx: PgdasdTx) => void;
+}) {
+  if (state.loading) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando PGDAS-D…</p>;
+  const readiness = state.readiness;
+  const enabled = readiness?.enabled ?? false;
+  const txs = state.txs ?? [];
+
+  return (
+    <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {!enabled && (
+        <p style={{ color: 'var(--muted)', margin: 0 }}>
+          Integração SERPRO (Integra Contador) não configurada neste ambiente. O cálculo e o roteiro seguem disponíveis; a transmissão exige as credenciais SERPRO + certificado e-CNPJ A1.
+        </p>
+      )}
+
+      {readiness && !readiness.ready && (
+        <div style={{ color: '#b45309' }}>
+          <strong>Pendências para transmitir:</strong>
+          <ul style={{ margin: '4px 0 0 16px' }}>
+            {readiness.reasons.map((r) => (
+              <li key={r}>
+                {READINESS_LABEL[r] ?? r}
+                {r === 'ledger_incompleto' && readiness.mesesFaltantes.length > 0
+                  ? ` (${readiness.mesesFaltantes.join(', ')})` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {readiness?.ready && enabled && (
+        <p style={{ color: '#16a34a', margin: 0 }}>✓ Pronto para conferir e transmitir à Receita.</p>
+      )}
+
+      {canTransmit && enabled && (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn btn-sm" disabled={busy || !readiness?.ready} onClick={onConferir}>
+            Conferir (dry-run)
+          </button>
+          <button className="btn btn-sm" disabled={busy || !readiness?.ready} onClick={onTransmitir}
+            style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}>
+            Transmitir
+          </button>
+        </div>
+      )}
+
+      {txs.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {txs.map((tx) => (
+              <tr key={tx.id} style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
+                <td style={{ padding: '4px 4px' }}>
+                  {tx.indicador_transmissao ? 'Transmissão' : 'Conferência'} <Badge value={tx.status} />
+                </td>
+                <td style={{ padding: '4px 4px', color: 'var(--muted)' }}>{tx.numero_declaracao ?? '—'}</td>
+                <td style={{ padding: '4px 4px', textAlign: 'right' }}>
+                  {tx.indicador_transmissao && tx.status === 'confirmed' && canTransmit && (
+                    <button className="btn btn-sm" disabled={busy} onClick={() => onBaixarDas(tx)}>Baixar DAS</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -98,6 +195,7 @@ export function FiscalPage() {
   const [competencia, setCompetencia] = useState(previousMonth());
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [pgdasd, setPgdasd] = useState<Record<string, PgdasdState>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -113,7 +211,7 @@ export function FiscalPage() {
       api.get<{ data: Draft[] }>('/v1/fiscal/consolidation/drafts').catch(() => ({ data: [] })),
       api.get<{ data: PendingTx[] }>('/v1/fiscal/reconciliation/transactions?status=pending,unmatched').catch(() => ({ data: [] })),
       api.get<{ data: Apuracao[] }>(`/v1/fiscal/apuracao${q}`).catch(() => ({ data: [] })),
-      api.get<{ data: DasSummaryRow[] }>('/v1/fiscal/das-summary').catch(() => ({ data: [] })),
+      api.get<{ data: DasSummaryRow[] }>(`/v1/fiscal/das-summary${q}`).catch(() => ({ data: [] })),
     ]);
     setSummary(s);
     setBatches(b.data.slice(0, 8));
@@ -139,6 +237,57 @@ export function FiscalPage() {
     } catch (err: any) {
       setMessage(`${label} falhou: ${err?.message ?? err}`);
     } finally { setBusy(null); }
+  }
+
+  // ── PGDAS-D (SERPRO): carrega readiness + fila de transmissões por apuração ──
+  async function togglePgdasd(apuracaoId: string) {
+    const current = pgdasd[apuracaoId];
+    if (current?.open) { setPgdasd((s) => ({ ...s, [apuracaoId]: { ...current, open: false } })); return; }
+    setPgdasd((s) => ({ ...s, [apuracaoId]: { ...current, open: true, loading: true } }));
+    const [readiness, txs] = await Promise.all([
+      api.get<PgdasdReadiness>(`/v1/fiscal/apuracao/${apuracaoId}/pgdasd/readiness`).catch(() => undefined),
+      api.get<{ data: PgdasdTx[]; enabled: boolean }>(`/v1/fiscal/apuracao/${apuracaoId}/pgdasd/transmissions`)
+        .then((r) => r.data).catch(() => [] as PgdasdTx[]),
+    ]);
+    setPgdasd((s) => ({ ...s, [apuracaoId]: { readiness, txs, loading: false, open: true } }));
+  }
+
+  async function reloadPgdasd(apuracaoId: string) {
+    const txs = await api.get<{ data: PgdasdTx[] }>(`/v1/fiscal/apuracao/${apuracaoId}/pgdasd/transmissions`)
+      .then((r) => r.data).catch(() => [] as PgdasdTx[]);
+    setPgdasd((s) => ({ ...s, [apuracaoId]: { ...s[apuracaoId], txs } }));
+  }
+
+  async function conferirPgdasd(apuracaoId: string) {
+    await run('Conferência PGDAS-D', () => api.post(`/v1/fiscal/apuracao/${apuracaoId}/pgdasd/conferir`, {}));
+    await reloadPgdasd(apuracaoId);
+  }
+
+  async function transmitirPgdasd(apuracaoId: string, competenciaRow: string) {
+    const ok = window.confirm(
+      `Transmitir a declaração PGDAS-D da competência ${competenciaRow} à Receita Federal?\n\n` +
+      'Este é um ato fiscal IRREVERSÍVEL e tem custo por chamada. ' +
+      'Confirme só depois de conferir que o valor bate com o cálculo.',
+    );
+    if (!ok) return;
+    await run('Transmissão PGDAS-D', () => api.post(`/v1/fiscal/apuracao/${apuracaoId}/pgdasd/transmitir`, { confirmar: true }));
+    await reloadPgdasd(apuracaoId);
+  }
+
+  async function baixarDas(tx: PgdasdTx) {
+    await run('Gerar DAS', async () => {
+      const res = await api.post<{ pdfBase64: string; url: string | null }>(`/v1/fiscal/pgdasd/transmissions/${tx.id}/das`, {});
+      if (res.url) { window.open(res.url, '_blank', 'noopener,noreferrer'); return { ok: true }; }
+      // Sem bucket: baixa o base64 inline.
+      const bytes = Uint8Array.from(atob(res.pdfBase64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `DAS-${tx.competencia}.pdf`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      return { ok: true };
+    });
   }
 
   async function upload(file: File) {
@@ -373,15 +522,17 @@ export function FiscalPage() {
         >
           {apuracoes.length === 0 ? (
             <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Nenhuma competência apurada. O cálculo gera a memória completa — a transmissão no portal PGDAS-D permanece manual (sem API oficial).
+              Nenhuma competência apurada. O cálculo gera a memória completa e permite transmitir o PGDAS-D e gerar o DAS oficial pela integração com a Receita (quando configurada) — ou lançar no portal manualmente.
             </p>
           ) : (
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <tbody>
                 {apuracoes.map((a) => {
                   const pago = dasSummary.find((r) => r.competencia === a.competencia)?.pago ?? 0;
+                  const px = pgdasd[a.id];
                   return (
-                    <tr key={a.id} style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
+                    <Fragment key={a.id}>
+                    <tr style={{ borderTop: '1px solid var(--border, #eef2f7)' }}>
                       <td style={{ padding: '6px 4px', fontWeight: 600 }}>{a.competencia}</td>
                       <td style={{ padding: '6px 4px', fontSize: 11 }}>
                         RBT12 {money(a.rbt12)}{a.fator_r ? ` · Fator R ${(Number(a.fator_r) * 100).toFixed(1)}%` : ''}
@@ -391,15 +542,34 @@ export function FiscalPage() {
                       <td style={{ padding: '6px 4px', textAlign: 'right', fontSize: 12, color: pago >= Number(a.das_total) ? '#16a34a' : 'var(--muted, #64748b)' }}>
                         pago {BRL.format(pago)}
                       </td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                      <td style={{ padding: '6px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {can('fiscal:apurar') && (
                           <button className="btn btn-sm" disabled={!!busy}
                             onClick={() => run('Export PGDAS-D', () => api.get(`/v1/fiscal/apuracao/${a.id}/export`))}>
                             Roteiro
                           </button>
                         )}
+                        <button className="btn btn-sm" style={{ marginLeft: 6 }} disabled={!!busy}
+                          onClick={() => togglePgdasd(a.id)}>
+                          PGDAS-D {px?.open ? '▲' : '▼'}
+                        </button>
                       </td>
                     </tr>
+                    {px?.open && (
+                      <tr>
+                        <td colSpan={5} style={{ padding: '4px 12px 12px', background: 'var(--surface-2, #f8fafc)' }}>
+                          <PgdasdPanel
+                            state={px}
+                            canTransmit={can('fiscal:transmit')}
+                            busy={!!busy}
+                            onConferir={() => conferirPgdasd(a.id)}
+                            onTransmitir={() => transmitirPgdasd(a.id, a.competencia)}
+                            onBaixarDas={baixarDas}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
