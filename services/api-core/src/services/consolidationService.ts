@@ -231,10 +231,10 @@ export async function emitDraft(tenantId: string, draftId: string, actorUserId: 
       ? await db.select().from(clients).where(eq(clients.id, draft.client_id))
       : [null];
     const message = buildNfseEmitMessage({
-      nfseId: nfse.id, tenantId, description, amount: toNumber(draft.amount),
-      issRate: toNumber(draft.iss_rate), issValue: toNumber(draft.iss_value),
-      serviceCode: draft.service_code ?? '', cfg: cfg as any, client: (client ?? {}) as any,
-    } as any);
+      nfse_id: nfse.id, tenant_id: tenantId, description, amount: toNumber(draft.amount),
+      iss_rate: toNumber(draft.iss_rate), iss_value: toNumber(draft.iss_value),
+      service_code: draft.service_code ?? '', cfg: cfg as any, client: (client ?? {}) as any,
+    });
     await db.update(nfseInvoices)
       .set({ nfse_status: 'pending', nfse_attempts: sql`nfse_attempts + 1` })
       .where(eq(nfseInvoices.id, nfse.id));

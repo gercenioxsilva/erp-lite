@@ -10,6 +10,7 @@ import { createReceivableFromInvoice } from '../services/receivableService';
 import { recordRevenue } from '../services/fiscalRevenueService';
 import { postEntry, resolveRegime } from '../services/accountingService';
 import { linesForAuthorization } from '../domain/accounting/accountingDomain';
+import { competenciaFromDate, fiscalDate } from '../domain/fiscal/competencia';
 import { runScheduled as runScheduledConsolidation } from '../services/consolidationService';
 
 /** Ciclo fiscal 23:59: roda o consolidar→validar→emitir de cada tenant com o
@@ -146,6 +147,10 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
     `);
     if (!inv) return;
 
+    // Competência/data pela AUTORIZAÇÃO (fuso fiscal BR), nunca pelo relógio do
+    // worker — 23:59 America/Sao_Paulo já é o dia/mês seguinte em UTC.
+    const authAt = nfe_auth_date ? new Date(nfe_auth_date) : new Date();
+
     let number = inv.number ?? '';
     if (!number) {
       const { rows: [seq] } = await db.execute<{ n: string }>(sql`
@@ -159,7 +164,7 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       .set({
         status:        'issued',
         number,
-        issue_date:    new Date().toISOString().slice(0, 10),
+        issue_date:    fiscalDate(authAt),
         nfe_status:    'authorized',
         // Focus devolve a chave com prefixo "NFe"; a coluna é CHAR(44), então
         // normalizamos para somente os 44 dígitos.
@@ -286,7 +291,7 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       try {
         await recordRevenue({
           tenantId: result.tenant_id, companyId: inv.company_id,
-          competencia: new Date().toISOString().slice(0, 7),
+          competencia: competenciaFromDate(authAt),
           anexo: 1, amount: Number(inv.total),
           sourceDocType: 'invoice', sourceDocId: invoice_id,
         }, db);
@@ -299,8 +304,8 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
         await postEntry({
           tenantId: result.tenant_id, companyId: inv.company_id,
           sourceType: 'invoice_authorized', sourceId: invoice_id,
-          entryDate: new Date().toISOString().slice(0, 10),
-          competencia: new Date().toISOString().slice(0, 7),
+          entryDate: fiscalDate(authAt),
+          competencia: competenciaFromDate(authAt),
           description: `NF-e nº ${number} autorizada`,
           lines: linesForAuthorization({ kind: 'invoice', gross: Number(inv.total), issRetido: 0 }, regime),
         }, db);
@@ -354,6 +359,10 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
   const { nfse_id, tenant_id, nfse_status, nfse_number, nfse_chave,
           nfse_verify_code, nfse_protocol, nfse_auth_date,
           nfse_pdf_url, nfse_xml_s3_key, nfse_reject_reason } = result;
+
+  // Competência/data pela AUTORIZAÇÃO (fuso fiscal BR), nunca pelo relógio do
+  // worker — o ciclo 23:59 America/Sao_Paulo já é o dia/mês seguinte em UTC.
+  const authAt = nfse_auth_date ? new Date(nfse_auth_date) : new Date();
 
   // ── Cancelamento (motor próprio 0074, action:'cancel') ──────────────────
   // NfseResultMessage tipa nfse_status como authorized|rejected (contrato do
@@ -425,7 +434,7 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
       try {
         await recordRevenue({
           tenantId: tenant_id, companyId: inv.company_id,
-          competencia: new Date().toISOString().slice(0, 7),
+          competencia: competenciaFromDate(authAt),
           amount: Number(inv.amount),
           comRetencao: inv.iss_retido ? Number(inv.amount) : 0,
           sourceDocType: 'nfse', sourceDocId: nfse_id,
@@ -438,8 +447,8 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
         await postEntry({
           tenantId: tenant_id, companyId: inv.company_id,
           sourceType: 'nfse_authorized', sourceId: nfse_id,
-          entryDate: new Date().toISOString().slice(0, 10),
-          competencia: new Date().toISOString().slice(0, 7),
+          entryDate: fiscalDate(authAt),
+          competencia: competenciaFromDate(authAt),
           description: `NFS-e nº ${nfse_number ?? ''} autorizada`,
           lines: linesForAuthorization({
             kind: 'nfse', gross: Number(inv.amount),

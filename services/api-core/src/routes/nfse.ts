@@ -6,7 +6,8 @@ import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 import { requirePermission } from '../lib/requirePermission';
-import { enqueueAbrasfCancel } from '../services/nfseProviderService';
+import { enqueueAbrasfCancel, enqueueAbrasfEmission } from '../services/nfseProviderService';
+import { getOrCreateConfig } from '../services/fiscalCompanyConfigService';
 import { createAndEmitNfse, NfseCreateError } from '../services/nfseCreateService';
 import { FiscalLockError } from '../services/fiscalPeriodLockGuard';
 import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
@@ -137,6 +138,31 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     }
     if (!cfg.inscricao_municipal)
       return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e');
+
+    // Provider próprio (ABRASF): reemitir tem de seguir o MESMO motor da 1ª
+    // emissão (assina no api-core, série/RPS própria). Sem este branch a
+    // reemissão de uma empresa abrasf sairia pela conta Focus global, com a
+    // linha ainda marcada provider:'abrasf' — e um cancelamento futuro assinaria
+    // ABRASF para uma nota que o Focus autorizou. enqueueAbrasfEmission faz o
+    // próprio incremento de status/nfse_attempts, então retornamos antes do
+    // caminho Focus (evita o duplo incremento).
+    const fiscalConfig = await getOrCreateConfig(tenantId, cfg.id, db);
+    if (fiscalConfig.nfse_provider === 'abrasf') {
+      try {
+        const res = await enqueueAbrasfEmission(tenantId, id, db);
+        return reply.code(202).send({
+          ok: true,
+          nfse_status: res.enqueued ? 'processing' : 'pending',
+          message: 'NFS-e enviada para processamento. Acompanhe o status em tempo real.',
+        });
+      } catch (err) {
+        if (err instanceof FiscalDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
+        throw err;
+      }
+    }
+    if (fiscalConfig.nfse_provider !== 'focus') {
+      return reply.badRequest(`Reemissão não suportada para o provider '${fiscalConfig.nfse_provider}'.`);
+    }
 
     if (!nfse.client_id) return reply.badRequest('NFS-e sem cliente vinculado');
     const { rows: cRows } = await db.execute<any>(sql`SELECT * FROM clients WHERE id = ${nfse.client_id}`);

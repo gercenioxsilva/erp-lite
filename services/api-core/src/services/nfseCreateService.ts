@@ -165,7 +165,7 @@ export async function createAndEmitNfse(
         nfse_id: nfseId, tenant_id: tenantId, description: args.description,
         amount: args.amount, iss_rate: issRate, iss_value: issValue, service_code: serviceCode,
         cfg: cfg as any, client: client as any,
-      } as any);
+      });
       await db.update(nfseInvoices).set({ nfse_status: 'pending', nfse_attempts: sql`nfse_attempts + 1` }).where(eq(nfseInvoices.id, nfseId));
       await getSqsClient().send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify({ ...message, action: 'emit' }) }));
       await db.update(nfseInvoices).set({ nfse_status: 'processing' }).where(eq(nfseInvoices.id, nfseId));
