@@ -280,8 +280,18 @@ async function buildNfseDraft(
   };
 }
 
+/**
+ * Cap diário de mensagens por tenant. `||` e não `??`: compose/ECS declaram env
+ * com `${VAR:-}`, que entrega string VAZIA — e `Number('')` é 0, o que travaria
+ * todo request em 429. Valor inválido também cai no default pelo mesmo motivo.
+ */
+export function dailyCap(): number {
+  const raw = Number(process.env.ASSISTANT_DAILY_CAP || DEFAULT_DAILY_CAP);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_CAP;
+}
+
 async function assertDailyCap(tenantId: string, db: DrizzleDB): Promise<number> {
-  const cap = Number(process.env.ASSISTANT_DAILY_CAP ?? DEFAULT_DAILY_CAP);
+  const cap = dailyCap();
   const { rows } = await db.execute<any>(sql`
     SELECT COUNT(*) AS n FROM fiscal_events
     WHERE tenant_id = ${tenantId}

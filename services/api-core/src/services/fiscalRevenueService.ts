@@ -43,10 +43,14 @@ export async function resolveRbt12(
   const janela = windowCompetencias(competencia);
   const receitas = await revenueByCompetencia(tenantId, companyId, [...janela, competencia], db);
   if (Object.keys(receitas).length > 0) {
-    return {
-      rbt12: computeRbt12({ receitasPorCompetencia: receitas, competencia, dataAbertura: config.data_abertura }),
-      source: 'ledger',
-    };
+    // computeRbt12 é o dono único das regras de janela/proporcionalização; a
+    // competência corrente vai junto porque o 1º mês de atividade deriva dela.
+    const rbt12 = computeRbt12({ receitasPorCompetencia: receitas, competencia, dataAbertura: config.data_abertura });
+    // Ledger com receita só na PRÓPRIA competência (1ª nota de quem está
+    // migrando) não forma RBT12 — a janela é dos 12 meses anteriores e ainda
+    // está vazia. Sem este guard, a 1ª emissão zeraria o RBT12 e derrubaria o
+    // bootstrap do cadastro justamente na transição em que ele é a única fonte.
+    if (rbt12 > 0) return { rbt12, source: 'ledger' };
   }
   const manual = toNumber(config.rbt12_manual ?? config.receita_acumulada_abertura);
   if (manual > 0) return { rbt12: manual, source: 'manual' };

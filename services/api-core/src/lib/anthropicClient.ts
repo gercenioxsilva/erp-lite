@@ -18,6 +18,8 @@ export function isAssistantEnabled(): boolean {
 }
 
 // Lido a cada chamada (não em módulo-load) para não depender da ordem do dotenv.
+// `||` e não `??`: compose/ECS declaram env com `${VAR:-}`, que entrega string
+// VAZIA — e vazio aqui significa "não configurado", não "modelo sem nome".
 export function assistantModel(): string {
-  return process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
+  return process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
 }
