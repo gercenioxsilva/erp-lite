@@ -16,6 +16,7 @@ import {
   defaultBillingDueDate,
   ServiceOrderBillingDomainError,
 } from '../domain/serviceOrderBilling/serviceOrderBillingDomain';
+import { calcIssValue } from '../domain/nfse/nfseDomain';
 import { resolveCompanyId, CompanyDomainError } from './companyService';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
@@ -90,7 +91,7 @@ export async function billServiceOrder(
       throw new ServiceOrderBillingDomainError('service_order_billing_missing_service_code');
     }
     issRate  = Number(cfg.aliquota_iss_padrao ?? 0);
-    issValue = Math.round(amount * issRate) / 100;
+    issValue = calcIssValue(amount, issRate);
 
     const { rows: [client] } = await db.execute<Record<string, unknown>>(
       sql`SELECT * FROM clients WHERE id = ${so.client_id}`,

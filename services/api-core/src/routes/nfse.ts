@@ -5,7 +5,21 @@ import { db, nfseInvoices, nfseEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
+import { createStandaloneNfse, NfseDomainError } from '../services/nfseService';
 import { requirePermission } from '../lib/requirePermission';
+
+function nfseDomainErrorMessage(err: NfseDomainError): string {
+  switch (err.code) {
+    case 'nfse_client_not_found':             return 'Cliente não encontrado';
+    case 'nfse_client_required':               return 'Cliente é obrigatório';
+    case 'nfse_description_required':          return 'Descrição é obrigatória';
+    case 'nfse_amount_invalid':                return 'Valor deve ser maior que zero';
+    case 'nfse_service_code_required':         return 'Código de serviço (LC 116) é obrigatório — configure em Empresa → NF-e/NFS-e ou informe manualmente';
+    case 'nfse_iss_rate_invalid':              return 'Alíquota de ISS inválida';
+    case 'nfse_missing_inscricao_municipal':   return 'Inscrição Municipal é obrigatória para emitir NFS-e';
+    default:                                   return 'Não foi possível criar a NFS-e';
+  }
+}
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -38,6 +52,39 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     `);
 
     return { data: rows, total, page: Number(page), per_page: limit };
+  });
+
+  /* ── POST /v1/nfse ──────────────────────────────────────────────────── */
+  // NFS-e avulsa: emissão direta de serviço, sem passar pelo faturamento de
+  // Ordem de Serviço (regra 47) nem por Contrato de Serviço — mesma UX de
+  // "nota fiscal de venda avulsa" (POST /v1/invoices). Cria o rascunho; a
+  // emissão em si é o POST /:id/emit acima, reaproveitado sem duplicar.
+  fastify.post('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:create')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const b = request.body as any;
+
+    if (!b.client_id)                    return reply.badRequest('client_id é obrigatório');
+    if (!b.description?.trim())          return reply.badRequest('description é obrigatório');
+    if (!(Number(b.amount) > 0))         return reply.badRequest('amount deve ser maior que zero');
+
+    try {
+      const nfse = await createStandaloneNfse({
+        tenantId,
+        clientId:    b.client_id,
+        description: b.description,
+        amount:      Number(b.amount),
+        serviceCode: b.service_code || null,
+        issRate:     b.iss_rate != null ? Number(b.iss_rate) : null,
+        periodStart: b.period_start || null,
+        periodEnd:   b.period_end   || null,
+        companyId:   b.company_id   || null,
+      }, db);
+      return reply.code(201).send(nfse);
+    } catch (err) {
+      if (err instanceof CompanyDomainError) return reply.badRequest(companyResolutionErrorMessage(err, 'NFS-e'));
+      if (err instanceof NfseDomainError)     return reply.badRequest(nfseDomainErrorMessage(err));
+      throw err;
+    }
   });
 
   /* ── GET /v1/nfse/:id ───────────────────────────────────────────────── */

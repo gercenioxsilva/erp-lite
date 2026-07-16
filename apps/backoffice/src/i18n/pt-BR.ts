@@ -816,6 +816,20 @@ const ptBR = {
   'nfse.status.processing': 'Processando…',
   'nfse.status.authorized': 'Autorizada',
   'nfse.status.rejected':   'Rejeitada',
+  'nfse.emit':          'Emitir NFS-e',
+
+  // ── NFS-e avulsa (nova) ──────────────────────────────────────────────
+  'nfse.new':              '+ Nova NFS-e',
+  'nfse.newTitle':         'Nova NFS-e avulsa',
+  'nfse.selectClient':     'Selecione um cliente…',
+  'nfse.serviceCodePH':    'Ex.: 14.01',
+  'nfse.issRate':          'Alíquota ISS (%)',
+  'nfse.periodStart':      'Início do período (opcional)',
+  'nfse.periodEnd':        'Fim do período (opcional)',
+  'nfse.create':           'Criar NFS-e',
+  'nfse.errNoClient':      'Selecione um cliente',
+  'nfse.errNoDescription': 'Descrição é obrigatória',
+  'nfse.errNoAmount':      'Valor deve ser maior que zero',
 
   // ── Login ─────────────────────────────────────────────────────────────
   'l.welcome':   'Bem-vindo de volta',
@@ -1454,6 +1468,9 @@ const ptBR = {
   'so.printNoVisits':  'Nenhuma visita registrada ainda.',
   'so.printNotFound':  'Ordem de serviço não encontrada.',
   'so.errNoTitle':     'Título é obrigatório',
+  'so.edit':           'Editar',
+  'so.editTitle':      'Editar OS',
+  'so.save':           'Salvar alterações',
   'so.billingTitle':        'Faturamento',
   'so.billingDueDate':      'Vencimento',
   'so.billingEmitNfse':     'Emitir NFS-e junto',
