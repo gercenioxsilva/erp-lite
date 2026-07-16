@@ -115,6 +115,16 @@ jobs:
           context: services/api-core
           target: production
           push: true
+          # ECS Fargate runs this task with runTask (migration override) right
+          # after a fresh push — same class of issue documented for the Lambda
+          # images below: without platform + provenance=false, Buildx pushes an
+          # OCI image index (manifest list + attestation manifest) instead of a
+          # plain Docker v2 Schema 2 manifest. Fargate has historically had
+          # inconsistent support for that index shape, which can surface as the
+          # task failing to ever start the container (null exitCode, no
+          # CloudWatch logs) — exactly what "Run DB migrations" hit.
+          platforms: linux/amd64
+          provenance: false
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/${{ env.API_ECR_REPO }}:latest
@@ -331,24 +341,47 @@ jobs:
             --cluster "${{ steps.tf.outputs.cluster }}" \
             --tasks "$TASK_ARN"
 
-          # Print CloudWatch logs so failures are visible in CI output
-          echo "── Migration container logs ──────────────────────────────────"
-          aws logs get-log-events \
-            --log-group-name "/ecs/erp-lite-prod/api-core" \
-            --log-stream-name "api-core/api-core/${TASK_ID}" \
-            --start-from-head \
-            --query 'events[*].message' \
-            --output text 2>/dev/null || echo "(no logs available)"
-          echo "─────────────────────────────────────────────────────────────"
-
-          EXIT=$(aws ecs describe-tasks \
+          # A task can stop WITHOUT the container ever starting (e.g. image
+          # pull failure, resource init error) — in that case exitCode is null
+          # ("None" in CLI text output) and no CloudWatch log stream exists.
+          # stoppedReason/containers[0].reason are the only place that failure
+          # mode is actually explained, so always print them, not just exitCode.
+          DESC=$(aws ecs describe-tasks \
             --cluster "${{ steps.tf.outputs.cluster }}" \
             --tasks "$TASK_ARN" \
-            --query 'tasks[0].containers[0].exitCode' \
-            --output text)
+            --query 'tasks[0].{exitCode:containers[0].exitCode,lastStatus:containers[0].lastStatus,containerReason:containers[0].reason,stoppedReason:stoppedReason}' \
+            --output json)
+          echo "Task result: $DESC"
+          EXIT=$(echo "$DESC" | jq -r '.exitCode')
+
+          # CloudWatch log events can lag a few seconds behind task-stopped —
+          # retry a few times before giving up instead of a single immediate try.
+          echo "── Migration container logs ──────────────────────────────────"
+          LOGS=""
+          for attempt in 1 2 3 4 5; do
+            # "|| true" is required here — under `bash -e`, a failing command
+            # substitution on its own assignment line (e.g. log stream not
+            # created yet — ResourceNotFoundException) would abort the whole
+            # step immediately, skipping every retry and the exit-code check
+            # below.
+            LOGS=$(aws logs get-log-events \
+              --log-group-name "/ecs/erp-lite-prod/api-core" \
+              --log-stream-name "api-core/api-core/${TASK_ID}" \
+              --start-from-head \
+              --query 'events[*].message' \
+              --output text 2>/dev/null) || true
+            if [ -n "$LOGS" ] && [ "$LOGS" != "None" ]; then break; fi
+            sleep 3
+          done
+          if [ -n "$LOGS" ] && [ "$LOGS" != "None" ]; then
+            echo "$LOGS"
+          else
+            echo "(no log events found for this task — the container likely never started; see stoppedReason above)"
+          fi
+          echo "─────────────────────────────────────────────────────────────"
 
           if [ "$EXIT" != "0" ]; then
-            echo "::error::Migration failed with exit code $EXIT"
+            echo "::error::Migration failed — $DESC"
             exit 1
           fi
           echo "Migrations completed successfully."
