@@ -195,6 +195,55 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     expect(item.cbs_valor).toBe(0.9);
   });
 
+  it('[regressão SEFAZ — "IE do destinatário não informada"] cliente Contribuinte ICMS sem Inscrição Estadual bloqueia a emissão com mensagem clara, antes de enfileirar', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', client_state_reg: null }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/Inscrição Estadual/);
+    expect(sqsMock.send).not.toHaveBeenCalled();
+  });
+
+  it('propaga a Inscrição Estadual do cliente pra mensagem SQS quando ele é Contribuinte ICMS', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', client_state_reg: '206563490111' }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.destinatario.inscricao_estadual).toBe('206563490111');
+    expect(sentBody.destinatario.indicador_ie).toBe(1);
+  });
+
   it('retorna 404 quando a nota não existe (comportamento inalterado)', async () => {
     mockExecuteByQuery(null, []);
 
