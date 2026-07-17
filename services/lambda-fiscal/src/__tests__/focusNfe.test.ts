@@ -93,6 +93,40 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+describe('buildFocusPayload — consumidor_final (indFinal)', () => {
+  function makeMsgWithDestinatario(destinatario: NfeEmitMessage['destinatario']): NfeEmitMessage {
+    return { ...makeMsg(), destinatario };
+  }
+
+  it('[regressão SEFAZ — "Operação com não contribuinte deve indicar operação com consumidor final"] marca consumidor_final=1 pra CNPJ não contribuinte (indicador_ie=9, default de clients.icms_taxpayer)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ não contribuinte', indicador_ie: 9,
+    })) as any;
+    expect(payload.consumidor_final).toBe(1);
+  });
+
+  it('marca consumidor_final=1 pra pessoa física (CPF), como antes', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cpf: '12345678900', nome: 'Cliente PF',
+    })) as any;
+    expect(payload.consumidor_final).toBe(1);
+  });
+
+  it('marca consumidor_final=0 pra CNPJ contribuinte de ICMS (indicador_ie=1) — operação normal entre empresas', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ contribuinte', indicador_ie: 1,
+    })) as any;
+    expect(payload.consumidor_final).toBe(0);
+  });
+
+  it('marca consumidor_final=0 pra CNPJ isento de IE (indicador_ie=2)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ isento', indicador_ie: 2,
+    })) as any;
+    expect(payload.consumidor_final).toBe(0);
+  });
+});
+
 describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
   it('[regressão SEFAZ — "Element vBC: This element is not expected. Expected is modBC"] sempre envia icms_modalidade_base_calculo junto com vBC/pICMS/vICMS', () => {
     // Reproduz o cenário real de produção: item com CST='00' (regime normal,
