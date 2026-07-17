@@ -1,7 +1,7 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, sql } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents, simplesRemessaEvents } from '../db';
+import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents, simplesRemessaEvents, fiscalIntegrationEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
@@ -49,6 +49,17 @@ interface RemessaResultMessage {
   nfe_reject_reason?:  string;
 }
 
+interface CompanyRegistrationResultMessage {
+  type:                    'company_registration';
+  registration_id:         string;
+  tenant_id:               string;
+  registration_status:     'registered' | 'error';
+  fiscal_integration_ref?: string;
+  token_producao?:         string;
+  token_homologacao?:      string;
+  registration_error?:     string;
+}
+
 let running = true;
 
 export function stopNfeResultsWorker()  { running = false; }
@@ -82,6 +93,8 @@ async function poll(queueUrl: string): Promise<void> {
             await processNfseResult(body as NfseResultMessage);
           } else if (body.type === 'remessa') {
             await processRemessaResult(body as RemessaResultMessage);
+          } else if (body.type === 'company_registration') {
+            await processCompanyRegistrationResult(body as CompanyRegistrationResultMessage);
           } else {
             await processResult(body as NfeResultMessage);
           }
@@ -429,6 +442,56 @@ async function processRemessaResult(result: RemessaResultMessage): Promise<void>
     });
 
     console.warn(JSON.stringify({ event: 'remessa_result_rejected', remessa_id, nfe_reject_reason }));
+  }
+}
+
+/** Registro assíncrono da empresa no emissor fiscal (regra 70) — mesma
+ *  idempotência por status='processing' já usada em processRemessaResult. */
+async function processCompanyRegistrationResult(result: CompanyRegistrationResultMessage): Promise<void> {
+  const { registration_id, tenant_id, registration_status, fiscal_integration_ref,
+          token_producao, token_homologacao, registration_error } = result;
+
+  if (registration_status === 'registered') {
+    const { rows: [updated] } = await db.execute<{ id: string }>(sql`
+      UPDATE nfe_configs SET
+        fiscal_registration_status = 'registered',
+        fiscal_integration_ref     = COALESCE(${fiscal_integration_ref || null}, fiscal_integration_ref),
+        focus_token_producao       = COALESCE(${token_producao    || null}, focus_token_producao),
+        focus_token_homologacao    = COALESCE(${token_homologacao || null}, focus_token_homologacao),
+        fiscal_registration_error  = NULL,
+        updated_at                 = now()
+      WHERE id = ${registration_id} AND fiscal_registration_status = 'processing'
+      RETURNING id
+    `);
+    if (!updated) return; // já processado (idempotência) ou não encontrado
+
+    await db.insert(fiscalIntegrationEvents).values({
+      company_id: registration_id, tenant_id,
+      event_type:  'registration',
+      status_code: '200',
+      payload:     { fiscal_integration_ref },
+    });
+
+    console.info(JSON.stringify({ event: 'company_registration_result_registered', registration_id }));
+
+  } else {
+    const { rows: [updated] } = await db.execute<{ id: string }>(sql`
+      UPDATE nfe_configs SET
+        fiscal_registration_status = 'error',
+        fiscal_registration_error  = ${registration_error || null},
+        updated_at                 = now()
+      WHERE id = ${registration_id} AND fiscal_registration_status = 'processing'
+      RETURNING id
+    `);
+    if (!updated) return;
+
+    await db.insert(fiscalIntegrationEvents).values({
+      company_id: registration_id, tenant_id,
+      event_type: 'registration_rejected',
+      payload:    { registration_error },
+    });
+
+    console.warn(JSON.stringify({ event: 'company_registration_result_rejected', registration_id, registration_error }));
   }
 }
 

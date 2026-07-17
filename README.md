@@ -153,6 +153,14 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
 
 69. **Exclusão em massa de produtos (Minha Empresa → Zona de Risco) nunca é um `DELETE` físico — mesma regra 8, só que em lote.** `POST /v1/materials/bulk-deactivate` (`requirePermission('materials:delete')`, já existia no catálogo) roda um único `UPDATE materials SET is_active=false ... WHERE NOT EXISTS (SELECT 1 FROM inventory_movements WHERE material_id=materials.id)` — só desativa produtos sem nenhuma movimentação de estoque, nunca toca produto com histórico. Diferente do `DELETE /v1/materials/:id` de um único produto (que não checa movimentação nenhuma), a operação em massa tem essa trava a mais por afetar o catálogo inteiro de um clique só. Devolve `{ deactivated: N }`; nunca um DELETE físico — um `DELETE` real zeraria (`SET NULL`) `material_id` em itens de pedidos/NF-e/OS/pedidos de compra já emitidos (a maioria das FKs pra `materials` é `ON DELETE SET NULL`), corrompendo a rastreabilidade histórica desses documentos.
 
+70. **Integração fiscal automatizada (Minha Empresa → Fiscal): registro da empresa no emissor fiscal é ASSÍNCRONO, upload de certificado digital e teste de conexão são SÍNCRONOS — e o nome do provedor (Focus) nunca é exposto ao tenant.** Reaproveita 100% o pipeline assíncrono já existente de NF-e/NFS-e/Simples Remessa (mesmas filas `nfe_requests`/`nfe_results`, mesma Lambda `fiscal_nfe`), discriminado por um 4º valor de `type`: `'company_registration'`. Nenhuma mudança de infraestrutura (Terraform) foi necessária pra fila/Lambda/IAM — só um novo par de tipos de mensagem (`CompanyRegistrationEmitMessage`/`CompanyRegistrationResultMessage`, `services/lambda-fiscal/src/lib/types.ts`) e um novo branch de discriminação em `handler.ts` (Lambda) e `nfeResultsWorker.ts` (api-core).
+    - **Token mestre vs. token por empresa — dois papéis nunca confundidos.** `FOCUS_NFE_TOKEN` (`app.config.focusToken` na Lambda, `process.env.FOCUS_NFE_TOKEN` na api-core — precisou ser adicionado ao `environment` do `aws_ecs_task_definition.api_core` em `terraform/ecs.tf`, só existia na Lambda até aqui) é o token da CONTA da plataforma, usado exclusivamente para gerir o cadastro de empresas (`POST/PUT/GET /v2/empresas`). Os tokens `focus_token_producao`/`focus_token_homologacao` de cada `nfe_configs` (devolvidos pelo registro e persistidos pelo worker) continuam sendo os únicos usados pra EMITIR documentos (NF-e/NFS-e/Remessa) — nunca o token mestre.
+    - **Registro assíncrono** (`registerCompanyFiscalIntegration`, `services/api-core/src/services/fiscalIntegrationService.ts`): mesma dança pending→enqueue→processing com rollback em falha de `emitSimplesRemessa` (regra 51). `POST /v1/companies/:id/fiscal-integration/register` devolve 202; o resultado (tokens + `fiscal_integration_ref`, ou erro) chega pelo worker e grava direto em `nfe_configs` com guarda de idempotência `WHERE fiscal_registration_status='processing'` (mesmo padrão de `processRemessaResult`).
+    - **Upload de certificado e teste de conexão são SÍNCRONOS, em processo, na api-core** (`services/fiscal/fiscalIntegrationClient.ts`, `PUT`/`GET /v2/empresas/{ref}` via `fetch()`+Basic Auth, mesmo padrão de `services/fiscal/focusNfe.ts`) — nunca passam pela fila. Certificado nunca é persistido em banco (nem o arquivo, nem a senha); só os metadados que o emissor devolve (`certificado_cnpj`/`certificado_valido_de`/`certificado_valido_ate`) ficam em `nfe_configs`. Upload exige a empresa já registrada (`fiscal_integration_ref` presente) — o registro em si nunca inclui o certificado.
+    - **`nfe_configs` ganha as colunas de estado** (migration 0071): `fiscal_integration_ref` (id da empresa no emissor), `fiscal_registration_status` (`pending`/`processing`/`registered`/`error`, NULL = nunca solicitado), `fiscal_registration_attempts`, `fiscal_registration_error`, `certificado_cnpj`/`certificado_valido_de`/`certificado_valido_ate`, e `inscricao_estadual` (lacuna corrigida — só existia em `tenants.state_reg`, singleton incompatível com multi-empresa da regra 40). Nova tabela append-only `fiscal_integration_events` (mesmo molde de `nfse_events`/`simples_remessa_events`, sem `protocol` — não se aplica aqui) audita registro/upload/teste.
+    - **Nunca expor "Focus" pro tenant** — toda string de UI/i18n (`comp.fiscalIntegration.*`, `pt-BR.ts`/`en.ts`) fala em "integração de emissão de notas fiscais", nunca no nome do provedor; o mesmo valeu pra `comp.nfse.hint`, que já vazava "via Focus" antes desta regra e foi corrigido. Nome do provedor continua livre em código/nomes de arquivo/comentário interno (`lib/focusNfe.ts`, `lib/focusEmpresa.ts`, env var `FOCUS_NFE_TOKEN`) — isso nunca chega ao tenant.
+    - **Status exibido na tela é sempre derivado, nunca inferido pela UI**: `deriveFiscalIntegrationStatus()` (`domain/fiscalIntegration/fiscalIntegrationDomain.ts`, puro) calcula `not_registered`/`pending`/`registered_no_certificate`/`active`/`certificate_expiring_soon` (≤30 dias)/`certificate_expired`/`error` a partir do estado bruto — `CompanyPage.tsx` (aba Fiscal) só renderiza o resultado, e faz polling de 3s enquanto `pending`/`processing` (mesmo padrão de `NfsePage.tsx`).
+
 ---
 
 ## Arquitetura & Padrões de Código
@@ -893,6 +901,58 @@ flowchart TD
 
 ---
 
+### Integração Fiscal Automatizada (registro assíncrono + certificado/teste síncronos)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React — Minha Empresa → Fiscal)
+    participant A as api-core (ECS)
+    participant Q as SQS nfe-requests
+    participant L as lambda-fiscal
+    participant FX as Emissor Fiscal (Focus NF-e API — nunca exposto ao tenant)
+
+    Note over U,F: UI nunca menciona o nome do provedor — só "integração de emissão de notas fiscais"
+
+    U->>F: Clica "Registrar empresa"
+    F->>A: POST /v1/companies/:id/fiscal-integration/register
+    A->>A: assertCanRegister() — bloqueia se já pending/processing
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='pending'
+    A->>Q: sendMessage {type:"company_registration", empresa:{...}} — token mestre, nunca token por empresa
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='processing'
+    A-->>F: 202 {status: "processing"}
+    F->>F: Poll GET /v1/companies a cada 3s enquanto pending/processing
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    Note over L: Discrimina pelo campo type:'company_registration'
+    L->>FX: POST /v2/empresas {cnpj, razão social, endereço, regime...} — sempre token mestre (FOCUS_NFE_TOKEN)
+    FX-->>L: {id, token_producao, token_homologacao} ou {erros}
+    L->>Q: sendMessage (nfe-results) — resultado do registro
+
+    Q-->>A: Mensagem de resultado (nfeResultsWorker)
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='registered', fiscal_integration_ref=..., focus_token_producao=..., focus_token_homologacao=... WHERE status='processing' (idempotência)
+    A->>A: INSERT fiscal_integration_events (event_type='registration')
+
+    Note over U,FX: Certificado digital e teste de conexão — SÍNCRONOS, nunca passam pela fila
+    U->>F: Envia certificado (.pfx/.p12) + senha
+    F->>A: POST /v1/companies/:id/fiscal-integration/certificate
+    A->>A: assertCanUploadCertificate() — exige fiscal_integration_ref já presente
+    A->>FX: PUT /v2/empresas/{ref} {arquivo_certificado_base64, senha_certificado}
+    FX-->>A: {certificado_valido_de, certificado_valido_ate} ou {erros}
+    A->>A: UPDATE nfe_configs SET certificado_valido_ate=... (nunca persiste o arquivo/senha)
+    A-->>F: 200 {status: "active"}
+
+    U->>F: Clica "Testar conexão"
+    F->>A: POST /v1/companies/:id/fiscal-integration/test
+    A->>FX: GET /v2/empresas/{ref}
+    FX-->>A: 200 ou 404
+    A-->>F: {ok: true|false}
+
+    Note over A,Q: Mesmas filas/Lambda de NF-e/NFS-e/Remessa — só um 4º valor de type, sem mudança de infraestrutura
+```
+
+---
+
 ## Módulos do sistema (Web — backoffice)
 
 | Módulo | Rota frontend | Tabelas principais |
@@ -922,7 +982,7 @@ flowchart TD
 | Perfis de Acesso *(só visível ao owner)* | `/access-profiles` | access_profiles, access_profile_permissions, access_profile_events |
 | RH Simplificado *(opcional)* | `/employees`, `/payroll`, `/payroll/entries/:id/print` | employees, payroll_runs, payroll_entries, payroll_tax_brackets |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs, bank_accounts |
-| Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant) |
+| Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant), fiscal_integration_events |
 | Ordens de Serviço *(opcional)* | `/service-orders` | service_orders, service_order_items, service_visits |
 | Técnicos *(opcional)* | `/technicians` | technicians, users |
 | Portal do Técnico *(opcional, autenticado)* | `/tecnico/entrar`, `/tecnico/visitas`, `/tecnico/visitas/:id` | service_visits, service_visit_photos |
