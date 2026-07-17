@@ -144,6 +144,16 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
     throw new SimplesRemessaDomainError('remessa_producao_sem_token');
   }
 
+  // SEFAZ valida o CNPJ do destinatário contra o cadastro oficial de
+  // contribuintes (SINTEGRA/CCC) — se ele tem IE ativa lá e a nota declara
+  // indIEDest=9/2, a rejeição é a mesma "IE do destinatário não informada"
+  // (Rejeição 232), mesmo com o cadastro interno "consistente". Mesmo
+  // racional de routes/nfe.ts: presença de IE sempre vence sobre o flag
+  // icms_taxpayer, que pode ficar dessincronizado do state_reg real.
+  const indicadorIe = (sr.person_type === 'PJ' && sr.state_reg)
+    ? 1
+    : Number(sr.icms_taxpayer) as 1 | 2 | 9;
+
   const isSimples     = cfg.regime_tributario === 1;
   const taxSituation  = resolveTaxSituation(cfg.regime_tributario);
   // IBS é do destino, mesmo racional já usado em taxCalculationService.ts
@@ -170,7 +180,7 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
       cnpj:         sr.person_type === 'PJ' ? sr.client_cnpj : undefined,
       cpf:          sr.person_type === 'PF' ? sr.client_cpf  : undefined,
       nome:         sr.person_type === 'PJ' ? sr.company_name : sr.full_name,
-      indicador_ie: Number(sr.icms_taxpayer) as 1 | 2 | 9,
+      indicador_ie: indicadorIe,
       inscricao_estadual: sr.state_reg || undefined,
       logradouro:   sr.street, numero: sr.street_number, complemento: sr.complement,
       bairro:       sr.neighborhood, municipio: sr.city, uf: sr.client_state,
