@@ -262,6 +262,13 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (!cfg.inscricao_municipal)
         return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e (Empresa → NFS-e)');
+      // Trava de segurança: produção exige o token do próprio tenant — sem
+      // isso, a mensagem sai sem focus_token, o Lambda cai no token mestre da
+      // plataforma (sem permissão pro CNPJ do tenant) e o Focus rejeita com
+      // "permissao_negada: CNPJ do emitente não autorizado". Mesma trava de
+      // routes/nfe.ts / routes/nfse.ts.
+      if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
+        return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');
 
       serviceCode = contract.codigo_servico || cfg.codigo_servico_padrao || null;
       if (!serviceCode)

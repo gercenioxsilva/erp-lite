@@ -138,6 +138,29 @@ describe('NFS-e routes', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().message).toMatch(/Inscrição Municipal/);
     });
+
+    it('[regressão — "permissao_negada: CNPJ do emitente não autorizado"] bloqueia em produção sem token de produção, antes de enfileirar', async () => {
+      state.nfseRows = [{
+        id: 'nfse-1', tenant_id: 'tenant-1', nfse_status: null,
+        client_id: 'client-1', description: 'svc', amount: '100.00',
+        iss_rate: '5.00', iss_value: '5.00', service_code: '14.01',
+        period_start: null, period_end: null, company_id: 'company-1',
+      }];
+      state.companyRows = [{
+        id: 'company-1', is_active: true, emite_nfse: true, inscricao_municipal: '12345',
+        focus_ambiente: 1, focus_token_producao: null,
+      }];
+
+      const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/nfse/nfse-1/emit?tenant_id=tenant-1',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toMatch(/token de Produção/);
+      expect(sqsMock.send).not.toHaveBeenCalled();
+    });
   });
 
   // NFS-e avulsa — mesma UX de "nota fiscal de venda avulsa" (POST /v1/invoices):
