@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
+import { useModal } from '../../contexts/ModalContext';
 import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
@@ -100,6 +101,7 @@ const PROVIDERS = [
 export function CompanyPage() {
   const { tenantId, refreshUser } = useAuth();
   const { t }        = useI18n();
+  const modal         = useModal();
 
   const [tab, setTab] = useState<'general' | 'branding' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations'>(
     () => (new URLSearchParams(window.location.search).get('ml_status') ? 'integrations' : 'general'),
@@ -115,6 +117,10 @@ export function CompanyPage() {
   const [bannerError, setBannerError] = useState('');
   const [bannerSaving, setBannerSaving] = useState(false);
   const bannerRef = useRef<HTMLInputElement>(null);
+
+  // Zona de risco — desativação em massa de produtos sem movimentação de
+  // estoque (nunca um DELETE físico, regra 8; mesmo soft-delete de sempre).
+  const [bulkDeactivating, setBulkDeactivating] = useState(false);
 
   // Upload de certificado/chave C6 (mTLS) — mesmo padrão de fileRef/bannerRef
   // acima, mas lendo como texto puro (readAsText), não base64: cert/key já são
@@ -742,6 +748,23 @@ export function CompanyPage() {
     } finally { setBannerSaving(false); }
   }
 
+  async function handleBulkDeactivateProducts() {
+    const ok = await modal.confirm({
+      title:        t('comp.bulkDeactivateProducts'),
+      message:      t('comp.bulkDeactivateConfirmMsg'),
+      confirmLabel: t('comp.bulkDeactivateProducts'),
+      danger:       true,
+    });
+    if (!ok) return;
+    setBulkDeactivating(true);
+    try {
+      const result = await api.post<{ deactivated: number }>('/v1/materials/bulk-deactivate', {});
+      modal.success(t('comp.bulkDeactivateResult').replace('{n}', String(result.deactivated)));
+    } catch (err: unknown) {
+      modal.error(err);
+    } finally { setBulkDeactivating(false); }
+  }
+
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
   return (
@@ -766,6 +789,7 @@ export function CompanyPage() {
       </div>
 
       {tab === 'general' && (
+        <>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 24, alignItems: 'start' }}>
           {/* ── Formulário principal ── */}
           <div className="card" style={{ padding: 24 }}>
@@ -969,6 +993,24 @@ export function CompanyPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Zona de risco ── */}
+        <Can permission="materials:delete">
+          <div className="card" style={{ padding: 24, marginTop: 24, border: '1px solid var(--danger)' }}>
+            <h3 style={{ marginBottom: 4, color: 'var(--danger)' }}>{t('comp.dangerZone')}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              <div style={{ maxWidth: 560 }}>
+                <strong style={{ display: 'block', marginBottom: 4 }}>{t('comp.bulkDeactivateProducts')}</strong>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.bulkDeactivateProductsDesc')}</p>
+              </div>
+              <button className="btn btn-danger btn-sm" style={{ width: 'auto' }}
+                disabled={bulkDeactivating} onClick={handleBulkDeactivateProducts}>
+                {bulkDeactivating ? t('c.saving') : t('comp.bulkDeactivateProducts')}
+              </button>
+            </div>
+          </div>
+        </Can>
+        </>
       )}
 
       {tab === 'branding' && (
@@ -1889,6 +1931,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   hr:             { titleKey: 'comp.modules.hr',              descKey: 'comp.modules.hrDesc' },
   scheduling:     { titleKey: 'comp.modules.scheduling',      descKey: 'comp.modules.schedulingDesc' },
   whatsapp:       { titleKey: 'comp.modules.whatsapp',        descKey: 'comp.modules.whatsappDesc' },
+  projects:       { titleKey: 'comp.modules.projects',        descKey: 'comp.modules.projectsDesc' },
 };
 
 // Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o

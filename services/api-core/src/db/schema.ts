@@ -287,6 +287,10 @@ export const orders = pgTable('orders', {
   // Mercado Livre (migration 0048, regra 42) — pedido importado de um marketplace
   marketplace_order_id: varchar('marketplace_order_id', { length: 50 }),
   origin: varchar('origin', { length: 20 }).notNull().default('erp'),
+  // Projeto (migration 0068) — vínculo direto, mesmo padrão de cost_center_id
+  // acima; vinculado/desvinculado via POST|DELETE /v1/projects/:id/orders,
+  // nunca por aqui (PATCH /orders/:id só edita em 'draft').
+  project_id: uuid('project_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -828,6 +832,13 @@ export const serviceContracts = pgTable('service_contracts', {
   // resolvido para a empresa padrão do tenant quando omitido.
   company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
   contract_number:   varchar('contract_number', { length: 20 }).notNull(),
+  // 'service' (padrão) | 'rental' — só 'rental' oferece a emissão da Nota de
+  // Locação / Recibo / Fatura (migration 0070, sem valor fiscal) por cobrança.
+  type:              varchar('type', { length: 20 }).notNull().default('service'),
+  // Contato responsável pelo contrato do lado do cliente (migration 0070) —
+  // não existe em `clients` (cadastro é da empresa/pessoa, não de um contato
+  // específico dentro dela).
+  contact_name:      varchar('contact_name', { length: 255 }),
   description:       text('description').notNull(),
   start_date:        date('start_date').notNull(),
   end_date:          date('end_date'),
@@ -859,6 +870,10 @@ export const contractBillings = pgTable('contract_billings', {
   notes:         text('notes'),
   // NFS-e link (migration 0019) — FK to nfseInvoices, declared after this table
   nfse_id:       uuid('nfse_id'),
+  // Numeração sequencial do recibo/fatura sem valor fiscal (migration 0070) —
+  // distinta de service_contracts.contract_number, usada só quando o
+  // contrato é do tipo 'rental'.
+  document_number: varchar('document_number', { length: 20 }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -940,6 +955,9 @@ export const proposals = pgTable('proposals', {
   valid_until:          date('valid_until'),
   notes:                text('notes'),
   terms_text:           text('terms_text'),
+  // Mensagem comercial (migration 0069) — parágrafo de abertura na impressão/
+  // portal, distinto de notes/terms_text que ficam no rodapé do documento.
+  commercial_message:   text('commercial_message'),
   delivery_time:        varchar('delivery_time',  { length: 120 }),
   payment_method:       varchar('payment_method', { length: 40  }),
   public_token:         varchar('public_token',       { length: 64 }),
@@ -1466,6 +1484,9 @@ export const serviceOrders = pgTable('service_orders', {
   created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Projeto (migration 0068) — vínculo direto, mesmo padrão de cost_center_id
+  // acima; vinculado/desvinculado via POST|DELETE /v1/projects/:id/service-orders.
+  project_id:     uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
 });
 
 export const serviceOrderItems = pgTable('service_order_items', {
@@ -1476,6 +1497,41 @@ export const serviceOrderItems = pgTable('service_order_items', {
   quantity:          decimal('quantity',   { precision: 15, scale: 3 }).notNull(),
   unit_price:        decimal('unit_price', { precision: 15, scale: 2 }).notNull().default('0'),
   total:             decimal('total',      { precision: 15, scale: 2 }).notNull().default('0'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── projects (módulo opcional, migration 0068) ─────────────────────────────────
+// Agrega pedidos de venda e ordens de serviço (vínculo direto, project_id em
+// orders/service_orders — não tabela de junção) + profissionais alocados
+// (project_professionals). Relatório de acompanhamento é calculado on-the-fly
+// em projectService.getProject(), nunca persistido.
+export const projects = pgTable('projects', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  client_id:      uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+  cost_center_id: uuid('cost_center_id').references(() => costCenters.id, { onDelete: 'set null' }),
+  number:         varchar('number', { length: 20 }).notNull(),
+  name:           varchar('name',  { length: 255 }).notNull(),
+  description:    text('description'),
+  total_value:    decimal('total_value', { precision: 15, scale: 2 }).notNull().default('0'),
+  status:         varchar('status', { length: 20 }).notNull().default('draft'),
+  start_date:     date('start_date'),
+  end_date:       date('end_date'),
+  created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Alocação de profissional (técnico OU vendedor) num projeto. commission_pct
+// é só informativo/relatório — nunca alimenta commission_entries (regra 32).
+export const projectProfessionals = pgTable('project_professionals', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  project_id:        uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  professional_type: varchar('professional_type', { length: 20 }).notNull(),
+  technician_id:     uuid('technician_id').references(() => technicians.id, { onDelete: 'cascade' }),
+  seller_id:         uuid('seller_id').references(() => sellers.id, { onDelete: 'cascade' }),
+  commission_pct:    decimal('commission_pct', { precision: 5, scale: 2 }).notNull().default('0'),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

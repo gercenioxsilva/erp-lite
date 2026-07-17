@@ -5,6 +5,7 @@ import { digits, maskCNPJ, maskCPF, normalizeCNPJ } from '../../lib/brazil';
 export interface ProposalData {
   number: string; title: string; status: string;
   valid_until: string | null; notes: string | null; terms_text: string | null;
+  commercial_message: string | null;
   delivery_time: string | null; payment_method: string | null;
   subtotal: number; discount: number; shipping: number; total: number;
   accepted_at: string | null; accepted_by_name: string | null;
@@ -328,6 +329,12 @@ export function ProposalDocument({ proposal, items, issuer, client, clientName, 
 
         <div className="pp-body">
           {banner}
+
+          {/* Mensagem comercial — parágrafo de abertura, distinto de
+              Observações/Termos que ficam no rodapé do documento. */}
+          {proposal.commercial_message && (
+            <p className="pp-prose" style={{ margin: '0 0 22px' }}>{proposal.commercial_message}</p>
+          )}
 
           {/* Items */}
           <div className="pp-h"><span className="pp-h__bar" /><span className="pp-h__t">Itens</span></div>

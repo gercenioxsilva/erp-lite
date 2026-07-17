@@ -65,7 +65,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     const tenantId = (request as any).user.tenantId;
     const userEmail = (request as any).user.email;
     const userId    = (request as any).user.id;
-    const { client_id, title, valid_until, notes, terms_text, delivery_time, payment_method, discount = 0, shipping = 0, items } =
+    const { client_id, title, valid_until, notes, terms_text, commercial_message, delivery_time, payment_method, discount = 0, shipping = 0, items } =
       request.body as any;
 
     if (!title?.trim())                             return reply.badRequest('title é obrigatório');
@@ -86,11 +86,11 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [p] } = await db.execute<any>(sql`
       INSERT INTO proposals (tenant_id, client_id, number, title, status,
-        subtotal, discount, shipping, total, valid_until, notes, terms_text,
+        subtotal, discount, shipping, total, valid_until, notes, terms_text, commercial_message,
         delivery_time, payment_method, seller_email, created_by)
       VALUES (${tenantId}, ${client_id || null}, ${number}, ${title.trim()}, 'draft',
         ${subtotal}, ${Number(discount)}, ${Number(shipping)}, ${total},
-        ${valid_until || null}, ${notes || null}, ${terms_text || null},
+        ${valid_until || null}, ${notes || null}, ${terms_text || null}, ${commercial_message || null},
         ${delivery_time || null}, ${payment_method || null},
         ${userEmail || null}, ${userId || null})
       RETURNING id, number
@@ -141,7 +141,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [p] } = await db.execute<any>(sql`
       SELECT p.id, p.number, p.title, p.status, p.total, p.subtotal, p.discount, p.shipping,
-             p.valid_until, p.notes, p.terms_text, p.delivery_time, p.payment_method, p.accepted_at, p.accepted_by_name,
+             p.valid_until, p.notes, p.terms_text, p.commercial_message, p.delivery_time, p.payment_method, p.accepted_at, p.accepted_by_name,
              p.rejected_at, p.rejected_reason, p.seller_email,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.person_type AS client_person_type, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
@@ -185,6 +185,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
         valid_until:      p.valid_until,
         notes:            p.notes,
         terms_text:       p.terms_text,
+        commercial_message: p.commercial_message,
         subtotal:         Number(p.subtotal),
         discount:         Number(p.discount),
         shipping:         Number(p.shipping),
@@ -249,15 +250,19 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch('/proposals/:id', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
-    const { title, client_id, valid_until, notes, terms_text, delivery_time, payment_method, discount, shipping, items } =
+    const { title, client_id, valid_until, notes, terms_text, commercial_message, delivery_time, payment_method, discount, shipping, items } =
       request.body as any;
 
     const { rows: [existing] } = await db.execute<any>(sql`
       SELECT id, status FROM proposals WHERE id = ${id} AND tenant_id = ${tenantId}
     `);
     if (!existing) return reply.notFound('Proposal not found');
-    if (!['draft'].includes(existing.status))
-      return reply.badRequest('Apenas propostas em rascunho podem ser editadas');
+    // Editável em draft/sent/viewed — desfechos definitivos (accepted/rejected/
+    // expired/cancelled) nunca podem ser reescritos depois que o cliente já
+    // decidiu sobre o conteúdo que viu. Reeditar não força reenvio nem muda o
+    // status atual.
+    if (!['draft', 'sent', 'viewed'].includes(existing.status))
+      return reply.badRequest('Esta proposta não pode mais ser editada');
 
     if (items !== undefined) {
       if (!Array.isArray(items) || !items.length) return reply.badRequest('Ao menos um item é necessário');
@@ -291,6 +296,7 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
         valid_until    = COALESCE(${valid_until || null}, valid_until),
         notes          = COALESCE(${notes || null}, notes),
         terms_text     = COALESCE(${terms_text || null}, terms_text),
+        commercial_message = COALESCE(${commercial_message || null}, commercial_message),
         delivery_time  = COALESCE(${delivery_time || null}, delivery_time),
         payment_method = COALESCE(${payment_method || null}, payment_method),
         discount    = ${finalDiscount},
@@ -425,11 +431,11 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [newP] } = await db.execute<any>(sql`
       INSERT INTO proposals (tenant_id, client_id, number, title, status,
-        subtotal, discount, shipping, total, valid_until, notes, terms_text,
+        subtotal, discount, shipping, total, valid_until, notes, terms_text, commercial_message,
         delivery_time, payment_method, seller_email, created_by)
       VALUES (${tenantId}, ${p.client_id || null}, ${newNumber}, ${p.title}, 'draft',
         ${Number(p.subtotal)}, ${Number(p.discount)}, ${Number(p.shipping)}, ${Number(p.total)},
-        ${p.valid_until || null}, ${p.notes || null}, ${p.terms_text || null},
+        ${p.valid_until || null}, ${p.notes || null}, ${p.terms_text || null}, ${p.commercial_message || null},
         ${p.delivery_time || null}, ${p.payment_method || null},
         ${userEmail || null}, ${userId || null})
       RETURNING id, number

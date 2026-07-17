@@ -191,6 +191,7 @@ export function Layout({ children }: { children: ReactNode }) {
       ...(enabledModules.includes('whatsapp') ? [{ to: '/whatsapp', label: t('nav.whatsapp'), permission: 'whatsapp:view' }] : []),
       { to: '/proposals', label: t('nav.proposals'), permission: 'proposals:view' },
       { to: '/orders',    label: t('nav.orders'),    permission: 'orders:view'    },
+      ...(enabledModules.includes('projects') ? [{ to: '/projects', label: t('nav.projects'), permission: 'projects:view' }] : []),
       { to: '/invoices',  label: t('nav.invoices'),  permission: 'invoices:view'  },
       { to: '/nfse',      label: t('nav.nfse'),      permission: 'nfse:view'      },
       { to: '/simples-remessa', label: t('nav.simplesRemessa') },

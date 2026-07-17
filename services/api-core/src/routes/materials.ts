@@ -455,6 +455,25 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     return reply.send(row);
   });
 
+  // POST /v1/materials/bulk-deactivate — desativa (is_active=false) todos os
+  // produtos ativos do tenant que NUNCA tiveram movimentação de estoque.
+  // Nunca um DELETE físico (regra 8): mesmo padrão soft-delete do DELETE
+  // /materials/:id acima, só que em massa — e com uma trava a mais (o
+  // DELETE de um único produto não checa movimentações; em massa, sim,
+  // porque afeta o catálogo inteiro de uma vez).
+  app.post('/materials/bulk-deactivate', {
+    onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:delete')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { rows } = await db.execute<{ id: string }>(sql`
+      UPDATE materials m SET is_active = false, updated_at = now()
+      WHERE m.tenant_id = ${tenantId} AND m.is_active = true
+        AND NOT EXISTS (SELECT 1 FROM inventory_movements im WHERE im.material_id = m.id)
+      RETURNING m.id
+    `);
+    return reply.send({ deactivated: rows.length });
+  });
+
   // GET /v1/materials/:id/stock
   app.get('/materials/:id/stock', {
     onRequest: [(app as any).authenticate], preHandler: [requirePermission('stock:view')],

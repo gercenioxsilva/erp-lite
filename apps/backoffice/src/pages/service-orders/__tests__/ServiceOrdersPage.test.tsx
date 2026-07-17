@@ -52,6 +52,23 @@ const DRAFT_DETAIL = {
 
 const SCHEDULED_DETAIL = { ...DRAFT_DETAIL, status: 'scheduled' };
 
+const VISIT_ID = 'visit-1';
+const COMPLETED_DETAIL = {
+  ...DRAFT_DETAIL, status: 'completed',
+  visits: [{
+    id: VISIT_ID, status: 'completed', scheduled_at: '2026-01-05T13:00:00Z',
+    checked_in_at: '2026-01-05T13:05:00Z', checked_out_at: '2026-01-05T14:00:00Z',
+    technician_name: 'Técnico X', technician_current_name: 'Técnico X',
+    report_notes: 'Filtro trocado com sucesso', signed_by_name: 'Cliente Y', signed_at: '2026-01-05T14:00:00Z',
+    visit_link: null, link_valid: false,
+  }],
+};
+const VISIT_DETAIL = {
+  ...COMPLETED_DETAIL.visits[0],
+  photos: [{ id: 'photo-1', caption: 'Antes da troca', created_at: '2026-01-05T13:10:00Z', url: 'https://s3.example.com/photo-1.jpg?sig=abc' }],
+  signature_url: 'https://s3.example.com/signature.png?sig=xyz',
+};
+
 function setupMocks(detail: unknown = DRAFT_DETAIL) {
   mockGet.mockImplementation((url: string) => {
     if (url.match(/\/v1\/service-orders\/[\w-]+$/)) return Promise.resolve(detail);
@@ -114,5 +131,47 @@ describe('ServiceOrdersPage — edição de OS (regra: editável só em draft)',
         type: 'maintenance',
       }));
     });
+  });
+});
+
+describe('ServiceOrdersPage — visualização de fotos da visita', () => {
+  beforeEach(() => { vi.clearAllMocks(); setupMocks(COMPLETED_DETAIL); });
+
+  it('visita sem check-in não mostra o botão Ver Fotos', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('#00001'));
+    await user.click(screen.getByText('#00001'));
+    await waitFor(() => screen.getByText('Técnico X'));
+    expect(screen.queryByRole('button', { name: /Ver Fotos/ })).toBeInTheDocument();
+  });
+
+  it('abre o modal e mostra as fotos + assinatura da visita já com check-in', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === `/v1/service-orders/${SO_ID}/visits/${VISIT_ID}`) return Promise.resolve(VISIT_DETAIL);
+      if (url.match(/\/v1\/service-orders\/[\w-]+$/)) return Promise.resolve(COMPLETED_DETAIL);
+      if (url.includes('/v1/service-orders')) return Promise.resolve({ data: [DRAFT_ORDER], total: 1, page: 1, per_page: 20 });
+      if (url.includes('/v1/clients'))     return Promise.resolve({ data: [] });
+      if (url.includes('/v1/technicians')) return Promise.resolve({ data: [] });
+      if (url.includes('/v1/materials'))   return Promise.resolve({ data: [] });
+      if (url.includes('/v1/companies'))   return Promise.resolve({ data: [] });
+      return Promise.resolve({});
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('#00001'));
+    await user.click(screen.getByText('#00001'));
+    await waitFor(() => screen.getByText('Técnico X'));
+
+    await user.click(screen.getByRole('button', { name: /Ver Fotos/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Antes da troca')).toBeInTheDocument();
+      expect(screen.getByAltText(t('so.clientSignature'))).toBeInTheDocument();
+    });
+    // "Cliente Y" também aparece no card da visita (por trás do modal, via
+    // "Assinado por Cliente Y") — usar getAllByText pra não colidir com isso.
+    expect(screen.getAllByText(/Cliente Y/).length).toBeGreaterThanOrEqual(1);
   });
 });

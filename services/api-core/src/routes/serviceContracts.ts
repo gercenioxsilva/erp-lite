@@ -1,14 +1,16 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, ilike, or, sql } from 'drizzle-orm';
-import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices } from '../db';
+import { db, serviceContracts, contractBillings, receivables, clients, materials, nfseInvoices, tenants } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
+import { resolveBankAccount, BankAccountDomainError } from '../services/bankAccountService';
 import { requirePermission } from '../lib/requirePermission';
 
-const FREQUENCIES = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
-const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
+const FREQUENCIES  = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
+const STATUSES      = ['active', 'paused', 'cancelled', 'expired'] as const;
+const CONTRACT_TYPES = ['service', 'rental'] as const;
 
 const contractBody = {
   type: 'object',
@@ -19,6 +21,11 @@ const contractBody = {
     // Qual empresa/CNPJ fatura este contrato (regra 40) — opcional, resolvido
     // para a empresa padrão do tenant quando omitido.
     company_id:        { type: 'string', format: 'uuid' },
+    // 'service' (padrão) | 'rental' — só rental oferece a Nota de Locação
+    // (sem valor fiscal) por cobrança — mesmo nome de campo/coluna que
+    // materials.type/service_orders.type (nunca "contract_type").
+    type:              { type: 'string', enum: CONTRACT_TYPES },
+    contact_name:      { type: 'string', maxLength: 255 },
     description:       { type: 'string', minLength: 1 },
     start_date:        { type: 'string', format: 'date' },
     end_date:          { type: 'string', format: 'date' },
@@ -113,6 +120,8 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       material_id:       (b.material_id      ?? null) as string | null,
       company_id:        (b.company_id       ?? null) as string | null,
       contract_number:   contractNumber,
+      type:              ((b.type as string) || 'service'),
+      contact_name:      (b.contact_name      ?? null) as string | null,
       description:       b.description       as string,
       start_date:        b.start_date        as string,
       end_date:          (b.end_date         ?? null) as string | null,
@@ -177,8 +186,8 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       .where(and(eq(serviceContracts.id, id), eq(serviceContracts.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Contract not found');
 
-    const allowed = ['description', 'client_id', 'material_id', 'company_id', 'start_date', 'end_date',
-                     'billing_frequency', 'billing_day', 'amount', 'status', 'notes',
+    const allowed = ['description', 'client_id', 'material_id', 'company_id', 'type', 'contact_name',
+                     'start_date', 'end_date', 'billing_frequency', 'billing_day', 'amount', 'status', 'notes',
                      'nfse_enabled', 'codigo_servico', 'aliquota_iss'];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
     if ('aliquota_iss' in updateData && updateData.aliquota_iss != null)
@@ -280,15 +289,26 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
         notes:       'Gerado pelo contrato de manutenção',
       }).returning();
 
+      // Numeração sequencial do recibo/fatura (regra 69) — gerada pra toda
+      // cobrança (não só locação), mesmo padrão MAX+1 padStart já usado em
+      // service_contracts.contract_number/proposals.number, aqui com 4
+      // dígitos pra bater com o documento real de referência ("Nº 0448").
+      const { rows: [docSeq] } = await tx.execute<{ n: string }>(sql`
+        SELECT COALESCE(MAX(CASE WHEN document_number ~ '^[0-9]+$' THEN document_number::INT END), 0) + 1 AS n
+        FROM contract_billings WHERE tenant_id = ${contract.tenant_id}
+      `);
+      const documentNumber = String(docSeq.n).padStart(4, '0');
+
       const [b] = await tx.insert(contractBillings).values({
-        tenant_id:     contract.tenant_id,
-        contract_id:   contractId,
-        receivable_id: rec.id,
-        period_start:  periodStart,
-        period_end:    periodEnd,
-        amount:        contract.amount,
-        due_date:      dueDate,
-        status:        'billed',
+        tenant_id:       contract.tenant_id,
+        contract_id:     contractId,
+        receivable_id:   rec.id,
+        period_start:    periodStart,
+        period_end:      periodEnd,
+        amount:          contract.amount,
+        due_date:        dueDate,
+        status:          'billed',
+        document_number: documentNumber,
       }).returning();
       billing = { ...b, receivable_id: rec.id };
 
@@ -370,5 +390,105 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
     `);
 
     return { data: rows };
+  });
+
+  // GET /v1/service-contracts/:id/billings/:billingId/receipt — dados pra
+  // impressão da Nota de Locação / Recibo / Fatura (regra 69). Documento
+  // interno SEM valor fiscal (nunca passa pelo Focus NF-e/NFS-e) — só
+  // disponível pra contratos type='rental'. Emissor sempre vem de `tenants`,
+  // mesma fonte que a impressão de proposta já usa (regra 37), não de
+  // nfe_configs — este documento não tem seletor de multi-empresa.
+  fastify.get<{ Params: { id: string; billingId: string } }>('/service-contracts/:id/billings/:billingId/receipt', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requirePermission('contracts:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id: contractId, billingId } = request.params;
+
+    const { rows: [contract] } = await db.execute<any>(sql`
+      SELECT sc.*, c.company_name AS client_company_name, c.full_name AS client_full_name,
+             c.person_type AS client_person_type, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
+             c.state_reg AS client_state_reg, c.email AS client_email, c.phone AS client_phone, c.mobile AS client_mobile,
+             c.zip_code AS client_zip, c.street AS client_street, c.street_number AS client_number,
+             c.complement AS client_complement, c.neighborhood AS client_neighborhood,
+             c.city AS client_city, c.state AS client_state
+      FROM service_contracts sc
+      JOIN clients c ON c.id = sc.client_id
+      WHERE sc.id = ${contractId} AND sc.tenant_id = ${tenantId}
+    `);
+    if (!contract) return reply.notFound('Contract not found');
+    if (contract.type !== 'rental')
+      return reply.badRequest('Disponível apenas para contratos de locação');
+
+    const { rows: [billing] } = await db.execute<any>(sql`
+      SELECT * FROM contract_billings WHERE id = ${billingId} AND contract_id = ${contractId} AND tenant_id = ${tenantId}
+    `);
+    if (!billing) return reply.notFound('Billing not found');
+
+    const [issuer] = await db.select({
+      name: tenants.company_name, trade_name: tenants.trade_name,
+      logo_url: tenants.logo_url, tax_id: tenants.tax_id, tax_id_type: tenants.tax_id_type,
+      state_reg: tenants.state_reg,
+      street: tenants.street, street_number: tenants.street_number, complement: tenants.complement,
+      neighborhood: tenants.neighborhood, city: tenants.city, state: tenants.state, zip_code: tenants.postal_code,
+    }).from(tenants).where(eq(tenants.id, tenantId));
+
+    let bankAccount: { bank_code: string; agency: string; account: string; account_digit: string } | null = null;
+    try {
+      const acc = await resolveBankAccount(tenantId, undefined, db);
+      bankAccount = { bank_code: acc.bank_code, agency: acc.agency, account: acc.account, account_digit: acc.account_digit };
+    } catch (err) {
+      if (!(err instanceof BankAccountDomainError)) throw err;
+      // Sem conta bancária cadastrada — a seção "Dados para Pagamento" some
+      // no documento, nunca bloqueia a emissão (mesmo espírito tolerante já
+      // usado em toda integração fiscal/bancária deste projeto).
+    }
+
+    return {
+      contract: {
+        description:   contract.description,
+        billing_day:   contract.billing_day,
+        contact_name:  contract.contact_name,
+      },
+      client: {
+        name:          contract.client_company_name || contract.client_full_name,
+        document:      contract.client_person_type === 'PF' ? contract.client_cpf : contract.client_cnpj,
+        document_type: contract.client_person_type === 'PF' ? 'CPF' : 'CNPJ',
+        state_reg:     contract.client_state_reg,
+        email:         contract.client_email,
+        phone:         contract.client_phone || contract.client_mobile,
+        street:        contract.client_street,
+        street_number: contract.client_number,
+        complement:    contract.client_complement,
+        neighborhood:  contract.client_neighborhood,
+        city:          contract.client_city,
+        state:         contract.client_state,
+        zip_code:      contract.client_zip,
+      },
+      billing: {
+        document_number: billing.document_number,
+        created_at:       billing.created_at,
+        due_date:         billing.due_date,
+        period_start:     billing.period_start,
+        period_end:       billing.period_end,
+        amount:           Number(billing.amount),
+      },
+      issuer: issuer ? {
+        name:        issuer.trade_name || issuer.name,
+        company:     issuer.name,
+        logo_url:    issuer.logo_url,
+        document:    issuer.tax_id,
+        document_type: issuer.tax_id_type,
+        state_reg:   issuer.state_reg,
+        street:      issuer.street,
+        street_number: issuer.street_number,
+        complement:  issuer.complement,
+        neighborhood: issuer.neighborhood,
+        city:        issuer.city,
+        state:       issuer.state,
+        zip_code:    issuer.zip_code,
+      } : null,
+      bank_account: bankAccount,
+    };
   });
 };
