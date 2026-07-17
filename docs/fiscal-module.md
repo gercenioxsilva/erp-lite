@@ -1,9 +1,11 @@
 # Módulo Fiscal + Contábil (Simples Nacional)
 
-> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations **0068–0079** · ~1179 testes · 79+ migrations validadas do zero.
-> Documento gerado a partir do código em 2026-07-12 (atualizado 2026-07-16 com a transmissão PGDAS-D via SERPRO). Cobre: **o que foi feito**, **como funciona**, **o que é configurável** e **o que é preciso para funcionar**.
+> Branch `feat/fiscal-simples-nacional` · PR #174 (draft) · migrations fiscais **0068–0079** (12 arquivos) · 1312+ testes · mergeado com `develop` em 2026-07-17.
+> Documento gerado a partir do código em 2026-07-12 (atualizado 2026-07-16 com a transmissão PGDAS-D via SERPRO; 2026-07-17 com o merge de `develop`). Cobre: **o que foi feito**, **como funciona**, **o que é configurável** e **o que é preciso para funcionar**.
 >
 > **Correção importante (2026-07-16):** a premissa anterior "o PGDAS-D não tem API oficial de transmissão" era **FALSA**. A **SERPRO Integra Contador** transmite o PGDAS-D (`TRANSDECLARACAO11`) e gera o DAS oficial em PDF (`GERARDAS12`) — ver §2.14. A transmissão foi implementada na migration 0079; onde este documento ainda disser "sem API oficial", vale o §2.14.
+>
+> **Nota de merge (2026-07-17):** `develop` chegou com o PR #183 (módulo de Projetos) usando os **mesmos números** `0068`/`0069`/`0070` para migrations diferentes (`0068_projects.sql` vs. `0068_fiscal_core.sql`, etc.) — nomes de arquivo únicos, sem colisão de conteúdo, mesmo padrão já tolerado em `0065` (ver `migrate.ts`). A **próxima migration fiscal livre é a 0080** (a Fiscal Engine API pública mencionada no roadmap, ainda não iniciada, usaria esse número).
 
 ---
 
@@ -418,14 +420,14 @@ Sem AWS real: filas/buckets vêm do LocalStack (`scripts/localstack-init.sh`); e
 
 ## 6. Limitações conhecidas e pontos de atenção
 
-- **PGDAS-D não tem API oficial** — o sistema calcula e gera o roteiro; a transmissão no portal GOV.BR é manual (aviso explícito no export).
+- ~~PGDAS-D não tem API oficial~~ — **corrigido na Rodada 4** (migration 0079, §2.14): a SERPRO Integra Contador transmite a declaração e gera o DAS oficial. O roteiro assistido do `/export` continua existindo como fallback para quem não configurou a integração SERPRO.
 - **MEI** — cadastro aceito, mas apuração/simulação percentual bloqueadas (DAS-SIMEI é fixo).
 - **Feriados nacionais** entram na prorrogação do vencimento do DAS (fixos + móveis via Páscoa, `domain/fiscal/holidays.ts`). Feriados **municipais/estaduais** permanecem fora de escopo (variam por cidade, sem cadastro).
 - **Lote assíncrono ABRASF** (aceito com protocolo, sem número) deixa a nota em `processing` — a reconsulta (`consultarLote`) entra na homologação por município.
 - **Sem UI/API** (ainda via SQL): `acquirer_accounts`, plano de contas custom (`contabil:manage` declarada, sem rota). `reconciliation_rules` ganhou CRUD + painel (rodada 3); `nfse_municipalities` ganhou GET + write owner/admin (rodada 3).
 - **Seams contábeis de POS (suprimento/sangria), pagamento de payable e estorno de pagamentos** agora estão ligados (rodada 3): postam/estornam no razão fire-and-forget. Falta apenas o gate de módulo `contabil` nesses seams (postam mesmo com o módulo desligado — o razão é preenchido de qualquer forma).
 - Posting contábil é **fire-and-forget**: falha vira log (`accounting_post_error`) sem alertar o usuário; os seams postam mesmo com o módulo `contabil` desligado (o gate é só nas rotas).
-- O worker usa **a data do processamento** como competência da receita/lançamento da autorização (não a data de emissão da nota) — coerente com a política de late-arriving.
+- ~~O worker usa a data do processamento como competência~~ — **corrigido** (bug de auditoria adversarial, `domain/fiscal/competencia.ts`): a competência da receita/lançamento vem de `nfe_auth_date`/`nfse_auth_date` no fuso fiscal (`America/Sao_Paulo`), não de `new Date()` em UTC — o ciclo 23:59 rodava já em 1º do mês seguinte em UTC e arquivava a última noite do mês na competência errada.
 - Relatórios contábeis são **tenant-wide** (multi-empresa consolidado); estorno não passa pela trava de competência (deliberado: corrigir erro não pode ser bloqueado).
 - Run de fechamento que morrer no meio fica `running` e bloqueia novos fechamentos (sem reaper — intervenção manual no banco).
 - E-mail de alerta critical depende do template no consumidor externo da fila de notificações (in-app cobre).
