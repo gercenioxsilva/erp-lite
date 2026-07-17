@@ -4,7 +4,7 @@ import { db } from '../db';
 import { requireModule } from '../lib/requireModule';
 import { requirePermission } from '../lib/requirePermission';
 import {
-  createServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
+  createServiceOrder, updateServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
 } from '../services/serviceOrderService';
 import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../services/serviceVisitService';
 import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
@@ -121,6 +121,30 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     return { ...so, items, visits: visitsWithLink };
+  });
+
+  // ── PATCH /v1/service-orders/:id ─────────────────────────────────────────
+  // Substitui header + itens por completo, só permitido em 'draft' (mesmo
+  // padrão de PATCH /purchase-orders/:id) — depois de agendada, a OS vira
+  // somente-leitura, restando apenas cancelar.
+  fastify.patch('/service-orders/:id', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:edit') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id }   = request.params as { id: string };
+    const b = request.body as any;
+
+    try {
+      const so = await updateServiceOrder(id, tenantId, {
+        clientId: b.client_id, costCenterId: b.cost_center_id,
+        title: b.title, description: b.description, type: b.type,
+        items: b.items,
+      });
+      return so;
+    } catch (err) {
+      if (err instanceof ServiceOrderDomainError) {
+        return reply.code(err.code === 'service_order_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 
   // ── GET /v1/service-orders/:id/print ─────────────────────────────────────

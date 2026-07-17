@@ -13,6 +13,7 @@ import { ClientsPage }    from './pages/clients/ClientsPage';
 import { UsersPage }      from './pages/users/UsersPage';
 import { OrdersPage }      from './pages/orders/OrdersPage';
 import { InvoicesPage }    from './pages/invoices/InvoicesPage';
+import { ProjectsPage }    from './pages/projects/ProjectsPage';
 import { InvoiceNewPage }  from './pages/invoices/InvoiceNewPage';
 import { StockPage }       from './pages/stock/StockPage';
 import { ReceivablesPage } from './pages/receivables/ReceivablesPage';
@@ -21,6 +22,7 @@ import { PayablesPage }    from './pages/payables/PayablesPage';
 import { CompanyPage }     from './pages/company/CompanyPage';
 import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
+import { NfseNewPage }     from './pages/nfse/NfseNewPage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
 import { FiscalPage } from './pages/fiscal/FiscalPage';
 import { FiscalOverviewPage } from './pages/fiscal/FiscalOverviewPage';
@@ -71,6 +73,7 @@ import { PayrollPage }         from './pages/payroll/PayrollPage';
 import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
 import { GuiaImpostosPrintPage } from './pages/fiscal/GuiaImpostosPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
+import { ContractBillingReceiptPrintPage } from './pages/contracts/ContractBillingReceiptPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
@@ -126,6 +129,7 @@ function GuardedRoutes() {
         <Route path="/users"      element={gate('users:view', <UsersPage />)} />
         <Route path="/roles"      element={gate('roles:view', <RolesPage />)} />
         <Route path="/orders"      element={gate('orders:view', <OrdersPage />)} />
+        <Route path="/projects"    element={gate('projects:view', <ProjectsPage />)} />
         <Route path="/invoices"     element={gate('invoices:view', <InvoicesPage />)} />
         <Route path="/invoices/new" element={gate('invoices:create', <InvoiceNewPage />)} />
         <Route path="/stock"       element={gate('stock:view', <StockPage />)} />
@@ -135,6 +139,7 @@ function GuardedRoutes() {
         <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
         <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
         <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
+        <Route path="/nfse/new"    element={gate('nfse:emit', <NfseNewPage />)} />
         {/* TODO(follow-up RBAC): simples-remessa e sales-pipeline são módulos novos
             de develop, sem chave no catálogo de permissões ainda — deixados sem
             gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
@@ -222,6 +227,7 @@ export function App() {
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
+              <Route path="/contracts/:contractId/billings/:billingId/receipt" element={<ContractBillingReceiptPrintPage />} />
               <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
               <Route path="/fiscal/apuracao/:id/guia" element={<GuiaImpostosPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />

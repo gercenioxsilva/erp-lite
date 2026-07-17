@@ -11,13 +11,15 @@ interface ServiceOrder {
   id: string; number: string; title: string; type: string; status: string;
   total: number; created_at: string; client_name: string | null;
 }
-interface ServiceOrderItemRow { id: string; description: string; quantity: number; unit_price: number; total: number; }
+interface ServiceOrderItemRow { id: string; material_id: string | null; description: string; quantity: number; unit_price: number; total: number; }
 interface VisitRow {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   technician_name: string | null; technician_current_name: string | null; report_notes: string | null;
   signed_by_name: string | null; signed_at: string | null;
   visit_link: string | null; link_valid: boolean;
 }
+interface VisitPhoto { id: string; caption: string | null; created_at: string; url: string; }
+interface VisitDetail extends VisitRow { photos: VisitPhoto[]; signature_url: string | null; }
 interface ServiceOrderDetail extends ServiceOrder {
   description: string | null; client_id: string | null;
   items: ServiceOrderItemRow[]; visits: VisitRow[];
@@ -68,6 +70,7 @@ export function ServiceOrdersPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing]       = useState<ServiceOrderDetail | null>(null);
+  const [editMode, setEditMode]     = useState(false);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
 
@@ -86,6 +89,9 @@ export function ServiceOrdersPage() {
   const [visitAt, setVisitAt]         = useState('');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
   const [copiedVisitId, setCopiedVisitId] = useState('');
+  const [photosOpen, setPhotosOpen]       = useState(false);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosVisit, setPhotosVisit]     = useState<VisitDetail | null>(null);
 
   const [billingDueDate, setBillingDueDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 7);
@@ -131,6 +137,7 @@ export function ServiceOrdersPage() {
 
   function openCreate() {
     setEditing(null);
+    setEditMode(false);
     setFormTitle(''); setFormDescription(''); setFormType('maintenance'); setFormClientId('');
     setFormItems([newItem()]);
     setFormError('');
@@ -142,12 +149,37 @@ export function ServiceOrdersPage() {
     setFormError('');
     setDrawerOpen(true);
     setEditing(null);
+    setEditMode(false);
     try {
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${o.id}`);
       setEditing(detail);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('c.loading'));
     }
+  }
+
+  // Só entra em modo de edição a partir de uma OS já carregada em 'draft'
+  // (regra 52-like: assertServiceOrderEditable no backend) — pré-preenche o
+  // mesmo formulário usado na criação.
+  function startEdit() {
+    if (!editing) return;
+    setFormTitle(editing.title);
+    setFormDescription(editing.description ?? '');
+    setFormType(editing.type);
+    setFormClientId(editing.client_id ?? '');
+    setFormItems(
+      editing.items.length > 0
+        ? editing.items.map(it => ({
+            _key: Math.random().toString(36).slice(2),
+            material_id: it.material_id ?? '',
+            description: it.description,
+            quantity: String(it.quantity),
+            unit_price: String(it.unit_price),
+          }))
+        : [newItem()],
+    );
+    setFormError('');
+    setEditMode(true);
   }
 
   function addItem() { setFormItems(prev => [...prev, newItem()]); }
@@ -171,19 +203,27 @@ export function ServiceOrdersPage() {
     e.preventDefault();
     if (!formTitle.trim()) { setFormError(t('so.errNoTitle')); return; }
     setSaving(true); setFormError('');
+    const payload = {
+      title: formTitle.trim(),
+      description: formDescription || undefined,
+      type: formType,
+      client_id: formClientId || undefined,
+      items: formItems.filter(it => it.description.trim()).map(it => ({
+        materialId: it.material_id || undefined,
+        description: it.description.trim(),
+        quantity: Number(it.quantity), unit_price: Number(it.unit_price),
+      })),
+    };
     try {
-      await api.post('/v1/service-orders', {
-        title: formTitle.trim(),
-        description: formDescription || undefined,
-        type: formType,
-        client_id: formClientId || undefined,
-        items: formItems.filter(it => it.description.trim()).map(it => ({
-          materialId: it.material_id || undefined,
-          description: it.description.trim(),
-          quantity: Number(it.quantity), unit_price: Number(it.unit_price),
-        })),
-      });
-      setDrawerOpen(false);
+      if (editMode && editing) {
+        await api.patch(`/v1/service-orders/${editing.id}`, payload);
+        const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
+        setEditing(detail);
+        setEditMode(false);
+      } else {
+        await api.post('/v1/service-orders', payload);
+        setDrawerOpen(false);
+      }
       void load();
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('cl.errSave'));
@@ -213,6 +253,28 @@ export function ServiceOrdersPage() {
       setCopiedVisitId(visitId);
       setTimeout(() => setCopiedVisitId(id => id === visitId ? '' : id), 2000);
     } catch { /* clipboard indisponível — o link ainda pode ser copiado manualmente do campo */ }
+  }
+
+  // Fotos/assinatura sobem direto do browser pro S3 no check-in do técnico
+  // (regra 38) — a leitura aqui é só o mesmo endpoint que já existe pro
+  // portal do backoffice, com URL assinada de curta duração, gerada sob
+  // demanda (nunca um link fixo salvo em cache).
+  async function openPhotos(visit: VisitRow) {
+    if (!editing) return;
+    setPhotosOpen(true);
+    setPhotosLoading(true);
+    setPhotosVisit(null);
+    try {
+      const detail = await api.get<VisitDetail>(`/v1/service-orders/${editing.id}/visits/${visit.id}`);
+      setPhotosVisit(detail);
+    } catch (err: unknown) {
+      modal.error(err);
+      setPhotosOpen(false);
+    } finally { setPhotosLoading(false); }
+  }
+  function closePhotos() {
+    setPhotosOpen(false);
+    setPhotosVisit(null);
   }
 
   async function cancelOrder(id: string) {
@@ -314,11 +376,14 @@ export function ServiceOrdersPage() {
         <div className="overlay" onClick={() => setDrawerOpen(false)}>
           <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(760px, 96vw)' }}>
             <div className="drawer-header">
-              <h2>{editing ? `#${editing.number} — ${editing.title}` : t('so.new')}</h2>
+              <h2>
+                {editMode && editing ? `${t('so.editTitle')} — #${editing.number}`
+                  : editing ? `#${editing.number} — ${editing.title}` : t('so.new')}
+              </h2>
               <button className="btn btn-secondary btn-sm" onClick={() => setDrawerOpen(false)}>✕</button>
             </div>
 
-            {editing ? (
+            {editing && !editMode ? (
               <div className="drawer-body">
                 {formError && <div className="alert alert-error" role="alert">{formError}</div>}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
@@ -354,6 +419,15 @@ export function ServiceOrdersPage() {
                         <div style={{ color: 'var(--muted)' }}>{fmtDateTime(v.scheduled_at)}</div>
                         {v.signed_by_name && <div style={{ color: 'var(--muted)', marginTop: 4 }}>Assinado por {v.signed_by_name}</div>}
                         {v.report_notes && <div style={{ marginTop: 6 }}>{v.report_notes}</div>}
+
+                        {v.checked_in_at && (
+                          <div style={{ marginTop: 8 }}>
+                            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => void openPhotos(v)}>
+                              📷 {t('so.viewPhotos')}
+                            </button>
+                          </div>
+                        )}
 
                         {v.visit_link && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
@@ -484,6 +558,13 @@ export function ServiceOrdersPage() {
                     onClick={() => window.open(`/service-orders/${editing.id}/print`, '_blank', 'noopener')}>
                     {t('so.printView')}
                   </button>
+                  {editing.status === 'draft' && (
+                    <Can permission="service_orders:edit">
+                      <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={startEdit}>
+                        {t('so.edit')}
+                      </button>
+                    </Can>
+                  )}
                   {editing.status !== 'cancelled' && editing.status !== 'completed' && (
                     <Can permission="service_orders:edit">
                       <button type="button" className="btn btn-danger" onClick={() => cancelOrder(editing.id)}>{t('so.cancel')}</button>
@@ -578,13 +659,79 @@ export function ServiceOrdersPage() {
                 </div>
 
                 <div className="drawer-footer">
-                  <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>{t('c.cancel')}</button>
+                  <button type="button" className="btn btn-secondary"
+                    onClick={() => editMode ? setEditMode(false) : setDrawerOpen(false)}>
+                    {t('c.cancel')}
+                  </button>
                   <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-                    {saving ? t('c.saving') : t('so.new')}
+                    {saving ? t('c.saving') : editMode ? t('so.save') : t('so.new')}
                   </button>
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {photosOpen && (
+        <div className="overlay" onClick={closePhotos} style={{ zIndex: 110 }}>
+          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(680px, 96vw)' }}>
+            <div className="drawer-header">
+              <h2>{t('so.visitPhotosTitle')}</h2>
+              <button className="btn btn-secondary btn-sm" onClick={closePhotos}>✕</button>
+            </div>
+            <div className="drawer-body">
+              {photosLoading ? (
+                <div className="spinner">{t('c.loading')}</div>
+              ) : !photosVisit ? (
+                <p className="empty-state">{t('so.viewPhotosError')}</p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 13, color: 'var(--muted)' }}>
+                    <span>{photosVisit.technician_name ?? photosVisit.technician_current_name ?? '—'}</span>
+                    <span>{fmtDateTime(photosVisit.scheduled_at)}</span>
+                  </div>
+
+                  {photosVisit.photos.length === 0 ? (
+                    <p className="empty-state" style={{ padding: 16 }}>{t('so.noPhotos')}</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
+                      {photosVisit.photos.map(p => (
+                        <a key={p.id} href={p.url} target="_blank" rel="noreferrer"
+                          style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+                          <img src={p.url} alt={p.caption ?? ''}
+                            style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+                          {p.caption && (
+                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.caption}
+                            </div>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {photosVisit.signature_url && (
+                    <>
+                      <h3 style={{ fontSize: 13, marginBottom: 8 }}>{t('so.clientSignature')}</h3>
+                      <div className="card" style={{ padding: 12, background: '#fff' }}>
+                        <img src={photosVisit.signature_url} alt={t('so.clientSignature')}
+                          style={{ maxWidth: '100%', maxHeight: 160, display: 'block', margin: '0 auto' }} />
+                        {photosVisit.signed_by_name && (
+                          <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                            {photosVisit.signed_by_name}
+                            {photosVisit.signed_at && ` — ${fmtDateTime(photosVisit.signed_at)}`}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="drawer-footer">
+              <button type="button" className="btn btn-secondary" onClick={closePhotos}>{t('c.close')}</button>
+            </div>
           </div>
         </div>
       )}

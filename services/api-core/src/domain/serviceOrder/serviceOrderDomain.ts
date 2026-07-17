@@ -35,6 +35,16 @@ export function assertServiceOrderTransition(from: ServiceOrderStatus, to: Servi
   }
 }
 
+// Uma OS só é editável em 'draft' — mesmo princípio de Pedido de Compra
+// (regra 52) e NF-e de Entrada (regra 49): a partir de 'scheduled' um
+// técnico já pode ter recebido o link da visita (regra 38), então editar
+// título/itens depois disso divergiria do que já foi comunicado a ele.
+export function assertServiceOrderEditable(status: ServiceOrderStatus): void {
+  if (status !== 'draft') {
+    throw new ServiceOrderDomainError('service_order_not_editable', { status });
+  }
+}
+
 // ── Cálculo de totais ─────────────────────────────────────────────────────────
 
 export interface ServiceOrderItemInput {

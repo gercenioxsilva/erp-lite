@@ -32,6 +32,10 @@ vi.mock('../../../i18n', () => ({
   useI18n: () => ({ t, lang: 'pt-BR' }),
 }));
 
+vi.mock('../../../contexts/ModalContext', () => ({
+  useModal: () => ({ confirm: vi.fn().mockResolvedValue(false), error: vi.fn(), success: vi.fn() }),
+}));
+
 const EMPTY_LIST = { data: [] };
 
 function setupMocks() {

@@ -27,6 +27,8 @@ interface Contract {
   client_name:       string;
   material_id:       string | null;
   material_name:     string | null;
+  type:              string;
+  contact_name:      string | null;
   description:       string;
   start_date:        string;
   end_date:          string | null;
@@ -50,6 +52,7 @@ interface Billing {
   status:           string;
   receivable_status?: string;
   nfse_id?:         string | null;
+  document_number?: string | null;
 }
 
 interface NfseLite {
@@ -66,6 +69,8 @@ const STATUSES    = ['active', 'paused', 'cancelled', 'expired'] as const;
 const EMPTY_FORM = {
   client_id:         '',
   material_id:       '',
+  type:              'service' as string,
+  contact_name:      '',
   description:       '',
   start_date:        '',
   end_date:          '',
@@ -216,6 +221,8 @@ export function ContractsPage() {
     setForm({
       client_id:         c.client_id,
       material_id:       c.material_id       ?? '',
+      type:              c.type              ?? 'service',
+      contact_name:      c.contact_name      ?? '',
       description:       c.description,
       start_date:        c.start_date.slice(0, 10),
       end_date:          c.end_date ? c.end_date.slice(0, 10) : '',
@@ -249,6 +256,8 @@ export function ContractsPage() {
         tenant_id:         tenantId,
         client_id:         form.client_id,
         material_id:       form.material_id   || undefined,
+        type:              form.type,
+        contact_name:      form.contact_name  || undefined,
         description:       form.description,
         start_date:        form.start_date,
         end_date:          form.end_date       || undefined,
@@ -447,6 +456,22 @@ export function ContractsPage() {
                   />
                 </div>
 
+                {/* Tipo / Contato */}
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('sc.type')}</label>
+                    <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                      <option value="service">{t('sc.type.service')}</option>
+                      <option value="rental">{t('sc.type.rental')}</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>{t('sc.contactName')}</label>
+                    <input value={form.contact_name}
+                      onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))} />
+                  </div>
+                </div>
+
                 {/* Descrição */}
                 <div className="field">
                   <label>{t('sc.description')} *</label>
@@ -570,12 +595,14 @@ export function ContractsPage() {
                         <table style={{ fontSize: 12 }}>
                           <thead>
                             <tr>
+                              {editing?.type === 'rental' && <th>Nº</th>}
                               <th>Período</th>
                               <th>Vencimento</th>
                               <th>Valor</th>
                               <th>Status cobrança</th>
                               <th>Status recebível</th>
                               <th>NFS-e</th>
+                              {editing?.type === 'rental' && <th aria-hidden />}
                             </tr>
                           </thead>
                           <tbody>
@@ -584,6 +611,9 @@ export function ContractsPage() {
                               const ns = nfse?.nfse_status ?? null;
                               return (
                               <tr key={b.id}>
+                                {editing?.type === 'rental' && (
+                                  <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{b.document_number ?? '—'}</td>
+                                )}
                                 <td style={{ fontFamily: 'monospace', fontSize: 11 }}>
                                   {fmtDate(b.period_start)} – {fmtDate(b.period_end)}
                                 </td>
@@ -616,6 +646,15 @@ export function ContractsPage() {
                                     </div>
                                   )}
                                 </td>
+                                {editing?.type === 'rental' && (
+                                  <td>
+                                    <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                      title={t('sc.printReceipt')}
+                                      onClick={() => window.open(`/contracts/${editing.id}/billings/${b.id}/receipt`, '_blank', 'noopener')}>
+                                      🖨
+                                    </button>
+                                  </td>
+                                )}
                               </tr>
                             ); })}
                           </tbody>

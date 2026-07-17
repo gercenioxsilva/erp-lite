@@ -18,7 +18,7 @@ interface Proposal {
 }
 interface ProposalDetail extends Proposal {
   subtotal: number; discount: number; shipping: number;
-  notes: string | null; terms_text: string | null;
+  notes: string | null; terms_text: string | null; commercial_message: string | null;
   delivery_time: string | null; payment_method: string | null;
   client_id: string | null;
   items: ProposalItemRow[];
@@ -80,6 +80,7 @@ export function ProposalsPage() {
   const [formValidUntil,setFormValidUntil] = useState('');
   const [formNotes,     setFormNotes]    = useState('');
   const [formTerms,     setFormTerms]    = useState('');
+  const [formCommercialMessage, setFormCommercialMessage] = useState('');
   const [formDelivery,  setFormDelivery] = useState('');
   const [formPayment,   setFormPayment]  = useState('');
   const [formDiscount,  setFormDiscount] = useState('0');
@@ -130,7 +131,7 @@ export function ProposalsPage() {
     setEditing(null);
     setViewOnly(false);
     setFormTitle(''); setFormClientId(''); setFormValidUntil('');
-    setFormNotes(''); setFormTerms(''); setFormDelivery(''); setFormPayment('');
+    setFormNotes(''); setFormTerms(''); setFormCommercialMessage(''); setFormDelivery(''); setFormPayment('');
     setFormDiscount('0'); setFormShipping('0');
     setFormItems([newItem()]);
     setFormError('');
@@ -139,7 +140,7 @@ export function ProposalsPage() {
 
   async function openEdit(p: Proposal) {
     setFormError('');
-    setViewOnly(p.status !== 'draft');
+    setViewOnly(!['draft', 'sent', 'viewed'].includes(p.status));
     setDrawerOpen(true);
     try {
       const detail = await api.get<ProposalDetail>(`/v1/proposals/${p.id}`);
@@ -149,6 +150,7 @@ export function ProposalsPage() {
       setFormValidUntil(detail.valid_until ?? '');
       setFormNotes(detail.notes ?? '');
       setFormTerms(detail.terms_text ?? '');
+      setFormCommercialMessage(detail.commercial_message ?? '');
       setFormDelivery(detail.delivery_time ?? '');
       setFormPayment(detail.payment_method ?? '');
       setFormDiscount(String(detail.discount));
@@ -237,6 +239,7 @@ export function ProposalsPage() {
         valid_until: formValidUntil || undefined,
         notes: formNotes || undefined,
         terms_text: formTerms || undefined,
+        commercial_message: formCommercialMessage || undefined,
         delivery_time: formDelivery || undefined,
         payment_method: formPayment || undefined,
         discount: Number(formDiscount) || 0,
@@ -634,6 +637,13 @@ export function ProposalsPage() {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="prop-commercial-message">{t('prop.commercialMessage')}</label>
+                  <textarea id="prop-commercial-message" value={formCommercialMessage}
+                    onChange={e => setFormCommercialMessage(e.target.value)} rows={3}
+                    placeholder={t('prop.commercialMessagePH')} />
                 </div>
 
                 <div className="field">

@@ -36,6 +36,7 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   users:            { label: 'Usuários',             actions: { view: 'Listar/ver usuários', create: 'Criar usuário', edit: 'Editar usuário', delete: 'Excluir usuário' } },
   pos:              { label: 'PDV',                  actions: { view: 'Ver PDV', operate: 'Operar caixa/venda', manage: 'Gerenciar terminais/sessões' } },
   service_orders:   { label: 'Ordens de Serviço',    actions: { view: 'Ver OS', create: 'Criar OS', edit: 'Editar OS', delete: 'Excluir OS', assign: 'Atribuir técnico/visita' } },
+  projects:         { label: 'Projetos',              actions: { view: 'Ver projetos', create: 'Criar projeto', edit: 'Editar/gerenciar projeto (profissionais, vínculos, status)', delete: 'Excluir projeto' } },
   technicians:      { label: 'Técnicos',             actions: { view: 'Ver técnicos', create: 'Criar técnico', edit: 'Editar técnico', delete: 'Excluir técnico' } },
   reports:          { label: 'Relatórios',           actions: { view: 'Ver relatórios', export: 'Exportar relatórios' } },
   billing:          { label: 'Assinatura/Cobrança',  actions: { view: 'Ver cobrança', manage: 'Gerenciar assinatura/plano' } },

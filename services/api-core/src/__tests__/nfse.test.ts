@@ -10,7 +10,7 @@ vi.mock('../lib/sqsClient', () => ({
 }));
 
 // In-memory state the mocked db reads from
-const state: { nfseRows: any[]; companyRows: any[] } = { nfseRows: [], companyRows: [] };
+const state: { nfseRows: any[]; companyRows: any[]; clientRows: any[] } = { nfseRows: [], companyRows: [], clientRows: [] };
 
 function makeSelectChain() {
   // db.select().from(table).where() resolves por tabela — discriminar por
@@ -33,7 +33,8 @@ vi.mock('../db', async () => {
       // COUNT(*) queries must return a single { total } row.
       execute: vi.fn(async (query: any) => {
         const text = JSON.stringify(query?.queryChunks ?? query ?? '');
-        if (/COUNT/i.test(text)) return { rows: [{ total: state.nfseRows.length }] };
+        if (/COUNT/i.test(text))          return { rows: [{ total: state.nfseRows.length }] };
+        if (/FROM clients/i.test(text))  return { rows: state.clientRows };
         return { rows: state.nfseRows };
       }),
       select: vi.fn(() => makeSelectChain()),
@@ -51,6 +52,7 @@ describe('NFS-e routes', () => {
   beforeEach(async () => {
     state.nfseRows = [];
     state.companyRows = [];
+    state.clientRows = [];
     process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue/nfe-requests';
     app = await buildApp();
     // Sign a fake JWT so authenticate passes — tenantId matches the value the
@@ -135,6 +137,34 @@ describe('NFS-e routes', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().message).toMatch(/Inscrição Municipal/);
+    });
+  });
+
+  // NFS-e avulsa — mesma UX de "nota fiscal de venda avulsa" (POST /v1/invoices):
+  // cria o rascunho aqui, a emissão em si continua sendo POST /:id/emit acima.
+  // Emissão avulsa (E7): cria+emite via createAndEmitNfse (nfseCreateService.ts).
+  // As regras de negócio (amount inválido, cliente de outro tenant, readiness,
+  // trava de competência, service_code ausente) já são cobertas na camada de
+  // serviço em nfseCreateService.test.ts, com o mock apropriado para a
+  // transação + gates que essa função atravessa. Aqui só o que é específico
+  // da ROTA: o guard de campos obrigatórios ANTES de chamar o serviço, e auth.
+  describe('POST /v1/nfse', () => {
+    const BASE_PAYLOAD = {
+      client_id: 'client-1', description: 'Consultoria avulsa', amount: 500,
+    };
+
+    it('400 sem client_id/description/amount', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/nfse',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { description: 'svc' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('401 sem token de autenticação', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/nfse', payload: BASE_PAYLOAD });
+      expect(res.statusCode).toBe(401);
     });
   });
 });

@@ -98,6 +98,15 @@ const migrations = [
   '0065_receivables_invoice_idempotency.sql',
   '0066_google_calendar.sql',
   '0067_whatsapp_integration.sql',
+  // Colisão de numeração com feat/fiscal-simples-nacional (0068-0079 abaixo):
+  // mesmo padrão já tolerado em 0065 (tenant_branding vs
+  // receivables_invoice_idempotency) — nomes de arquivo são únicos, o número
+  // é só prefixo de leitura humana. Ordem entre os dois blocos não importa
+  // (nenhuma FK cruzada: projects/proposals/rental dependem de tabelas
+  // pré-0065; fiscal depende só de nfe_configs/pos_sales/orders).
+  '0068_projects.sql',
+  '0069_proposal_commercial_message.sql',
+  '0070_contract_rental_receipt.sql',
   '0068_fiscal_core.sql',
   '0069_fiscal_company_config.sql',
   '0070_fiscal_tax_simples.sql',
