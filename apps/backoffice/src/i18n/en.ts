@@ -655,7 +655,7 @@ const en: Record<TKey, string> = {
 
   // ── NFS-e (config) ────────────────────────────────────────────────────
   'comp.nfse.title':              'NFS-e (Service Invoice)',
-  'comp.nfse.hint':               'Municipal data used when issuing NFS-e via Focus. Required for contracts with NFS-e enabled.',
+  'comp.nfse.hint':               'Municipal data used when issuing NFS-e. Required for contracts with NFS-e enabled.',
   'comp.nfse.inscricaoMunicipal': 'Municipal Registration',
   'comp.nfse.codigoMunicipioIbge':'City Code (IBGE)',
   'comp.nfse.aliquotaIss':        'Default ISS Rate (%)',
@@ -663,6 +663,36 @@ const en: Record<TKey, string> = {
   'comp.nfse.codigoServicoPH':    'e.g. 14.01',
 
   // ── Emission responsibility per company (regra 53) ─────────────────────
+  // ── Automated fiscal integration (rule 70) ──────────────────────────────
+  // Never mentions the provider behind it (Focus) — for the tenant it's just
+  // "the invoice-issuing integration is working or not".
+  'comp.fiscalIntegration.title':                              'Invoice-Issuing Integration',
+  'comp.fiscalIntegration.hint':                                'Automatically register this company and upload the digital certificate to enable NF-e/NFS-e issuance.',
+  'comp.fiscalIntegration.status.not_registered':               'Not registered',
+  'comp.fiscalIntegration.status.pending':                      'Processing…',
+  'comp.fiscalIntegration.status.registered_no_certificate':    'Registered — certificate missing',
+  'comp.fiscalIntegration.status.active':                       'Active',
+  'comp.fiscalIntegration.status.certificate_expiring_soon':    'Certificate expiring soon',
+  'comp.fiscalIntegration.status.certificate_expired':          'Certificate expired',
+  'comp.fiscalIntegration.status.error':                        'Registration error',
+  'comp.fiscalIntegration.register':                            'Register company',
+  'comp.fiscalIntegration.registering':                         'Registering…',
+  'comp.fiscalIntegration.registerStarted':                     'Registration started — this may take a few moments.',
+  'comp.fiscalIntegration.test':                                'Test connection',
+  'comp.fiscalIntegration.testing':                              'Testing…',
+  'comp.fiscalIntegration.testOk':                              'Connection is working normally.',
+  'comp.fiscalIntegration.testFailed':                          'Could not confirm the connection.',
+  'comp.fiscalIntegration.certTitle':                           'Digital certificate',
+  'comp.fiscalIntegration.certHint':                             'Upload the A1 digital certificate (.pfx/.p12) used to issue this company\'s invoices.',
+  'comp.fiscalIntegration.certFile':                            'Certificate file (.pfx/.p12)',
+  'comp.fiscalIntegration.certPassword':                        'Certificate password',
+  'comp.fiscalIntegration.certUpload':                          'Upload certificate',
+  'comp.fiscalIntegration.certUploading':                       'Uploading…',
+  'comp.fiscalIntegration.certUploaded':                        'Certificate uploaded successfully.',
+  'comp.fiscalIntegration.certRequired':                        'Select the file and enter the certificate password.',
+  'comp.fiscalIntegration.certTooLarge':                        'Invalid or oversized certificate file.',
+  'comp.fiscalIntegration.certValidUntil':                      'Valid until',
+
   'comp.emission.title':     'Emission responsibility',
   'comp.emission.hint':      'Choose which fiscal document types this company is authorized to issue. In tenants with more than one CNPJ, each company can be responsible for one type, both, or neither.',
   'comp.emission.emiteNfe':  'Issues NF-e (goods sale)',

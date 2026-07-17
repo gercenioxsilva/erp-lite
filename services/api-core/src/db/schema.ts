@@ -436,8 +436,33 @@ export const nfeConfigs = pgTable('nfe_configs', {
   // regra 44 pra class_trib).
   emite_nfe:  boolean('emite_nfe').notNull().default(true),
   emite_nfse: boolean('emite_nfse').notNull().default(true),
+  // Integração fiscal automatizada (migration 0071, regra 70): registro
+  // assíncrono da empresa + upload síncrono de certificado A1. IE por
+  // empresa (faltava — só existia em tenants.state_reg, singleton).
+  inscricao_estadual: varchar('inscricao_estadual', { length: 20 }),
+  fiscal_integration_ref:      varchar('fiscal_integration_ref', { length: 50 }),
+  fiscal_registration_status:  varchar('fiscal_registration_status', { length: 20 }),
+  fiscal_registration_attempts: smallint('fiscal_registration_attempts').notNull().default(0),
+  fiscal_registration_error:   text('fiscal_registration_error'),
+  certificado_cnpj:       varchar('certificado_cnpj', { length: 20 }),
+  certificado_valido_de:  date('certificado_valido_de'),
+  certificado_valido_ate: date('certificado_valido_ate'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── fiscal_integration_events ───────────────────────────────────────────────
+// Trilha de auditoria append-only do registro automatizado da empresa no
+// emissor fiscal, upload de certificado e teste de conexão (migration 0071,
+// regra 70) — mesmo padrão de nfse_events/simples_remessa_events.
+export const fiscalIntegrationEvents = pgTable('fiscal_integration_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  tenant_id:   uuid('tenant_id').notNull(),
+  event_type:  varchar('event_type', { length: 30 }).notNull(),
+  status_code: varchar('status_code', { length: 20 }),
+  payload:     jsonb('payload'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── bank_accounts ────────────────────────────────────────────────────────────

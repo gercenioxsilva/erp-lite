@@ -89,6 +89,11 @@ resource "aws_ecs_task_definition" "api_core" {
       # racional do C6 Bank).
       { name = "WHATSAPP_REQUESTS_QUEUE_URL", value = aws_sqs_queue.whatsapp_requests.url },
       { name = "WHATSAPP_RESULTS_QUEUE_URL", value = aws_sqs_queue.whatsapp_results.url },
+      # Mesmo token mestre já usado pelo lambda-fiscal (var.focus_nfe_token) —
+      # api-core precisa dele em processo pras chamadas SÍNCRONAS de gestão de
+      # empresa (upload de certificado, teste de conexão); o registro da
+      # empresa em si é ASSÍNCRONO via nfe_requests/nfe_results (regra 70).
+      { name = "FOCUS_NFE_TOKEN", value = var.focus_nfe_token },
     ]
 
     logConfiguration = {

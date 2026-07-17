@@ -713,12 +713,42 @@ const ptBR = {
 
   // ── NFS-e (config) ────────────────────────────────────────────────────
   'comp.nfse.title':              'NFS-e (Nota Fiscal de Serviços)',
-  'comp.nfse.hint':               'Dados municipais usados na emissão de NFS-e via Focus. Necessário para contratos com NFS-e habilitada.',
+  'comp.nfse.hint':               'Dados municipais usados na emissão de NFS-e. Necessário para contratos com NFS-e habilitada.',
   'comp.nfse.inscricaoMunicipal': 'Inscrição Municipal',
   'comp.nfse.codigoMunicipioIbge':'Código do Município (IBGE)',
   'comp.nfse.aliquotaIss':        'Alíquota ISS Padrão (%)',
   'comp.nfse.codigoServico':      'Código de Serviço LC 116 (Padrão)',
   'comp.nfse.codigoServicoPH':    'Ex.: 14.01',
+
+  // ── Integração fiscal automatizada (regra 70) ──────────────────────────
+  // Nunca menciona o provedor por trás (Focus) — pro tenant é só "a
+  // integração de emissão de notas fiscais está funcionando ou não".
+  'comp.fiscalIntegration.title':                              'Integração de Emissão de Notas Fiscais',
+  'comp.fiscalIntegration.hint':                                'Registre automaticamente esta empresa e envie o certificado digital para habilitar a emissão de NF-e/NFS-e.',
+  'comp.fiscalIntegration.status.not_registered':               'Não registrada',
+  'comp.fiscalIntegration.status.pending':                      'Processando…',
+  'comp.fiscalIntegration.status.registered_no_certificate':    'Registrada — falta o certificado',
+  'comp.fiscalIntegration.status.active':                       'Ativa',
+  'comp.fiscalIntegration.status.certificate_expiring_soon':    'Certificado vencendo em breve',
+  'comp.fiscalIntegration.status.certificate_expired':          'Certificado vencido',
+  'comp.fiscalIntegration.status.error':                        'Erro no registro',
+  'comp.fiscalIntegration.register':                            'Registrar empresa',
+  'comp.fiscalIntegration.registering':                         'Registrando…',
+  'comp.fiscalIntegration.registerStarted':                     'Registro iniciado — isso pode levar alguns instantes.',
+  'comp.fiscalIntegration.test':                                'Testar conexão',
+  'comp.fiscalIntegration.testing':                              'Testando…',
+  'comp.fiscalIntegration.testOk':                              'Conexão funcionando normalmente.',
+  'comp.fiscalIntegration.testFailed':                          'Não foi possível confirmar a conexão.',
+  'comp.fiscalIntegration.certTitle':                           'Certificado digital',
+  'comp.fiscalIntegration.certHint':                             'Envie o certificado digital A1 (.pfx/.p12) usado para emitir as notas fiscais desta empresa.',
+  'comp.fiscalIntegration.certFile':                            'Arquivo do certificado (.pfx/.p12)',
+  'comp.fiscalIntegration.certPassword':                        'Senha do certificado',
+  'comp.fiscalIntegration.certUpload':                          'Enviar certificado',
+  'comp.fiscalIntegration.certUploading':                       'Enviando…',
+  'comp.fiscalIntegration.certUploaded':                        'Certificado enviado com sucesso.',
+  'comp.fiscalIntegration.certRequired':                        'Selecione o arquivo e informe a senha do certificado.',
+  'comp.fiscalIntegration.certTooLarge':                        'Arquivo de certificado inválido ou grande demais.',
+  'comp.fiscalIntegration.certValidUntil':                      'Válido até',
 
   // ── Responsabilidade de emissão por empresa (regra 53) ─────────────────
   'comp.emission.title':     'Responsabilidade de emissão',
