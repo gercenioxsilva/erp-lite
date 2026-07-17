@@ -13,7 +13,7 @@ export const publicRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows: [p] } = await db.execute<any>(sql`
       SELECT p.id, p.number, p.title, p.status, p.total, p.subtotal, p.discount, p.shipping,
-             p.valid_until, p.notes, p.terms_text, p.delivery_time, p.payment_method, p.accepted_at, p.accepted_by_name,
+             p.valid_until, p.notes, p.terms_text, p.commercial_message, p.delivery_time, p.payment_method, p.accepted_at, p.accepted_by_name,
              p.rejected_at, p.rejected_reason, p.public_viewed_at, p.seller_email,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.person_type AS client_person_type, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
@@ -73,6 +73,7 @@ export const publicRoutes: FastifyPluginAsync = async (fastify) => {
         valid_until:      p.valid_until,
         notes:            p.notes,
         terms_text:       p.terms_text,
+        commercial_message: p.commercial_message,
         subtotal:         Number(p.subtotal),
         discount:         Number(p.discount),
         shipping:         Number(p.shipping),
