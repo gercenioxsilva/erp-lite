@@ -46,6 +46,14 @@ interface NfeCfg {
   // Responsabilidade de emissão por empresa (regra 53)
   emite_nfe: boolean;
   emite_nfse: boolean;
+  // Integração fiscal automatizada (regra 70) — nunca exibe o nome do
+  // provedor por trás, só o estado da integração em si.
+  fiscal_integration_ref: string | null;
+  fiscal_registration_status: 'pending' | 'processing' | 'registered' | 'error' | null;
+  fiscal_registration_error: string | null;
+  certificado_cnpj: string | null;
+  certificado_valido_de: string | null;
+  certificado_valido_ate: string | null;
 }
 
 // Empresa/CNPJ (regra 40) — mesmo shape de NfeCfg, com identidade própria.
@@ -185,6 +193,20 @@ export function CompanyPage() {
   const [nfeSaving, setNfeSaving]     = useState(false);
   const [nfeSuccess, setNfeSuccess]   = useState('');
   const [nfeError, setNfeError]       = useState('');
+
+  // Integração fiscal automatizada (regra 70): registro assíncrono da
+  // empresa + upload síncrono de certificado digital A1 + teste de conexão.
+  // Nunca menciona o provedor por trás — só "integração de emissão de notas
+  // fiscais", pro tenant é só um interruptor liga/desliga.
+  const [fiscalRegistering, setFiscalRegistering] = useState(false);
+  const [fiscalTesting, setFiscalTesting]         = useState(false);
+  const [fiscalUploading, setFiscalUploading]     = useState(false);
+  const [fiscalError, setFiscalError]             = useState('');
+  const [fiscalSuccess, setFiscalSuccess]         = useState('');
+  const certFileRef = useRef<HTMLInputElement>(null);
+  const [certFileName, setCertFileName]           = useState('');
+  const [certBase64, setCertBase64]               = useState('');
+  const [certPassword, setCertPassword]           = useState('');
   const [cepLoading, setCepLoading]   = useState(false);
 
   // Multi-empresa (regra 40) — módulo opcional. companies sempre tem ao menos
@@ -320,6 +342,80 @@ export function CompanyPage() {
     if (company) fillNfeFormFromCompany(company);
   }
 
+  // Empresa atualmente selecionada na aba Fiscal — sempre resolvida a partir
+  // de `companies` (lista sempre carregada e atualizada por loadCompanies()),
+  // nunca de `nfeForm`/`nfeCfg` (que não têm os campos de integração fiscal e
+  // podem ficar temporariamente desatualizados ao trocar de empresa).
+  const currentCompanyId = selectedCompanyId === 'new'
+    ? null
+    : (selectedCompanyId ?? companies.find(c => c.is_default)?.id ?? null);
+  const currentCompany = companies.find(c => c.id === currentCompanyId) ?? null;
+
+  async function handleRegisterFiscalIntegration() {
+    if (!currentCompanyId) return;
+    setFiscalError(''); setFiscalSuccess(''); setFiscalRegistering(true);
+    try {
+      await api.post(`/v1/companies/${currentCompanyId}/fiscal-integration/register`, {});
+      setFiscalSuccess(t('comp.fiscalIntegration.registerStarted'));
+      await loadCompanies();
+    } catch (err: any) {
+      setFiscalError(err.message || t('comp.errSave'));
+    } finally { setFiscalRegistering(false); }
+  }
+
+  async function handleTestFiscalConnection() {
+    if (!currentCompanyId) return;
+    setFiscalError(''); setFiscalSuccess(''); setFiscalTesting(true);
+    try {
+      const res = await api.post<{ ok: boolean; reason?: string }>(`/v1/companies/${currentCompanyId}/fiscal-integration/test`, {});
+      if (res.ok) setFiscalSuccess(t('comp.fiscalIntegration.testOk'));
+      else setFiscalError(res.reason || t('comp.fiscalIntegration.testFailed'));
+    } catch (err: any) {
+      setFiscalError(err.message || t('comp.fiscalIntegration.testFailed'));
+    } finally { setFiscalTesting(false); }
+  }
+
+  const MAX_CERT_FILE_BYTES = 12 * 1024 * 1024; // A1 típico é bem menor — limite defensivo
+
+  function handleCertFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_CERT_FILE_BYTES) {
+      setFiscalError(t('comp.fiscalIntegration.certTooLarge'));
+      e.target.value = '';
+      return;
+    }
+    setFiscalError('');
+    setCertFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      // data:...;base64,XXXX — só a parte depois da vírgula interessa.
+      setCertBase64(result.split(',')[1] || '');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleUploadCertificate() {
+    if (!currentCompanyId) return;
+    if (!certBase64 || !certPassword.trim()) {
+      setFiscalError(t('comp.fiscalIntegration.certRequired'));
+      return;
+    }
+    setFiscalError(''); setFiscalSuccess(''); setFiscalUploading(true);
+    try {
+      await api.post(`/v1/companies/${currentCompanyId}/fiscal-integration/certificate`, {
+        certificado_base64: certBase64, senha_certificado: certPassword,
+      });
+      setFiscalSuccess(t('comp.fiscalIntegration.certUploaded'));
+      setCertFileName(''); setCertBase64(''); setCertPassword('');
+      if (certFileRef.current) certFileRef.current.value = '';
+      await loadCompanies();
+    } catch (err: any) {
+      setFiscalError(err.message || t('comp.errSave'));
+    } finally { setFiscalUploading(false); }
+  }
+
   async function loadTenant() {
     setLoading(true);
     try {
@@ -402,6 +498,18 @@ export function CompanyPage() {
     applyPalette(effectivePrimary, effectiveAccent);
     return () => { void refreshUser().catch(() => resetPalette()); };
   }, [tab, effectivePrimary, effectiveAccent, refreshUser]);
+
+  // Registro assíncrono da integração fiscal (regra 70) — enquanto
+  // pending/processing, reconsulta companies a cada 3s pra refletir o
+  // resultado assim que o worker processar (mesmo padrão de NfsePage.tsx).
+  useEffect(() => {
+    if (tab !== 'fiscal') return;
+    if (!['pending', 'processing'].includes(currentCompany?.fiscal_registration_status ?? '')) return;
+    let cancelled = false;
+    const timer = setInterval(() => { if (!cancelled) void loadCompanies(); }, 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, currentCompany?.fiscal_registration_status]);
 
   async function handleBrandingSave(e: FormEvent) {
     e.preventDefault(); setBrandingError(''); setBrandingSuccess('');
@@ -1341,6 +1449,7 @@ export function CompanyPage() {
           {nfeLoading ? (
             <div className="spinner">{t('c.loading')}</div>
           ) : (
+            <>
             <div className="card" style={{ padding: 24 }}>
               <form onSubmit={handleNfeSave} noValidate>
                 {nfeError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{nfeError}</div>}
@@ -1626,6 +1735,96 @@ export function CompanyPage() {
                 </div>
               </form>
             </div>
+
+            {/* Integração fiscal automatizada (regra 70) — registro assíncrono
+                da empresa + upload síncrono de certificado A1 + teste de
+                conexão. Nunca menciona o provedor por trás (só o backend
+                sabe); pro tenant é só "está funcionando ou não". */}
+            {currentCompanyId && selectedCompanyId !== 'new' && (() => {
+              const status = currentCompany?.fiscal_registration_status === 'error' ? 'error'
+                : (currentCompany?.fiscal_registration_status === 'pending' || currentCompany?.fiscal_registration_status === 'processing') ? 'pending'
+                : !currentCompany?.fiscal_integration_ref ? 'not_registered'
+                : !currentCompany?.certificado_valido_ate ? 'registered_no_certificate'
+                : new Date(currentCompany.certificado_valido_ate + 'T23:59:59').getTime() < Date.now() ? 'certificate_expired'
+                : (new Date(currentCompany.certificado_valido_ate + 'T23:59:59').getTime() - Date.now()) / 86_400_000 <= 30 ? 'certificate_expiring_soon'
+                : 'active';
+
+              const statusVariant: Record<string, 'active' | 'inactive' | 'draft' | 'pending' | 'overdue' | 'cancelled'> = {
+                not_registered: 'inactive', pending: 'pending', registered_no_certificate: 'draft',
+                active: 'active', certificate_expiring_soon: 'pending', certificate_expired: 'overdue', error: 'cancelled',
+              };
+              const isPending = status === 'pending';
+              const isRegistered = Boolean(currentCompany?.fiscal_integration_ref);
+
+              return (
+                <div className="card" style={{ padding: 24, marginTop: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <h3 style={{ margin: 0 }}>{t('comp.fiscalIntegration.title')}</h3>
+                    <Badge variant={statusVariant[status]}>{t(`comp.fiscalIntegration.status.${status}` as TKey)}</Badge>
+                  </div>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>{t('comp.fiscalIntegration.hint')}</p>
+
+                  {fiscalError   && <div role="alert" className="alert alert-error"   style={{ marginBottom: 16 }}>{fiscalError}</div>}
+                  {fiscalSuccess && <div role="alert" className="alert alert-success" style={{ marginBottom: 16 }}>{fiscalSuccess}</div>}
+
+                  {status === 'error' && currentCompany?.fiscal_registration_error && (
+                    <div className="alert alert-error" style={{ marginBottom: 16, fontSize: 12 }}>
+                      {currentCompany.fiscal_registration_error}
+                    </div>
+                  )}
+
+                  <Can permission="company:edit">
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: isRegistered ? 20 : 0 }}>
+                      <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                        disabled={fiscalRegistering || isPending}
+                        onClick={handleRegisterFiscalIntegration}>
+                        {fiscalRegistering || isPending ? t('comp.fiscalIntegration.registering') : t('comp.fiscalIntegration.register')}
+                      </button>
+                      {isRegistered && (
+                        <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                          disabled={fiscalTesting}
+                          onClick={handleTestFiscalConnection}>
+                          {fiscalTesting ? t('comp.fiscalIntegration.testing') : t('comp.fiscalIntegration.test')}
+                        </button>
+                      )}
+                    </div>
+
+                    {isRegistered && (
+                      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-soft, var(--border))' }}>
+                        <strong style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>{t('comp.fiscalIntegration.certTitle')}</strong>
+                        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{t('comp.fiscalIntegration.certHint')}</p>
+
+                        {currentCompany?.certificado_valido_ate && (
+                          <p style={{ fontSize: 12, marginBottom: 12 }}>
+                            {t('comp.fiscalIntegration.certValidUntil')}: <strong>{currentCompany.certificado_valido_ate}</strong>
+                          </p>
+                        )}
+
+                        <div className="field-row">
+                          <div className="field">
+                            <label>{t('comp.fiscalIntegration.certFile')}</label>
+                            <input ref={certFileRef} type="file" accept=".pfx,.p12" onChange={handleCertFile} />
+                            {certFileName && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{certFileName}</span>}
+                          </div>
+                          <div className="field">
+                            <label>{t('comp.fiscalIntegration.certPassword')}</label>
+                            <input type="password" autoComplete="new-password" value={certPassword}
+                              onChange={e => setCertPassword(e.target.value)} />
+                          </div>
+                        </div>
+
+                        <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                          disabled={fiscalUploading || !certBase64 || !certPassword.trim()}
+                          onClick={handleUploadCertificate}>
+                          {fiscalUploading ? t('comp.fiscalIntegration.certUploading') : t('comp.fiscalIntegration.certUpload')}
+                        </button>
+                      </div>
+                    )}
+                  </Can>
+                </div>
+              );
+            })()}
+            </>
           )}
         </div>
       )}

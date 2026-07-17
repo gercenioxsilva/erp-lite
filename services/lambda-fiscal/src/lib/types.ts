@@ -213,3 +213,51 @@ export interface RemessaResultMessage {
   danfe_url?:          string;
   nfe_reject_reason?:  string;
 }
+
+/**
+ * Registro assíncrono da empresa no emissor fiscal — mesma fila nfe-requests,
+ * discriminado por type='company_registration' (regra 70). Sem focus_token:
+ * ao contrário de nfe/nfse/remessa, aqui não existe token por empresa ainda
+ * (é justamente o que este fluxo cria) — a Lambda usa sempre o token mestre
+ * (FOCUS_NFE_TOKEN / app.config.focusToken).
+ */
+export interface CompanyRegistrationEmitMessage {
+  type:           'company_registration';
+  registration_id: string; // = nfe_configs.id — 1 registro de empresa por vez
+  tenant_id:      string;
+  focus_ref:      string;
+  ambiente:       1 | 2;
+
+  empresa: {
+    cnpj:                 string;
+    razao_social:         string;
+    nome_fantasia?:       string;
+    regime_tributario:    1 | 2 | 3;
+    inscricao_estadual?:  string;
+    inscricao_municipal?: string;
+    logradouro:           string;
+    numero:               string;
+    complemento?:         string;
+    bairro:               string;
+    municipio:            string;
+    codigo_municipio_ibge?: string;
+    uf:                   string;
+    cep:                  string;
+    telefone?:            string;
+    email?:               string;
+    habilita_nfe:         boolean;
+    habilita_nfse:        boolean;
+  };
+}
+
+/** Result from company-registration Lambda processing */
+export interface CompanyRegistrationResultMessage {
+  type:                 'company_registration';
+  registration_id:      string;
+  tenant_id:            string;
+  registration_status:  'registered' | 'error';
+  fiscal_integration_ref?: string;
+  token_producao?:      string;
+  token_homologacao?:   string;
+  registration_error?:  string;
+}
