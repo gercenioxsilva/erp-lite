@@ -278,6 +278,21 @@ export function ProposalsPage() {
     }
   }
 
+  async function resendProposal(id: string) {
+    const ok = await modal.confirm({
+      title: t('prop.resend'),
+      message: t('prop.resendConfirm'),
+      confirmLabel: t('prop.resend'),
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/v1/proposals/${id}/resend`, {});
+      modal.success(t('prop.resendSuccess'));
+    } catch (err: unknown) {
+      modal.error(err);
+    }
+  }
+
   async function convertToOrder(id: string) {
     const ok = await modal.confirm({
       title: t('prop.convert'),
@@ -435,6 +450,12 @@ export function ProposalsPage() {
                               {copiedId === p.id ? t('prop.linkCopied') : t('prop.copyLink')}
                             </button>
                           )}
+                          <Can permission="proposals:send">
+                            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => resendProposal(p.id)}>
+                              {t('prop.resend')}
+                            </button>
+                          </Can>
                           {!p.converted_to_order_id && (
                             <Can permission="proposals:edit">
                               <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
@@ -474,12 +495,22 @@ export function ProposalsPage() {
                         </>
                       )}
                       {(p.status === 'rejected' || p.status === 'expired') && (
-                        <Can permission="proposals:create">
-                          <button className="btn btn-secondary btn-sm"
-                            onClick={() => duplicateProposal(p.id)}>
-                            {t('prop.duplicate')}
-                          </button>
-                        </Can>
+                        <>
+                          {p.status === 'expired' && (
+                            <Can permission="proposals:send">
+                              <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                onClick={() => resendProposal(p.id)}>
+                                {t('prop.resend')}
+                              </button>
+                            </Can>
+                          )}
+                          <Can permission="proposals:create">
+                            <button className="btn btn-secondary btn-sm"
+                              onClick={() => duplicateProposal(p.id)}>
+                              {t('prop.duplicate')}
+                            </button>
+                          </Can>
+                        </>
                       )}
                     </div>
                   </td>
