@@ -13,6 +13,7 @@ import { ClientsPage }    from './pages/clients/ClientsPage';
 import { UsersPage }      from './pages/users/UsersPage';
 import { OrdersPage }      from './pages/orders/OrdersPage';
 import { InvoicesPage }    from './pages/invoices/InvoicesPage';
+import { ProjectsPage }    from './pages/projects/ProjectsPage';
 import { InvoiceNewPage }  from './pages/invoices/InvoiceNewPage';
 import { StockPage }       from './pages/stock/StockPage';
 import { ReceivablesPage } from './pages/receivables/ReceivablesPage';
@@ -68,6 +69,7 @@ import { EmployeesPage }       from './pages/employees/EmployeesPage';
 import { PayrollPage }         from './pages/payroll/PayrollPage';
 import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
+import { ContractBillingReceiptPrintPage } from './pages/contracts/ContractBillingReceiptPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
@@ -123,6 +125,7 @@ function GuardedRoutes() {
         <Route path="/users"      element={gate('users:view', <UsersPage />)} />
         <Route path="/roles"      element={gate('roles:view', <RolesPage />)} />
         <Route path="/orders"      element={gate('orders:view', <OrdersPage />)} />
+        <Route path="/projects"    element={gate('projects:view', <ProjectsPage />)} />
         <Route path="/invoices"     element={gate('invoices:view', <InvoicesPage />)} />
         <Route path="/invoices/new" element={gate('invoices:create', <InvoiceNewPage />)} />
         <Route path="/stock"       element={gate('stock:view', <StockPage />)} />
@@ -217,6 +220,7 @@ export function App() {
               <Route path="/p/:token"        element={<ProposalPublicPage />} />
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
+              <Route path="/contracts/:contractId/billings/:billingId/receipt" element={<ContractBillingReceiptPrintPage />} />
               <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />

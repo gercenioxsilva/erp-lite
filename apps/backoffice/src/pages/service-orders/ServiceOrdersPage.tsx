@@ -18,6 +18,8 @@ interface VisitRow {
   signed_by_name: string | null; signed_at: string | null;
   visit_link: string | null; link_valid: boolean;
 }
+interface VisitPhoto { id: string; caption: string | null; created_at: string; url: string; }
+interface VisitDetail extends VisitRow { photos: VisitPhoto[]; signature_url: string | null; }
 interface ServiceOrderDetail extends ServiceOrder {
   description: string | null; client_id: string | null;
   items: ServiceOrderItemRow[]; visits: VisitRow[];
@@ -87,6 +89,9 @@ export function ServiceOrdersPage() {
   const [visitAt, setVisitAt]         = useState('');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
   const [copiedVisitId, setCopiedVisitId] = useState('');
+  const [photosOpen, setPhotosOpen]       = useState(false);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosVisit, setPhotosVisit]     = useState<VisitDetail | null>(null);
 
   const [billingDueDate, setBillingDueDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 7);
@@ -250,6 +255,28 @@ export function ServiceOrdersPage() {
     } catch { /* clipboard indisponível — o link ainda pode ser copiado manualmente do campo */ }
   }
 
+  // Fotos/assinatura sobem direto do browser pro S3 no check-in do técnico
+  // (regra 38) — a leitura aqui é só o mesmo endpoint que já existe pro
+  // portal do backoffice, com URL assinada de curta duração, gerada sob
+  // demanda (nunca um link fixo salvo em cache).
+  async function openPhotos(visit: VisitRow) {
+    if (!editing) return;
+    setPhotosOpen(true);
+    setPhotosLoading(true);
+    setPhotosVisit(null);
+    try {
+      const detail = await api.get<VisitDetail>(`/v1/service-orders/${editing.id}/visits/${visit.id}`);
+      setPhotosVisit(detail);
+    } catch (err: unknown) {
+      modal.error(err);
+      setPhotosOpen(false);
+    } finally { setPhotosLoading(false); }
+  }
+  function closePhotos() {
+    setPhotosOpen(false);
+    setPhotosVisit(null);
+  }
+
   async function cancelOrder(id: string) {
     const ok = await modal.confirm({ title: t('so.cancel'), message: t('so.cancelConfirm'), danger: true });
     if (!ok) return;
@@ -392,6 +419,15 @@ export function ServiceOrdersPage() {
                         <div style={{ color: 'var(--muted)' }}>{fmtDateTime(v.scheduled_at)}</div>
                         {v.signed_by_name && <div style={{ color: 'var(--muted)', marginTop: 4 }}>Assinado por {v.signed_by_name}</div>}
                         {v.report_notes && <div style={{ marginTop: 6 }}>{v.report_notes}</div>}
+
+                        {v.checked_in_at && (
+                          <div style={{ marginTop: 8 }}>
+                            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => void openPhotos(v)}>
+                              📷 {t('so.viewPhotos')}
+                            </button>
+                          </div>
+                        )}
 
                         {v.visit_link && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
@@ -633,6 +669,69 @@ export function ServiceOrdersPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {photosOpen && (
+        <div className="overlay" onClick={closePhotos} style={{ zIndex: 110 }}>
+          <div className="drawer" onClick={e => e.stopPropagation()} style={{ width: 'min(680px, 96vw)' }}>
+            <div className="drawer-header">
+              <h2>{t('so.visitPhotosTitle')}</h2>
+              <button className="btn btn-secondary btn-sm" onClick={closePhotos}>✕</button>
+            </div>
+            <div className="drawer-body">
+              {photosLoading ? (
+                <div className="spinner">{t('c.loading')}</div>
+              ) : !photosVisit ? (
+                <p className="empty-state">{t('so.viewPhotosError')}</p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 13, color: 'var(--muted)' }}>
+                    <span>{photosVisit.technician_name ?? photosVisit.technician_current_name ?? '—'}</span>
+                    <span>{fmtDateTime(photosVisit.scheduled_at)}</span>
+                  </div>
+
+                  {photosVisit.photos.length === 0 ? (
+                    <p className="empty-state" style={{ padding: 16 }}>{t('so.noPhotos')}</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
+                      {photosVisit.photos.map(p => (
+                        <a key={p.id} href={p.url} target="_blank" rel="noreferrer"
+                          style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+                          <img src={p.url} alt={p.caption ?? ''}
+                            style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+                          {p.caption && (
+                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.caption}
+                            </div>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {photosVisit.signature_url && (
+                    <>
+                      <h3 style={{ fontSize: 13, marginBottom: 8 }}>{t('so.clientSignature')}</h3>
+                      <div className="card" style={{ padding: 12, background: '#fff' }}>
+                        <img src={photosVisit.signature_url} alt={t('so.clientSignature')}
+                          style={{ maxWidth: '100%', maxHeight: 160, display: 'block', margin: '0 auto' }} />
+                        {photosVisit.signed_by_name && (
+                          <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                            {photosVisit.signed_by_name}
+                            {photosVisit.signed_at && ` — ${fmtDateTime(photosVisit.signed_at)}`}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="drawer-footer">
+              <button type="button" className="btn btn-secondary" onClick={closePhotos}>{t('c.close')}</button>
+            </div>
           </div>
         </div>
       )}

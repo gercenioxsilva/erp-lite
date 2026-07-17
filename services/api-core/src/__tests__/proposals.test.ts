@@ -122,4 +122,81 @@ describe('Proposals routes', () => {
     expect(updateCall).toMatch(/valid_until/);
     expect(updateCall).toMatch(/terms_text/);
   });
+
+  // Editável mesmo após enviada ao cliente (draft/sent/viewed) — desfechos
+  // definitivos (accepted/rejected/expired/cancelled) continuam travados.
+  describe('PATCH /v1/proposals/:id — editável em draft/sent/viewed', () => {
+    function mockStatus(status: string) {
+      (db.execute as any).mockImplementation(async (query: any) => {
+        const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+        if (/SELECT id, status FROM proposals/i.test(text)) return { rows: [{ id: 'prop-1', status }] };
+        if (/SELECT quantity, unit_price, discount_pct/i.test(text)) return { rows: [] };
+        if (/SELECT discount, shipping FROM proposals/i.test(text)) return { rows: [{ discount: '0', shipping: '0' }] };
+        return { rows: [] };
+      });
+    }
+
+    it.each(['draft', 'sent', 'viewed'])('permite editar quando status=%s', async (status) => {
+      mockStatus(status);
+      const res = await app.inject({
+        method: 'PATCH', url: '/v1/proposals/prop-1',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { notes: 'Ajuste pós-envio' },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it.each(['accepted', 'rejected', 'expired', 'cancelled'])('bloqueia editar quando status=%s', async (status) => {
+      mockStatus(status);
+      const res = await app.inject({
+        method: 'PATCH', url: '/v1/proposals/prop-1',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { notes: 'Tentativa de edição' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  it('PATCH /v1/proposals/:id persiste commercial_message', async () => {
+    const executeCalls: string[] = [];
+    (db.execute as any).mockImplementation(async (query: any) => {
+      const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+      executeCalls.push(text);
+      if (/SELECT id, status FROM proposals/i.test(text)) return { rows: [{ id: 'prop-1', status: 'sent' }] };
+      if (/SELECT quantity, unit_price, discount_pct/i.test(text)) return { rows: [] };
+      if (/SELECT discount, shipping FROM proposals/i.test(text)) return { rows: [{ discount: '0', shipping: '0' }] };
+      return { rows: [] };
+    });
+
+    const res = await app.inject({
+      method: 'PATCH', url: '/v1/proposals/prop-1',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { commercial_message: 'Agradecemos a oportunidade de apresentar esta proposta.' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const updateCall = executeCalls.find(c => /UPDATE proposals SET/i.test(c));
+    expect(updateCall).toMatch(/commercial_message/);
+  });
+
+  it('GET /v1/proposals/:id/print devolve commercial_message', async () => {
+    (db.execute as any).mockImplementation(async (query: any) => {
+      const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+      if (/FROM proposals p/i.test(text) && /LEFT JOIN tenants/i.test(text)) {
+        return { rows: [{ id: 'prop-1', number: '00001', title: 'Proposta X', status: 'draft',
+          total: '100', subtotal: '100', discount: '0', shipping: '0',
+          commercial_message: 'Mensagem de abertura', notes: null, terms_text: null,
+        }] };
+      }
+      return { rows: [] };
+    });
+
+    const res = await app.inject({
+      method: 'GET', url: '/v1/proposals/prop-1/print',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().proposal.commercial_message).toBe('Mensagem de abertura');
+  });
 });
