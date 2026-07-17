@@ -126,6 +126,23 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
     expect(res.json().message).toMatch(/Inscrição Municipal/);
   });
 
+  it('[regressão — "permissao_negada: CNPJ do emitente não autorizado"] bloqueia em produção sem token de produção configurado, antes de enfileirar', async () => {
+    companyRows = [{
+      id: COMPANY_ID, is_active: true, emite_nfse: true, inscricao_municipal: '12345',
+      codigo_servico_padrao: '14.01', aliquota_iss_padrao: '5.00',
+      focus_ambiente: 1, focus_token_producao: null,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: '/v1/service-contracts/contract-1/billings',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/token de Produção/);
+    expect(sqsMock.send).not.toHaveBeenCalled();
+  });
+
   it('company_id do contrato não resolve para nenhuma empresa do tenant → mensagem de configuração fiscal', async () => {
     companyRows = [];
 

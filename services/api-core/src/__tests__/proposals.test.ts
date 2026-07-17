@@ -199,4 +199,88 @@ describe('Proposals routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().proposal.commercial_message).toBe('Mensagem de abertura');
   });
+
+  describe('POST /v1/proposals/:id/resend', () => {
+    function mockProposal(row: Record<string, unknown> | undefined) {
+      (db.execute as any).mockImplementation(async (query: any) => {
+        const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+        if (/FROM proposals p/i.test(text) && /LEFT JOIN tenants/i.test(text)) {
+          return { rows: row ? [row] : [] };
+        }
+        return { rows: [] };
+      });
+    }
+
+    it('404 quando a proposta não existe', async () => {
+      mockProposal(undefined);
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it.each(['draft', 'accepted', 'rejected', 'cancelled'])('400 quando status=%s (só sent/viewed/expired podem ser reenviadas)', async (status) => {
+      mockProposal({ id: 'prop-1', status, client_email: 'cliente@ex.com', public_token: 'a'.repeat(64), number: '00001', title: 'Proposta X', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it.each(['sent', 'viewed', 'expired'])('200 quando status=%s', async (status) => {
+      mockProposal({ id: 'prop-1', status, client_email: 'cliente@ex.com', public_token: 'a'.repeat(64), number: '00001', title: 'Proposta X', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().link).toContain('a'.repeat(64));
+    });
+
+    it('400 quando o cliente não tem e-mail cadastrado', async () => {
+      mockProposal({ id: 'prop-1', status: 'sent', client_email: null, public_token: 'a'.repeat(64), number: '00001', title: 'Proposta X', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toMatch(/e-mail/);
+    });
+
+    it('400 quando a proposta não tem public_token ainda (nunca foi enviada de verdade)', async () => {
+      mockProposal({ id: 'prop-1', status: 'sent', client_email: 'cliente@ex.com', public_token: null, number: '00001', title: 'Proposta X', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('nunca muda o status nem o public_token (só reenvia o mesmo e-mail — sem UPDATE nenhum)', async () => {
+      const executeCalls: string[] = [];
+      const originalImpl = (query: any) => {
+        const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+        executeCalls.push(text);
+        if (/FROM proposals p/i.test(text) && /LEFT JOIN tenants/i.test(text)) {
+          return { rows: [{ id: 'prop-1', status: 'sent', client_email: 'cliente@ex.com', public_token: 'a'.repeat(64), number: '00001', title: 'Proposta X', total: '100' }] };
+        }
+        return { rows: [] };
+      };
+      (db.execute as any).mockImplementation(async (query: any) => originalImpl(query));
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/resend',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(executeCalls.some(c => /UPDATE proposals/i.test(c))).toBe(false);
+    });
+
+    it('401 sem token de autenticação', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/proposals/prop-1/resend' });
+      expect(res.statusCode).toBe(401);
+    });
+  });
 });
