@@ -224,7 +224,13 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
     data_emissao:       msg.data_emissao,
     tipo_documento:     1,
     finalidade_emissao: 1,
-    consumidor_final:   d.cpf ? 1 : 0,
+    // indFinal (consumidor final): obrigatório 1 sempre que o destinatário é
+    // pessoa física (CPF) OU pessoa jurídica não contribuinte de ICMS
+    // (indicador_ie=9, o default de clients.icms_taxpayer) — erro real de
+    // produção: mandava 0 pra qualquer CNPJ, mesmo sem IE, e a SEFAZ rejeita
+    // ("Operação com não contribuinte deve indicar operação com consumidor
+    // final"). indicador_ie 1 (contribuinte) e 2 (isento) não entram aqui.
+    consumidor_final:   (d.cpf || d.indicador_ie === 9) ? 1 : 0,
     presenca_comprador: 9,
     modalidade_frete:   9,
 
