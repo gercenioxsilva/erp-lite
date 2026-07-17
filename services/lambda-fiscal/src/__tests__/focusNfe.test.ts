@@ -127,6 +127,35 @@ describe('buildFocusPayload — consumidor_final (indFinal)', () => {
   });
 });
 
+describe('buildFocusPayload — inscricao_estadual_destinatario', () => {
+  function makeMsgWithDestinatario(destinatario: NfeEmitMessage['destinatario']): NfeEmitMessage {
+    return { ...makeMsg(), destinatario };
+  }
+
+  it('[regressão SEFAZ — "IE do destinatário não informada"] envia a IE quando o destinatário é CNPJ contribuinte (indicador_ie=1)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ contribuinte', indicador_ie: 1,
+      inscricao_estadual: '206.563.490.111',
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBe('206563490111'); // só dígitos
+  });
+
+  it('nunca envia a IE quando indicador_ie não é 1 (isento ou não contribuinte), mesmo se o valor estiver presente', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ isento', indicador_ie: 2,
+      inscricao_estadual: '206563490111',
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBeUndefined();
+  });
+
+  it('omite o campo quando o cliente é contribuinte mas não tem IE cadastrada (nunca envia string vazia)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente sem IE', indicador_ie: 1,
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBeUndefined();
+  });
+});
+
 describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
   it('[regressão SEFAZ — "Element vBC: This element is not expected. Expected is modBC"] sempre envia icms_modalidade_base_calculo junto com vBC/pICMS/vICMS', () => {
     // Reproduz o cenário real de produção: item com CST='00' (regime normal,

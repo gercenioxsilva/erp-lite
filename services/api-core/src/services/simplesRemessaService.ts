@@ -115,7 +115,7 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
   const [{ rows: [sr] }, { rows: items }] = await Promise.all([
     db.execute<any>(sql`
       SELECT sr.*, c.person_type, c.company_name, c.full_name, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
-             c.icms_taxpayer, c.zip_code, c.street, c.street_number, c.complement, c.neighborhood, c.city,
+             c.icms_taxpayer, c.state_reg, c.zip_code, c.street, c.street_number, c.complement, c.neighborhood, c.city,
              c.state AS client_state, c.phone, c.email AS client_email
       FROM simples_remessas sr JOIN clients c ON c.id = sr.client_id
       WHERE sr.id = ${id} AND sr.tenant_id = ${tenantId}
@@ -130,6 +130,13 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
   const noNcm = items.filter((it: any) => !it.ncm_code);
   if (noNcm.length) {
     throw new SimplesRemessaDomainError('remessa_item_sem_ncm', { items: noNcm.map((it: any) => it.name) });
+  }
+
+  // Cliente marcado como Contribuinte ICMS (icms_taxpayer='1') exige a IE em
+  // toda NF-e/remessa — sem isso a SEFAZ rejeita ("IE do destinatário não
+  // informada") só depois de tentar. Mesma trava de routes/nfe.ts.
+  if (sr.icms_taxpayer === '1' && !sr.state_reg) {
+    throw new SimplesRemessaDomainError('remessa_destinatario_sem_ie');
   }
 
   const cfg = await resolveCfgOrThrow(tenantId, sr.company_id, db);
@@ -164,6 +171,7 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
       cpf:          sr.person_type === 'PF' ? sr.client_cpf  : undefined,
       nome:         sr.person_type === 'PJ' ? sr.company_name : sr.full_name,
       indicador_ie: Number(sr.icms_taxpayer) as 1 | 2 | 9,
+      inscricao_estadual: sr.state_reg || undefined,
       logradouro:   sr.street, numero: sr.street_number, complemento: sr.complement,
       bairro:       sr.neighborhood, municipio: sr.city, uf: sr.client_state,
       cep:          sr.zip_code, telefone: sr.phone, email: sr.client_email,
