@@ -92,3 +92,33 @@ describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
+  it('[regressão SEFAZ — "Element vBC: This element is not expected. Expected is modBC"] sempre envia icms_modalidade_base_calculo junto com vBC/pICMS/vICMS', () => {
+    // Reproduz o cenário real de produção: item com CST='00' (regime normal,
+    // não-Simples) só mandava icms_base_calculo/icms_aliquota/icms_valor —
+    // sem modBC, o Focus gera <vBC> sem <modBC> antes, e a SEFAZ rejeita por
+    // ordem de elementos do XSD (ICMS00 exige orig, CST, modBC, vBC, pICMS, vICMS).
+    const payload = buildFocusPayload(makeMsg([makeItem({
+      icms_cst: '00', icms_base_calculo: 1000, icms_aliquota: 18, icms_valor: 180,
+    })])) as any;
+    const item = payload.items[0];
+
+    // 3 = "Valor da operação" — icms_base (taxEngine.ts) é sempre o subtotal
+    // do item, nunca uma base ajustada por margem (0) ou pauta (1/2).
+    expect(item.icms_modalidade_base_calculo).toBe(3);
+    expect(item.icms_base_calculo).toBe(1000);
+    expect(item.icms_aliquota).toBe(18);
+    expect(item.icms_valor).toBe(180);
+  });
+
+  it('não envia icms_modalidade_base_calculo para CSOSN (Simples Nacional) — modBC é exclusivo do regime normal', () => {
+    const payload = buildFocusPayload(makeMsg([makeItem({ icms_csosn: '102', icms_cst: undefined })])) as any;
+    expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
+  });
+
+  it('não envia icms_modalidade_base_calculo para outros CSTs não-tributados integralmente (ex.: 40 — isenta)', () => {
+    const payload = buildFocusPayload(makeMsg([makeItem({ icms_cst: '40' })])) as any;
+    expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
+  });
+});
