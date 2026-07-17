@@ -28,6 +28,7 @@ export interface NfeEmitMessage {
     cpf?:          string;
     nome:          string;
     indicador_ie?: 1 | 2 | 9;  // 1=contribuinte IE, 2=isento, 9=não contribuinte
+    inscricao_estadual?: string; // obrigatória na SEFAZ quando indicador_ie=1
     logradouro?:   string;
     numero?:       string;
     complemento?:  string;

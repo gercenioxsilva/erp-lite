@@ -266,6 +266,13 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
   } else if (d.cnpj) {
     payload.cnpj_destinatario = normalizeCNPJ(d.cnpj);
     payload.indicador_inscricao_estadual_destinatario = String(d.indicador_ie ?? 9);
+    // IE só é aceita/exigida pela SEFAZ quando indicador_ie=1 (contribuinte) —
+    // erro real de produção: o valor cadastrado no cliente nunca era enviado
+    // ao Focus (só o indicador), e a SEFAZ rejeitava com "IE do destinatário
+    // não informada" mesmo com a IE preenchida no cadastro do cliente.
+    if (d.indicador_ie === 1 && d.inscricao_estadual) {
+      payload.inscricao_estadual_destinatario = onlyDigits(d.inscricao_estadual);
+    }
   }
 
   return payload;
