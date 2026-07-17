@@ -162,7 +162,15 @@ function buildItem(item: NfeItem): Record<string, unknown> {
   };
 
   // Regime normal com CST tributado: enviar base/alíquota/valor de ICMS.
+  // icms_modalidade_base_calculo (modBC) é OBRIGATÓRIO no XSD da NF-e sempre
+  // que vBC é enviado — sem ele, o Focus gera o XML com <vBC> mas sem
+  // <modBC>, e a SEFAZ rejeita por ordem de elementos (erro real de
+  // produção: "Element 'vBC': This element is not expected. Expected is
+  // modBC"). Valor 3 = "Valor da operação", o único correto aqui: icms_base
+  // (taxEngine.ts) é sempre o subtotal do item, nunca uma base ajustada por
+  // margem (0) ou pauta (1/2) — não há ST nesse fluxo de venda direta.
   if (isCstTributado) {
+    base.icms_modalidade_base_calculo = 3;
     base.icms_base_calculo = item.icms_base_calculo;
     base.icms_aliquota     = item.icms_aliquota;
     base.icms_valor        = item.icms_valor;
