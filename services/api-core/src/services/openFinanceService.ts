@@ -5,7 +5,7 @@
 // pendências existentes contam a história sem telemetria nova.
 
 import { createHash } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db as _db } from '../db';
 import {
   bankConnections, bankConnectionAccounts, importBatches, importedTransactions,
@@ -146,6 +146,20 @@ export async function syncConnection(
 
   let inserted = 0, duplicate = 0, skippedPending = 0, total = 0;
   try {
+    // Saldo por conta (Tesouraria 0082): espelha o balance da Pluggy a cada
+    // sync — inclusive de contas com sync de transações desabilitado (o saldo
+    // do cartão importa para a posição de caixa mesmo sem conciliar fatura).
+    const remoteAccounts = await pluggy.getAccounts(conn.item_id);
+    for (const ra of remoteAccounts) {
+      if (ra.balance == null) continue;
+      await db.update(bankConnectionAccounts).set({
+        balance: toDecimalString(ra.balance), balance_synced_at: now,
+      }).where(and(
+        eq(bankConnectionAccounts.connection_id, conn.id),
+        eq(bankConnectionAccounts.account_id, ra.id),
+      ));
+    }
+
     for (const acc of accounts) {
       const txs = await pluggy.getTransactions(acc.account_id, fromISO, toISO);
       for (const tx of txs) {
@@ -159,7 +173,7 @@ export async function syncConnection(
             occurred_at: n.occurred_at, bank_account_ref: n.bank_account_ref,
             memo: n.memo, trn_type: n.trn_type,
             amount: toDecimalString(n.amount),
-            payment_method: n.payment_method,
+            payment_method: n.payment_method, category: n.category,
             customer_name: n.customer_name, customer_document: n.customer_document,
             raw: n.raw,
           });
@@ -220,4 +234,73 @@ export async function syncAllActive(db: DrizzleDB = _db): Promise<{ synced: numb
     }
   }
   return { synced, failed };
+}
+
+// ── Posição de caixa (Tesouraria 0082) ──────────────────────────────────────
+// Visão de tesouraria dos ERPs grandes: saldo consolidado das contas
+// conectadas + o que REALIZOU no extrato (30d) + o que VENCE (a receber /
+// a pagar 30d) + projeção simples saldo + aReceber − aPagar. Tenant-wide
+// (multi-empresa consolidado, mesmo racional dos relatórios contábeis).
+export interface CashPosition {
+  saldo_total: number;
+  contas: Array<{
+    connection_id: string; institution: string | null; name: string | null;
+    number_masked: string | null; balance: number | null; balance_synced_at: Date | null;
+  }>;
+  realizado_30d: { entradas: number; saidas: number };
+  a_receber_30d: number;
+  a_pagar_30d: number;
+  projecao_30d: number;
+}
+
+export async function cashPosition(tenantId: string, db: DrizzleDB = _db): Promise<CashPosition> {
+  const { rows: accountRows } = await db.execute<{
+    connection_id: string; institution: string | null; name: string | null;
+    number_masked: string | null; balance: string | null; balance_synced_at: Date | null;
+  }>(sql`
+    SELECT a.connection_id, c.institution, a.name, a.number_masked, a.balance, a.balance_synced_at
+    FROM bank_connection_accounts a
+    JOIN bank_connections c ON c.id = a.connection_id
+    WHERE a.tenant_id = ${tenantId} AND c.status <> 'disconnected'
+    ORDER BY c.created_at, a.created_at
+  `);
+
+  const { rows: [realizado] } = await db.execute<{ entradas: string; saidas: string }>(sql`
+    SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0) AS entradas,
+           COALESCE(ABS(SUM(amount) FILTER (WHERE amount < 0)), 0) AS saidas
+    FROM imported_transactions
+    WHERE tenant_id = ${tenantId} AND source = 'bank'
+      AND occurred_at >= NOW() - INTERVAL '30 days'
+  `);
+
+  const { rows: [receber] } = await db.execute<{ total: string }>(sql`
+    SELECT COALESCE(SUM(amount), 0) AS total FROM receivables
+    WHERE tenant_id = ${tenantId} AND status IN ('pending','partial')
+      AND due_date <= CURRENT_DATE + 30
+  `);
+
+  const { rows: [pagar] } = await db.execute<{ total: string }>(sql`
+    SELECT COALESCE(SUM(amount - paid_amount), 0) AS total FROM payables
+    WHERE tenant_id = ${tenantId} AND status IN ('pending','partial')
+      AND due_date <= CURRENT_DATE + 30
+  `);
+
+  const contas = accountRows.map((r) => ({
+    connection_id: r.connection_id, institution: r.institution, name: r.name,
+    number_masked: r.number_masked,
+    balance: r.balance != null ? Number(r.balance) : null,
+    balance_synced_at: r.balance_synced_at,
+  }));
+  const saldoTotal = Math.round(contas.reduce((s, c) => s + (c.balance ?? 0), 0) * 100) / 100;
+  const aReceber = Number(receber?.total ?? 0);
+  const aPagar = Number(pagar?.total ?? 0);
+
+  return {
+    saldo_total: saldoTotal,
+    contas,
+    realizado_30d: { entradas: Number(realizado?.entradas ?? 0), saidas: Number(realizado?.saidas ?? 0) },
+    a_receber_30d: aReceber,
+    a_pagar_30d: aPagar,
+    projecao_30d: Math.round((saldoTotal + aReceber - aPagar) * 100) / 100,
+  };
 }

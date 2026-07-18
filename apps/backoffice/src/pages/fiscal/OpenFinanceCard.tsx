@@ -11,6 +11,14 @@ import { usePermissions } from '../../rbac';
 interface ConnectionAccount {
   id: string; account_id: string; name: string | null;
   number_masked: string | null; subtype: string | null; sync_enabled: boolean;
+  balance: string | null; balance_synced_at: string | null;
+}
+interface CashPosition {
+  saldo_total: number;
+  realizado_30d: { entradas: number; saidas: number };
+  a_receber_30d: number;
+  a_pagar_30d: number;
+  projecao_30d: number;
 }
 interface Connection {
   id: string; institution: string | null; status: 'active' | 'error' | 'disconnected';
@@ -25,6 +33,7 @@ const PLUGGY_WIDGET_SRC = 'https://cdn.pluggy.ai/pluggy-connect/v2/pluggy-connec
 
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'nunca';
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function loadPluggyScript(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -40,6 +49,7 @@ function loadPluggyScript(): Promise<void> {
 export function OpenFinanceCard({ onSynced }: { onSynced?: () => void }) {
   const { can } = usePermissions();
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [cash, setCash] = useState<CashPosition | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -50,8 +60,12 @@ export function OpenFinanceCard({ onSynced }: { onSynced?: () => void }) {
 
   async function load() {
     try {
-      const resp = await api.get<{ data: Connection[] }>('/v1/fiscal/openfinance/connections');
-      setConnections(resp.data ?? []);
+      const [conns, pos] = await Promise.all([
+        api.get<{ data: Connection[] }>('/v1/fiscal/openfinance/connections'),
+        api.get<{ data: CashPosition }>('/v1/fiscal/openfinance/cash-position').catch(() => null),
+      ]);
+      setConnections(conns.data ?? []);
+      setCash(pos?.data ?? null);
     } catch { /* módulo desabilitado ou sem permissão — o card mostra vazio */ }
     finally { setLoading(false); }
   }
@@ -135,6 +149,28 @@ export function OpenFinanceCard({ onSynced }: { onSynced?: () => void }) {
       {error && <div role="alert" style={{ marginTop: 10, color: 'var(--danger, #b91c1c)', fontSize: 13 }}>{error}</div>}
       {notice && <div style={{ marginTop: 10, color: 'var(--success, #15803d)', fontSize: 13 }}>{notice}</div>}
 
+      {/* Posição de caixa (Tesouraria 0082) — saldo real + previsto 30 dias */}
+      {cash && (
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginTop: 14 }}>
+          {[
+            { label: 'Saldo em conta', value: cash.saldo_total, strong: true },
+            { label: 'Entradas 30d', value: cash.realizado_30d.entradas },
+            { label: 'Saídas 30d', value: -cash.realizado_30d.saidas },
+            { label: 'A receber 30d', value: cash.a_receber_30d },
+            { label: 'A pagar 30d', value: -cash.a_pagar_30d },
+            { label: 'Projeção 30d', value: cash.projecao_30d, strong: true },
+          ].map((m) => (
+            <div key={m.label} style={{ background: 'var(--surface-2, #f8fafc)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>{m.label}</div>
+              <div style={{ fontSize: 15, fontWeight: m.strong ? 800 : 600,
+                color: m.value < 0 ? 'var(--danger, #b91c1c)' : undefined }}>
+                {BRL.format(m.value)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {connections.length === 0 ? (
         <p style={{ color: 'var(--muted, #64748b)', fontSize: 13, marginTop: 12, marginBottom: 0 }}>
           Nenhum banco conectado — o extrato ainda depende de upload manual (OFX/CSV/XLSX).
@@ -147,7 +183,9 @@ export function OpenFinanceCard({ onSynced }: { onSynced?: () => void }) {
                 <td style={{ padding: '8px 0', fontWeight: 600 }}>
                   {c.institution ?? 'Banco'}
                   <div style={{ fontWeight: 400, color: 'var(--muted, #64748b)', fontSize: 12 }}>
-                    {c.accounts.filter(a => a.sync_enabled).map(a => `${a.name ?? a.subtype ?? 'conta'} ${a.number_masked ?? ''}`).join(' · ') || 'sem contas'}
+                    {c.accounts.filter(a => a.sync_enabled).map(a =>
+                      `${a.name ?? a.subtype ?? 'conta'} ${a.number_masked ?? ''}${a.balance != null ? ` — ${BRL.format(Number(a.balance))}` : ''}`,
+                    ).join(' · ') || 'sem contas'}
                   </div>
                 </td>
                 <td style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>último sync: {fmtDate(c.last_synced_at)}</td>

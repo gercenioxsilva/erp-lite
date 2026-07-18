@@ -9,7 +9,7 @@ import { requirePermission } from '../lib/requirePermission';
 import { CompanyDomainError, companyResolutionErrorMessage } from '../services/companyService';
 import {
   connectToken, registerConnection, listConnections, disconnect, syncConnection,
-  OpenFinanceError,
+  cashPosition, OpenFinanceError,
 } from '../services/openFinanceService';
 
 export const fiscalOpenFinanceRoutes: FastifyPluginAsync = async (fastify) => {
@@ -33,6 +33,14 @@ export const fiscalOpenFinanceRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/fiscal/openfinance/connections', guard('fiscal:view'), async (request) => {
     const { tenantId } = (request as any).user;
     return { data: await listConnections(tenantId) };
+  });
+
+  // Tesouraria (0082): saldo consolidado + realizado 30d + a receber/a pagar
+  // 30d + projeção. Leitura pura — não exige Pluggy configurada (sem conexão,
+  // devolve saldos vazios e o previsto de receivables/payables mesmo assim).
+  fastify.get('/fiscal/openfinance/cash-position', guard('fiscal:view'), async (request) => {
+    const { tenantId } = (request as any).user;
+    return { data: await cashPosition(tenantId) };
   });
 
   fastify.post('/fiscal/openfinance/connect-token', guard('bank_accounts:manage'), async (request, reply) => {

@@ -12,6 +12,7 @@ export interface PluggyTransaction {
   amount: number;                     // Pluggy: sinalizado (débito negativo)
   type?: 'CREDIT' | 'DEBIT' | string; // redundante com o sinal — conferimos
   status?: string;                    // POSTED | PENDING
+  category?: string | null;           // taxonomia Pluggy (ex.: 'Bank fees')
   paymentData?: {
     paymentMethod?: string | null;    // PIX | TED | DOC | BOLETO | ...
     payer?:    { name?: string | null; documentNumber?: { value?: string | null } | null } | null;
@@ -29,6 +30,7 @@ export interface NormalizedBankTx {
   trn_type: string | null;
   amount: number;
   payment_method: string | null;
+  category: string | null;
   customer_name: string | null;
   customer_document: string | null;
   raw: Record<string, unknown>;
@@ -65,6 +67,7 @@ export function normalizePluggyTransaction(tx: PluggyTransaction): NormalizedBan
     trn_type: tx.type ?? (isCredit ? 'CREDIT' : 'DEBIT'),
     amount,
     payment_method: method ? method.toLowerCase() : null,
+    category: tx.category ?? null,
     customer_name: counterpart?.name ?? null,
     customer_document: onlyDigits(counterpart?.documentNumber?.value),
     raw: tx as unknown as Record<string, unknown>,

@@ -49,9 +49,15 @@ export const fiscalReconciliationRoutes: FastifyPluginAsync = async (fastify) =>
   fastify.post('/fiscal/reconciliation/transactions/:id/match', guard('fiscal:reconcile'), async (request, reply) => {
     const { tenantId, userId } = (request as any).user;
     const { id } = request.params as { id: string };
-    const body = request.body as { receivable_id?: string };
-    if (!body?.receivable_id) return reply.badRequest('receivable_id é obrigatório');
-    try { return reply.code(201).send(await confirmMatchManual(tenantId, id, body.receivable_id, userId)); }
+    // Crédito casa com receivable_id; débito (Tesouraria 0082) com payable_id.
+    const body = request.body as { receivable_id?: string; payable_id?: string };
+    if (!body?.receivable_id && !body?.payable_id) {
+      return reply.badRequest('receivable_id ou payable_id é obrigatório');
+    }
+    try {
+      return reply.code(201).send(await confirmMatchManual(
+        tenantId, id, { receivableId: body.receivable_id, payableId: body.payable_id }, userId));
+    }
     catch (err) { return handleError(err, reply); }
   });
 

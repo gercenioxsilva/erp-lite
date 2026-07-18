@@ -114,3 +114,85 @@ export function decideOutcome(ranked: ScoredCandidate[], rule: MatchRule):
 export function matchDedupKey(txId: string, targetType: string, targetId: string): string {
   return `recon:${txId}:${targetType}:${targetId}`;
 }
+
+// ── Débitos ↔ contas a pagar (Tesouraria, 0082) ─────────────────────────────
+// Espelho do scoring de receita: um DÉBITO bancário (amount < 0) casa contra
+// payables abertos. O sinal forte aqui é o DOCUMENTO da contraparte (o Open
+// Finance traz o CNPJ/CPF do recebedor no paymentData) — mais confiável que
+// NSU, que débito não tem.
+
+export interface PayableCandidate {
+  id: string;
+  /** Saldo aberto: amount − paid_amount (pagamento parcial já abatido). */
+  openAmount: number;
+  dueDate: string | Date | null;
+  supplierDocument: string | null;  // dígitos do CNPJ/CPF do fornecedor
+  description: string | null;
+}
+
+export interface ScoredPayable {
+  payableId: string;
+  score: number;
+  matchedKeys: string[];
+  amountMatched: number;
+}
+
+/** Valor do débito para matching: |amount| de transação bancária negativa. */
+export function txDebitAmount(tx: TxForMatch): number | null {
+  if (tx.source !== 'bank') return null;               // débito só existe em extrato
+  if (tx.amount === null || tx.amount >= 0) return null;
+  return Math.abs(tx.amount);
+}
+
+export function scorePayableCandidate(
+  tx: TxForMatch & { counterpartDocument?: string | null },
+  cand: PayableCandidate, rule: MatchRule,
+): ScoredPayable | null {
+  const value = txDebitAmount(tx);
+  if (value === null || value <= 0) return null;
+
+  const keys: string[] = [];
+  let score = 0;
+
+  const diff = Math.abs(cand.openAmount - value);
+  if (diff === 0) { score += 0.5; keys.push('amount_exact'); }
+  else if (diff <= rule.amountTolerance) { score += 0.35; keys.push('amount_tolerance'); }
+  else return null; // valor incompatível nunca é candidato
+
+  if (tx.counterpartDocument && cand.supplierDocument && tx.counterpartDocument === cand.supplierDocument) {
+    score += 0.6; keys.push('supplier_document');
+  }
+
+  if (tx.occurredAt && cand.dueDate) {
+    const d = Math.abs(Math.round((tx.occurredAt.getTime() - new Date(`${cand.dueDate}T12:00:00`).getTime()) / 86_400_000));
+    if (d <= rule.dateWindowDays) {
+      score += 0.4 * (1 - d / (rule.dateWindowDays + 1));
+      keys.push('date_window');
+    }
+  }
+
+  return { payableId: cand.id, score: Math.min(1, Math.round(score * 10000) / 10000), matchedKeys: keys, amountMatched: value };
+}
+
+export function rankPayableCandidates(
+  tx: TxForMatch & { counterpartDocument?: string | null },
+  candidates: PayableCandidate[], rule: MatchRule,
+): ScoredPayable[] {
+  return candidates
+    .map((c) => scorePayableCandidate(tx, c, rule))
+    .filter((s): s is ScoredPayable => s !== null)
+    .sort((a, b) => b.score - a.score);
+}
+
+/** Mesmo desfecho do lado da receita: alto e sem empate → auto; senão sugere. */
+export function decidePayableOutcome(ranked: ScoredPayable[], rule: MatchRule):
+  | { kind: 'auto_confirm'; best: ScoredPayable }
+  | { kind: 'suggest'; best: ScoredPayable }
+  | { kind: 'unmatched' } {
+  if (ranked.length === 0) return { kind: 'unmatched' };
+  const [best, second] = ranked;
+  if (best.score >= rule.autoConfirmThreshold && (!second || second.score < best.score)) {
+    return { kind: 'auto_confirm', best };
+  }
+  return { kind: 'suggest', best };
+}

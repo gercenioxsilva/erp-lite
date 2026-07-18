@@ -2297,6 +2297,8 @@ export const importedTransactions = pgTable('imported_transactions', {
   net_amount:            decimal('net_amount', { precision: 15, scale: 2 }),
   installments:          smallint('installments'),
   payment_method:        varchar('payment_method', { length: 30 }),
+  // Tesouraria (0082): taxonomia da Pluggy — uploads OFX/CSV ficam NULL.
+  category:              varchar('category', { length: 80 }),
   establishment:         varchar('establishment', { length: 120 }),
   terminal_serial:       varchar('terminal_serial', { length: 60 }),
   bank_account_ref:      varchar('bank_account_ref', { length: 60 }),
@@ -2529,6 +2531,9 @@ export const reconciliationMatches = pgTable('reconciliation_matches', {
   target_id:               uuid('target_id'),
   receivable_id:           uuid('receivable_id'),
   receivable_payment_id:   uuid('receivable_payment_id'),
+  // Tesouraria (0082): débito conciliado ↔ conta a pagar + pagamento gerado.
+  payable_id:              uuid('payable_id'),
+  payable_payment_id:      uuid('payable_payment_id'),
   amount_matched:          decimal('amount_matched', { precision: 15, scale: 2 }).notNull(),
   score:                   decimal('score', { precision: 5, scale: 4 }).notNull().default('0'),
   matched_keys:            jsonb('matched_keys'),
@@ -2686,5 +2691,8 @@ export const bankConnectionAccounts = pgTable('bank_connection_accounts', {
   number_masked: varchar('number_masked', { length: 40 }),
   currency:      char('currency', { length: 3 }).notNull().default('BRL'),
   sync_enabled:  boolean('sync_enabled').notNull().default(true),
+  // Tesouraria (0082): saldo espelhado da Pluggy a cada sync.
+  balance:           decimal('balance', { precision: 15, scale: 2 }),
+  balance_synced_at: timestamp('balance_synced_at', { withTimezone: true }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -36,6 +36,7 @@ export interface PluggyAccount {
   name: string | null;
   number: string | null;    // já mascarado pela Pluggy
   currencyCode: string | null;
+  balance: number | null;   // saldo atual (Tesouraria 0082)
 }
 
 // apiKey da Pluggy vale ~2h — cache em módulo com margem de 5 min.
@@ -88,6 +89,7 @@ export async function getAccounts(itemId: string): Promise<PluggyAccount[]> {
     return [{
       id: `${itemId}-acc-1`, type: 'BANK', subtype: 'CHECKING_ACCOUNT',
       name: 'Conta Corrente Simulada', number: '****1234', currencyCode: 'BRL',
+      balance: 15234.56,
     }];
   }
   const body = await get<{ results: PluggyAccount[] }>(`/accounts?itemId=${encodeURIComponent(itemId)}`);
@@ -118,7 +120,7 @@ function simulatedTransactions(accountId: string): PluggyTransaction[] {
   return [
     {
       id: 'local-tx-pix-1', accountId, date: day(2),
-      description: 'PIX RECEBIDO CLIENTE DEMO', amount: 350.0, type: 'CREDIT', status: 'POSTED',
+      description: 'PIX RECEBIDO CLIENTE DEMO', amount: 350.0, type: 'CREDIT', status: 'POSTED', category: 'Transfers',
       paymentData: { paymentMethod: 'PIX', payer: { name: 'Cliente Demo LTDA', documentNumber: { value: '11.222.333/0001-44' } } },
     },
     {
@@ -128,7 +130,7 @@ function simulatedTransactions(accountId: string): PluggyTransaction[] {
     },
     {
       id: 'local-tx-tarifa-1', accountId, date: day(3),
-      description: 'TARIFA PACOTE SERVIÇOS', amount: -39.9, type: 'DEBIT', status: 'POSTED',
+      description: 'TARIFA PACOTE SERVIÇOS', amount: -39.9, type: 'DEBIT', status: 'POSTED', category: 'Bank fees',
       paymentData: null,
     },
     {
