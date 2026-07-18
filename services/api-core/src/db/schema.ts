@@ -2599,3 +2599,35 @@ export const apiKeyUsage = pgTable('api_key_usage', {
   endpoint:   varchar('endpoint', { length: 80 }).notNull(),
   count:      integer('count').notNull().default(0),
 });
+
+// ── Open Finance / conciliação automática (0081) ─────────────────────────────
+// Conexão bancária via Pluggy: o extrato entra sozinho (sync diário + botão)
+// em imported_transactions e cai na fila de conciliação existente.
+export const bankConnections = pgTable('bank_connections', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:     uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  provider:       varchar('provider', { length: 20 }).notNull().default('pluggy'),
+  item_id:        varchar('item_id', { length: 60 }).notNull(),
+  institution:    varchar('institution', { length: 120 }),
+  status:         varchar('status', { length: 15 }).notNull().default('active'),
+  last_synced_at: timestamp('last_synced_at', { withTimezone: true }),
+  last_error:     text('last_error'),
+  created_by:     uuid('created_by'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bankConnectionAccounts = pgTable('bank_connection_accounts', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  connection_id: uuid('connection_id').notNull().references(() => bankConnections.id, { onDelete: 'cascade' }),
+  account_id:    varchar('account_id', { length: 60 }).notNull(),
+  type:          varchar('type', { length: 20 }),
+  subtype:       varchar('subtype', { length: 30 }),
+  name:          varchar('name', { length: 120 }),
+  number_masked: varchar('number_masked', { length: 40 }),
+  currency:      char('currency', { length: 3 }).notNull().default('BRL'),
+  sync_enabled:  boolean('sync_enabled').notNull().default(true),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

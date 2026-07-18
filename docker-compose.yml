@@ -104,6 +104,12 @@ services:
       ANTHROPIC_API_KEY:   ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL:     ${ANTHROPIC_MODEL:-}
       ASSISTANT_DAILY_CAP: ${ASSISTANT_DAILY_CAP:-}
+      # Open Finance (Pluggy) — mesmo padrão opt-in: sem as keys as rotas
+      # devolvem 503 openfinance_disabled. Prefixo 'local-' no CLIENT_ID liga
+      # a SIMULAÇÃO (banco sintético, sem rede) para dev/E2E.
+      PLUGGY_CLIENT_ID:     ${PLUGGY_CLIENT_ID:-}
+      PLUGGY_CLIENT_SECRET: ${PLUGGY_CLIENT_SECRET:-}
+      PLUGGY_BASE_URL:      ${PLUGGY_BASE_URL:-}
     volumes:
       - ./services/api-core/src:/app/src
       - ./services/api-core/db:/app/db

@@ -12,10 +12,24 @@ import { postEntry, resolveRegime } from '../services/accountingService';
 import { linesForAuthorization } from '../domain/accounting/accountingDomain';
 import { competenciaFromDate, fiscalDate } from '../domain/fiscal/competencia';
 import { runScheduled as runScheduledConsolidation } from '../services/consolidationService';
+import { syncAllActive } from '../services/openFinanceService';
 
 /** Ciclo fiscal 23:59: roda o consolidar→validar→emitir de cada tenant com o
  *  módulo 'fiscal' habilitado. Erro em um tenant nunca derruba os demais. */
 async function runFiscalScheduledCycle(): Promise<void> {
+  // Passo 0: sincroniza o extrato Open Finance de toda conexão ativa ANTES
+  // da consolidação — o dia da véspera entra, concilia e emite na mesma
+  // passada. Erro é isolado por conexão dentro de syncAllActive; um throw
+  // aqui (ex.: banco fora) não pode derrubar a consolidação dos tenants.
+  try {
+    const sync = await syncAllActive();
+    if (sync.synced + sync.failed > 0) {
+      console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_openfinance', ...sync }));
+    }
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'fiscal_scheduled_cycle_openfinance_error', error: String(err) }));
+  }
+
   const { rows } = await db.execute<{ tenant_id: string }>(sql`
     SELECT tenant_id FROM tenant_modules WHERE module_key = 'fiscal' AND enabled = true
   `);

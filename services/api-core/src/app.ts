@@ -34,6 +34,7 @@ import { fiscalConsolidationRoutes }  from './routes/fiscalConsolidation';
 import { fiscalApuracaoRoutes }       from './routes/fiscalApuracao';
 import { engineRoutes }               from './routes/engine';
 import { engineKeysRoutes }           from './routes/engineKeys';
+import { fiscalOpenFinanceRoutes }    from './routes/fiscalOpenFinance';
 import { fiscalSimulatorRoutes }      from './routes/fiscalSimulator';
 import { fiscalScoreRoutes }          from './routes/fiscalScore';
 import { fiscalAlertsRoutes }         from './routes/fiscalAlerts';
@@ -154,6 +155,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fiscalApuracaoRoutes,      { prefix: '/v1' });
   await app.register(engineRoutes,              { prefix: '/v1' });
   await app.register(engineKeysRoutes,          { prefix: '/v1' });
+  await app.register(fiscalOpenFinanceRoutes,   { prefix: '/v1' });
   await app.register(fiscalSimulatorRoutes,     { prefix: '/v1' });
   await app.register(fiscalScoreRoutes,         { prefix: '/v1' });
   await app.register(fiscalAlertsRoutes,        { prefix: '/v1' });

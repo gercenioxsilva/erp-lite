@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
 import { AssistantChat } from './AssistantChat';
 import { ReconciliationRulesCard } from './ReconciliationRulesCard';
+import { OpenFinanceCard } from './OpenFinanceCard';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -362,6 +363,8 @@ export function FiscalPage() {
           </div>
         ))}
       </div>
+
+      <OpenFinanceCard onSynced={() => void load()} />
 
       {alerts.length > 0 && (
         <Card title={`🔔 Alertas fiscais (${alerts.length})`}>

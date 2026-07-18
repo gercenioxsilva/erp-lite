@@ -217,6 +217,11 @@ Corrige a premissa falsa "o PGDAS-D não tem API oficial". A **SERPRO Integra Co
 
 **Verificado:** motor + payload reproduzem o DAS real 02/2026 (R$168,00) ao centavo (teste golden). Cliente SERPRO, parse, diff e a classificação `failed_unknown` testados com a **rede mockada**. **A verificação de ponta a ponta contra a SERPRO real exige contrato + e-CNPJ A1** (roda fora do CI).
 
+### 2.15 Fiscal Engine API (Rodada 6 — migration 0080) e Open Finance (Rodada 7 — migration 0081)
+
+- **Engine** (`/v1/engine/*`, spec `docs/superpowers/specs/2026-07-17-fiscal-engine-api-design.md`, doc pública `docs/engine-api.md`): 6 endpoints stateless de cálculo do Simples para terceiros, autenticados por API key (padrão Stripe: hash+prefixo, segredo mostrado 1×), rate limit 60/min por chave, metering em `api_key_usage`. Permissão `engine:manage` (owner/admin); chaves em Minha Empresa → Integrações.
+- **Open Finance / conciliação automática** (spec `docs/superpowers/specs/2026-07-17-openfinance-pluggy-design.md`): conexões bancárias via **Pluggy** (`bank_connections`/`bank_connection_accounts`) sincronizam o extrato direto para `imported_transactions` (`source_kind='openfinance'`, dedup `of:{account}:{tx}`) e disparam a conciliação existente. Sync = botão na FiscalPage + **passo 0 do ciclo 23:59**. Cartão de crédito fica com `sync_enabled=false` por default (fatura não é recebimento). Env: `PLUGGY_CLIENT_ID`/`PLUGGY_CLIENT_SECRET` (ausente ⇒ 503; prefixo `local-` ⇒ simulação determinística p/ dev). Conectar/desconectar exige `bank_accounts:manage`; sincronizar, `fiscal:import`. Adiado: CNAB 240/400, webhook Pluggy, PIX direto via PSP.
+
 ---
 
 ## 3. Referência de API (todas sob `/v1`, JWT obrigatório)
