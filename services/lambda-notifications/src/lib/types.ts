@@ -10,7 +10,8 @@ export type NotificationType =
   | 'proposal_rejected'
   | 'technician_welcome'
   | 'service_visit_assigned'
-  | 'tenant_email_verification';
+  | 'tenant_email_verification'
+  | 'contract_sent';
 
 export type NotificationChannel = 'email';
 

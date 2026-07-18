@@ -41,7 +41,27 @@ interface Contract {
   codigo_servico:    string | null;
   aliquota_iss:      string | null;
   company_id:        string | null;
+  custom_fields?:    ContractFieldValue[];
 }
+
+interface FieldDefinition {
+  id:          string;
+  field_key:   string;
+  label:       string;
+  field_type:  'text' | 'decimal' | 'integer' | 'date' | 'boolean';
+  required:    boolean;
+  sort_order:  number;
+}
+
+interface ContractFieldValue {
+  field_definition_id: string;
+  label:      string;
+  field_type: FieldDefinition['field_type'];
+  required:   boolean;
+  value:      string | null;
+}
+
+const FIELD_TYPES: FieldDefinition['field_type'][] = ['text', 'decimal', 'integer', 'date', 'boolean'];
 
 interface Billing {
   id:               string;
@@ -116,12 +136,20 @@ export function ContractsPage() {
   // por NFS-e; contratos de serviço nunca emitem NF-e de venda.
   const [companies, setCompanies] = useState<{ id: string; razao_social: string; is_default: boolean; emite_nfse: boolean }[]>([]);
 
+  // Campos personalizados (migration 0072) — schema definido pelo tenant,
+  // aplicado a todo contrato. fieldModalOpen abre o gerenciamento das
+  // definições (não confundir com os valores preenchidos no form abaixo).
+  const [fieldDefinitions, setFieldDefinitions] = useState<FieldDefinition[]>([]);
+  const [fieldModalOpen,   setFieldModalOpen]   = useState(false);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing,    setEditing]    = useState<Contract | null>(null);
   const [form,       setForm]       = useState({ ...EMPTY_FORM });
   const [saving,     setSaving]     = useState(false);
   const [formError,  setFormError]  = useState('');
+  const [sending,    setSending]    = useState(false);
 
   // Billings panel (within drawer)
   const [billings,        setBillings]        = useState<Billing[]>([]);
@@ -164,6 +192,13 @@ export function ContractsPage() {
     const comp = await api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfse: boolean }[] }>('/v1/companies')
       .catch(() => ({ data: [] }));
     setCompanies(comp.data.filter(c => c.emite_nfse));
+
+    await loadFieldDefinitions();
+  }
+
+  async function loadFieldDefinitions() {
+    const resp = await api.get<{ data: FieldDefinition[] }>('/v1/contract-fields').catch(() => ({ data: [] }));
+    setFieldDefinitions(resp.data);
   }
 
   async function loadBillings(contractId: string) {
@@ -212,6 +247,7 @@ export function ContractsPage() {
   function openCreate() {
     setEditing(null);
     setForm({ ...EMPTY_FORM, company_id: companies.find(c => c.is_default)?.id ?? '' });
+    setCustomFieldValues({});
     setFormError('');
     setDrawerOpen(true);
   }
@@ -236,6 +272,9 @@ export function ContractsPage() {
       aliquota_iss:      c.aliquota_iss != null ? String(c.aliquota_iss) : '',
       company_id:        c.company_id ?? '',
     });
+    setCustomFieldValues(Object.fromEntries(
+      (c.custom_fields ?? []).map(f => [f.field_definition_id, f.value ?? '']),
+    ));
     setFormError('');
     setDrawerOpen(true);
   }
@@ -270,6 +309,10 @@ export function ContractsPage() {
         codigo_servico:    form.nfse_enabled ? (form.codigo_servico || undefined) : undefined,
         aliquota_iss:      form.nfse_enabled && form.aliquota_iss ? Number(form.aliquota_iss) : undefined,
         company_id:        form.company_id || undefined,
+        custom_fields:     fieldDefinitions.map(def => ({
+          field_definition_id: def.id,
+          value: customFieldValues[def.id]?.trim() || null,
+        })),
       };
       if (editing) await api.patch(`/v1/service-contracts/${editing.id}`, payload);
       else         await api.post('/v1/service-contracts', payload);
@@ -299,6 +342,17 @@ export function ContractsPage() {
     } catch (err: unknown) {
       modal.error(err);
     } finally { setGeneratingBill(false); }
+  }
+
+  async function handleSendEmail() {
+    if (!editing) return;
+    setSending(true);
+    try {
+      await api.post(`/v1/service-contracts/${editing.id}/send`, {});
+      modal.success(t('sc.sendSuccess'));
+    } catch (err: unknown) {
+      modal.error(err);
+    } finally { setSending(false); }
   }
 
   async function handleReemitNfse(nfseId: string) {
@@ -333,11 +387,18 @@ export function ContractsPage() {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="page-header">
         <h1>{t('sc.title')}</h1>
-        <Can permission="contracts:create">
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-            + {t('sc.new')}
-          </button>
-        </Can>
+        <div className="flex-gap">
+          <Can permission="contracts:edit">
+            <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setFieldModalOpen(true)}>
+              ⚙ {t('sc.customFields.manage')}
+            </button>
+          </Can>
+          <Can permission="contracts:create">
+            <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+              + {t('sc.new')}
+            </button>
+          </Can>
+        </div>
       </div>
 
       {/* ── Filters ─────────────────────────────────────────────────── */}
@@ -536,6 +597,34 @@ export function ContractsPage() {
                     onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
 
+                {/* ── Campos personalizados (migration 0072) ──────────── */}
+                {fieldDefinitions.length > 0 && (
+                  <>
+                    <SectionLabel label={t('sc.customFields.title')} />
+                    {fieldDefinitions.map(def => (
+                      <div className="field" key={def.id}>
+                        <label>{def.label}{def.required ? ' *' : ''}</label>
+                        {def.field_type === 'boolean' ? (
+                          <select
+                            value={customFieldValues[def.id] ?? ''}
+                            onChange={e => setCustomFieldValues(v => ({ ...v, [def.id]: e.target.value }))}>
+                            <option value="">—</option>
+                            <option value="true">{t('c.yes')}</option>
+                            <option value="false">{t('c.no')}</option>
+                          </select>
+                        ) : (
+                          <input
+                            type={def.field_type === 'date' ? 'date' : (def.field_type === 'decimal' || def.field_type === 'integer') ? 'number' : 'text'}
+                            step={def.field_type === 'decimal' ? '0.01' : undefined}
+                            value={customFieldValues[def.id] ?? ''}
+                            required={def.required}
+                            onChange={e => setCustomFieldValues(v => ({ ...v, [def.id]: e.target.value }))} />
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+
                 {/* ── NFS-e ─────────────────────────────────────────── */}
                 <SectionLabel label={t('sc.nfseSection')} />
                 <div className="field">
@@ -675,6 +764,20 @@ export function ContractsPage() {
                     </button>
                   </Can>
                 )}
+                {editing && (
+                  <>
+                    <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                      onClick={() => window.open(`/contracts/${editing.id}/print`, '_blank', 'noopener')}>
+                      🖨 {t('sc.print')}
+                    </button>
+                    <Can permission="contracts:edit">
+                      <button type="button" className="btn btn-secondary" style={{ width: 'auto' }}
+                        disabled={sending} onClick={() => void handleSendEmail()}>
+                        {sending ? t('c.saving') : `✉ ${t('sc.sendEmail')}`}
+                      </button>
+                    </Can>
+                  </>
+                )}
                 <button type="button" className="btn btn-secondary" onClick={() => setDrawerOpen(false)}>
                   {t('c.cancel')}
                 </button>
@@ -686,6 +789,129 @@ export function ContractsPage() {
           </div>
         </div>
       )}
+
+      {fieldModalOpen && (
+        <FieldDefinitionsModal
+          definitions={fieldDefinitions}
+          onClose={() => setFieldModalOpen(false)}
+          onChanged={() => void loadFieldDefinitions()}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Campos Personalizados — gerenciamento das definições (migration 0072) ──
+// Schema por tenant: cada campo tem chave/tipo/obrigatoriedade, aplicado a
+// todo contrato. Só rótulo/obrigatoriedade são editáveis depois de criado —
+// o tipo nunca muda (corromperia a semântica de valores já salvos), mesma
+// trava do backend (contractFieldService.ts).
+function FieldDefinitionsModal({ definitions, onClose, onChanged }: {
+  definitions: FieldDefinition[]; onClose: () => void; onChanged: () => void;
+}) {
+  const { t } = useI18n();
+  const modal = useModal();
+  const [label, setLabel] = useState('');
+  const [fieldType, setFieldType] = useState<FieldDefinition['field_type']>('text');
+  const [required, setRequired] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) { setError(t('sc.customFields.errLabel')); return; }
+    setSaving(true); setError('');
+    try {
+      await api.post('/v1/contract-fields', { label, field_type: fieldType, required, sort_order: definitions.length });
+      setLabel(''); setFieldType('text'); setRequired(false);
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('sc.customFields.errSave'));
+    } finally { setSaving(false); }
+  }
+
+  async function handleRemove(id: string) {
+    const ok = await modal.confirm({
+      title: t('sc.customFields.remove'),
+      message: t('sc.customFields.removeConfirm'),
+      confirmLabel: t('sc.customFields.remove'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/v1/contract-fields/${id}`);
+      onChanged();
+    } catch (err: unknown) { modal.error(err); }
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="drawer" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="drawer-header">
+          <h2>{t('sc.customFields.title')}</h2>
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="drawer-body">
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>{t('sc.customFields.hint')}</p>
+
+          {definitions.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('sc.customFields.empty')}</div>
+          ) : (
+            <table style={{ marginBottom: 20 }}>
+              <thead>
+                <tr>
+                  <th>{t('sc.customFields.label')}</th>
+                  <th>{t('sc.customFields.type')}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {definitions.map(def => (
+                  <tr key={def.id}>
+                    <td>{def.label}{def.required ? ' *' : ''}</td>
+                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t(`sc.customFields.fieldType.${def.field_type}` as Parameters<typeof t>[0])}</td>
+                    <td>
+                      <button type="button" className="btn btn-danger btn-sm" onClick={() => void handleRemove(def.id)}>
+                        {t('c.del')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <SectionLabel label={t('sc.customFields.new')} />
+          <form onSubmit={handleAdd} noValidate>
+            {error && <div className="alert alert-error" role="alert">{error}</div>}
+            <div className="field">
+              <label>{t('sc.customFields.label')} *</label>
+              <input value={label} onChange={e => setLabel(e.target.value)}
+                placeholder={t('sc.customFields.labelPH')} required />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label>{t('sc.customFields.type')}</label>
+                <select value={fieldType} onChange={e => setFieldType(e.target.value as FieldDefinition['field_type'])}>
+                  {FIELD_TYPES.map(ft => (
+                    <option key={ft} value={ft}>{t(`sc.customFields.fieldType.${ft}` as Parameters<typeof t>[0])}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={required} style={{ width: 'auto' }}
+                    onChange={e => setRequired(e.target.checked)} />
+                  {t('sc.customFields.required')}
+                </label>
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={saving}>
+              {saving ? t('c.saving') : t('sc.customFields.add')}
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

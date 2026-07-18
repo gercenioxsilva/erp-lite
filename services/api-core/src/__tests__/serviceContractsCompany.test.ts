@@ -20,8 +20,15 @@ let companyRows: unknown[] = [];
 
 vi.mock('../db', async () => {
   const actual = await vi.importActual<any>('../db');
+  // Módulo 'service_contracts' sempre habilitado nestes testes (regra do
+  // toggle, migration 0072) — tenantModules retorna enabled:true, qualquer
+  // outra tabela cai no comportamento padrão de cada describe/beforeEach.
   mockDb.select.mockImplementation(() => ({
-    from: () => ({ where: vi.fn().mockResolvedValue([{ id: 'client-1' }]) }),
+    from: (table: unknown) => ({
+      where: (table === (actual as any).tenantModules)
+        ? vi.fn().mockResolvedValue([{ enabled: true }])
+        : vi.fn().mockResolvedValue([{ id: 'client-1' }]),
+    }),
   }));
   return { ...actual, db: mockDb };
 });
@@ -37,7 +44,12 @@ describe('POST /v1/service-contracts — company_id (regra 40)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockDb.select.mockImplementation(() => ({
-      from: () => ({ where: vi.fn().mockResolvedValue([{ id: CLIENT_ID }]) }),
+      from: (table: unknown) => ({
+        where: async () => {
+          const actual = await import('../db');
+          return table === (actual as any).tenantModules ? [{ enabled: true }] : [{ id: CLIENT_ID }];
+        },
+      }),
     }));
     mockDb.execute.mockResolvedValue({ rows: [{ count: 0 }] });
     app = await buildApp();
@@ -99,7 +111,9 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
       from: (table: unknown) => ({
         where: async () => {
           const actual = await import('../db');
-          return table === (actual as any).nfeConfigs ? companyRows : [];
+          if (table === (actual as any).nfeConfigs) return companyRows;
+          if (table === (actual as any).tenantModules) return [{ enabled: true }];
+          return [];
         },
       }),
     }));

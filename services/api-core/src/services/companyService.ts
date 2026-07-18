@@ -201,10 +201,28 @@ export async function upsertDefaultCompany(tenantId: string, input: CompanyInput
   const values = toValues(input);
   // Tokens: só sobrescreve quando um novo valor em texto puro foi enviado (mesmo
   // comportamento da rota legada — valores mascarados '****...' nunca chegam aqui).
+  //
+  // Bug real de produção: trocar o CNPJ da empresa (ex.: corrigir um erro de
+  // digitação) SEM informar um token novo mantinha o token antigo — que foi
+  // emitido pelo emissor fiscal pra outro CNPJ. Toda emissão seguinte era
+  // rejeitada ("CNPJ do emitente não autorizado"), sem nenhum aviso na hora
+  // da troca. CNPJ mudou → todo o estado de integração fiscal amarrado ao
+  // CNPJ antigo (tokens manuais + registro automatizado, regra 70) é
+  // descartado, nunca carregado adiante silenciosamente.
+  const cnpjChanged = Boolean(input.cnpj) && normalizeCNPJ(input.cnpj!) !== existingDefault.cnpj;
+
   const [row] = await db.update(nfeConfigs).set({
     ...values,
-    focus_token_homologacao: input.focus_token_homologacao ?? existingDefault.focus_token_homologacao,
-    focus_token_producao:    input.focus_token_producao    ?? existingDefault.focus_token_producao,
+    focus_token_homologacao: input.focus_token_homologacao ?? (cnpjChanged ? null : existingDefault.focus_token_homologacao),
+    focus_token_producao:    input.focus_token_producao    ?? (cnpjChanged ? null : existingDefault.focus_token_producao),
+    ...(cnpjChanged ? {
+      fiscal_integration_ref:     null,
+      fiscal_registration_status: null,
+      fiscal_registration_error:  null,
+      certificado_cnpj:           null,
+      certificado_valido_de:      null,
+      certificado_valido_ate:     null,
+    } : {}),
     updated_at: new Date(),
   }).where(eq(nfeConfigs.id, existingDefault.id)).returning();
 
@@ -216,19 +234,36 @@ export async function updateCompany(
 ): Promise<Company> {
   const current = await resolveCompanyId(tenantId, companyId, db);
 
-  if (input.cnpj && normalizeCNPJ(input.cnpj) !== current.cnpj) {
+  const cnpjChanged = Boolean(input.cnpj) && normalizeCNPJ(input.cnpj!) !== current.cnpj;
+
+  if (cnpjChanged) {
     const existing = await listAllCompanies(tenantId, db);
     const validation = validateNewCompanyCnpj(
-      existing.filter(c => c.id !== companyId).map(c => c.cnpj), input.cnpj,
+      existing.filter(c => c.id !== companyId).map(c => c.cnpj), input.cnpj!,
     );
     if (!validation.ok) throw new CompanyDomainError(validation.error!, { cnpj: input.cnpj });
   }
 
   const values = toValues({ ...current, ...input } as CompanyInput);
+  // Bug real de produção: trocar o CNPJ da empresa SEM informar um token
+  // novo mantinha o token antigo — emitido pelo emissor fiscal pra outro
+  // CNPJ. Toda emissão seguinte era rejeitada ("CNPJ do emitente não
+  // autorizado"), sem nenhum aviso na hora da troca. CNPJ mudou → todo o
+  // estado de integração fiscal amarrado ao CNPJ antigo (tokens manuais +
+  // registro automatizado, regra 70) é descartado, nunca carregado adiante
+  // silenciosamente.
   const [row] = await db.update(nfeConfigs).set({
     ...values,
-    focus_token_homologacao: input.focus_token_homologacao ?? current.focus_token_homologacao,
-    focus_token_producao:    input.focus_token_producao    ?? current.focus_token_producao,
+    focus_token_homologacao: input.focus_token_homologacao ?? (cnpjChanged ? null : current.focus_token_homologacao),
+    focus_token_producao:    input.focus_token_producao    ?? (cnpjChanged ? null : current.focus_token_producao),
+    ...(cnpjChanged ? {
+      fiscal_integration_ref:     null,
+      fiscal_registration_status: null,
+      fiscal_registration_error:  null,
+      certificado_cnpj:           null,
+      certificado_valido_de:      null,
+      certificado_valido_ate:     null,
+    } : {}),
     updated_at: new Date(),
   }).where(eq(nfeConfigs.id, companyId)).returning();
 
