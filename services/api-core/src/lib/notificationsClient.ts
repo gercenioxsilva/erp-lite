@@ -10,7 +10,8 @@ type GatedNotificationType = 'nfe_authorized' | 'nfe_rejected' | 'order_confirme
 // All notification types — gated + system (always sent, no config check)
 export type NotificationType = GatedNotificationType | 'user_welcome' | 'password_reset' | 'receivable_due_soon'
   | 'proposal_sent' | 'proposal_accepted' | 'proposal_rejected'
-  | 'technician_welcome' | 'service_visit_assigned' | 'tenant_email_verification';
+  | 'technician_welcome' | 'service_visit_assigned' | 'tenant_email_verification'
+  | 'contract_sent';
 
 const typeToConfigKey: Record<GatedNotificationType, keyof typeof notificationConfigs.$inferSelect> = {
   nfe_authorized:   'notify_nfe_authorized',

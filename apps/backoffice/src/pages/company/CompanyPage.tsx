@@ -1488,6 +1488,11 @@ export function CompanyPage() {
                     <input type="text" value={nfeForm.cnpj} maxLength={18}
                       placeholder="00.000.000/0001-00"
                       onChange={e => setNfeForm(f => ({ ...f, cnpj: e.target.value }))} required />
+                    {currentCompany && nfeForm.cnpj.replace(/\D/g, '') !== (currentCompany.cnpj || '').replace(/\D/g, '') && (
+                      <p style={{ fontSize: 11, color: 'var(--warning, #b45309)', marginTop: 4 }}>
+                        {t('comp.nfe.cnpjChangeWarning')}
+                      </p>
+                    )}
                   </div>
                   <div className="field" style={{ flex: 2 }}>
                     <label>{t('comp.nfe.razaoSocial')} *</label>
@@ -2131,6 +2136,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   scheduling:     { titleKey: 'comp.modules.scheduling',      descKey: 'comp.modules.schedulingDesc' },
   whatsapp:       { titleKey: 'comp.modules.whatsapp',        descKey: 'comp.modules.whatsappDesc' },
   projects:       { titleKey: 'comp.modules.projects',        descKey: 'comp.modules.projectsDesc' },
+  service_contracts: { titleKey: 'comp.modules.serviceContracts', descKey: 'comp.modules.serviceContractsDesc' },
 };
 
 // Módulos com um fluxo real (sequência de etapas) ganham o card cheio e o
