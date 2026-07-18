@@ -86,6 +86,14 @@ export async function billServiceOrder(
     if (!cfg.inscricao_municipal) {
       throw new ServiceOrderBillingDomainError('service_order_billing_missing_inscricao_municipal');
     }
+    // Trava de segurança: produção exige o token do próprio tenant — sem
+    // isso, a mensagem sai sem focus_token, o Lambda cai no token mestre da
+    // plataforma (sem permissão pro CNPJ do tenant) e o Focus rejeita com
+    // "permissao_negada: CNPJ do emitente não autorizado". Mesma trava de
+    // routes/nfe.ts / routes/nfse.ts / routes/serviceContracts.ts.
+    if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao) {
+      throw new ServiceOrderBillingDomainError('service_order_billing_missing_production_token');
+    }
     serviceCode = cfg.codigo_servico_padrao || null;
     if (!serviceCode) {
       throw new ServiceOrderBillingDomainError('service_order_billing_missing_service_code');

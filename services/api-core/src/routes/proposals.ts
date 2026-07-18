@@ -362,6 +362,56 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
     return { ok: true, token, link: proposalLink };
   });
 
+  // ── POST /v1/proposals/:id/resend ─────────────────────────────────────
+  // Reenvio manual do mesmo e-mail (mesmo link/token) pra um cliente que já
+  // recebeu a proposta mas ainda não decidiu, ou deixou expirar — nunca
+  // regenera o public_token nem muda o status; é só um lembrete assíncrono,
+  // mesmo canal fire-and-forget de /send (sendSystemNotification → SQS →
+  // lambda-notifications).
+  fastify.post('/proposals/:id/resend', { ...auth, preHandler: [requirePermission('proposals:send')] }, async (request, reply) => {
+    const tenantId  = (request as any).user.tenantId;
+    const { id }    = request.params as { id: string };
+
+    const { rows: [p] } = await db.execute<any>(sql`
+      SELECT p.*, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email,
+             COALESCE(t.trade_name, t.company_name) AS tenant_name, t.logo_url AS issuer_logo
+      FROM proposals p
+      LEFT JOIN clients c ON c.id = p.client_id
+      LEFT JOIN tenants  t ON t.id = p.tenant_id
+      WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
+    `);
+    if (!p) return reply.notFound('Proposal not found');
+    if (!['sent', 'viewed', 'expired'].includes(p.status))
+      return reply.badRequest('Só é possível reenviar propostas que já foram enviadas ao cliente');
+    if (!p.client_email) return reply.badRequest('O cliente não possui e-mail cadastrado');
+    if (!p.public_token) return reply.badRequest('Esta proposta ainda não tem um link público — envie normalmente antes de reenviar');
+
+    const appUrl = process.env.APP_URL || 'https://www.orquestraerp.com.br';
+    const proposalLink = `${appUrl}/p/${p.public_token}`;
+
+    fastify.log.info({ event: 'proposal_resend_email', proposal_id: id, recipient: p.client_email,
+      queue_url_set: !!process.env.NOTIFICATIONS_QUEUE_URL });
+
+    sendSystemNotification({
+      tenant_id: tenantId,
+      type:      'proposal_sent',
+      from_name: p.tenant_name ?? undefined,
+      recipient: { email: p.client_email, name: p.client_name ?? '' },
+      data: {
+        client_name:     p.client_name   ?? 'Cliente',
+        proposal_number: p.number,
+        proposal_title:  p.title,
+        issuer_name:     p.tenant_name   ?? 'Orquestra ERP',
+        issuer_logo:     p.issuer_logo   ?? '',
+        proposal_link:   proposalLink,
+        valid_until:     p.valid_until   ?? '',
+        total:           Number(p.total).toFixed(2),
+      },
+    }).catch(err => fastify.log.error({ event: 'proposal_resend_email_error', error: String(err) }));
+
+    return { ok: true, link: proposalLink };
+  });
+
   // ── POST /v1/proposals/:id/convert ───────────────────────────────────
   fastify.post('/proposals/:id/convert', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;

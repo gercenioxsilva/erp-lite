@@ -195,6 +195,111 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     expect(item.cbs_valor).toBe(0.9);
   });
 
+  it('[regressão SEFAZ — "IE do destinatário não informada"] cliente Contribuinte ICMS sem Inscrição Estadual bloqueia a emissão com mensagem clara, antes de enfileirar', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', client_state_reg: null }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/Inscrição Estadual/);
+    expect(sqsMock.send).not.toHaveBeenCalled();
+  });
+
+  it('propaga a Inscrição Estadual do cliente pra mensagem SQS quando ele é Contribuinte ICMS', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', client_state_reg: '206563490111' }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.destinatario.inscricao_estadual).toBe('206563490111');
+    expect(sentBody.destinatario.indicador_ie).toBe(1);
+  });
+
+  it('[regressão SEFAZ — Rejeição 232, cadastro dessincronizado] cliente PJ com IE cadastrada mas icms_taxpayer ainda "9" (não contribuinte) emite mesmo assim, com indicador_ie derivado pra 1', async () => {
+    // Reproduz o cenário real de produção: usuário preencheu a Inscrição
+    // Estadual no cadastro do cliente mas não trocou o select "Contribuinte
+    // ICMS" (continua '9' — o default). A SEFAZ cruza o CNPJ com o cadastro
+    // oficial de contribuintes e rejeita com "IE do destinatário não
+    // informada" se declararmos indIEDest=9 pra um CNPJ que tem IE ativa —
+    // presença de IE sempre vence sobre o flag interno.
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '9', client_state_reg: '206563490111' }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.destinatario.indicador_ie).toBe(1);
+    expect(sentBody.destinatario.inscricao_estadual).toBe('206563490111');
+  });
+
+  it('cliente PJ sem Inscrição Estadual cadastrada mantém indicador_ie do flag interno (não força contribuinte sem dado nenhum)', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '9', client_state_reg: null }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.destinatario.indicador_ie).toBe(9);
+    expect(sentBody.destinatario.inscricao_estadual).toBeUndefined();
+  });
+
   it('retorna 404 quando a nota não existe (comportamento inalterado)', async () => {
     mockExecuteByQuery(null, []);
 

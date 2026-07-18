@@ -74,6 +74,7 @@ import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
 import { GuiaImpostosPrintPage } from './pages/fiscal/GuiaImpostosPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { ContractBillingReceiptPrintPage } from './pages/contracts/ContractBillingReceiptPrintPage';
+import { ContractPrintPage } from './pages/contracts/ContractPrintPage';
 import { TechniciansPage }     from './pages/service-orders/TechniciansPage';
 import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPage';
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
@@ -228,6 +229,7 @@ export function App() {
               <Route path="/proposals/:id/print" element={<ProposalPrintPage />} />
               <Route path="/service-orders/:id/print" element={<ServiceOrderPrintPage />} />
               <Route path="/contracts/:contractId/billings/:billingId/receipt" element={<ContractBillingReceiptPrintPage />} />
+              <Route path="/contracts/:contractId/print" element={<ContractPrintPage />} />
               <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
               <Route path="/fiscal/apuracao/:id/guia" element={<GuiaImpostosPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />

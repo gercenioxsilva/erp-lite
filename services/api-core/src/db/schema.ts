@@ -440,8 +440,33 @@ export const nfeConfigs = pgTable('nfe_configs', {
   // regra 44 pra class_trib).
   emite_nfe:  boolean('emite_nfe').notNull().default(true),
   emite_nfse: boolean('emite_nfse').notNull().default(true),
+  // Integração fiscal automatizada (migration 0071, regra 70): registro
+  // assíncrono da empresa + upload síncrono de certificado A1. IE por
+  // empresa (faltava — só existia em tenants.state_reg, singleton).
+  inscricao_estadual: varchar('inscricao_estadual', { length: 20 }),
+  fiscal_integration_ref:      varchar('fiscal_integration_ref', { length: 50 }),
+  fiscal_registration_status:  varchar('fiscal_registration_status', { length: 20 }),
+  fiscal_registration_attempts: smallint('fiscal_registration_attempts').notNull().default(0),
+  fiscal_registration_error:   text('fiscal_registration_error'),
+  certificado_cnpj:       varchar('certificado_cnpj', { length: 20 }),
+  certificado_valido_de:  date('certificado_valido_de'),
+  certificado_valido_ate: date('certificado_valido_ate'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── fiscal_integration_events ───────────────────────────────────────────────
+// Trilha de auditoria append-only do registro automatizado da empresa no
+// emissor fiscal, upload de certificado e teste de conexão (migration 0071,
+// regra 70) — mesmo padrão de nfse_events/simples_remessa_events.
+export const fiscalIntegrationEvents = pgTable('fiscal_integration_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  tenant_id:   uuid('tenant_id').notNull(),
+  event_type:  varchar('event_type', { length: 30 }).notNull(),
+  status_code: varchar('status_code', { length: 20 }),
+  payload:     jsonb('payload'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── bank_accounts ────────────────────────────────────────────────────────────
@@ -880,6 +905,38 @@ export const contractBillings = pgTable('contract_billings', {
   document_number: varchar('document_number', { length: 20 }),
   created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── contract_field_definitions / contract_field_values ─────────────────────────
+// Campos personalizados de contrato (migration 0072) — schema definido por
+// tenant (chave/valor tipado), aplicado a todo contrato criado depois,
+// renderizado dinamicamente na tela de configuração e no documento impresso/
+// enviado por e-mail. field_key é derivado do label na criação e nunca muda
+// depois (rótulo é editável, chave é estável — nunca corrompe valores já salvos).
+export const contractFieldDefinitions = pgTable('contract_field_definitions', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  field_key:   varchar('field_key', { length: 60 }).notNull(),
+  label:       varchar('label', { length: 120 }).notNull(),
+  field_type:  varchar('field_type', { length: 20 }).notNull(),
+  required:    boolean('required').notNull().default(false),
+  sort_order:  smallint('sort_order').notNull().default(0),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractFieldValues = pgTable('contract_field_values', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  contract_id:         uuid('contract_id').notNull().references(() => serviceContracts.id, { onDelete: 'cascade' }),
+  field_definition_id: uuid('field_definition_id').notNull().references(() => contractFieldDefinitions.id, { onDelete: 'cascade' }),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  // Sempre texto — tipagem/formatação aplicada na leitura conforme field_type
+  // (contractFieldDomain.ts), nunca colunas separadas por tipo (o valor é
+  // só exibido/impresso, não usado em agregação/relatório).
+  value:               text('value'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── notification_configs ──────────────────────────────────────────────────────

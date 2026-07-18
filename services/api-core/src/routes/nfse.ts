@@ -138,6 +138,14 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     }
     if (!cfg.inscricao_municipal)
       return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e');
+    // Trava de segurança: produção exige o token do próprio tenant (não cair
+    // no fallback do token mestre da plataforma em lambda-fiscal) — sem isso,
+    // a mensagem sai sem focus_token, o Lambda usa o token mestre (que não
+    // tem permissão pra emitir em nome do CNPJ do tenant) e o Focus rejeita
+    // com "permissao_negada: CNPJ do emitente não autorizado". Mesma trava
+    // já existia em routes/nfe.ts, faltava aqui.
+    if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
+      return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');
 
     // Provider próprio (ABRASF): reemitir tem de seguir o MESMO motor da 1ª
     // emissão (assina no api-core, série/RPS própria). Sem este branch a

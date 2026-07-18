@@ -115,7 +115,7 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
   const [{ rows: [sr] }, { rows: items }] = await Promise.all([
     db.execute<any>(sql`
       SELECT sr.*, c.person_type, c.company_name, c.full_name, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
-             c.icms_taxpayer, c.zip_code, c.street, c.street_number, c.complement, c.neighborhood, c.city,
+             c.icms_taxpayer, c.state_reg, c.zip_code, c.street, c.street_number, c.complement, c.neighborhood, c.city,
              c.state AS client_state, c.phone, c.email AS client_email
       FROM simples_remessas sr JOIN clients c ON c.id = sr.client_id
       WHERE sr.id = ${id} AND sr.tenant_id = ${tenantId}
@@ -132,10 +132,27 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
     throw new SimplesRemessaDomainError('remessa_item_sem_ncm', { items: noNcm.map((it: any) => it.name) });
   }
 
+  // Cliente marcado como Contribuinte ICMS (icms_taxpayer='1') exige a IE em
+  // toda NF-e/remessa — sem isso a SEFAZ rejeita ("IE do destinatário não
+  // informada") só depois de tentar. Mesma trava de routes/nfe.ts.
+  if (sr.icms_taxpayer === '1' && !sr.state_reg) {
+    throw new SimplesRemessaDomainError('remessa_destinatario_sem_ie');
+  }
+
   const cfg = await resolveCfgOrThrow(tenantId, sr.company_id, db);
   if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao) {
     throw new SimplesRemessaDomainError('remessa_producao_sem_token');
   }
+
+  // SEFAZ valida o CNPJ do destinatário contra o cadastro oficial de
+  // contribuintes (SINTEGRA/CCC) — se ele tem IE ativa lá e a nota declara
+  // indIEDest=9/2, a rejeição é a mesma "IE do destinatário não informada"
+  // (Rejeição 232), mesmo com o cadastro interno "consistente". Mesmo
+  // racional de routes/nfe.ts: presença de IE sempre vence sobre o flag
+  // icms_taxpayer, que pode ficar dessincronizado do state_reg real.
+  const indicadorIe = (sr.person_type === 'PJ' && sr.state_reg)
+    ? 1
+    : Number(sr.icms_taxpayer) as 1 | 2 | 9;
 
   const isSimples     = cfg.regime_tributario === 1;
   const taxSituation  = resolveTaxSituation(cfg.regime_tributario);
@@ -163,7 +180,8 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
       cnpj:         sr.person_type === 'PJ' ? sr.client_cnpj : undefined,
       cpf:          sr.person_type === 'PF' ? sr.client_cpf  : undefined,
       nome:         sr.person_type === 'PJ' ? sr.company_name : sr.full_name,
-      indicador_ie: Number(sr.icms_taxpayer) as 1 | 2 | 9,
+      indicador_ie: indicadorIe,
+      inscricao_estadual: sr.state_reg || undefined,
       logradouro:   sr.street, numero: sr.street_number, complemento: sr.complement,
       bairro:       sr.neighborhood, municipio: sr.city, uf: sr.client_state,
       cep:          sr.zip_code, telefone: sr.phone, email: sr.client_email,

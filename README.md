@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. Fatos que mudam com frequência (schema exato, lista de rotas) **apontam para o código-fonte em vez de serem copiados aqui** — copiar gera drift (este README já teve isso corrigido uma vez; não repetir).
 
-1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`.
+1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`, `contract_field_definitions`, `contract_field_values`.
 
 2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration), whatsapp (account + templates + automations + messages + webhook público `/public/whatsapp/webhook`), projects (+ professionals + orders + service-orders + start/complete/cancel).
 
@@ -152,6 +152,19 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
 68. **Projetos: módulo opcional (`requireModule('projects')`), Clean Architecture 3 camadas (`domain/project/projectDomain.ts` + `services/projectService.ts` + `routes/projects.ts`), mesmo molde de Ordem de Serviço.** Estado `draft → in_progress → completed | cancelled` (`draft → cancelled` também); editável (nome/valor/datas/cliente/centro de custo) só em `draft` — depois disso só profissionais, vínculos e transição de status mudam. `project_professionals` aloca técnico OU vendedor (nunca ambos, `CHECK` garante) com `commission_pct` **só informativo** — aparece no relatório de acompanhamento do projeto, nunca é lançado em `commission_entries` (a comissão real continua exclusiva de `accrueCommission()`/regra 32, e técnico não ganhou conceito de comissão real nenhum). Pedidos de venda e ordens de serviço se vinculam ao projeto por coluna direta `project_id` (nullable) em `orders`/`service_orders` — não tabela de junção, mesmo padrão de `cost_center_id` nessas tabelas — através de rotas próprias do projeto (`POST|DELETE /v1/projects/:id/orders` e `/service-orders`), nunca via `PATCH /orders/:id` (que só edita pedido em `draft`). `GET /v1/projects/:id` já devolve o relatório de acompanhamento embutido (sem endpoint `/report` separado, mesmo padrão de `GET /service-orders/:id` dobrar billing/nfse): "consumido" soma `orders.total` + `service_orders.total` vinculados; "faturado" soma **duas origens distintas** — `invoices.total` via `invoices.order_id` para pedidos, `receivables.amount` via `receivables.service_order_id` para OS (OS nunca fatura via `invoices`, regra 47/48) — nunca confundir as duas.
 
 69. **Exclusão em massa de produtos (Minha Empresa → Zona de Risco) nunca é um `DELETE` físico — mesma regra 8, só que em lote.** `POST /v1/materials/bulk-deactivate` (`requirePermission('materials:delete')`, já existia no catálogo) roda um único `UPDATE materials SET is_active=false ... WHERE NOT EXISTS (SELECT 1 FROM inventory_movements WHERE material_id=materials.id)` — só desativa produtos sem nenhuma movimentação de estoque, nunca toca produto com histórico. Diferente do `DELETE /v1/materials/:id` de um único produto (que não checa movimentação nenhuma), a operação em massa tem essa trava a mais por afetar o catálogo inteiro de um clique só. Devolve `{ deactivated: N }`; nunca um DELETE físico — um `DELETE` real zeraria (`SET NULL`) `material_id` em itens de pedidos/NF-e/OS/pedidos de compra já emitidos (a maioria das FKs pra `materials` é `ON DELETE SET NULL`), corrompendo a rastreabilidade histórica desses documentos.
+
+70. **Integração fiscal automatizada (Minha Empresa → Fiscal): registro da empresa no emissor fiscal é ASSÍNCRONO, upload de certificado digital e teste de conexão são SÍNCRONOS — e o nome do provedor (Focus) nunca é exposto ao tenant.** Reaproveita 100% o pipeline assíncrono já existente de NF-e/NFS-e/Simples Remessa (mesmas filas `nfe_requests`/`nfe_results`, mesma Lambda `fiscal_nfe`), discriminado por um 4º valor de `type`: `'company_registration'`. Nenhuma mudança de infraestrutura (Terraform) foi necessária pra fila/Lambda/IAM — só um novo par de tipos de mensagem (`CompanyRegistrationEmitMessage`/`CompanyRegistrationResultMessage`, `services/lambda-fiscal/src/lib/types.ts`) e um novo branch de discriminação em `handler.ts` (Lambda) e `nfeResultsWorker.ts` (api-core).
+    - **Token mestre vs. token por empresa — dois papéis nunca confundidos.** `FOCUS_NFE_TOKEN` (`app.config.focusToken` na Lambda, `process.env.FOCUS_NFE_TOKEN` na api-core — precisou ser adicionado ao `environment` do `aws_ecs_task_definition.api_core` em `terraform/ecs.tf`, só existia na Lambda até aqui) é o token da CONTA da plataforma, usado exclusivamente para gerir o cadastro de empresas (`POST/PUT/GET /v2/empresas`). Os tokens `focus_token_producao`/`focus_token_homologacao` de cada `nfe_configs` (devolvidos pelo registro e persistidos pelo worker) continuam sendo os únicos usados pra EMITIR documentos (NF-e/NFS-e/Remessa) — nunca o token mestre.
+    - **Registro assíncrono** (`registerCompanyFiscalIntegration`, `services/api-core/src/services/fiscalIntegrationService.ts`): mesma dança pending→enqueue→processing com rollback em falha de `emitSimplesRemessa` (regra 51). `POST /v1/companies/:id/fiscal-integration/register` devolve 202; o resultado (tokens + `fiscal_integration_ref`, ou erro) chega pelo worker e grava direto em `nfe_configs` com guarda de idempotência `WHERE fiscal_registration_status='processing'` (mesmo padrão de `processRemessaResult`).
+    - **Upload de certificado e teste de conexão são SÍNCRONOS, em processo, na api-core** (`services/fiscal/fiscalIntegrationClient.ts`, `PUT`/`GET /v2/empresas/{ref}` via `fetch()`+Basic Auth, mesmo padrão de `services/fiscal/focusNfe.ts`) — nunca passam pela fila. Certificado nunca é persistido em banco (nem o arquivo, nem a senha); só os metadados que o emissor devolve (`certificado_cnpj`/`certificado_valido_de`/`certificado_valido_ate`) ficam em `nfe_configs`. Upload exige a empresa já registrada (`fiscal_integration_ref` presente) — o registro em si nunca inclui o certificado.
+    - **`nfe_configs` ganha as colunas de estado** (migration 0071): `fiscal_integration_ref` (id da empresa no emissor), `fiscal_registration_status` (`pending`/`processing`/`registered`/`error`, NULL = nunca solicitado), `fiscal_registration_attempts`, `fiscal_registration_error`, `certificado_cnpj`/`certificado_valido_de`/`certificado_valido_ate`, e `inscricao_estadual` (lacuna corrigida — só existia em `tenants.state_reg`, singleton incompatível com multi-empresa da regra 40). Nova tabela append-only `fiscal_integration_events` (mesmo molde de `nfse_events`/`simples_remessa_events`, sem `protocol` — não se aplica aqui) audita registro/upload/teste.
+    - **Nunca expor "Focus" pro tenant** — toda string de UI/i18n (`comp.fiscalIntegration.*`, `pt-BR.ts`/`en.ts`) fala em "integração de emissão de notas fiscais", nunca no nome do provedor; o mesmo valeu pra `comp.nfse.hint`, que já vazava "via Focus" antes desta regra e foi corrigido. Nome do provedor continua livre em código/nomes de arquivo/comentário interno (`lib/focusNfe.ts`, `lib/focusEmpresa.ts`, env var `FOCUS_NFE_TOKEN`) — isso nunca chega ao tenant.
+    - **Status exibido na tela é sempre derivado, nunca inferido pela UI**: `deriveFiscalIntegrationStatus()` (`domain/fiscalIntegration/fiscalIntegrationDomain.ts`, puro) calcula `not_registered`/`pending`/`registered_no_certificate`/`active`/`certificate_expiring_soon` (≤30 dias)/`certificate_expired`/`error` a partir do estado bruto — `CompanyPage.tsx` (aba Fiscal) só renderiza o resultado, e faz polling de 3s enquanto `pending`/`processing` (mesmo padrão de `NfsePage.tsx`).
+
+71. **Contratos de Serviço: módulo opcional (`requireModule('service_contracts')`), mesmo padrão de `tenant_modules` do Mercado Livre/PDV/etc — mas já existia em produção, então o backfill (migration 0072) habilita automaticamente todo tenant que já tinha ≥1 contrato, nunca trava quem já usava.** Todas as 9 rotas de `routes/serviceContracts.ts` e `routes/contractFields.ts` ganharam o gate; tenant novo (zero contratos) começa OFF, como qualquer módulo, e liga pela mesma tela `Empresa → Módulos` (`MODULE_LABELS` em `CompanyPage.tsx` é 100% data-driven a partir de `GET /v1/tenant/modules` — nenhum código novo de UI precisou ser escrito pro toggle em si).
+    - **Campos personalizados de contrato — schema por tenant, aplicado a todo contrato, EAV clássico com validação por tipo.** `contract_field_definitions` (chave/label/tipo/obrigatório/ordem, `field_key` derivado do label na criação via `slugifyFieldKey()` e imutável depois — renomear o label nunca corrompe valores já salvos) + `contract_field_values` (sempre `TEXT`, nunca colunas tipadas por campo — tipagem e formatação de exibição são responsabilidade de `contractFieldDomain.ts`, nunca do banco). 5 tipos suportados: `text`/`decimal`/`integer`/`date`/`boolean` — **o tipo nunca é editável depois de criado** (`updateFieldDefinition()` não aceita `field_type` no input), só label/obrigatoriedade/ordem; remover um campo é sempre soft-delete (`is_active=false`, regra 8) — contratos que já têm valor preenchido mantêm o histórico, o campo só some do formulário de novos/edição.
+    - **Camadas**: `domain/contractField/contractFieldDomain.ts` (puro — `validateFieldValue()`/`formatFieldValueForDisplay()`, nunca I/O) → `services/contractFieldService.ts` (CRUD de definições + `setFieldValuesForContract()`/`getFieldValuesForContract()`) → `routes/contractFields.ts` (CRUD de definições) + `routes/serviceContracts.ts` (valores plugados em `POST`/`PATCH`/`GET /:id`, campo `custom_fields` no body/resposta).
+    - **Impressão e e-mail do contrato são novos, e-mail é sempre auto-contido — contratos não têm portal público como proposta (`/p/:token`).** `GET /v1/service-contracts/:id/print` (`ContractPrintPage.tsx`, aba autenticada `window.print()`, mesmo padrão de `ContractBillingReceiptPrintPage.tsx`) devolve emissor sempre de `tenants` (regra 37) + `custom_fields` já formatados (`formatFieldValueForDisplay`, nunca formatação duplicada no frontend). `POST /v1/service-contracts/:id/send` (fire-and-forget via `sendSystemNotification`, tipo novo `contract_sent`) renderiza o resumo do contrato **dentro do próprio corpo do e-mail** — nunca um link, já que não existe página pública de contrato; campos personalizados chegam pré-formatados em HTML/texto puro no payload da fila (`custom_fields_html`/`custom_fields_text`), a Lambda de notificações nunca acessa banco.
 
 ---
 
@@ -893,6 +906,101 @@ flowchart TD
 
 ---
 
+### Integração Fiscal Automatizada (registro assíncrono + certificado/teste síncronos)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React — Minha Empresa → Fiscal)
+    participant A as api-core (ECS)
+    participant Q as SQS nfe-requests
+    participant L as lambda-fiscal
+    participant FX as Emissor Fiscal (Focus NF-e API — nunca exposto ao tenant)
+
+    Note over U,F: UI nunca menciona o nome do provedor — só "integração de emissão de notas fiscais"
+
+    U->>F: Clica "Registrar empresa"
+    F->>A: POST /v1/companies/:id/fiscal-integration/register
+    A->>A: assertCanRegister() — bloqueia se já pending/processing
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='pending'
+    A->>Q: sendMessage {type:"company_registration", empresa:{...}} — token mestre, nunca token por empresa
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='processing'
+    A-->>F: 202 {status: "processing"}
+    F->>F: Poll GET /v1/companies a cada 3s enquanto pending/processing
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    Note over L: Discrimina pelo campo type:'company_registration'
+    L->>FX: POST /v2/empresas {cnpj, razão social, endereço, regime...} — sempre token mestre (FOCUS_NFE_TOKEN)
+    FX-->>L: {id, token_producao, token_homologacao} ou {erros}
+    L->>Q: sendMessage (nfe-results) — resultado do registro
+
+    Q-->>A: Mensagem de resultado (nfeResultsWorker)
+    A->>A: UPDATE nfe_configs SET fiscal_registration_status='registered', fiscal_integration_ref=..., focus_token_producao=..., focus_token_homologacao=... WHERE status='processing' (idempotência)
+    A->>A: INSERT fiscal_integration_events (event_type='registration')
+
+    Note over U,FX: Certificado digital e teste de conexão — SÍNCRONOS, nunca passam pela fila
+    U->>F: Envia certificado (.pfx/.p12) + senha
+    F->>A: POST /v1/companies/:id/fiscal-integration/certificate
+    A->>A: assertCanUploadCertificate() — exige fiscal_integration_ref já presente
+    A->>FX: PUT /v2/empresas/{ref} {arquivo_certificado_base64, senha_certificado}
+    FX-->>A: {certificado_valido_de, certificado_valido_ate} ou {erros}
+    A->>A: UPDATE nfe_configs SET certificado_valido_ate=... (nunca persiste o arquivo/senha)
+    A-->>F: 200 {status: "active"}
+
+    U->>F: Clica "Testar conexão"
+    F->>A: POST /v1/companies/:id/fiscal-integration/test
+    A->>FX: GET /v2/empresas/{ref}
+    FX-->>A: 200 ou 404
+    A-->>F: {ok: true|false}
+
+    Note over A,Q: Mesmas filas/Lambda de NF-e/NFS-e/Remessa — só um 4º valor de type, sem mudança de infraestrutura
+```
+
+---
+
+### Contratos — Campos Personalizados (schema por tenant, aplicado ao documento)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React — Contratos)
+    participant A as api-core (ECS)
+    participant Q as SQS notifications
+    participant L as lambda-notifications
+    participant C as Cliente (e-mail)
+
+    Note over U,F: Configuração do schema — uma vez por tenant
+
+    U->>F: "Campos Personalizados" → Novo campo (label, tipo, obrigatório)
+    F->>A: POST /v1/contract-fields
+    A->>A: slugifyFieldKey(label) — chave derivada, imutável depois
+    A-->>F: 201 {id, field_key, label, field_type}
+
+    Note over U,F: Preenchimento — a cada contrato criado/editado
+
+    U->>F: Preenche o contrato + valores dos campos personalizados
+    F->>A: POST/PATCH /v1/service-contracts (custom_fields: [{field_definition_id, value}])
+    A->>A: validateFieldValue(field_type, value) por campo — nunca confia no tipo declarado pelo cliente HTTP
+    A-->>F: 200/201 {..., custom_fields: [...]}
+
+    Note over U,F: Impressão e envio — sempre formatados a partir do mesmo dado bruto
+
+    U->>F: Clica "Imprimir Contrato"
+    F->>A: GET /v1/service-contracts/:id/print
+    A-->>F: {contract, client, issuer (de tenants, regra 37), custom_fields: [{label, formatted_value}]}
+    F->>F: window.print() — mesma aba autenticada, sem lib de PDF
+
+    U->>F: Clica "Enviar por E-mail"
+    F->>A: POST /v1/service-contracts/:id/send
+    A->>A: formatFieldValueForDisplay() por campo → custom_fields_html/custom_fields_text
+    A->>Q: sendSystemNotification({type:"contract_sent", data:{...custom_fields_html}})
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>L: getTemplate('contract_sent', data) — resumo do contrato no próprio corpo, nunca um link (sem portal público de contrato, diferente de proposta)
+    L->>C: E-mail (SES)
+```
+
+---
+
 ## Módulos do sistema (Web — backoffice)
 
 | Módulo | Rota frontend | Tabelas principais |
@@ -915,14 +1023,14 @@ flowchart TD
 | NF-e de Entrada | `/supplier-invoices` | supplier_invoices, supplier_invoice_items |
 | DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables/nfse_invoices |
 | Contas a Pagar | `/payables` | payables, payable_payments |
-| Contratos | `/contracts` | service_contracts, contract_billings |
+| Contratos *(opcional)* | `/contracts`, `/contracts/:contractId/print`, `/contracts/:contractId/billings/:billingId/receipt` | service_contracts, contract_billings, contract_field_definitions, contract_field_values |
 | Fornecedores | `/suppliers` | suppliers, supplier_contacts |
 | Relatórios | `/reports` | receivables (inadimplência), order_items (ranking), commission_entries |
 | Usuários | `/users` | users |
 | Perfis de Acesso *(só visível ao owner)* | `/access-profiles` | access_profiles, access_profile_permissions, access_profile_events |
 | RH Simplificado *(opcional)* | `/employees`, `/payroll`, `/payroll/entries/:id/print` | employees, payroll_runs, payroll_entries, payroll_tax_brackets |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs, bank_accounts |
-| Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant) |
+| Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant), fiscal_integration_events |
 | Ordens de Serviço *(opcional)* | `/service-orders` | service_orders, service_order_items, service_visits |
 | Técnicos *(opcional)* | `/technicians` | technicians, users |
 | Portal do Técnico *(opcional, autenticado)* | `/tecnico/entrar`, `/tecnico/visitas`, `/tecnico/visitas/:id` | service_visits, service_visit_photos |
@@ -973,6 +1081,7 @@ Não é necessário atualizar manualmente listas de tabelas/rotas no Protocolo A
 | suppliers | `is_active` | `false` |
 | supplier_contacts | `is_active` | `false` |
 | nfe_configs (empresas) | `is_active` | `false` (bloqueado se for a padrão ou a última ativa) |
+| contract_field_definitions | `is_active` | `false` (valores já salvos em contratos existentes nunca somem) |
 | bank_accounts | `is_active` | `false` (bloqueado se for a padrão da empresa ou a última ativa daquela empresa) |
 | material_marketplace_links | `status` | `'closed'` |
 | cost_centers | `is_active` | `false` |

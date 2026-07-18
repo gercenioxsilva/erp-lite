@@ -71,6 +71,7 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
       db.execute<any>(sql`
         SELECT i.*, c.person_type, c.company_name, c.full_name,
                c.cnpj AS client_cnpj, c.cpf AS client_cpf, c.icms_taxpayer,
+               c.state_reg AS client_state_reg,
                c.zip_code, c.street, c.street_number, c.complement,
                c.neighborhood, c.city, c.state AS client_state,
                c.phone, c.email AS client_email
@@ -105,6 +106,26 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
     if (noNcm.length)
       return reply.badRequest(`Itens sem NCM (obrigatório para NF-e): ${noNcm.map((it: any) => it.name).join(', ')}`);
 
+    // Cliente marcado como Contribuinte ICMS (icms_taxpayer='1') exige a IE em
+    // toda NF-e — sem isso a SEFAZ rejeita ("IE do destinatário não
+    // informada") só depois de enfileirar/tentar, sem sinal nenhum pro
+    // usuário até aí. Falha cedo aqui, com uma mensagem acionável.
+    if (invoice.icms_taxpayer === '1' && !invoice.client_state_reg)
+      return reply.badRequest('O cliente está marcado como Contribuinte ICMS, mas não tem Inscrição Estadual cadastrada. Atualize o cadastro do cliente antes de emitir.');
+
+    // SEFAZ valida o CNPJ do destinatário contra o cadastro oficial de
+    // contribuintes (SINTEGRA/CCC) — se ele tem IE ativa lá e a nota declara
+    // indIEDest=9 (não contribuinte) ou 2 (isento), a rejeição é a mesma "IE
+    // do destinatário não informada" (Rejeição 232), mesmo com o cadastro
+    // interno "consistente". clients.icms_taxpayer é um campo editável à
+    // parte de state_reg — os dois podem ficar dessincronizados (usuário
+    // preenche a IE mas esquece de marcar "Contribuinte ICMS" no cadastro).
+    // Presença de IE sempre vence: nunca confiar só no flag quando há uma IE
+    // cadastrada — é o dado mais forte disponível sobre o destinatário.
+    const indicadorIe = (invoice.person_type === 'PJ' && invoice.client_state_reg)
+      ? 1
+      : Number(invoice.icms_taxpayer) as 1 | 2 | 9;
+
     const cfop = () => cfg.uf === (invoice.client_state ?? cfg.uf) ? cfg.cfop_padrao : cfg.cfop_interestadual;
 
     // Simples Nacional (regime 1) usa CSOSN no ICMS; demais regimes usam CST.
@@ -133,7 +154,8 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
         cnpj:         invoice.person_type === 'PJ' ? invoice.client_cnpj : undefined,
         cpf:          invoice.person_type === 'PF' ? invoice.client_cpf  : undefined,
         nome:         invoice.person_type === 'PJ' ? invoice.company_name : invoice.full_name,
-        indicador_ie: Number(invoice.icms_taxpayer) as 1 | 2 | 9,
+        indicador_ie: indicadorIe,
+        inscricao_estadual: invoice.client_state_reg || undefined,
         logradouro:   invoice.street, numero: invoice.street_number, complemento: invoice.complement,
         bairro:       invoice.neighborhood, municipio: invoice.city, uf: invoice.client_state,
         cep:          invoice.zip_code, telefone: invoice.phone, email: invoice.client_email,

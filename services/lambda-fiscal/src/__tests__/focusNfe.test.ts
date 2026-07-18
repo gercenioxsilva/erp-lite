@@ -92,3 +92,96 @@ describe('buildFocusPayload — IBS/CBS (Reforma Tributária, regra 44)', () => 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+describe('buildFocusPayload — consumidor_final (indFinal)', () => {
+  function makeMsgWithDestinatario(destinatario: NfeEmitMessage['destinatario']): NfeEmitMessage {
+    return { ...makeMsg(), destinatario };
+  }
+
+  it('[regressão SEFAZ — "Operação com não contribuinte deve indicar operação com consumidor final"] marca consumidor_final=1 pra CNPJ não contribuinte (indicador_ie=9, default de clients.icms_taxpayer)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ não contribuinte', indicador_ie: 9,
+    })) as any;
+    expect(payload.consumidor_final).toBe(1);
+  });
+
+  it('marca consumidor_final=1 pra pessoa física (CPF), como antes', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cpf: '12345678900', nome: 'Cliente PF',
+    })) as any;
+    expect(payload.consumidor_final).toBe(1);
+  });
+
+  it('marca consumidor_final=0 pra CNPJ contribuinte de ICMS (indicador_ie=1) — operação normal entre empresas', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ contribuinte', indicador_ie: 1,
+    })) as any;
+    expect(payload.consumidor_final).toBe(0);
+  });
+
+  it('marca consumidor_final=0 pra CNPJ isento de IE (indicador_ie=2)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ isento', indicador_ie: 2,
+    })) as any;
+    expect(payload.consumidor_final).toBe(0);
+  });
+});
+
+describe('buildFocusPayload — inscricao_estadual_destinatario', () => {
+  function makeMsgWithDestinatario(destinatario: NfeEmitMessage['destinatario']): NfeEmitMessage {
+    return { ...makeMsg(), destinatario };
+  }
+
+  it('[regressão SEFAZ — "IE do destinatário não informada"] envia a IE quando o destinatário é CNPJ contribuinte (indicador_ie=1)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ contribuinte', indicador_ie: 1,
+      inscricao_estadual: '206.563.490.111',
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBe('206563490111'); // só dígitos
+  });
+
+  it('nunca envia a IE quando indicador_ie não é 1 (isento ou não contribuinte), mesmo se o valor estiver presente', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente PJ isento', indicador_ie: 2,
+      inscricao_estadual: '206563490111',
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBeUndefined();
+  });
+
+  it('omite o campo quando o cliente é contribuinte mas não tem IE cadastrada (nunca envia string vazia)', () => {
+    const payload = buildFocusPayload(makeMsgWithDestinatario({
+      cnpj: '98765432000110', nome: 'Cliente sem IE', indicador_ie: 1,
+    })) as any;
+    expect(payload.inscricao_estadual_destinatario).toBeUndefined();
+  });
+});
+
+describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
+  it('[regressão SEFAZ — "Element vBC: This element is not expected. Expected is modBC"] sempre envia icms_modalidade_base_calculo junto com vBC/pICMS/vICMS', () => {
+    // Reproduz o cenário real de produção: item com CST='00' (regime normal,
+    // não-Simples) só mandava icms_base_calculo/icms_aliquota/icms_valor —
+    // sem modBC, o Focus gera <vBC> sem <modBC> antes, e a SEFAZ rejeita por
+    // ordem de elementos do XSD (ICMS00 exige orig, CST, modBC, vBC, pICMS, vICMS).
+    const payload = buildFocusPayload(makeMsg([makeItem({
+      icms_cst: '00', icms_base_calculo: 1000, icms_aliquota: 18, icms_valor: 180,
+    })])) as any;
+    const item = payload.items[0];
+
+    // 3 = "Valor da operação" — icms_base (taxEngine.ts) é sempre o subtotal
+    // do item, nunca uma base ajustada por margem (0) ou pauta (1/2).
+    expect(item.icms_modalidade_base_calculo).toBe(3);
+    expect(item.icms_base_calculo).toBe(1000);
+    expect(item.icms_aliquota).toBe(18);
+    expect(item.icms_valor).toBe(180);
+  });
+
+  it('não envia icms_modalidade_base_calculo para CSOSN (Simples Nacional) — modBC é exclusivo do regime normal', () => {
+    const payload = buildFocusPayload(makeMsg([makeItem({ icms_csosn: '102', icms_cst: undefined })])) as any;
+    expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
+  });
+
+  it('não envia icms_modalidade_base_calculo para outros CSTs não-tributados integralmente (ex.: 40 — isenta)', () => {
+    const payload = buildFocusPayload(makeMsg([makeItem({ icms_cst: '40' })])) as any;
+    expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
+  });
+});

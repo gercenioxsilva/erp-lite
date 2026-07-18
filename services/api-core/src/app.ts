@@ -48,6 +48,7 @@ import { marketplaceWebhookRoutes }       from './routes/marketplaceWebhook';
 import { whatsappRoutes }           from './routes/whatsapp';
 import { whatsappWebhookRoutes }    from './routes/whatsappWebhook';
 import { serviceContractsRoutes }   from './routes/serviceContracts';
+import { contractFieldsRoutes }     from './routes/contractFields';
 import { materialImagesRoutes }     from './routes/materialImages';
 import { dashboardRoutes }                                          from './routes/dashboard';
 import { proposalsRoutes }    from './routes/proposals';
@@ -169,6 +170,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(whatsappRoutes,           { prefix: '/v1' });
   await app.register(whatsappWebhookRoutes,    { prefix: '/v1' });
   await app.register(serviceContractsRoutes,   { prefix: '/v1' });
+  await app.register(contractFieldsRoutes,     { prefix: '/v1' });
   await app.register(materialImagesRoutes,     { prefix: '/v1' });
   await app.register(dashboardRoutes,          { prefix: '/v1' });
   await app.register(proposalsRoutes,          { prefix: '/v1' });

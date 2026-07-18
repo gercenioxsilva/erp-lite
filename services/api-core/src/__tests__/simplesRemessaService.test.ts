@@ -251,6 +251,50 @@ describe('emitSimplesRemessa', () => {
     expect(sentMessage.itens[0].cbs_aliquota).toBe(0.9);
   });
 
+  it('[regressão SEFAZ — "IE do destinatário não informada"] bloqueia emissão de destinatário Contribuinte ICMS sem Inscrição Estadual cadastrada', async () => {
+    const { db } = makeMockDb({
+      srRow: srRow({ person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', state_reg: null }),
+      itemsRows: [{ material_id: null, name: 'Item 1', ncm_code: '12345678', cfop: '5915', quantity: '1', unit_price: '100', total: '100' }],
+    });
+    await expect(emitSimplesRemessa(SR_ID, TENANT_ID, db)).rejects.toMatchObject({ code: 'remessa_destinatario_sem_ie' });
+  });
+
+  it('propaga a Inscrição Estadual do cliente pra mensagem SQS quando ele é Contribuinte ICMS', async () => {
+    const sendMock = vi.fn().mockResolvedValue({});
+    getSqsClientMock.mockReturnValue({ send: sendMock });
+
+    const { db } = makeMockDb({
+      srRow: srRow({ person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '1', state_reg: '206563490111' }),
+      itemsRows: [{ material_id: null, name: 'Item 1', ncm_code: '12345678', cfop: '5915', quantity: '1', unit_price: '100', total: '100' }],
+      companyRows: [baseCompanyRow({ regime_tributario: 1 })],
+      ibsCbsRow: { ibs_rate: '0.10', cbs_rate: '0.90' },
+    });
+
+    await emitSimplesRemessa(SR_ID, TENANT_ID, db);
+
+    const sentMessage = JSON.parse(sendMock.mock.calls[0][0].input.MessageBody);
+    expect(sentMessage.destinatario.inscricao_estadual).toBe('206563490111');
+    expect(sentMessage.destinatario.indicador_ie).toBe(1);
+  });
+
+  it('[regressão SEFAZ — Rejeição 232, cadastro dessincronizado] cliente PJ com IE cadastrada mas icms_taxpayer ainda "9" deriva indicador_ie=1 (presença de IE vence o flag)', async () => {
+    const sendMock = vi.fn().mockResolvedValue({});
+    getSqsClientMock.mockReturnValue({ send: sendMock });
+
+    const { db } = makeMockDb({
+      srRow: srRow({ person_type: 'PJ', company_name: 'Cliente PJ', icms_taxpayer: '9', state_reg: '206563490111' }),
+      itemsRows: [{ material_id: null, name: 'Item 1', ncm_code: '12345678', cfop: '5915', quantity: '1', unit_price: '100', total: '100' }],
+      companyRows: [baseCompanyRow({ regime_tributario: 1 })],
+      ibsCbsRow: { ibs_rate: '0.10', cbs_rate: '0.90' },
+    });
+
+    await emitSimplesRemessa(SR_ID, TENANT_ID, db);
+
+    const sentMessage = JSON.parse(sendMock.mock.calls[0][0].input.MessageBody);
+    expect(sentMessage.destinatario.indicador_ie).toBe(1);
+    expect(sentMessage.destinatario.inscricao_estadual).toBe('206563490111');
+  });
+
   it('bloqueia emissão em produção sem token configurado', async () => {
     const { db } = makeMockDb({
       srRow: srRow(),

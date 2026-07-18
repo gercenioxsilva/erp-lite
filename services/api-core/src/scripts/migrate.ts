@@ -107,6 +107,11 @@ const migrations = [
   '0068_projects.sql',
   '0069_proposal_commercial_message.sql',
   '0070_contract_rental_receipt.sql',
+  // Colisão também em 0071/0072 (develop: fiscal_integration/contracts_module
+  // vs fiscal: imports/reconciliation) — mesma regra: nome de arquivo é a
+  // identidade, número é só prefixo. NUNCA descartar linha em conflito.
+  '0071_fiscal_integration.sql',
+  '0072_contracts_module_dynamic_fields.sql',
   '0068_fiscal_core.sql',
   '0069_fiscal_company_config.sql',
   '0070_fiscal_tax_simples.sql',

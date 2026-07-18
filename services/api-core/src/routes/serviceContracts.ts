@@ -7,9 +7,21 @@ import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 import { resolveBankAccount, BankAccountDomainError } from '../services/bankAccountService';
 import { requirePermission } from '../lib/requirePermission';
+import { requireModule } from '../lib/requireModule';
+import { getFieldValuesForContract, setFieldValuesForContract, ContractFieldDomainError } from '../services/contractFieldService';
+import { formatFieldValueForDisplay, type FieldType } from '../domain/contractField/contractFieldDomain';
+import { sendSystemNotification } from '../lib/notificationsClient';
 
 const FREQUENCIES  = ['monthly', 'quarterly', 'semiannual', 'annual'] as const;
 const STATUSES      = ['active', 'paused', 'cancelled', 'expired'] as const;
+
+// Rótulo pt-BR pra e-mail transacional (regra 7 é do frontend — rotas nunca
+// têm acesso ao i18n do backoffice, então documentos/e-mails saídos daqui
+// são sempre pt-BR direto, mesmo padrão já usado em serviceContracts.ts
+// receipt e em todos os outros templates de lambda-notifications).
+const FREQUENCY_LABEL_PTBR: Record<string, string> = {
+  monthly: 'Mensal', quarterly: 'Trimestral', semiannual: 'Semestral', annual: 'Anual',
+};
 const CONTRACT_TYPES = ['service', 'rental'] as const;
 
 const contractBody = {
@@ -37,6 +49,20 @@ const contractBody = {
     nfse_enabled:      { type: 'boolean' },
     codigo_servico:    { type: 'string' },
     aliquota_iss:      { type: 'number', minimum: 0 },
+    // Campos personalizados do tenant (migration 0072) — schema dinâmico,
+    // validado contra contract_field_definitions em contractFieldService.ts.
+    custom_fields:     {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          field_definition_id: { type: 'string', format: 'uuid' },
+          value:                { type: ['string', 'null'] },
+        },
+        required: ['field_definition_id'],
+        additionalProperties: false,
+      },
+    },
   },
   additionalProperties: false,
 };
@@ -48,7 +74,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/service-contracts
   fastify.get('/service-contracts', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:view')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const {
@@ -92,7 +118,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /v1/service-contracts
   fastify.post('/service-contracts', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:create')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:create')],
     schema: {
       body: {
         ...contractBody,
@@ -136,13 +162,24 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       created_by:        (b.created_by       ?? null) as string | null,
     }).returning();
 
+    if (Array.isArray(b.custom_fields) && b.custom_fields.length) {
+      try {
+        await setFieldValuesForContract(contract.id, tenantId, b.custom_fields as any, db);
+      } catch (err) {
+        if (err instanceof ContractFieldDomainError) {
+          return reply.code(422).send({ error: err.code, ...err.payload });
+        }
+        throw err;
+      }
+    }
+
     return reply.code(201).send(contract);
   });
 
   // GET /v1/service-contracts/:id
   fastify.get<{ Params: { id: string } }>('/service-contracts/:id', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:view')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params;
@@ -168,13 +205,15 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       ORDER BY cb.period_start DESC
     `);
 
-    return { ...rows[0], billings: billings.rows };
+    const customFields = await getFieldValuesForContract(id, tenantId, db);
+
+    return { ...rows[0], billings: billings.rows, custom_fields: customFields };
   });
 
   // PATCH /v1/service-contracts/:id
   fastify.patch<{ Params: { id: string } }>('/service-contracts/:id', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:edit')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:edit')],
     schema: { body: patchBody },
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
@@ -192,7 +231,23 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k)));
     if ('aliquota_iss' in updateData && updateData.aliquota_iss != null)
       updateData.aliquota_iss = String(updateData.aliquota_iss);
-    if (!Object.keys(updateData).length) return reply.badRequest('No fields to update');
+
+    if (Array.isArray(b.custom_fields)) {
+      try {
+        await setFieldValuesForContract(id, tenantId, b.custom_fields as any, db);
+      } catch (err) {
+        if (err instanceof ContractFieldDomainError) {
+          return reply.code(422).send({ error: err.code, ...err.payload });
+        }
+        throw err;
+      }
+    }
+
+    if (!Object.keys(updateData).length) {
+      const [current] = await db.select().from(serviceContracts)
+        .where(and(eq(serviceContracts.id, id), eq(serviceContracts.tenant_id, tenantId)));
+      return current;
+    }
 
     const [updated] = await db.update(serviceContracts)
       .set(updateData as any)
@@ -205,7 +260,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /v1/service-contracts/:id/billings — gera cobrança manualmente para o período atual
   fastify.post<{ Params: { id: string } }>('/service-contracts/:id/billings', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:edit')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:edit')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: contractId } = request.params;
@@ -262,6 +317,13 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (!cfg.inscricao_municipal)
         return reply.badRequest('Inscrição Municipal é obrigatória para emitir NFS-e (Empresa → NFS-e)');
+      // Trava de segurança: produção exige o token do próprio tenant — sem
+      // isso, a mensagem sai sem focus_token, o Lambda cai no token mestre da
+      // plataforma (sem permissão pro CNPJ do tenant) e o Focus rejeita com
+      // "permissao_negada: CNPJ do emitente não autorizado". Mesma trava de
+      // routes/nfe.ts / routes/nfse.ts.
+      if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
+        return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');
 
       serviceCode = contract.codigo_servico || cfg.codigo_servico_padrao || null;
       if (!serviceCode)
@@ -373,7 +435,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/service-contracts/:id/billings
   fastify.get<{ Params: { id: string } }>('/service-contracts/:id/billings', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:view')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: contractId } = request.params;
@@ -400,7 +462,7 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
   // nfe_configs — este documento não tem seletor de multi-empresa.
   fastify.get<{ Params: { id: string; billingId: string } }>('/service-contracts/:id/billings/:billingId/receipt', {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('contracts:view')],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:view')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id: contractId, billingId } = request.params;
@@ -490,5 +552,145 @@ export const serviceContractsRoutes: FastifyPluginAsync = async (fastify) => {
       } : null,
       bank_account: bankAccount,
     };
+  });
+
+  // GET /v1/service-contracts/:id/print — dados pra impressão do contrato
+  // (aba autenticada, sem chrome) — emissor sempre de `tenants`, mesma fonte
+  // que proposta/recibo já usam (regra 37). Disponível pra qualquer tipo de
+  // contrato (não só rental — isso é exclusivo do recibo por cobrança acima).
+  fastify.get<{ Params: { id: string } }>('/service-contracts/:id/print', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:view')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id } = request.params;
+
+    const { rows: [contract] } = await db.execute<any>(sql`
+      SELECT sc.*, c.company_name AS client_company_name, c.full_name AS client_full_name,
+             c.person_type AS client_person_type, c.cnpj AS client_cnpj, c.cpf AS client_cpf,
+             c.state_reg AS client_state_reg, c.email AS client_email, c.phone AS client_phone, c.mobile AS client_mobile,
+             c.zip_code AS client_zip, c.street AS client_street, c.street_number AS client_number,
+             c.complement AS client_complement, c.neighborhood AS client_neighborhood,
+             c.city AS client_city, c.state AS client_state
+      FROM service_contracts sc
+      JOIN clients c ON c.id = sc.client_id
+      WHERE sc.id = ${id} AND sc.tenant_id = ${tenantId}
+    `);
+    if (!contract) return reply.notFound('Contract not found');
+
+    const [issuer] = await db.select({
+      name: tenants.company_name, trade_name: tenants.trade_name,
+      logo_url: tenants.logo_url, tax_id: tenants.tax_id, tax_id_type: tenants.tax_id_type,
+      state_reg: tenants.state_reg,
+      street: tenants.street, street_number: tenants.street_number, complement: tenants.complement,
+      neighborhood: tenants.neighborhood, city: tenants.city, state: tenants.state, zip_code: tenants.postal_code,
+    }).from(tenants).where(eq(tenants.id, tenantId));
+
+    const customFields = await getFieldValuesForContract(id, tenantId, db);
+
+    return {
+      contract: {
+        contract_number:   contract.contract_number,
+        type:              contract.type,
+        description:       contract.description,
+        contact_name:      contract.contact_name,
+        start_date:        contract.start_date,
+        end_date:          contract.end_date,
+        billing_frequency: contract.billing_frequency,
+        billing_day:       contract.billing_day,
+        amount:            Number(contract.amount),
+        status:            contract.status,
+        notes:             contract.notes,
+      },
+      client: {
+        name:          contract.client_company_name || contract.client_full_name,
+        document:      contract.client_person_type === 'PF' ? contract.client_cpf : contract.client_cnpj,
+        document_type: contract.client_person_type === 'PF' ? 'CPF' : 'CNPJ',
+        state_reg:     contract.client_state_reg,
+        email:         contract.client_email,
+        phone:         contract.client_phone || contract.client_mobile,
+        street:        contract.client_street,
+        street_number: contract.client_number,
+        complement:    contract.client_complement,
+        neighborhood:  contract.client_neighborhood,
+        city:          contract.client_city,
+        state:         contract.client_state,
+        zip_code:      contract.client_zip,
+      },
+      issuer: issuer ? {
+        name:        issuer.trade_name || issuer.name,
+        company:     issuer.name,
+        logo_url:    issuer.logo_url,
+        document:    issuer.tax_id,
+        document_type: issuer.tax_id_type,
+        state_reg:   issuer.state_reg,
+        street:      issuer.street,
+        street_number: issuer.street_number,
+        complement:  issuer.complement,
+        neighborhood: issuer.neighborhood,
+        city:        issuer.city,
+        state:       issuer.state,
+        zip_code:    issuer.zip_code,
+      } : null,
+      custom_fields: customFields.map(f => ({
+        label: f.label, field_type: f.field_type,
+        value: f.value, formatted_value: formatFieldValueForDisplay(f.field_type, f.value),
+      })),
+    };
+  });
+
+  // POST /v1/service-contracts/:id/send — envia o resumo do contrato por
+  // e-mail ao cliente (assíncrono, mesmo canal fire-and-forget de
+  // proposals.ts /send). Contratos não têm portal público (diferente de
+  // proposta, regra 33) — o e-mail é auto-contido, o resumo vai no próprio
+  // corpo, nunca um link.
+  fastify.post<{ Params: { id: string } }>('/service-contracts/:id/send', {
+    onRequest: [(fastify as any).authenticate],
+    preHandler: [requireModule('service_contracts'), requirePermission('contracts:edit')],
+  }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id } = request.params;
+
+    const { rows: [contract] } = await db.execute<any>(sql`
+      SELECT sc.*, COALESCE(c.company_name, c.full_name) AS client_name, c.email AS client_email,
+             COALESCE(t.trade_name, t.company_name) AS tenant_name, t.logo_url AS issuer_logo
+      FROM service_contracts sc
+      JOIN clients c ON c.id = sc.client_id
+      LEFT JOIN tenants t ON t.id = sc.tenant_id
+      WHERE sc.id = ${id} AND sc.tenant_id = ${tenantId}
+    `);
+    if (!contract) return reply.notFound('Contract not found');
+    if (!contract.client_email) return reply.badRequest('O cliente não possui e-mail cadastrado');
+
+    const customFields = await getFieldValuesForContract(id, tenantId, db);
+    const customFieldsHtml = customFields.map(f =>
+      `<tr><td>${f.label}</td><td>${formatFieldValueForDisplay(f.field_type as FieldType, f.value)}</td></tr>`,
+    ).join('');
+    const customFieldsText = customFields.map(f =>
+      `${f.label}: ${formatFieldValueForDisplay(f.field_type as FieldType, f.value)}`,
+    ).join('\n');
+
+    fastify.log.info({ event: 'contract_send_email', contract_id: id, recipient: contract.client_email });
+
+    sendSystemNotification({
+      tenant_id: tenantId,
+      type:      'contract_sent',
+      from_name: contract.tenant_name ?? undefined,
+      recipient: { email: contract.client_email, name: contract.client_name ?? '' },
+      data: {
+        client_name:       contract.client_name ?? 'Cliente',
+        issuer_name:       contract.tenant_name  ?? 'Orquestra ERP',
+        issuer_logo:       contract.issuer_logo  ?? '',
+        contract_number:   contract.contract_number,
+        description:       contract.description,
+        start_date:        contract.start_date ? new Date(contract.start_date).toLocaleDateString('pt-BR') : '',
+        billing_frequency: FREQUENCY_LABEL_PTBR[contract.billing_frequency] ?? contract.billing_frequency ?? '',
+        amount:             Number(contract.amount).toFixed(2),
+        custom_fields_html: customFieldsHtml,
+        custom_fields_text: customFieldsText,
+      },
+    }).catch(err => fastify.log.error({ event: 'contract_send_email_error', error: String(err) }));
+
+    return { ok: true };
   });
 };

@@ -149,6 +149,15 @@ describe('billServiceOrder', () => {
       .rejects.toMatchObject({ code: 'service_order_billing_missing_service_code' });
   });
 
+  it('[regressão — "permissao_negada: CNPJ do emitente não autorizado"] bloqueia emissão de NFS-e em produção sem token de produção configurado', async () => {
+    const { db } = makeMockDb({
+      soRow: baseSoRow(), receivableCount: 0,
+      companyRows: [baseCompanyRow({ focus_ambiente: 1, focus_token_producao: null })],
+    });
+    await expect(billServiceOrder({ tenantId: TENANT_ID, serviceOrderId: SO_ID, emitNfse: true }, db))
+      .rejects.toMatchObject({ code: 'service_order_billing_missing_production_token' });
+  });
+
   it('[regra 53] bloqueia quando a empresa vinculada não emite NFS-e (só NF-e de venda)', async () => {
     const { db } = makeMockDb({
       soRow: baseSoRow(), receivableCount: 0,

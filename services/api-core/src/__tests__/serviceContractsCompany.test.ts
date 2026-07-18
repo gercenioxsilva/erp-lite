@@ -20,8 +20,15 @@ let companyRows: unknown[] = [];
 
 vi.mock('../db', async () => {
   const actual = await vi.importActual<any>('../db');
+  // Módulo 'service_contracts' sempre habilitado nestes testes (regra do
+  // toggle, migration 0072) — tenantModules retorna enabled:true, qualquer
+  // outra tabela cai no comportamento padrão de cada describe/beforeEach.
   mockDb.select.mockImplementation(() => ({
-    from: () => ({ where: vi.fn().mockResolvedValue([{ id: 'client-1' }]) }),
+    from: (table: unknown) => ({
+      where: (table === (actual as any).tenantModules)
+        ? vi.fn().mockResolvedValue([{ enabled: true }])
+        : vi.fn().mockResolvedValue([{ id: 'client-1' }]),
+    }),
   }));
   return { ...actual, db: mockDb };
 });
@@ -37,7 +44,12 @@ describe('POST /v1/service-contracts — company_id (regra 40)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockDb.select.mockImplementation(() => ({
-      from: () => ({ where: vi.fn().mockResolvedValue([{ id: CLIENT_ID }]) }),
+      from: (table: unknown) => ({
+        where: async () => {
+          const actual = await import('../db');
+          return table === (actual as any).tenantModules ? [{ enabled: true }] : [{ id: CLIENT_ID }];
+        },
+      }),
     }));
     mockDb.execute.mockResolvedValue({ rows: [{ count: 0 }] });
     app = await buildApp();
@@ -99,7 +111,9 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
       from: (table: unknown) => ({
         where: async () => {
           const actual = await import('../db');
-          return table === (actual as any).nfeConfigs ? companyRows : [];
+          if (table === (actual as any).nfeConfigs) return companyRows;
+          if (table === (actual as any).tenantModules) return [{ enabled: true }];
+          return [];
         },
       }),
     }));
@@ -124,6 +138,23 @@ describe('POST /v1/service-contracts/:id/billings — resolução de empresa na 
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().message).toMatch(/Inscrição Municipal/);
+  });
+
+  it('[regressão — "permissao_negada: CNPJ do emitente não autorizado"] bloqueia em produção sem token de produção configurado, antes de enfileirar', async () => {
+    companyRows = [{
+      id: COMPANY_ID, is_active: true, emite_nfse: true, inscricao_municipal: '12345',
+      codigo_servico_padrao: '14.01', aliquota_iss_padrao: '5.00',
+      focus_ambiente: 1, focus_token_producao: null,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: '/v1/service-contracts/contract-1/billings',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toMatch(/token de Produção/);
+    expect(sqsMock.send).not.toHaveBeenCalled();
   });
 
   it('company_id do contrato não resolve para nenhuma empresa do tenant → mensagem de configuração fiscal', async () => {
