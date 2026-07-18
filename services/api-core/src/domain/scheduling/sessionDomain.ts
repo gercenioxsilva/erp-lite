@@ -10,7 +10,7 @@
 import { SchedulingDomainError } from './schedulingDomain';
 import { TimeRange, overlaps } from './timeDomain';
 
-export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined';
+export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined' | 'no_show';
 
 export const BLOCKING_STATUSES: readonly SessionStatus[] = ['pending', 'confirmed'];
 
@@ -49,10 +49,13 @@ export function findConflict<T extends SessionSlot & { status: SessionStatus }>(
 
 // ── Máquina de estados ────────────────────────────────────────────────────────
 // pending    → confirmed (aprovar) | declined (recusar) | canceled
-// confirmed  → completed (concluir, debita pacote) | canceled
+// confirmed  → completed (concluir, debita pacote) | canceled | no_show
 // completed  → TERMINAL E IMUTÁVEL (regra crítica nº 5: sem editar, cancelar,
 //              excluir ou re-concluir)
-// canceled / declined → terminais (histórico auditado; excluível)
+// canceled / declined / no_show → terminais (histórico auditado; excluível)
+// no_show (0083): falta do cliente — NÃO debita pacote (falta não consome
+// crédito; cobrar no-show é decisão comercial fora do sistema) e não bloqueia
+// a agenda (BLOCKING_STATUSES segue pending/confirmed).
 
 export function assertCanApprove(status: SessionStatus): void {
   if (status !== 'pending') {
@@ -72,6 +75,12 @@ export function assertCanDecline(status: SessionStatus, reason: string | null | 
 export function assertCanComplete(status: SessionStatus): void {
   if (status !== 'confirmed') {
     throw new SchedulingDomainError('session_not_completable', { status });
+  }
+}
+
+export function assertCanMarkNoShow(status: SessionStatus): void {
+  if (status !== 'confirmed') {
+    throw new SchedulingDomainError('session_not_no_showable', { status });
   }
 }
 

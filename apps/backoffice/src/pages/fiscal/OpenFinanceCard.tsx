@@ -65,7 +65,10 @@ export function OpenFinanceCard({ onSynced }: { onSynced?: () => void }) {
         api.get<{ data: CashPosition }>('/v1/fiscal/openfinance/cash-position').catch(() => null),
       ]);
       setConnections(conns.data ?? []);
-      setCash(pos?.data ?? null);
+      // Shape defensivo: mocks/respostas parciais sem realizado_30d não podem
+      // derrubar a página inteira (pego pelo teste da FiscalPage).
+      const cp = pos?.data;
+      setCash(cp && cp.realizado_30d ? cp : null);
     } catch { /* módulo desabilitado ou sem permissão — o card mostra vazio */ }
     finally { setLoading(false); }
   }

@@ -1983,6 +1983,9 @@ export const schedulingSessions = pgTable('scheduling_sessions', {
   created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // 0083: lembrete D-1 idempotente + carimbo de falta (no_show).
+  reminder_sent_at: timestamp('reminder_sent_at', { withTimezone: true }),
+  no_show_at:       timestamp('no_show_at', { withTimezone: true }),
 });
 
 // ── scheduling_calendar_connections (integração Google Calendar, migration 0066)

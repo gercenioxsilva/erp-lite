@@ -120,10 +120,14 @@ function GuardedRoutes() {
     <ProtectedRoute permission={permission}>{element}</ProtectedRoute>
   );
 
+  // Home por papel: o profissional não tem dashboard:view — mandá-lo pro
+  // /dashboard era um /403 garantido logo após o login (fix de auditoria).
+  const home = user.role === 'professional' ? '/scheduling' : '/dashboard';
+
   return (
     <Layout>
       <Routes>
-        <Route path="/"           element={<Navigate to="/dashboard" replace />} />
+        <Route path="/"           element={<Navigate to={home} replace />} />
         <Route path="/dashboard"  element={gate('dashboard:view', <DashboardPage />)} />
         <Route path="/clients"    element={gate('clients:view', <ClientsPage />)} />
         <Route path="/materials"  element={gate('materials:view', <MaterialsPage />)} />
@@ -202,7 +206,7 @@ function GuardedRoutes() {
         <Route path="/scheduling/clients/:id"        element={gate('scheduling:view', <SchedulingClientDetailPage />)} />
         <Route path="/scheduling/settings"           element={gate('scheduling:settings', <SchedulingSettingsPage />)} />
         <Route path="/403"             element={<AccessDeniedPage />} />
-        <Route path="*"                element={<Navigate to="/dashboard" replace />} />
+        <Route path="*"                element={<Navigate to={home} replace />} />
       </Routes>
     </Layout>
   );

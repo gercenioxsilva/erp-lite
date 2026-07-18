@@ -16,6 +16,7 @@
     "seed:materials": "ts-node --transpile-only src/scripts/seed-materials.ts",
     "seed:client": "ts-node --transpile-only src/scripts/seed-client.ts",
     "seed:proposals": "ts-node --transpile-only src/scripts/seed-proposals.ts",
+    "seed:scheduling": "ts-node --transpile-only src/scripts/seed-scheduling.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

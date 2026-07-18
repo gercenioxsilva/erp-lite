@@ -28,7 +28,7 @@ import { TimeRange, minutesToHm, hmToMinutes, isValidDateISO, weekdayOf } from '
 import {
   SessionStatus, findConflict, BLOCKING_STATUSES,
   assertCanApprove, assertCanDecline, assertCanComplete, assertCanCancel,
-  assertCanEdit, assertCanHardDelete, assertClientCanCancel,
+  assertCanEdit, assertCanHardDelete, assertClientCanCancel, assertCanMarkNoShow,
 } from '../domain/scheduling/sessionDomain';
 import { computeFreeSlots, EarliestBookable } from '../domain/scheduling/slotDomain';
 import { assertPackageUsableForBooking, applyDebit } from '../domain/scheduling/packageDomain';
@@ -38,6 +38,7 @@ import {
 import { getOrCreateSettings } from './schedulingSettingsService';
 import { getAreaOrThrow } from './schedulingAreaService';
 import { getProfessionalOrThrow } from './schedulingProfessionalService';
+import { notifySessionEvent } from './schedulingNotificationService';
 
 export type DrizzleDB = typeof _db;
 export { SchedulingDomainError };
@@ -392,7 +393,12 @@ export async function requestSessionAsClient(args: RequestSessionAsClientArgs, d
       created_by:      args.clientUserId,
     }).returning();
     return session;
-  }).catch(mapExclusionViolation);
+  }).catch(mapExclusionViolation).then((session) => {
+    // 0083: solicitação nova avisa o PROFISSIONAL — antes disso o pedido só
+    // aparecia no badge do painel por polling.
+    void notifySessionEvent('scheduling_session_requested', session, db);
+    return session;
+  });
 }
 
 /** Aprovação RE-CHECA o conflito atomicamente (critério de aceite): entre o
@@ -422,6 +428,9 @@ export async function approveSession(id: string, tenantId: string, db: DrizzleDB
       .set({ status: 'confirmed', updated_at: new Date() })
       .where(eq(schedulingSessions.id, id)).returning();
     return updated;
+  }).then((updated) => {
+    void notifySessionEvent('scheduling_session_approved', updated, db);
+    return updated;
   });
 }
 
@@ -432,6 +441,7 @@ export async function declineSession(id: string, tenantId: string, reason: strin
   const [updated] = await db.update(schedulingSessions)
     .set({ status: 'declined', decline_reason: reason.trim(), updated_at: new Date() })
     .where(eq(schedulingSessions.id, id)).returning();
+  void notifySessionEvent('scheduling_session_declined', updated, db);
   return updated;
 }
 
@@ -580,6 +590,19 @@ export async function cancelSession(
       updated_at:    new Date(),
     })
     .where(eq(schedulingSessions.id, id)).returning();
+  void notifySessionEvent('scheduling_session_canceled', updated, db);
+  return updated;
+}
+
+/** Falta do cliente (0083): confirmed → no_show. Terminal, NÃO debita pacote
+ *  e não bloqueia a agenda — espelho do cancelSession com carimbo próprio. */
+export async function markNoShow(id: string, tenantId: string, byUserId: string | null, db: DrizzleDB = _db) {
+  const session = await getSessionOrThrow(id, tenantId, db);
+  assertCanMarkNoShow(session.status as SessionStatus);
+
+  const [updated] = await db.update(schedulingSessions)
+    .set({ status: 'no_show', no_show_at: new Date(), canceled_by: byUserId, updated_at: new Date() })
+    .where(eq(schedulingSessions.id, id)).returning();
   return updated;
 }
 
@@ -613,6 +636,8 @@ export async function cancelOwnPendingSession(
       updated_at:  new Date(),
     })
     .where(eq(schedulingSessions.id, id)).returning();
+  // 0083: cancelamento pelo cliente avisa o PROFISSIONAL (o inverso do staff).
+  void notifySessionEvent('scheduling_session_client_canceled', updated, db);
   return updated;
 }
 

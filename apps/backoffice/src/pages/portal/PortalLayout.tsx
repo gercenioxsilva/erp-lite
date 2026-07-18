@@ -154,7 +154,9 @@ export function PortalLayout() {
 
       <nav className="portal-tabbar" aria-label="Navegação do portal">
         <div className="portal-tabbar__inner">
-          {TABS.map(tab => (
+          {/* "Agendar" só existe quando o tenant permite auto-agendamento —
+              antes era uma aba morta com um aviso dentro (fix de auditoria). */}
+          {TABS.filter(tab => tab.to !== '/portal/agendar' || me?.business.allow_self_booking).map(tab => (
             <NavLink
               key={tab.to}
               to={tab.to}

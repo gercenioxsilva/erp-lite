@@ -84,6 +84,7 @@ import { startMarketplaceSyncResultsWorker, stopMarketplaceSyncResultsWorker } f
 import { startWhatsAppResultsWorker, stopWhatsAppResultsWorker } from './workers/whatsappResultsWorker';
 import { startWhatsAppBillingWorker, stopWhatsAppBillingWorker } from './workers/whatsappBillingWorker';
 import { startFiscalAlertsWorker, stopFiscalAlertsWorker } from './workers/fiscalAlertsWorker';
+import { startSchedulingReminderWorker, stopSchedulingReminderWorker } from './workers/schedulingReminderWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -223,6 +224,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     startWhatsAppResultsWorker();
     startWhatsAppBillingWorker();
     startFiscalAlertsWorker();
+    startSchedulingReminderWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
@@ -234,6 +236,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     stopWhatsAppResultsWorker();
     stopWhatsAppBillingWorker();
     stopFiscalAlertsWorker();
+    stopSchedulingReminderWorker();
   });
 
   return app;

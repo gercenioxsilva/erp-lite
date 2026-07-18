@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { Can } from '../../rbac';
+import { Can, usePermissions } from '../../rbac';
 import { Badge, KPICard } from '../../ds';
 import { formatDateShortBR } from '../../lib/schedulingTime';
 import {
@@ -30,17 +30,22 @@ export function SchedulingDashboardPage() {
   const [loading,    setLoading]    = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  const { can } = usePermissions();
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const resp = await api.get<DashboardResp>('/v1/scheduling/dashboard');
-      if (resp.onboarding_complete === false) {
+      // Fix de auditoria: o redirect pro onboarding derrubava o PROFISSIONAL
+      // num /403 (a página exige scheduling:settings, que ele não tem) —
+      // agora só quem pode configurar é redirecionado.
+      if (resp.onboarding_complete === false && can('scheduling:settings')) {
         navigate('/scheduling/onboarding');
         return;
       }
       setData(resp);
     } catch { /**/ } finally { if (!silent) setLoading(false); }
-  }, [navigate]);
+  }, [navigate, can]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -160,7 +165,8 @@ function SessionListCard({ title, sessions, loading, emptyLabel, showDate }: {
                 {s.start_time}–{s.end_time}
               </div>
               <div style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.client_name}
+                {/* Central do cliente (pacotes, portal, histórico) — antes órfã */}
+                <Link to={`/scheduling/clients/${s.client_id}`} style={{ color: 'inherit' }}>{s.client_name}</Link>
               </div>
               <Badge variant={SESSION_STATUS_BADGE[s.status]}>
                 {SESSION_STATUS_LABEL[s.status]}

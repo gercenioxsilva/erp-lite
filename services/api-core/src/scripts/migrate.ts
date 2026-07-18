@@ -127,6 +127,7 @@ const migrations = [
   '0080_engine_api_keys.sql',
   '0081_openfinance_connections.sql',
   '0082_openfinance_treasury.sql',
+  '0083_scheduling_noshow_reminders.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

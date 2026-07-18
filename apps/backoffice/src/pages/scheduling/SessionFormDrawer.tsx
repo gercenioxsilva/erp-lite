@@ -8,7 +8,7 @@ import { todayISO } from '../../lib/schedulingTime';
 
 // ── Tipos compartilhados do módulo de sessões ─────────────────────────────────
 
-export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined';
+export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined' | 'no_show';
 
 export interface SessionRow {
   id:              string;
@@ -33,6 +33,7 @@ export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
   completed: 'Concluída',
   canceled:  'Cancelada',
   declined:  'Recusada',
+  no_show:   'Faltou',
 };
 
 export const SESSION_STATUS_BADGE: Record<SessionStatus, BadgeVariant> = {
@@ -41,6 +42,7 @@ export const SESSION_STATUS_BADGE: Record<SessionStatus, BadgeVariant> = {
   completed: 'issued',
   canceled:  'cancelled',
   declined:  'inactive',
+  no_show:   'cancelled',
 };
 
 /** Mensagem exigida pela UX para 422 session_conflict — cita cliente e horário. */

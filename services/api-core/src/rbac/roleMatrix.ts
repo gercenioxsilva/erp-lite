@@ -78,6 +78,9 @@ const MANAGER = Array.from(new Set([
 const USER = Array.from(new Set([
   'dashboard:view',
   'reports:view',
+  // Fix de auditoria: o operador ganhava create/edit de áreas/profissionais
+  // via OPERATOR_MODULES mas NÃO conseguia abrir a agenda (sem scheduling:view).
+  'scheduling:view',
   ...keysOfActions(OPERATOR_MODULES, ['view', 'create', 'edit']),
   'proposals:send',
   'pos:operate',
