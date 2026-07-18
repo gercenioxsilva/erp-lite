@@ -208,6 +208,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     // boot em caso de falha — owner segue com acesso pleno por código.
     syncRbacCatalog().catch((err) =>
       app.log.error({ event: 'rbac_sync_failed', error: String(err) }, 'rbac_sync_failed'));
+    // Sob vitest os workers NÃO sobem: os loops de fundo (alertas fiscais,
+    // cobranças recorrentes...) rodariam contra o `db` MOCKADO de cada arquivo
+    // de teste, sujando spies (ex.: expect(mockDb.insert).not.toHaveBeenCalled()
+    // via 12 inserts do worker) e gerando flakes dependentes de timing. Workers
+    // têm testes próprios que importam as funções diretamente.
+    if (process.env.VITEST) return;
     startNfeResultsWorker();
     startBoletoResultsWorker();
     startContractBillingWorker();
