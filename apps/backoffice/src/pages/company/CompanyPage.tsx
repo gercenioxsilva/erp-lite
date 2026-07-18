@@ -2139,6 +2139,7 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   fiscal:         { titleKey: 'comp.modules.fiscal',          descKey: 'comp.modules.fiscalDesc' },
   contabil:       { titleKey: 'comp.modules.contabil',        descKey: 'comp.modules.contabilDesc' },
   projects:       { titleKey: 'comp.modules.projects',        descKey: 'comp.modules.projectsDesc' },
+  engine:         { titleKey: 'comp.modules.engine',          descKey: 'comp.modules.engineDesc' },
   service_contracts: { titleKey: 'comp.modules.serviceContracts', descKey: 'comp.modules.serviceContractsDesc' },
 };
 

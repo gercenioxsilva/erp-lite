@@ -10,6 +10,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { db as _db } from '../db';
 import { apiKeys } from '../db/schema';
 import { allowRequest, remainingRequests } from './rateLimiter';
+import { isModuleEnabled } from '../services/tenantModuleService';
 
 export type DrizzleDB = typeof _db;
 
@@ -67,6 +68,13 @@ export function requireApiKey(scope: string, db: DrizzleDB = _db) {
     const scopes = Array.isArray(row.scopes) ? (row.scopes as string[]) : [];
     if (!scopes.includes(scope)) {
       return reply.code(403).send({ success: false, error: 'api_key_scope_denied', scope });
+    }
+
+    // Toggle por tenant (mesmo contrato dos módulos internos): desligar o
+    // módulo 'engine' em Minha Empresa corta TODAS as chaves do tenant na
+    // hora — sem isso o Engine seria o único recurso impossível de desabilitar.
+    if (!(await isModuleEnabled(row.tenant_id, 'engine', db))) {
+      return reply.code(403).send({ success: false, error: 'module_disabled' });
     }
 
     const limit = Number(row.rate_limit_per_min) || 60;

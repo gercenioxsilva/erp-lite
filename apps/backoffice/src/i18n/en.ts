@@ -1513,6 +1513,8 @@ const en: Record<TKey, string> = {
   'comp.modules.fiscalDesc':   'Sales import (OFX/CSV/Excel), automatic reconciliation, invoice consolidation and NFS-e issuance with Simples Nacional assessment.',
   'comp.modules.contabil':     'Automatic Accounting',
   'comp.modules.contabilDesc': 'Double-entry ledger fed by issuances and payments: journal, trial balance, cash book, accounting P&L and balance sheet.',
+  'comp.modules.engine':       'Fiscal Engine API',
+  'comp.modules.engineDesc':   'API keys for external systems to consume the Simples Nacional engine (assessment, RBT12, Fator R, projection). Disabling instantly cuts all tenant keys.',
   'comp.modules.enable':        'Enable',
   'comp.modules.disable':       'Disable',
   'comp.modules.enabled':       'Enabled',

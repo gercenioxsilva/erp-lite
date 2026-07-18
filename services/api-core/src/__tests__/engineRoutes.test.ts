@@ -6,13 +6,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
-import { apiKeys } from '../db/schema';
+import { tenantModules } from '../db/schema';
 import { hashApiKey } from '../lib/apiKeyAuth';
 import { resetRateLimiter } from '../lib/rateLimiter';
 
 const SECRET = 'ek_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
-const state: { keyRows: any[] } = { keyRows: [] };
+const state: { keyRows: any[]; moduleRows: any[] } = { keyRows: [], moduleRows: [{ enabled: true }] };
 
 function activeKeyRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -45,7 +45,11 @@ vi.mock('../db', async () => {
         if (/api_key_usage/.test(text))                 return { rows: [] };
         return { rows: [] };
       }),
-      select: vi.fn(() => ({ from: () => ({ where: () => Promise.resolve(state.keyRows) }) })),
+      select: vi.fn(() => ({
+        from: (table: unknown) => ({
+          where: () => Promise.resolve(table === tenantModules ? state.moduleRows : state.keyRows),
+        }),
+      })),
       update: vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) })),
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([]) }) })),
       transaction: vi.fn(),
@@ -58,6 +62,7 @@ describe('Fiscal Engine API (/v1/engine/*)', () => {
 
   beforeEach(async () => {
     state.keyRows = [activeKeyRow()];
+    state.moduleRows = [{ enabled: true }];
     resetRateLimiter();
     app = await buildApp();
   });
@@ -95,6 +100,13 @@ describe('Fiscal Engine API (/v1/engine/*)', () => {
       const res = await post('/v1/engine/simples/fator-r', { folha_12m: 1, receita_12m: 1 });
       expect(res.statusCode).toBe(403);
       expect(res.json().error).toBe('api_key_scope_denied');
+    });
+
+    it('403 module_disabled quando o tenant desliga o módulo engine (toggle corta as chaves na hora)', async () => {
+      state.moduleRows = [{ enabled: false }];
+      const res = await post('/v1/engine/simples/fator-r', { folha_12m: 2800, receita_12m: 10000 });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe('module_disabled');
     });
 
     it('429 acima do rate limit da chave (e Retry-After presente)', async () => {

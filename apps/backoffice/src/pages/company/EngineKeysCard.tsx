@@ -17,6 +17,7 @@ const fmtDate = (iso: string | null) =>
 export function EngineKeysCard() {
   const { can } = usePermissions();
   const [keys, setKeys] = useState<EngineKey[]>([]);
+  const [moduleEnabled, setModuleEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [newName, setNewName] = useState('');
@@ -27,10 +28,18 @@ export function EngineKeysCard() {
   // Sem a permissão o backend recusaria de qualquer forma (403) — esconder o
   // card é só UX; a autoridade é sempre o requirePermission da rota.
   if (!can('engine:manage')) return null;
+  // Módulo 'engine' desabilitado na aba Módulos → card some (padrão ML).
+  if (!loading && !moduleEnabled) return null;
 
   async function load() {
     setLoading(true); setError('');
     try {
+      // Toggle por tenant (aba Módulos): sem 'engine' habilitado o card some —
+      // mesmo padrão do Mercado Livre. O backend recusa de qualquer forma.
+      const mods = await api.get<{ enabled: string[] }>('/v1/tenant/modules');
+      const on = (mods.enabled ?? []).includes('engine');
+      setModuleEnabled(on);
+      if (!on) return;
       const resp = await api.get<{ data: EngineKey[] }>('/v1/engine-keys');
       setKeys(resp.data ?? []);
     } catch (err) { setError(actionErrorMessage(err, 'Falha ao carregar as chaves')); }

@@ -1510,6 +1510,8 @@ const ptBR = {
   'comp.modules.fiscalDesc':   'Importação de vendas (OFX/CSV/Excel), conciliação automática, consolidação em notas e emissão de NFS-e com apuração do Simples Nacional.',
   'comp.modules.contabil':     'Contabilidade Automática',
   'comp.modules.contabilDesc': 'Razão de dupla entrada alimentado pelas emissões e pagamentos: livro diário, balancete, livro caixa, DRE contábil e balanço.',
+  'comp.modules.engine':       'API do Motor Fiscal',
+  'comp.modules.engineDesc':   'Chaves de API para sistemas externos consumirem o cálculo do Simples Nacional (apuração, RBT12, Fator R, projeção). Desligar corta todas as chaves do tenant na hora.',
   'comp.modules.enable':        'Habilitar',
   'comp.modules.disable':       'Desabilitar',
   'comp.modules.enabled':       'Habilitado',

@@ -2,6 +2,7 @@
 // owner/admin). O segredo aparece só na resposta do POST; GET nunca o devolve.
 
 import { FastifyPluginAsync } from 'fastify';
+import { requireModule } from '../lib/requireModule';
 import { requirePermission } from '../lib/requirePermission';
 import {
   createKey, listKeys, revokeKey, usageSummary, EngineKeyError,
@@ -10,7 +11,7 @@ import {
 export const engineKeysRoutes: FastifyPluginAsync = async (fastify) => {
   const guard = {
     onRequest: [(fastify as any).authenticate],
-    preHandler: [requirePermission('engine:manage')],
+    preHandler: [requireModule('engine'), requirePermission('engine:manage')],
   };
 
   fastify.post('/engine-keys', guard, async (request, reply) => {

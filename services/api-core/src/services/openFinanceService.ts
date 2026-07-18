@@ -221,8 +221,14 @@ export async function syncConnection(
 /** Passo 0 do ciclo 23:59: sincroniza toda conexão ativa, erro isolado. */
 export async function syncAllActive(db: DrizzleDB = _db): Promise<{ synced: number; failed: number }> {
   if (!pluggy.isOpenFinanceEnabled()) return { synced: 0, failed: 0 };
-  const conns = await db.select({ id: bankConnections.id, tenant_id: bankConnections.tenant_id })
-    .from(bankConnections).where(eq(bankConnections.status, 'active'));
+  // Toggle por tenant: desligar o módulo fiscal para o sync noturno também —
+  // conexão criada antes do toggle não pode continuar sincronizando sozinha.
+  const { rows: conns } = await db.execute<{ id: string; tenant_id: string }>(sql`
+    SELECT c.id, c.tenant_id FROM bank_connections c
+    JOIN tenant_modules m ON m.tenant_id = c.tenant_id
+      AND m.module_key = 'fiscal' AND m.enabled = true
+    WHERE c.status = 'active'
+  `);
   let synced = 0, failed = 0;
   for (const c of conns) {
     try {
