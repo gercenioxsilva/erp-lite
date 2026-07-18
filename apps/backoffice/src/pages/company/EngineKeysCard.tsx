@@ -1,0 +1,142 @@
+import { useEffect, useState } from 'react';
+import { api, actionErrorMessage } from '../../lib/api';
+import { usePermissions } from '../../rbac';
+
+// Chaves da API do Motor Fiscal (/v1/engine/*) — autoatendimento do tenant.
+// O SEGREDO só existe na resposta da criação: o modal força o usuário a
+// copiá-lo na hora (o backend guarda apenas hash + prefixo, irrecuperável).
+
+interface EngineKey {
+  id: string; name: string; key_prefix: string; status: 'active' | 'revoked';
+  rate_limit_per_min: number; last_used_at: string | null; created_at: string;
+}
+
+const fmtDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+export function EngineKeysCard() {
+  const { can } = usePermissions();
+  const [keys, setKeys] = useState<EngineKey[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Sem a permissão o backend recusaria de qualquer forma (403) — esconder o
+  // card é só UX; a autoridade é sempre o requirePermission da rota.
+  if (!can('engine:manage')) return null;
+
+  async function load() {
+    setLoading(true); setError('');
+    try {
+      const resp = await api.get<{ data: EngineKey[] }>('/v1/engine-keys');
+      setKeys(resp.data ?? []);
+    } catch (err) { setError(actionErrorMessage(err, 'Falha ao carregar as chaves')); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function handleCreate() {
+    if (!newName.trim()) { setError('Dê um nome à chave (ex.: "Sistema da clínica")'); return; }
+    setCreating(true); setError('');
+    try {
+      const resp = await api.post<{ data: { secret: string } }>('/v1/engine-keys', { name: newName.trim() });
+      setCreatedSecret(resp.data.secret);
+      setCopied(false);
+      setNewName('');
+      await load();
+    } catch (err) { setError(actionErrorMessage(err, 'Falha ao criar a chave')); }
+    finally { setCreating(false); }
+  }
+
+  async function handleRevoke(id: string, name: string) {
+    if (!window.confirm(`Revogar a chave "${name}"? Sistemas usando essa chave perdem o acesso imediatamente. Essa ação não pode ser desfeita.`)) return;
+    setError('');
+    try {
+      await api.delete(`/v1/engine-keys/${id}`);
+      await load();
+    } catch (err) { setError(actionErrorMessage(err, 'Falha ao revogar a chave')); }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0 }}>API do Motor Fiscal</h3>
+          <p style={{ color: 'var(--muted)', fontSize: 13, margin: '4px 0 0' }}>
+            Chaves para sistemas externos consumirem o cálculo do Simples Nacional
+            (<code>/v1/engine/*</code>). Nenhum dado é armazenado — só o cálculo.
+          </p>
+        </div>
+      </div>
+
+      {error && <div role="alert" className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+
+      {/* Segredo recém-criado — única chance de copiar */}
+      {createdSecret && (
+        <div className="alert" style={{ marginTop: 12, background: 'var(--surface-2)', border: '1px solid var(--primary)', borderRadius: 8, padding: 12 }}>
+          <strong>Copie a chave agora — ela não será mostrada de novo:</strong>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+            <code style={{ fontSize: 13, wordBreak: 'break-all', userSelect: 'all' }}>{createdSecret}</code>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+              onClick={() => { void navigator.clipboard.writeText(createdSecret); setCopied(true); }}>
+              {copied ? 'Copiada ✓' : 'Copiar'}
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+              onClick={() => setCreatedSecret(null)}>
+              Já guardei
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <input value={newName} onChange={e => setNewName(e.target.value)}
+          placeholder='Nome da chave (ex.: "ERP do cliente X")'
+          style={{ flex: '1 1 240px' }} maxLength={120}
+          onKeyDown={e => { if (e.key === 'Enter') void handleCreate(); }} />
+        <button type="button" className="btn btn-primary" style={{ width: 'auto' }}
+          disabled={creating} onClick={() => void handleCreate()}>
+          {creating ? 'Criando…' : '+ Nova chave'}
+        </button>
+      </div>
+
+      {loading ? (
+        <p style={{ color: 'var(--muted)', marginTop: 16 }}>Carregando…</p>
+      ) : keys.length === 0 ? (
+        <p style={{ color: 'var(--muted)', marginTop: 16 }}>Nenhuma chave criada ainda.</p>
+      ) : (
+        <table style={{ width: '100%', marginTop: 16, fontSize: 14 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+              <th>Nome</th><th>Prefixo</th><th>Limite/min</th><th>Último uso</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map(k => (
+              <tr key={k.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <td style={{ padding: '8px 0' }}>{k.name}</td>
+                <td><code>{k.key_prefix}…</code></td>
+                <td>{k.rate_limit_per_min}</td>
+                <td>{fmtDate(k.last_used_at)}</td>
+                <td>{k.status === 'active'
+                  ? <span style={{ color: 'var(--success, green)' }}>ativa</span>
+                  : <span style={{ color: 'var(--muted)' }}>revogada</span>}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {k.status === 'active' && (
+                    <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                      onClick={() => void handleRevoke(k.id, k.name)}>
+                      Revogar
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}

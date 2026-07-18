@@ -2573,3 +2573,29 @@ export const acquirerAccounts = pgTable('acquirer_accounts', {
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Fiscal Engine API (0080) ─────────────────────────────────────────────────
+// Chaves de API para consumidores EXTERNOS do motor fiscal (/v1/engine/*).
+// O segredo nunca é armazenado: key_hash (SHA-256) + key_prefix p/ lookup.
+export const apiKeys = pgTable('api_keys', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:               varchar('name', { length: 120 }).notNull(),
+  key_prefix:         varchar('key_prefix', { length: 20 }).notNull(),
+  key_hash:           char('key_hash', { length: 64 }).notNull(),
+  scopes:             jsonb('scopes').notNull().default(['engine']),
+  rate_limit_per_min: smallint('rate_limit_per_min').notNull().default(60),
+  status:             varchar('status', { length: 10 }).notNull().default('active'),
+  last_used_at:       timestamp('last_used_at', { withTimezone: true }),
+  revoked_at:         timestamp('revoked_at', { withTimezone: true }),
+  created_by:         uuid('created_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Medição por chave/dia/endpoint — base do billing futuro (v1 só mede).
+export const apiKeyUsage = pgTable('api_key_usage', {
+  api_key_id: uuid('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  dia:        date('dia').notNull(),
+  endpoint:   varchar('endpoint', { length: 80 }).notNull(),
+  count:      integer('count').notNull().default(0),
+});

@@ -83,6 +83,13 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
       substitute:         'Substituir NFS-e emitida',
     },
   },
+  // Fiscal Engine API (0080) — chaves de API para consumidores externos do
+  // motor de cálculo (/v1/engine/*). Fora do Gestor: chave de API é
+  // credencial de LONGA duração (mesma trava de bank_accounts:manage).
+  engine: {
+    label: 'API do Motor Fiscal',
+    actions: { manage: 'Criar, listar e revogar chaves de API do motor fiscal' },
+  },
   // Contabilidade automática (módulo opcional 'contabil') — dupla entrada.
   contabil: {
     label: 'Contabilidade',

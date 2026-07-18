@@ -119,6 +119,7 @@ const migrations = [
   '0077_fiscal_period_locks.sql',
   '0078_accounting_core.sql',
   '0079_pgdasd_transmissions.sql',
+  '0080_engine_api_keys.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
