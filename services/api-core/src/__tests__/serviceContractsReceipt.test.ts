@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../app';
-import { receivables, contractBillings } from '../db';
+import { receivables, contractBillings, tenantModules } from '../db';
 
 // Nota de Locação / Recibo / Fatura (regra 69) — numeração sequencial gerada
 // em toda cobrança (POST /:id/billings) e a rota de leitura pro documento
@@ -37,6 +37,10 @@ describe('POST /v1/service-contracts/:id/billings — document_number', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockDb.transaction.mockImplementation(async (cb: any) => cb(mockDb));
+    // Módulo 'service_contracts' sempre habilitado nestes testes (migration 0072).
+    mockDb.select.mockImplementation(() => ({
+      from: (t: unknown) => ({ where: () => Promise.resolve(t === tenantModules ? [{ enabled: true }] : []) }),
+    }));
     app = await buildApp();
   });
 
@@ -117,8 +121,11 @@ describe('GET /v1/service-contracts/:id/billings/:billingId/receipt', () => {
     });
     // Sem empresa padrão cadastrada (nfeConfigs vazio) → resolveBankAccount
     // lança BankAccountDomainError → seção de pagamento vem null, nunca
-    // bloqueia a emissão do documento.
-    mockDb.select.mockImplementation(() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+    // bloqueia a emissão do documento. Módulo 'service_contracts' sempre
+    // habilitado nestes testes (migration 0072).
+    mockDb.select.mockImplementation(() => ({
+      from: (t: unknown) => ({ where: () => Promise.resolve(t === tenantModules ? [{ enabled: true }] : []) }),
+    }));
   }
 
   it('400 quando o contrato não é do tipo locação', async () => {
@@ -133,7 +140,9 @@ describe('GET /v1/service-contracts/:id/billings/:billingId/receipt', () => {
 
   it('404 quando o contrato não existe', async () => {
     mockDb.execute.mockResolvedValue({ rows: [] });
-    mockDb.select.mockImplementation(() => ({ from: () => ({ where: () => Promise.resolve([]) }) }));
+    mockDb.select.mockImplementation(() => ({
+      from: (t: unknown) => ({ where: () => Promise.resolve(t === tenantModules ? [{ enabled: true }] : []) }),
+    }));
     const res = await app.inject({
       method: 'GET', url: `/v1/service-contracts/${CONTRACT_ID}/billings/${BILLING_ID}/receipt`,
       headers: { authorization: `Bearer ${authToken(app)}` },

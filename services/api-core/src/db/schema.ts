@@ -903,6 +903,38 @@ export const contractBillings = pgTable('contract_billings', {
   updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── contract_field_definitions / contract_field_values ─────────────────────────
+// Campos personalizados de contrato (migration 0072) — schema definido por
+// tenant (chave/valor tipado), aplicado a todo contrato criado depois,
+// renderizado dinamicamente na tela de configuração e no documento impresso/
+// enviado por e-mail. field_key é derivado do label na criação e nunca muda
+// depois (rótulo é editável, chave é estável — nunca corrompe valores já salvos).
+export const contractFieldDefinitions = pgTable('contract_field_definitions', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  field_key:   varchar('field_key', { length: 60 }).notNull(),
+  label:       varchar('label', { length: 120 }).notNull(),
+  field_type:  varchar('field_type', { length: 20 }).notNull(),
+  required:    boolean('required').notNull().default(false),
+  sort_order:  smallint('sort_order').notNull().default(0),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contractFieldValues = pgTable('contract_field_values', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  contract_id:         uuid('contract_id').notNull().references(() => serviceContracts.id, { onDelete: 'cascade' }),
+  field_definition_id: uuid('field_definition_id').notNull().references(() => contractFieldDefinitions.id, { onDelete: 'cascade' }),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  // Sempre texto — tipagem/formatação aplicada na leitura conforme field_type
+  // (contractFieldDomain.ts), nunca colunas separadas por tipo (o valor é
+  // só exibido/impresso, não usado em agregação/relatório).
+  value:               text('value'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── notification_configs ──────────────────────────────────────────────────────
 export const notificationConfigs = pgTable('notification_configs', {
   tenant_id:              uuid('tenant_id').primaryKey().references(() => tenants.id, { onDelete: 'cascade' }),
