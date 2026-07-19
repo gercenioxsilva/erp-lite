@@ -15,6 +15,15 @@ import { technicianWelcomeTemplate }    from './technician_welcome';
 import { serviceVisitAssignedTemplate } from './service_visit_assigned';
 import { tenantEmailVerificationTemplate } from './tenant_email_verification';
 import { contractSentTemplate } from './contract_sent';
+import { fiscalAlertTemplate } from './fiscal_alert';
+import {
+  schedulingSessionRequestedTemplate,
+  schedulingSessionApprovedTemplate,
+  schedulingSessionDeclinedTemplate,
+  schedulingSessionCanceledTemplate,
+  schedulingSessionReminderTemplate,
+  schedulingSessionClientCanceledTemplate,
+} from './scheduling_session';
 
 const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplate> = {
   nfe_authorized:   nfeAuthorizedTemplate,
@@ -33,6 +42,13 @@ const templateMap: Record<NotificationType, (data: TemplateData) => EmailTemplat
   service_visit_assigned:  serviceVisitAssignedTemplate,
   tenant_email_verification: tenantEmailVerificationTemplate,
   contract_sent: contractSentTemplate,
+  fiscal_alert: fiscalAlertTemplate,
+  scheduling_session_requested:       schedulingSessionRequestedTemplate,
+  scheduling_session_approved:        schedulingSessionApprovedTemplate,
+  scheduling_session_declined:        schedulingSessionDeclinedTemplate,
+  scheduling_session_canceled:        schedulingSessionCanceledTemplate,
+  scheduling_session_reminder:        schedulingSessionReminderTemplate,
+  scheduling_session_client_canceled: schedulingSessionClientCanceledTemplate,
 };
 
 export function getTemplate(type: NotificationType, data: TemplateData): EmailTemplate {

@@ -107,10 +107,10 @@ async function persistCandidate(
         SELECT email, name FROM users WHERE tenant_id = ${tenantId} AND role = 'owner' LIMIT 1`);
       if (rows[0]?.email) {
         await sendSystemNotification({
-          tenant_id: tenantId, type: 'fiscal_alert' as any,
+          tenant_id: tenantId, type: 'fiscal_alert',
           recipient: { email: rows[0].email, name: rows[0].name ?? '' },
           data: { title: c.title, severity: c.severity, rule: c.ruleKey },
-        } as any).catch(() => { /* template pode não existir ainda — in-app cobre */ });
+        }).catch(() => { /* falha de envio nunca bloqueia o alerta — in-app cobre */ });
         await db.update(fiscalAlerts).set({ email_sent: true }).where(eq(fiscalAlerts.id, row.id));
       }
     }

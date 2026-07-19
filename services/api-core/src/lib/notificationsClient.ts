@@ -12,6 +12,8 @@ export type NotificationType = GatedNotificationType | 'user_welcome' | 'passwor
   | 'proposal_sent' | 'proposal_accepted' | 'proposal_rejected'
   | 'technician_welcome' | 'service_visit_assigned' | 'tenant_email_verification'
   | 'contract_sent'
+  // Alerta fiscal crítico (1x por alerta, owner do tenant).
+  | 'fiscal_alert'
   // Agendamento (0083) — ciclo de vida da sessão + lembrete D-1.
   | 'scheduling_session_requested' | 'scheduling_session_approved'
   | 'scheduling_session_declined' | 'scheduling_session_canceled'

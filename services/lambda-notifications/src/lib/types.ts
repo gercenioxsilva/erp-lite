@@ -11,7 +11,14 @@ export type NotificationType =
   | 'technician_welcome'
   | 'service_visit_assigned'
   | 'tenant_email_verification'
-  | 'contract_sent';
+  | 'contract_sent'
+  | 'fiscal_alert'
+  | 'scheduling_session_requested'
+  | 'scheduling_session_approved'
+  | 'scheduling_session_declined'
+  | 'scheduling_session_canceled'
+  | 'scheduling_session_reminder'
+  | 'scheduling_session_client_canceled';
 
 export type NotificationChannel = 'email';
 
