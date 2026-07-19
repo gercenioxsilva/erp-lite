@@ -35,7 +35,7 @@ vi.mock('../../../contexts/ModalContext', () => ({
   useModal: () => ({ confirm: vi.fn().mockResolvedValue(false), error: vi.fn(), success: vi.fn() }),
 }));
 
-const DASH_INCOMPLETE = { onboarding_complete: false, today: [], upcoming: [], pending_requests: 0 };
+const DASH_INCOMPLETE = { onboarding_complete: false, date: '2026-07-19', today: [], upcoming: [], pending_requests: 0 };
 
 describe('SchedulingDashboardPage — guard do onboarding', () => {
   beforeEach(() => { vi.clearAllMocks(); mockPerms.set = new Set(['scheduling:view']); });
