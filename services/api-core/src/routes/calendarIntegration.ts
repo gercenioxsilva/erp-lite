@@ -9,11 +9,24 @@ import {
   getAuthorizationUrl, handleOAuthCallback, getConnectionStatus, disconnectConnection,
   GoogleCalendarDomainError,
 } from '../services/googleCalendarService';
+import { resolveAgendaScope } from '../services/schedulingProfessionalService';
+import { SchedulingDomainError } from '../domain/scheduling/schedulingDomain';
 
 export const calendarIntegrationRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('scheduling')] };
 
   const mask = (t: string | null | undefined) => (t ? '****' + t.slice(-4) : null);
+
+  // Fix de auditoria: estas rotas aceitavam QUALQUER professional_id do query
+  // — um profissional podia conectar/desconectar o Google Calendar de um
+  // colega. Mesmo escopo de agenda das rotas de sessão (null = manage_all).
+  async function assertProfessionalInScope(request: any, professionalId: string) {
+    const { tenantId, userId, role } = request.user;
+    const scope = await resolveAgendaScope(tenantId, userId, role);
+    if (scope !== null && scope !== professionalId) {
+      throw new SchedulingDomainError('not_own_agenda');
+    }
+  }
 
   /* ── GET /v1/integrations/google/connect ────────────────────────────── */
   fastify.get('/integrations/google/connect', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('scheduling:manage') ] }, async (request, reply) => {
@@ -22,9 +35,11 @@ export const calendarIntegrationRoutes: FastifyPluginAsync = async (fastify) => 
     if (!professional_id) return reply.badRequest('professional_id é obrigatório');
 
     try {
+      await assertProfessionalInScope(request, professional_id);
       const authorization_url = await getAuthorizationUrl(tenantId, professional_id);
       return { authorization_url };
     } catch (err) {
+      if (err instanceof SchedulingDomainError) return reply.code(403).send({ error: err.code });
       if (err instanceof GoogleCalendarDomainError) {
         if (err.code === 'professional_not_found') return reply.notFound('Profissional não encontrado');
         if (err.code === 'google_not_configured')  return reply.code(422).send({ error: err.code, message: 'Integração com o Google Calendar não está configurada neste ambiente.' });
@@ -41,6 +56,7 @@ export const calendarIntegrationRoutes: FastifyPluginAsync = async (fastify) => 
     if (!professional_id) return reply.badRequest('professional_id é obrigatório');
 
     try {
+      await assertProfessionalInScope(request, professional_id);
       const connection = await getConnectionStatus(tenantId, professional_id);
       if (!connection) return { connected: false };
       return {
@@ -51,6 +67,7 @@ export const calendarIntegrationRoutes: FastifyPluginAsync = async (fastify) => 
         access_token: mask(connection.access_token),
       };
     } catch (err) {
+      if (err instanceof SchedulingDomainError) return reply.code(403).send({ error: err.code });
       if (err instanceof GoogleCalendarDomainError && err.code === 'professional_not_found') return reply.notFound('Profissional não encontrado');
       throw err;
     }
@@ -63,9 +80,11 @@ export const calendarIntegrationRoutes: FastifyPluginAsync = async (fastify) => 
     if (!professional_id) return reply.badRequest('professional_id é obrigatório');
 
     try {
+      await assertProfessionalInScope(request, professional_id);
       await disconnectConnection(tenantId, professional_id);
       return reply.code(204).send();
     } catch (err) {
+      if (err instanceof SchedulingDomainError) return reply.code(403).send({ error: err.code });
       if (err instanceof GoogleCalendarDomainError) {
         if (err.code === 'professional_not_found' || err.code === 'connection_not_found') return reply.notFound('Conexão não encontrada');
         return reply.code(422).send({ error: err.code, ...err.payload });

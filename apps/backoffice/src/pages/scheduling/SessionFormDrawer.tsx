@@ -8,7 +8,7 @@ import { todayISO } from '../../lib/schedulingTime';
 
 // ── Tipos compartilhados do módulo de sessões ─────────────────────────────────
 
-export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined';
+export type SessionStatus = 'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined' | 'no_show';
 
 export interface SessionRow {
   id:              string;
@@ -33,6 +33,7 @@ export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
   completed: 'Concluída',
   canceled:  'Cancelada',
   declined:  'Recusada',
+  no_show:   'Faltou',
 };
 
 export const SESSION_STATUS_BADGE: Record<SessionStatus, BadgeVariant> = {
@@ -41,6 +42,7 @@ export const SESSION_STATUS_BADGE: Record<SessionStatus, BadgeVariant> = {
   completed: 'issued',
   canceled:  'cancelled',
   declined:  'inactive',
+  no_show:   'cancelled',
 };
 
 /** Mensagem exigida pela UX para 422 session_conflict — cita cliente e horário. */
@@ -133,6 +135,7 @@ export function SessionFormDrawer({ open, onClose, onSaved, initial, session }: 
   const [professionals, setProfessionals] = useState<ProfessionalOpt[]>([]);
   const [clients,       setClients]       = useState<ClientOpt[]>([]);
   const [clientSearch,  setClientSearch]  = useState('');
+  const [clientListOpen, setClientListOpen] = useState(false);
   const [slots,         setSlots]         = useState<Slot[]>([]);
   const [slotsLoading,  setSlotsLoading]  = useState(false);
   const [packages,      setPackages]      = useState<ClientPackageOpt[]>([]);
@@ -298,7 +301,7 @@ export function SessionFormDrawer({ open, onClose, onSaved, initial, session }: 
 
   // ── Derivados de render ──────────────────────────────────────────────────
 
-  const selectedClientKnown = clients.some(c => c.id === form.client_id);
+  const selectedClient = clients.find(c => c.id === form.client_id) ?? null;
   const packageOptions = usablePackages.slice();
   // Na edição, o pacote atual pode não ser mais "usável" (saldo já debitado) —
   // ainda assim precisa aparecer para não sumir da seleção.
@@ -328,23 +331,65 @@ export function SessionFormDrawer({ open, onClose, onSaved, initial, session }: 
               </span>
             </div>
           ) : (
-            <div className="field">
-              <label>Cliente *</label>
+            <div className="field" style={{ position: 'relative' }}>
+              <label htmlFor="sched-client-search">Cliente *</label>
+              {/* Combobox único (fix de UX): antes havia um campo de busca que
+                  só filtrava um combo abaixo — parecia um typeahead quebrado.
+                  Agora é digite→lista→clique, num controle só. */}
               <input
-                placeholder="Buscar cliente…"
-                value={clientSearch}
-                onChange={e => setClientSearch(e.target.value)}
-                style={{ marginBottom: 6 }}
+                id="sched-client-search"
+                role="combobox"
+                aria-expanded={clientListOpen}
+                aria-autocomplete="list"
+                placeholder="Digite para buscar o cliente…"
+                autoComplete="off"
+                value={clientListOpen || !selectedClient ? clientSearch : clientLabel(selectedClient)}
+                onFocus={() => { setClientListOpen(true); }}
+                onChange={e => { setClientSearch(e.target.value); setClientListOpen(true); }}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') setClientListOpen(false);
+                  if (e.key === 'Enter' && clientListOpen && clients.length > 0) {
+                    e.preventDefault();
+                    setForm(f => ({ ...f, client_id: clients[0].id, package_id: '' }));
+                    setClientListOpen(false);
+                  }
+                }}
+                onBlur={() => { setTimeout(() => setClientListOpen(false), 150); }}
               />
-              <select value={form.client_id} onChange={setF('client_id')} required>
-                <option value="">Selecione o cliente…</option>
-                {form.client_id && !selectedClientKnown && (
-                  <option value={form.client_id}>Cliente selecionado</option>
-                )}
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{clientLabel(c)}</option>
-                ))}
-              </select>
+              {clientListOpen && (
+                <ul role="listbox" style={{
+                  position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
+                  margin: '4px 0 0', padding: 4, listStyle: 'none', maxHeight: 220, overflowY: 'auto',
+                  background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)',
+                  borderRadius: 8, boxShadow: '0 8px 24px rgba(15,23,42,.12)',
+                }}>
+                  {clients.length === 0 && (
+                    <li style={{ padding: '8px 10px', fontSize: 13, color: 'var(--muted, #64748b)' }}>
+                      Nenhum cliente encontrado{clientSearch ? ` para "${clientSearch}"` : ''}.
+                    </li>
+                  )}
+                  {clients.map(c => (
+                    <li key={c.id} role="option" aria-selected={c.id === form.client_id}>
+                      <button type="button" style={{
+                        display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+                        border: 'none', background: c.id === form.client_id ? 'var(--surface-2, #f1f5f9)' : 'transparent',
+                        borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                      }}
+                        onMouseDown={e => e.preventDefault() /* não roubar o blur antes do click */}
+                        onClick={() => {
+                          setForm(f => ({ ...f, client_id: c.id, package_id: '' }));
+                          setClientSearch('');
+                          setClientListOpen(false);
+                        }}>
+                        {clientLabel(c)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {form.client_id && !selectedClient && (
+                <span style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>Cliente selecionado (fora do filtro atual)</span>
+              )}
             </div>
           )}
 

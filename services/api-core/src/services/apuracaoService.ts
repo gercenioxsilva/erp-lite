@@ -1,0 +1,245 @@
+// Apuração PGDAS-D (0075) — camada de serviço.
+// apurarCompetencia: cadastro (MEI bloqueado, optante) → RBT12 (ledger com
+// proporcionalização / bootstrap manual) → Fator R (define III vs V quando
+// aplicável) → receita segregada por anexo → apurarSimples (memória completa)
+// → upsert idempotente por (empresa, competência). LIMITE LEGAL explícito:
+// nada aqui transmite ao portal — export/roteiro para lançamento manual.
+
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
+import { db as _db } from '../db';
+import {
+  simplesApuracao, simplesApuracaoEvents, dasPayments,
+  fiscalCompanyPayrollMonth,
+} from '../db/schema';
+import { getOrCreateConfig } from './fiscalCompanyConfigService';
+import { resolveRbt12, revenueForCompetenciaByAnexo } from './fiscalRevenueService';
+import { record as recordFiscalEvent } from './fiscalAuditService';
+import { toNumber, toDecimalString, round2 } from '../lib/money';
+import {
+  assertApuravelPorPercentual, resolveAnexoByFatorR, windowCompetencias, SimplesDomainError,
+} from '../domain/simples/simplesDomain';
+import { validateCompetencia } from '../domain/fiscal/fiscalCompanyConfigDomain';
+import { buildGuia } from '../domain/fiscal/guiaDomain';
+import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
+import { postEntry } from './accountingService';
+import { linesForDasPayment } from '../domain/accounting/accountingDomain';
+import { apurarSimples, BracketRow, ReparticaoRow } from '../domain/simples/apuracaoDomain';
+
+export type DrizzleDB = typeof _db;
+export type Apuracao = typeof simplesApuracao.$inferSelect;
+
+const ANEXO_LABEL = ['I', 'II', 'III', 'IV', 'V'] as const;
+
+export async function loadBrackets(anexo: string, ano: number, db: DrizzleDB): Promise<BracketRow[]> {
+  const { rows } = await db.execute<any>(
+    sql`SELECT faixa, rbt12_min, rbt12_max, aliquota_nominal, parcela_deduzir
+        FROM tax_simples_nacional_brackets
+        WHERE anexo = ${anexo} AND vigencia_ano = (
+          SELECT MAX(vigencia_ano) FROM tax_simples_nacional_brackets
+          WHERE anexo = ${anexo} AND vigencia_ano <= ${ano})
+        ORDER BY faixa`
+  );
+  return rows.map((r: any) => ({
+    faixa: Number(r.faixa), rbt12_min: Number(r.rbt12_min), rbt12_max: Number(r.rbt12_max),
+    aliquota_nominal: Number(r.aliquota_nominal), parcela_deduzir: Number(r.parcela_deduzir),
+  }));
+}
+
+export async function loadReparticao(anexo: string, ano: number, db: DrizzleDB): Promise<ReparticaoRow[]> {
+  const { rows } = await db.execute<any>(
+    sql`SELECT * FROM tax_simples_repartition
+        WHERE anexo = ${anexo} AND vigencia_ano = (
+          SELECT MAX(vigencia_ano) FROM tax_simples_repartition
+          WHERE anexo = ${anexo} AND vigencia_ano <= ${ano})
+        ORDER BY faixa`
+  );
+  if (rows.length === 0) throw new SimplesDomainError('reparticao_not_found', { anexo });
+  return rows.map((r: any) => ({
+    faixa: Number(r.faixa),
+    irpj: Number(r.irpj), csll: Number(r.csll), cofins: Number(r.cofins), pis: Number(r.pis),
+    cpp: Number(r.cpp), icms: Number(r.icms), ipi: Number(r.ipi), iss: Number(r.iss),
+  }));
+}
+
+/** Folha 12m (folha+pró-labore) da janela anterior à competência.
+ *  Devolve também porCompetencia (folhasSalario do payload PGDAS-D) — o Map já
+ *  era montado e descartado; o caller da apuração ignora o campo extra. */
+export async function folha12m(tenantId: string, companyId: string, competencia: string, db: DrizzleDB) {
+  const janela = windowCompetencias(competencia);
+  const rows = await db.select().from(fiscalCompanyPayrollMonth)
+    .where(and(eq(fiscalCompanyPayrollMonth.tenant_id, tenantId), eq(fiscalCompanyPayrollMonth.company_id, companyId)));
+  const map = new Map(rows.map((r) => [r.competencia, r]));
+  let total = 0, meses = 0;
+  const porCompetencia: Array<{ competencia: string; valor: number }> = [];
+  for (const c of janela) {
+    const row = map.get(c);
+    if (row) {
+      const valor = round2(toNumber(row.folha_amount) + toNumber(row.pro_labore_amount));
+      total += valor; meses++;
+      porCompetencia.push({ competencia: c, valor });
+    }
+  }
+  return { total: round2(total), meses, porCompetencia };
+}
+
+export async function apurarCompetencia(
+  tenantId: string, companyId: string, competencia: string, actorUserId: string | null, db: DrizzleDB = _db,
+): Promise<Apuracao> {
+  validateCompetencia(competencia);
+  const config = await getOrCreateConfig(tenantId, companyId, db);
+  await assertCompetenciaAberta(tenantId, config.company_id, competencia, db);
+  assertApuravelPorPercentual(config.enquadramento);
+  if (!config.optante_simples) throw new SimplesDomainError('empresa_nao_optante');
+
+  const { rbt12, source } = await resolveRbt12(tenantId, config.company_id, competencia, config, db);
+  const ano = Number(competencia.slice(0, 4));
+
+  // Fator R (quando aplicável) decide III vs V para a receita de serviço.
+  let fatorR: number | null = null;
+  let anexoServico = config.anexo_padrao ? ANEXO_LABEL[config.anexo_padrao - 1] : 'III';
+  if (config.fator_r_aplicavel) {
+    const folha = await folha12m(tenantId, config.company_id, competencia, db);
+    const resolved = resolveAnexoByFatorR({ folha12m: folha.total, receita12m: rbt12, mesesComFolha: folha.meses });
+    fatorR = resolved.fatorR;
+    anexoServico = resolved.anexo;
+  }
+
+  // Receita segregada por anexo; linhas sem anexo assumem o anexo resolvido.
+  const porAnexoRaw = await revenueForCompetenciaByAnexo(tenantId, config.company_id, competencia, db);
+  if (porAnexoRaw.length === 0) throw new SimplesDomainError('sem_receita_na_competencia', { competencia });
+  const grouped = new Map<string, { receita: number; comRetencao: number }>();
+  for (const r of porAnexoRaw) {
+    const label = r.anexo ? ANEXO_LABEL[r.anexo - 1] : anexoServico;
+    const acc = grouped.get(label) ?? { receita: 0, comRetencao: 0 };
+    acc.receita = round2(acc.receita + r.receita);
+    acc.comRetencao = round2(acc.comRetencao + r.comRetencao);
+    grouped.set(label, acc);
+  }
+
+  const anexos = [];
+  for (const [anexo, { receita, comRetencao }] of grouped) {
+    anexos.push({
+      anexo, receita, receitaComRetencao: comRetencao,
+      brackets: await loadBrackets(anexo, ano, db),
+      reparticao: await loadReparticao(anexo, ano, db),
+    });
+  }
+
+  const result = apurarSimples({ competencia, rbt12, anexos });
+  const receitaCompetencia = round2(anexos.reduce((s, a) => s + a.receita, 0));
+
+  const values = {
+    rbt12: toDecimalString(rbt12), rbt12_source: source,
+    receita_competencia: toDecimalString(receitaCompetencia),
+    fator_r: fatorR !== null ? String(fatorR.toFixed(4)) : null,
+    sublimite_excedido: result.sublimiteExcedido,
+    das_total: toDecimalString(result.dasTotal),
+    valor_irpj: toDecimalString(result.tributos.irpj), valor_csll: toDecimalString(result.tributos.csll),
+    valor_cofins: toDecimalString(result.tributos.cofins), valor_pis: toDecimalString(result.tributos.pis),
+    valor_cpp: toDecimalString(result.tributos.cpp), valor_icms: toDecimalString(result.tributos.icms),
+    valor_ipi: toDecimalString(result.tributos.ipi), valor_iss: toDecimalString(result.tributos.iss),
+    iss_retido: toDecimalString(result.issRetidoTotal),
+    memoria: result.memoria, status: 'calculated' as const, updated_at: new Date(),
+  };
+
+  // Upsert idempotente por (empresa, competência); reapurar = recalculated.
+  const [existing] = await db.select().from(simplesApuracao)
+    .where(and(eq(simplesApuracao.tenant_id, tenantId), eq(simplesApuracao.company_id, config.company_id),
+      eq(simplesApuracao.competencia, competencia)));
+  const [row] = existing
+    ? await db.update(simplesApuracao).set(values).where(eq(simplesApuracao.id, existing.id)).returning()
+    : await db.insert(simplesApuracao).values({
+        tenant_id: tenantId, company_id: config.company_id, competencia, ...values, created_by: actorUserId,
+      }).returning();
+
+  await db.insert(simplesApuracaoEvents).values({
+    tenant_id: tenantId, apuracao_id: row.id,
+    event_type: existing ? 'recalculated' : 'calculated',
+    payload: { das_total: result.dasTotal, rbt12, fator_r: fatorR }, created_by: actorUserId,
+  });
+  await recordFiscalEvent({
+    tenantId, companyId: config.company_id, aggregateType: 'apuracao', aggregateId: row.id,
+    eventType: existing ? 'apuracao_recalculated' : 'apuracao_calculated', actorUserId,
+    responsePayload: { competencia, das_total: result.dasTotal, sublimite: result.sublimiteExcedido },
+  }, db);
+
+  return row;
+}
+
+/** Export/roteiro assistido: os valores EXATOS a lançar no portal, campo a campo. */
+export async function exportApuracao(tenantId: string, apuracaoId: string, actorUserId: string | null, db: DrizzleDB = _db) {
+  const [row] = await db.select().from(simplesApuracao)
+    .where(and(eq(simplesApuracao.id, apuracaoId), eq(simplesApuracao.tenant_id, tenantId)));
+  if (!row) throw new SimplesDomainError('apuracao_not_found', { apuracaoId });
+
+  await db.update(simplesApuracao).set({ status: 'exported', updated_at: new Date() })
+    .where(eq(simplesApuracao.id, row.id));
+  await db.insert(simplesApuracaoEvents).values({
+    tenant_id: tenantId, apuracao_id: row.id, event_type: 'exported', created_by: actorUserId,
+  });
+
+  return buildGuia(row);
+}
+
+/** Guia de impostos read-only (E8): mesmo conteúdo do export, SEM marcar
+ *  status='exported'. Junta o nome da empresa para o cabeçalho da tela. */
+export async function getGuia(tenantId: string, apuracaoId: string, db: DrizzleDB = _db) {
+  const [row] = await db.select().from(simplesApuracao)
+    .where(and(eq(simplesApuracao.id, apuracaoId), eq(simplesApuracao.tenant_id, tenantId)));
+  if (!row) throw new SimplesDomainError('apuracao_not_found', { apuracaoId });
+  const { rows: [company] } = await db.execute<{ razao_social: string | null; cnpj: string | null }>(sql`
+    SELECT razao_social, cnpj FROM nfe_configs WHERE id = ${row.company_id}`);
+  return { empresa: company?.razao_social ?? null, cnpj: company?.cnpj ?? null, ...buildGuia(row) };
+}
+
+export async function listApuracoes(tenantId: string, companyId: string | null, db: DrizzleDB = _db) {
+  const conditions = [eq(simplesApuracao.tenant_id, tenantId)];
+  if (companyId) conditions.push(eq(simplesApuracao.company_id, companyId));
+  return db.select().from(simplesApuracao).where(and(...conditions))
+    .orderBy(desc(simplesApuracao.competencia)).limit(60);
+}
+
+export async function registerDasPayment(
+  tenantId: string, args: { companyId: string; competencia: string; paidAt: string; amount: number; reference?: string | null },
+  actorUserId: string | null, db: DrizzleDB = _db,
+) {
+  validateCompetencia(args.competencia);
+  const [row] = await db.insert(dasPayments).values({
+    tenant_id: tenantId, company_id: args.companyId, competencia: args.competencia,
+    paid_at: args.paidAt, amount: toDecimalString(args.amount),
+    reference: args.reference ?? null, created_by: actorUserId,
+  }).returning();
+  await recordFiscalEvent({
+    tenantId, companyId: args.companyId, aggregateType: 'das_payment', aggregateId: row.id,
+    eventType: 'das_paid', actorUserId, requestPayload: { competencia: args.competencia, amount: args.amount },
+  }, db);
+  // Posting contábil: DAS lança na competência da APURAÇÃO (não a do pagamento).
+  void postEntry({
+    tenantId, companyId: args.companyId, sourceType: 'das_payment', sourceId: row.id,
+    entryDate: args.paidAt, competencia: args.competencia,
+    description: `DAS Simples Nacional ${args.competencia}`,
+    lines: linesForDasPayment({ amount: args.amount }), postedBy: actorUserId,
+  }, db).catch((err) => console.error(JSON.stringify({ event: 'accounting_post_error', source: 'das_payment', id: row.id, error: String(err) })));
+  return row;
+}
+
+/** Estimado vs pago (dashboard) — últimos 12 meses.
+ *  companyId=null mantém o rollup tenant-wide (compat); com companyId, filtra
+ *  AS DUAS metades — o estimado E a subquery correlacionada do pago. Filtrar só
+ *  o SELECT externo deixaria o pago tenant-wide e reintroduziria a supressão de
+ *  alerta (o pago inflado por empresas irmãs esconde o DAS não pago de uma). */
+export async function estimadoVsPago(tenantId: string, companyId: string | null = null, db: DrizzleDB = _db) {
+  const { rows } = await db.execute<any>(
+    sql`SELECT a.competencia,
+               SUM(a.das_total) AS estimado,
+               COALESCE((SELECT SUM(p.amount) FROM das_payments p
+                         WHERE p.tenant_id = a.tenant_id AND p.competencia = a.competencia
+                           AND (${companyId}::uuid IS NULL OR p.company_id = ${companyId}::uuid)), 0) AS pago
+        FROM simples_apuracao a
+        WHERE a.tenant_id = ${tenantId}
+          AND (${companyId}::uuid IS NULL OR a.company_id = ${companyId}::uuid)
+        GROUP BY a.tenant_id, a.competencia
+        ORDER BY a.competencia DESC LIMIT 12`
+  );
+  return rows.map((r: any) => ({ competencia: String(r.competencia).trim(), estimado: Number(r.estimado), pago: Number(r.pago) }));
+}

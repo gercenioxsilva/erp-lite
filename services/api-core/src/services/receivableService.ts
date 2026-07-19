@@ -1,23 +1,10 @@
 import { sql } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { receivables } from '../db/schema';
+import { isUniqueConstraintViolation } from '../lib/pgErrors';
 
 export type DrizzleDB = typeof _db;
 export type Receivable = typeof receivables.$inferSelect;
-
-// Mesmo helper de detecção de violação de UNIQUE já usado em
-// commissionService.ts — não duplicado por acidente, é o padrão estabelecido
-// pra idempotência neste projeto (Postgres, código 23505).
-function isUniqueConstraintViolation(err: unknown): boolean {
-  if (err instanceof Error) {
-    const pgErr = err as Error & { code?: string };
-    if (pgErr.code === '23505') return true;
-    if (err.message.includes('unique') || err.message.includes('duplicate') || err.message.includes('23505')) {
-      return true;
-    }
-  }
-  return false;
-}
 
 export interface CreateReceivableFromInvoiceArgs {
   tenantId:    string;
@@ -64,4 +51,113 @@ export async function createReceivableFromInvoice(
     }
     throw err;
   }
+}
+
+// ── Registro de pagamento (extraído de routes/receivables.ts POST /:id/payments)
+// Compartilhado pela rota e pelo motor de conciliação (0072) — a lógica de
+// flip pending→partial/paid + insert em receivable_payments nunca diverge
+// entre os dois caminhos. Comportamento preservado 1:1 (validações e valores).
+
+import { eq, and } from 'drizzle-orm';
+import { receivablePayments } from '../db/schema';
+import { notifyPaymentConfirmed } from './whatsappAutomationService';
+import { postEntry, resolveRegime } from './accountingService';
+import { linesForReceivablePayment } from '../domain/accounting/accountingDomain';
+
+export const VALID_PAYMENT_METHODS = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
+
+export class ReceivablePaymentError extends Error {
+  constructor(public code: string, public payload: Record<string, unknown> = {}) {
+    super(code);
+    this.name = 'ReceivablePaymentError';
+  }
+}
+
+export interface RegisterReceivablePaymentArgs {
+  tenantId:      string;
+  receivableId:  string;
+  paymentDate:   string;              // YYYY-MM-DD
+  amount:        number | string;
+  paymentMethod: string;
+  reference?:    string | null;       // NSU/id bancário — trilha da conciliação
+  notes?:        string | null;
+  createdBy:     string | null;       // null = sistema (conciliação automática)
+}
+
+export interface RegisterReceivablePaymentResult {
+  payment:       typeof receivablePayments.$inferSelect;
+  newStatus:     'partial' | 'paid';
+  newPaidAmount: number;
+}
+
+export async function registerReceivablePayment(
+  args: RegisterReceivablePaymentArgs, db: DrizzleDB = _db,
+): Promise<RegisterReceivablePaymentResult> {
+  const payAmt = Number(args.amount);
+  if (!args.paymentDate) throw new ReceivablePaymentError('payment_date_required');
+  if (!payAmt || payAmt <= 0) throw new ReceivablePaymentError('invalid_amount');
+  if (!VALID_PAYMENT_METHODS.includes(args.paymentMethod as any)) {
+    throw new ReceivablePaymentError('invalid_method', { valid: [...VALID_PAYMENT_METHODS] });
+  }
+
+  const [rec] = await db.select({
+    id: receivables.id, status: receivables.status,
+    amount: receivables.amount, paid_amount: receivables.paid_amount,
+    client_id: receivables.client_id, description: receivables.description,
+    invoice_id: receivables.invoice_id, service_order_id: receivables.service_order_id,
+  }).from(receivables)
+    .where(and(eq(receivables.id, args.receivableId), eq(receivables.tenant_id, args.tenantId)));
+
+  if (!rec) throw new ReceivablePaymentError('receivable_not_found');
+  if (rec.status === 'cancelled') throw new ReceivablePaymentError('receivable_cancelled');
+
+  const newPaidAmt = Math.round((Number(rec.paid_amount) + payAmt) * 100) / 100;
+  const newStatus: 'partial' | 'paid' = newPaidAmt >= Number(rec.amount) ? 'paid' : 'partial';
+
+  const payment = await db.transaction(async (tx) => {
+    const [pay] = await tx.insert(receivablePayments).values({
+      tenant_id: args.tenantId, receivable_id: args.receivableId,
+      payment_date: args.paymentDate, amount: String(payAmt.toFixed(2)),
+      payment_method: args.paymentMethod,
+      reference: args.reference || null, notes: args.notes || null,
+      created_by: args.createdBy,
+    }).returning();
+    await tx.update(receivables)
+      .set({ paid_amount: String(newPaidAmt.toFixed(2)), status: newStatus })
+      .where(eq(receivables.id, args.receivableId));
+    return pay;
+  });
+
+  // WhatsApp: só na quitação total (mesmo comportamento da rota original);
+  // fire-and-forget — nunca bloqueia nem falha o registro do pagamento.
+  if (newStatus === 'paid') {
+    void notifyPaymentConfirmed(args.tenantId, {
+      id: rec.id, client_id: rec.client_id, description: rec.description, amount: rec.amount,
+    });
+  }
+
+  // ── Posting contábil (fire-and-forget, idempotente por payment.id) ──────
+  // hasPriorAuthorization ≈ recebível vinculado a documento fiscal (a
+  // autorização posta no regime competência); sem doc → receita direta.
+  void (async () => {
+    try {
+      const { regime, companyId } = await resolveRegime(args.tenantId, null, db);
+      await postEntry({
+        tenantId: args.tenantId, companyId,
+        sourceType: 'receivable_payment', sourceId: payment.id,
+        entryDate: args.paymentDate, competencia: args.paymentDate.slice(0, 7),
+        description: `Recebimento — ${rec.description ?? 'conta a receber'}`,
+        lines: linesForReceivablePayment({
+          amount: payAmt,
+          viaBank: args.paymentMethod !== 'cash',
+          hasPriorAuthorization: !!rec.invoice_id,
+          serviceRevenue: !rec.invoice_id, // sem NF-e assume serviço
+        }, regime),
+      }, db);
+    } catch (err) {
+      console.error(JSON.stringify({ event: 'accounting_post_error', source: 'receivable_payment', id: payment.id, error: String(err) }));
+    }
+  })();
+
+  return { payment, newStatus, newPaidAmount: newPaidAmt };
 }

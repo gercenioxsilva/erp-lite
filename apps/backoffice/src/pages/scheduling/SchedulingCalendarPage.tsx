@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useModal } from '../../contexts/ModalContext';
 import { Can, usePermissions } from '../../rbac';
@@ -33,6 +34,9 @@ export function SchedulingCalendarPage() {
 
   const [professionals,  setProfessionals]  = useState<ProfessionalOpt[]>([]);
   const [professionalId, setProfessionalId] = useState('');
+  const [myProfessionalId, setMyProfessionalId] = useState<string | null>(null);
+  const [view,           setView]           = useState<'week' | 'day'>('week');
+  const [loadError,      setLoadError]      = useState('');
   const [areas,          setAreas]          = useState<AreaOpt[]>([]);
   const [anchor,         setAnchor]         = useState(todayISO());
   const [sessions,       setSessions]       = useState<SessionRow[]>([]);
@@ -51,16 +55,24 @@ export function SchedulingCalendarPage() {
   const [acting,        setActing]        = useState(false);
 
   const week = weekOf(anchor);
-  const from = week[0];
-  const to   = week[6];
+  const from = view === 'day' ? anchor : week[0];
+  const to   = view === 'day' ? anchor : week[6];
 
   // ── Carregamento base: profissionais + áreas ─────────────────────────────
   useEffect(() => {
-    api.get<{ data: ProfessionalOpt[] }>('/v1/scheduling/professionals')
-      .then(r => {
+    Promise.all([
+      api.get<{ data: ProfessionalOpt[] }>('/v1/scheduling/professionals'),
+      // /professionals/me devolve o objeto DIRETO; 404 = usuário sem vínculo.
+      api.get<{ id: string } | null>('/v1/scheduling/professionals/me').catch(() => null),
+    ])
+      .then(([r, me]) => {
         const active = r.data.filter(p => p.is_active);
-        setProfessionals(active);
-        setProfessionalId(prev => prev || (active[0]?.id ?? ''));
+        const mine = me?.id ?? null;
+        setMyProfessionalId(mine);
+        // Sem manage_all o backend só devolve a própria agenda — ancorar nela.
+        const anchored = !can('scheduling:manage_all') && mine ? active.filter(p => p.id === mine) : active;
+        setProfessionals(anchored);
+        setProfessionalId(prev => prev || mine || (anchored[0]?.id ?? ''));
       })
       .catch(() => setProfessionals([]));
     api.get<{ data: AreaOpt[] }>('/v1/scheduling/areas?include_inactive=true')
@@ -72,13 +84,19 @@ export function SchedulingCalendarPage() {
   const loadSessions = useCallback(async () => {
     if (!professionalId) { setSessions([]); setLoading(false); return; }
     setLoading(true);
+    setLoadError('');
     try {
       const p = new URLSearchParams({
         professional_id: professionalId, from, to, per_page: '100',
       });
       const resp = await api.get<{ data: SessionRow[] }>(`/v1/scheduling/sessions?${p}`);
       setSessions(resp.data);
-    } catch { /**/ } finally { setLoading(false); }
+    } catch (err) {
+      // Fix de auditoria: 403 not_own_agenda era engolido e virava grade
+      // vazia sem explicação — agora o erro aparece.
+      setSessions([]);
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a agenda.');
+    } finally { setLoading(false); }
   }, [professionalId, from, to]);
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
@@ -151,6 +169,17 @@ export function SchedulingCalendarPage() {
     void runAction(() => api.post(`/v1/scheduling/sessions/${s.id}/complete`, {}));
   }
 
+  async function markNoShow(s: SessionRow) {
+    const ok = await modal.confirm({
+      title:        'Registrar falta',
+      message:      `Registrar que ${s.client_name} FALTOU à sessão de ${formatDateBR(s.date)} às ${s.start_time}? Nenhuma sessão é debitada do pacote.`,
+      confirmLabel: 'Registrar falta',
+      danger:       true,
+    });
+    if (!ok) return;
+    void runAction(() => api.post(`/v1/scheduling/sessions/${s.id}/no-show`, {}));
+  }
+
   async function cancel(s: SessionRow) {
     const ok = await modal.confirm({
       title:        'Cancelar sessão',
@@ -193,22 +222,38 @@ export function SchedulingCalendarPage() {
       {/* ── Filtros: profissional + navegação de semana ──────────────── */}
       <div className="flex-gap" style={{ marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <select value={professionalId} onChange={e => setProfessionalId(e.target.value)}
-          style={{ width: 'auto', minWidth: 220 }} aria-label="Profissional">
+          style={{ width: 'auto', minWidth: 220 }} aria-label="Profissional"
+          disabled={!can('scheduling:manage_all') && myProfessionalId !== null}>
           {professionals.length === 0 && <option value="">Nenhum profissional ativo</option>}
-          {professionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {professionals.map(p => <option key={p.id} value={p.id}>{p.name}{p.id === myProfessionalId ? ' (você)' : ''}</option>)}
         </select>
 
         <div className="flex-gap" style={{ alignItems: 'center' }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(a => addDaysISO(a, -7))}
-            aria-label="Semana anterior">‹</button>
+          <div role="group" aria-label="Visão" style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {(['week', 'day'] as const).map(v => (
+              <button key={v} className="btn btn-sm" style={{
+                width: 'auto', border: 'none', borderRadius: 0,
+                background: view === v ? 'var(--primary)' : 'transparent',
+                color: view === v ? '#fff' : undefined,
+              }} onClick={() => setView(v)}>
+                {v === 'week' ? 'Semana' : 'Dia'}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(a => addDaysISO(a, view === 'day' ? -1 : -7))}
+            aria-label={view === 'day' ? 'Dia anterior' : 'Semana anterior'}>‹</button>
           <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(todayISO())}>Hoje</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(a => addDaysISO(a, 7))}
-            aria-label="Próxima semana">›</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setAnchor(a => addDaysISO(a, view === 'day' ? 1 : 7))}
+            aria-label={view === 'day' ? 'Próximo dia' : 'Próxima semana'}>›</button>
           <span style={{ fontSize: 13, fontWeight: 600, marginLeft: 4 }}>
-            {formatDateBR(from)} – {formatDateBR(to)}
+            {view === 'day' ? formatDateBR(anchor) : `${formatDateBR(from)} – ${formatDateBR(to)}`}
           </span>
         </div>
       </div>
+
+      {loadError && (
+        <div role="alert" style={{ marginBottom: 12, color: 'var(--danger, #b91c1c)', fontSize: 13 }}>{loadError}</div>
+      )}
 
       {/* ── Grade semanal ────────────────────────────────────────────── */}
       <div className="card" style={{ padding: 0, overflow: 'auto' }}>
@@ -221,6 +266,7 @@ export function SchedulingCalendarPage() {
         ) : (
           <CalendarWeekGrid
             anchorDate={anchor}
+            days={view === 'day' ? [anchor] : undefined}
             sessions={calendarSessions}
             onSessionClick={handleSessionClick}
             onSlotClick={canManage ? handleSlotClick : undefined}
@@ -245,7 +291,10 @@ export function SchedulingCalendarPage() {
                 {detail.requested_by === 'client' && <Badge variant="product">Portal</Badge>}
               </div>
 
-              <DetailRow label="Cliente"      value={detail.client_name} />
+              {/* Nome vira link p/ a central do cliente (pacotes, portal, histórico) */}
+              <DetailRow label="Cliente" value={
+                <Link to={`/scheduling/clients/${detail.client_id}`}>{detail.client_name}</Link>
+              } />
               <DetailRow label="Data"         value={formatDateBR(detail.date)} />
               <DetailRow label="Horário"      value={`${detail.start_time} – ${detail.end_time}`} />
               <DetailRow label="Área"         value={areaName.get(detail.area_id) ?? '—'} />
@@ -296,6 +345,10 @@ export function SchedulingCalendarPage() {
                     </button>
                   </Can>
                   <Can permission="scheduling:complete">
+                    <button className="btn btn-secondary btn-sm" disabled={acting}
+                      onClick={() => void markNoShow(detail)}>
+                      Faltou
+                    </button>
                     <button className="btn btn-primary" style={{ width: 'auto' }} disabled={acting}
                       onClick={() => void complete(detail)}>
                       Concluir
@@ -361,7 +414,7 @@ export function SchedulingCalendarPage() {
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
       <span style={{ flex: '0 0 150px', color: 'var(--muted)' }}>{label}</span>

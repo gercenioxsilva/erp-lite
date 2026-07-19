@@ -9,12 +9,13 @@ export interface CalendarSession {
   date:        string; // 'YYYY-MM-DD'
   start_time:  string; // 'HH:mm'
   end_time:    string;
-  status:      'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined';
+  status:      'pending' | 'confirmed' | 'completed' | 'canceled' | 'declined' | 'no_show';
   client_name: string;
   area_name?:  string;
 }
 
 type CalendarWeekGridProps = {
+  days?:      string[];  // default: semana do anchorDate
   /** Qualquer data da semana a exibir. */
   anchorDate: string;
   sessions:   CalendarSession[];
@@ -32,8 +33,9 @@ const SNAP_MINUTES = 30;
  * Canceladas/recusadas ficam de fora (horário liberado); pendentes
  * aparecem hachuradas — seguram horário mas ainda pedem decisão.
  */
-export function CalendarWeekGrid({ anchorDate, sessions, onSessionClick, onSlotClick }: CalendarWeekGridProps) {
-  const days = weekOf(anchorDate);
+export function CalendarWeekGrid({ anchorDate, days: daysProp, sessions, onSessionClick, onSlotClick }: CalendarWeekGridProps) {
+  // Visão diária (0083): o chamador pode restringir as colunas (ex.: [anchor]).
+  const days = daysProp ?? weekOf(anchorDate);
   const today = todayISO();
 
   const visible = useMemo(

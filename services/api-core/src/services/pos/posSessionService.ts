@@ -5,6 +5,8 @@ import {
   posSessions,
   posCashMovements,
 } from '../../db/schema';
+import { postEntry, resolveRegime } from '../accountingService';
+import { linesForPosCashMovement } from '../../domain/accounting/accountingDomain';
 
 type DrizzleDB = typeof _db;
 
@@ -111,6 +113,25 @@ export async function addCashMovement(params: {
       created_by: operatorId,
     })
     .returning({ id: posCashMovements.id });
+
+  // Posting contábil (fire-and-forget, idempotente por movement.id): só
+  // suprimento/sangria movimentam caixa/bancos — a venda entra pelo
+  // receivable_payment, nunca aqui (evita dupla contagem).
+  void (async () => {
+    try {
+      const { regime: _r, companyId } = await resolveRegime(tenantId, null, _db);
+      const hoje = new Date().toISOString().slice(0, 10);
+      await postEntry({
+        tenantId, companyId,
+        sourceType: 'pos_cash_movement', sourceId: movement.id,
+        entryDate: hoje, competencia: hoje.slice(0, 7),
+        description: `PDV — ${type}${reason ? ` (${reason})` : ''}`,
+        lines: linesForPosCashMovement({ kind: type, amount }),
+      }, _db);
+    } catch (err) {
+      console.error(JSON.stringify({ event: 'accounting_post_error', source: 'pos_cash_movement', id: movement.id, error: String(err) }));
+    }
+  })();
 
   return { id: movement.id };
 }

@@ -16,3 +16,4 @@ coverage/
 
 # Local Docker Compose port overrides (per-machine)
 docker-compose.override.yml
+.superpowers/

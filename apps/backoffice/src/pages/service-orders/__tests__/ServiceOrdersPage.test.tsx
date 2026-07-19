@@ -35,6 +35,42 @@ vi.mock('../../../contexts/ModalContext', () => ({
   useModal: () => ({ confirm: vi.fn().mockResolvedValue(false), error: vi.fn(), success: vi.fn() }),
 }));
 
+const EMPTY_LIST = { data: [], total: 0, page: 1, per_page: 20 };
+const CLIENTS = { data: [{ id: 'client-1', company_name: 'ACME Ltda', full_name: null }] };
+const MATERIALS = { data: [{ id: 'mat-1', sku: 'SKU1', name: 'Produto A', unit: 'UN', sale_price: 10 }] };
+
+function mockResponses(technicians: 'ok' | 'fail'): void {
+  mockGet.mockImplementation((path: string) => {
+    if (path.startsWith('/v1/service-orders')) return Promise.resolve(EMPTY_LIST);
+    if (path.startsWith('/v1/clients')) return Promise.resolve(CLIENTS);
+    if (path.startsWith('/v1/technicians')) {
+      return technicians === 'ok' ? Promise.resolve({ data: [] }) : Promise.reject(new Error('403 Forbidden'));
+    }
+    if (path.startsWith('/v1/materials')) return Promise.resolve(MATERIALS);
+    if (path.startsWith('/v1/companies')) return Promise.resolve({ data: [] });
+    return Promise.resolve(EMPTY_LIST);
+  });
+}
+
+beforeEach(() => { vi.clearAllMocks(); });
+
+describe('ServiceOrdersPage — modal Nova OS', () => {
+  it('carrega clientes e materiais mesmo quando a lista de técnicos falha (403)', async () => {
+    mockResponses('fail');
+    const user = userEvent.setup();
+    render(<ServiceOrdersPage />);
+
+    await user.click(await screen.findByText(`+ ${t('so.new')}`));
+
+    const clientSelect = await screen.findByLabelText(t('so.client'));
+    await waitFor(() => {
+      expect(clientSelect).toHaveTextContent('ACME Ltda');
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
 const SO_ID = 'so-1';
 
 const DRAFT_ORDER = {

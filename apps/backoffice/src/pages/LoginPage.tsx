@@ -23,7 +23,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/dashboard');
+      navigate('/'); // App decide a home pelo papel (client→portal, professional→agenda)
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 0) {
         setError(t('l.errNetwork'));

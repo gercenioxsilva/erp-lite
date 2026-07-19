@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
@@ -594,6 +595,11 @@ export function ClientsPage() {
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{c.email ?? '—'}</td>
                   <td>
                     <div className="flex-gap">
+                      {/* Central de agendamento do cliente (pacotes, portal,
+                          histórico) — página antes órfã (fix de auditoria) */}
+                      <Can permission="scheduling:view">
+                        <Link to={`/scheduling/clients/${c.id}`} className="btn btn-secondary btn-sm">Agenda</Link>
+                      </Can>
                       <Can permission="clients:edit">
                         <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>{t('c.edit')}</button>
                       </Can>

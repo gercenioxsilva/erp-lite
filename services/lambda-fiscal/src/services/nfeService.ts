@@ -125,6 +125,14 @@ export async function processNfseRecord(app: FastifyInstance, record: SQSRecord)
   const msg: NfseEmitMessage = JSON.parse(record.body);
   const { nfse_id, tenant_id, focus_ref, ambiente } = msg;
 
+  // Mensagem malformada (nfse_id/focus_ref ausentes) jamais fecha o ciclo: o
+  // resultado voltaria com nfse_id undefined e o nfeResultsWorker não casa
+  // nenhuma linha. Estourar manda o record para a DLQ (visível/retentável) em
+  // vez de postar em /v2/nfse?ref=undefined.
+  if (!nfse_id || !focus_ref) {
+    throw new Error(`processNfseRecord: mensagem sem nfse_id/focus_ref (nfse_id=${nfse_id}, focus_ref=${focus_ref})`);
+  }
+
   app.log.info({ event: 'nfse_start', nfse_id, tenant_id, focus_ref, ambiente });
 
   const token = msg.focus_token || app.config.focusToken;

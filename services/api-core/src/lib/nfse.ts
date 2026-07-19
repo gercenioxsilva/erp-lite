@@ -68,6 +68,14 @@ export interface NfseEmitMessage {
 }
 
 export function buildNfseEmitMessage(input: NfseEmitMessageInput): NfseEmitMessage {
+  // Falha alto e cedo: sem nfse_id/tenant_id o focus_ref vira "undefined", o
+  // lambda posta em /v2/nfse?ref=undefined e o resultado nunca casa uma linha —
+  // a nota fica presa em `processing` para sempre. Melhor estourar aqui do que
+  // enfileirar uma mensagem que o nfeResultsWorker jamais consegue fechar.
+  if (!input.nfse_id || !input.tenant_id) {
+    throw new Error('buildNfseEmitMessage: nfse_id e tenant_id são obrigatórios');
+  }
+
   const { cfg, client } = input;
 
   const focusToken = cfg.focus_ambiente === 1

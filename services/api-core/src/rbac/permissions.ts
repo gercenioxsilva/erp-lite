@@ -60,6 +60,45 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   payroll:                  { label: 'Folha de Pagamento',  actions: { view: 'Ver folha', manage: 'Calcular/gerenciar folha' } },
   // WhatsApp — Cobranças e Notificações (módulo opcional pago 'whatsapp').
   whatsapp: { label: 'WhatsApp', actions: { view: 'Ver conta, automações e mensagens', manage: 'Conectar conta e configurar automações' } },
+  // Gestão Fiscal — Simples Nacional (módulo opcional 'fiscal'). Um módulo
+  // único com todas as ações do pipeline importar→conciliar→consolidar→
+  // apurar→emitir; 'manage_certificate' fica fora do Gestor (certificado A1
+  // é a identidade digital da empresa — mesma trava de bank_accounts:manage).
+  fiscal: {
+    label: 'Gestão Fiscal',
+    actions: {
+      view:               'Ver dados fiscais (importações, conciliação, notas, apuração)',
+      import:             'Importar vendas (OFX/CSV/Excel)',
+      reconcile:          'Conciliar vendas e pagamentos',
+      consolidate:        'Configurar regras e consolidar vendas em notas',
+      config:             'Configurar cadastro fiscal da empresa (CNAE, Simples, provedor NFS-e)',
+      manage_certificate: 'Enviar/remover certificado digital A1',
+      apurar:             'Apurar Simples Nacional (PGDAS-D)',
+      transmit:           'Transmitir PGDAS-D e gerar DAS na Receita (ato irreversível, com custo)',
+      acknowledge:        'Reconhecer/resolver alertas fiscais',
+      close:              'Fechar competência (checklist + trava)',
+      reopen:             'Reabrir competência travada',
+      emit:               'Emitir NFS-e consolidada',
+      cancel:             'Cancelar NFS-e emitida',
+      substitute:         'Substituir NFS-e emitida',
+    },
+  },
+  // Fiscal Engine API (0080) — chaves de API para consumidores externos do
+  // motor de cálculo (/v1/engine/*). Fora do Gestor: chave de API é
+  // credencial de LONGA duração (mesma trava de bank_accounts:manage).
+  engine: {
+    label: 'API do Motor Fiscal',
+    actions: { manage: 'Criar, listar e revogar chaves de API do motor fiscal' },
+  },
+  // Contabilidade automática (módulo opcional 'contabil') — dupla entrada.
+  contabil: {
+    label: 'Contabilidade',
+    actions: {
+      view:   'Ver razão, balancete, livros e balanço',
+      post:   'Lançamentos manuais e estornos',
+      manage: 'Plano de contas e backfill',
+    },
+  },
 };
 
 export const PERMISSION_CATALOG: PermissionDef[] = Object.entries(CATALOG_SPEC).flatMap(

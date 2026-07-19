@@ -1040,6 +1040,9 @@ sequenceDiagram
 | Agendamento *(opcional)* | `/scheduling`, `/scheduling/calendar`, `/scheduling/professionals`, `/scheduling/areas`, `/scheduling/package-templates`, `/scheduling/settings` | scheduling_professionals, scheduling_areas, scheduling_availability_rules/exceptions, scheduling_sessions, scheduling_client_packages, scheduling_calendar_connections |
 | Assinatura SaaS *(opt-in via `STRIPE_SECRET_KEY`)* | `/subscription` | plans, billing_events |
 | WhatsApp — Cobranças e Notificações *(opcional, cobrado à parte)* | `/company` (aba Integrações), `/whatsapp` | whatsapp_accounts, whatsapp_message_templates, whatsapp_automations, whatsapp_messages, whatsapp_message_events, whatsapp_webhook_events |
+| Projetos *(opcional)* | `/projects` | projects, project_professionals |
+| **Gestão Fiscal** *(opcional)* — importação (OFX/CSV/XLSX), conciliação, consolidação, emissão NFS-e (ABRASF próprio + Focus), apuração PGDAS-D, simulador de DAS, transmissão via SERPRO Integra Contador, Score Fiscal, alertas, fechamento de competência, Assistente Fiscal IA | `/fiscal` (painel executivo por empresa) | fiscal_company_config, fiscal_events, fiscal_revenue_monthly, fiscal_document_drafts, simples_apuracao, pgdasd_transmissions, fiscal_alerts, fiscal_closing_runs — ver `docs/fiscal-module.md` |
+| **Contabilidade** *(opcional)* — livro diário, razão, balancete, livro caixa, DRE contábil, balanço, plano de contas (dupla entrada derivada dos fatos fiscais) | `/contabil` | chart_of_accounts, journal_entries, journal_lines — ver `docs/fiscal-module.md` |
 | Projetos *(opcional)* | `/projects` | projects, project_professionals (+ orders.project_id, service_orders.project_id) |
 
 ---

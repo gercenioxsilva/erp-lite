@@ -10,6 +10,7 @@ import { Switch } from '../../ds/components/Switch';
 import { Badge } from '../../ds/components/Badge';
 import { Can } from '../../rbac';
 import { SEGMENTS, getSegment } from '../../branding/segments';
+import { EngineKeysCard } from './EngineKeysCard';
 import { applyPalette, resetPalette } from '../../branding/BrandingProvider';
 
 interface Tenant {
@@ -1868,7 +1869,7 @@ export function CompanyPage() {
         </div>
       )}
 
-      {tab === 'integrations' && <IntegrationsTab />}
+      {tab === 'integrations' && <><IntegrationsTab /><EngineKeysCard /></>}
       {tab === 'modules' && <ModulesTab />}
     </div>
   );
@@ -2135,7 +2136,10 @@ const MODULE_LABELS: Record<string, { titleKey: TKey; descKey: TKey }> = {
   hr:             { titleKey: 'comp.modules.hr',              descKey: 'comp.modules.hrDesc' },
   scheduling:     { titleKey: 'comp.modules.scheduling',      descKey: 'comp.modules.schedulingDesc' },
   whatsapp:       { titleKey: 'comp.modules.whatsapp',        descKey: 'comp.modules.whatsappDesc' },
+  fiscal:         { titleKey: 'comp.modules.fiscal',          descKey: 'comp.modules.fiscalDesc' },
+  contabil:       { titleKey: 'comp.modules.contabil',        descKey: 'comp.modules.contabilDesc' },
   projects:       { titleKey: 'comp.modules.projects',        descKey: 'comp.modules.projectsDesc' },
+  engine:         { titleKey: 'comp.modules.engine',          descKey: 'comp.modules.engineDesc' },
   service_contracts: { titleKey: 'comp.modules.serviceContracts', descKey: 'comp.modules.serviceContractsDesc' },
 };
 

@@ -195,6 +195,9 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/invoices',  label: t('nav.invoices'),  permission: 'invoices:view'  },
       { to: '/nfse',      label: t('nav.nfse'),      permission: 'nfse:view'      },
       { to: '/simples-remessa', label: t('nav.simplesRemessa') },
+      // Gestão Fiscal (Simples Nacional) — módulo opcional 'fiscal'.
+      ...(enabledModules.includes('fiscal') ? [{ to: '/fiscal', label: 'Gestão Fiscal', permission: 'fiscal:view' }] : []),
+      ...(enabledModules.includes('contabil') ? [{ to: '/contabil', label: 'Contabilidade', permission: 'contabil:view' }] : []),
     ] },
     ...(enabledModules.includes('service_orders') ? [{
       id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [

@@ -24,9 +24,11 @@ const STEPS: Step[] = [
 ];
 
 // NFS-e avulsa: mesma UX de "nota fiscal de venda avulsa" (InvoiceNewPage),
-// só que pra um serviço único (regra 24: NFS-e nunca mistura com NF-e). Cria
-// o rascunho aqui (POST /v1/nfse); a emissão em si continua sendo o painel
-// da NfsePage, reaproveitando POST /nfse/:id/emit como já existe.
+// só que pra um serviço único (regra 24: NFS-e nunca mistura com NF-e).
+// POST /v1/nfse cria E emite na mesma chamada (createAndEmitNfse) — mesmo
+// endpoint usado pelo "Aceitar" do rascunho proposto pelo assistente IA.
+// Readiness/competência/gates são responsabilidade do backend; erros vêm
+// como {error: <codigo>}, sem message (ApiError já cai para err.error).
 export function NfseNewPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();

@@ -13,7 +13,7 @@ import { SchedulingDomainError } from '../domain/scheduling/schedulingDomain';
 import { resolveAgendaScope } from '../services/schedulingProfessionalService';
 import {
   listSessions, getSessionOrThrow, createSession, updateSession,
-  approveSession, declineSession, completeSession, cancelSession, deleteSession,
+  approveSession, declineSession, completeSession, markNoShow, cancelSession, deleteSession,
   getAvailableSlots, getDashboard,
 } from '../services/schedulingSessionService';
 import { handleSchedulingDomainError } from './scheduling';
@@ -207,6 +207,20 @@ export const schedulingSessionsRoutes: FastifyPluginAsync = async (fastify) => {
       const session = await getSessionOrThrow(id, tenantId);
       await assertSessionInScope(request, session.professional_id);
       return await completeSession(id, tenantId, userId);
+    } catch (err) { return handleSchedulingDomainError(err, reply); }
+  });
+
+  // 0083: falta do cliente — mesma permissão de concluir (é o mesmo ato de
+  // "encerrar o atendimento", só que com desfecho negativo). Não debita pacote.
+  fastify.post('/scheduling/sessions/:id/no-show', guarded('scheduling:complete'), async (request, reply) => {
+    const { tenantId, userId } = (request as any).user;
+    const { id } = request.params as { id: string };
+    try {
+      const session = await getSessionOrThrow(id, tenantId);
+      await assertSessionInScope(request, session.professional_id);
+      const marked = await markNoShow(id, tenantId, userId);
+      syncGcal(marked.id, 'delete'); // faltou → remove o evento do Google
+      return marked;
     } catch (err) { return handleSchedulingDomainError(err, reply); }
   });
 
