@@ -161,6 +161,10 @@ export const clients = pgTable('clients', {
   // 'erp' é sempre o default (cadastro manual/import); 'landing_page' marca
   // o que entrou pela API pública de captação de leads.
   origin: varchar('origin', { length: 20 }).notNull().default('erp'),
+  // Regime tributário do cliente (migration 0085, regra 61/74) — travado no
+  // cadastro, nunca perguntado na tela de emissão de NF-e. Nullable: cliente
+  // já cadastrado antes desta coluna simplesmente ainda não tem o valor.
+  tax_regime: varchar('tax_regime', { length: 20 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

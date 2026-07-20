@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api }      from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
@@ -34,6 +34,8 @@ interface Client {
   state:         string | null;
   icms_taxpayer: string;
   consumer_type: string;
+  // Regra 61/74: travado no cadastro, nunca perguntado na tela de nota.
+  tax_regime:    string | null;
   is_active:     boolean;
   notes:         string | null;
   whatsapp_opt_in: boolean;
@@ -168,6 +170,7 @@ const EMPTY_FORM = {
   zip_code: '', street: '', street_number: '', complement: '',
   neighborhood: '', city: '', state: 'SP', country: 'BR',
   icms_taxpayer: '9' as string, consumer_type: '0' as string,
+  tax_regime: '' as string,
   notes: '',
   whatsapp_opt_in: false,
 };
@@ -183,6 +186,7 @@ export function ClientsPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // ── List state ─────────────────────────────────────────────────────────────
   const [items,   setItems]   = useState<Client[]>([]);
@@ -303,12 +307,33 @@ export function ClientsPage() {
       state:         c.state         ?? 'SP',
       icms_taxpayer: c.icms_taxpayer ?? '9',
       consumer_type: c.consumer_type ?? '0',
+      tax_regime:    c.tax_regime    ?? '',
       notes:         c.notes         ?? '',   // ← bug fix: preenche notes existentes
       whatsapp_opt_in: c.whatsapp_opt_in ?? false,
     });
     setFormError('');
     setDrawerOpen(true);
   }
+
+  // Deep-link "?edit=<id>" (regra 61/74) — vem do link "Cadastrar" na tela de
+  // NF-e quando o cliente selecionado ainda não tem regime tributário no
+  // cadastro. Busca direto por id (não depende do cliente estar na página/
+  // filtro atual da listagem), mesmo padrão de MaterialsPage.tsx.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !tenantId) return;
+    (async () => {
+      try {
+        const c = await api.get<Client>(`/v1/clients/${editId}`);
+        openEdit(c);
+      } catch { /**/ } finally {
+        const next = new URLSearchParams(searchParams);
+        next.delete('edit');
+        setSearchParams(next, { replace: true });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, searchParams]);
 
   function setF(field: string) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -374,6 +399,7 @@ export function ClientsPage() {
         country:       form.country       || 'BR',
         icms_taxpayer: form.icms_taxpayer,
         consumer_type: form.consumer_type,
+        tax_regime:    form.tax_regime    || undefined,
         notes:         form.notes         || undefined,
         whatsapp_opt_in: form.whatsapp_opt_in,
       };
@@ -807,6 +833,18 @@ export function ClientsPage() {
                     </select>
                     {!isPJ && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t('cl.pfCons')}</span>}
                   </div>
+                </div>
+                {/* Regra 61/74: travado aqui no cadastro, nunca mais
+                    perguntado na tela de emissão de NF-e. */}
+                <div className="field">
+                  <label>{t('tax.regime')}</label>
+                  <select value={form.tax_regime} onChange={setF('tax_regime')}>
+                    <option value="">{t('cl.taxRegimeNone')}</option>
+                    <option value="lucro_presumido">{t('tax.regimeLLP')}</option>
+                    <option value="lucro_real">{t('tax.regimeLR')}</option>
+                    <option value="simples_nacional">{t('tax.regimeSN')}</option>
+                    <option value="mei">{t('tax.regimeMEI')}</option>
+                  </select>
                 </div>
 
                 <div className="field">

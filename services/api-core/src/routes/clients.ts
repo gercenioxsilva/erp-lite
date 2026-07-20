@@ -22,6 +22,8 @@ const clientBody = {
     city: { type: 'string', maxLength: 100 }, state: { type: 'string', maxLength: 2 },
     country: { type: 'string', maxLength: 2 },
     icms_taxpayer: { type: 'string', enum: ['1', '2', '9'] }, consumer_type: { type: 'string', enum: ['0', '1'] },
+    // Regra 61/74: travado no cadastro, nunca perguntado na tela de nota.
+    tax_regime: { type: 'string', enum: ['lucro_presumido', 'lucro_real', 'simples_nacional', 'mei'] },
     is_active: { type: 'boolean' }, notes: { type: 'string' },
     // Consentimento WhatsApp (migration 0067) — LGPD, opt-in explícito do
     // cliente final pra receber cobranças/documentos pelo WhatsApp.
@@ -77,6 +79,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       state:        (b.state        ?? null) as string | null,
       country:      (b.country      ?? 'BR') as string,
       icms_taxpayer, consumer_type,
+      tax_regime:   (b.tax_regime   ?? null) as string | null,
       notes: (b.notes ?? null) as string | null,
       whatsapp_opt_in:    Boolean(b.whatsapp_opt_in),
       whatsapp_opt_in_at: b.whatsapp_opt_in ? new Date() : null,
@@ -215,7 +218,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
       'person_type','company_name','trade_name','cnpj','state_reg','municipal_reg','suframa',
       'full_name','cpf','birth_date','rg','rg_issuer','rg_issue_date',
       'email','phone','mobile','zip_code','street','street_number','complement',
-      'neighborhood','city','state','country','icms_taxpayer','consumer_type','is_active','notes',
+      'neighborhood','city','state','country','icms_taxpayer','consumer_type','tax_regime','is_active','notes',
       'whatsapp_opt_in',
     ];
     const updateData = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k))) as Record<string, unknown>;
