@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
+import multipart from '@fastify/multipart';
 import jwt from '@fastify/jwt';
 // customersRoutes: import removida junto com o registro abaixo (hotfix de
 // segurança 2026-07-08) — ver comentário na chamada de app.register comentada.
@@ -26,6 +27,22 @@ import { billingRoutes }            from './routes/billing';
 import { clientContactsRoutes }     from './routes/clientContacts';
 import { supplierContactsRoutes }   from './routes/supplierContacts';
 import { companiesRoutes }          from './routes/companies';
+import { fiscalCompanyConfigRoutes } from './routes/fiscalCompanyConfig';
+import { fiscalImportsRoutes }       from './routes/fiscalImports';
+import { fiscalReconciliationRoutes } from './routes/fiscalReconciliation';
+import { fiscalConsolidationRoutes }  from './routes/fiscalConsolidation';
+import { fiscalApuracaoRoutes }       from './routes/fiscalApuracao';
+import { engineRoutes }               from './routes/engine';
+import { engineKeysRoutes }           from './routes/engineKeys';
+import { leadCaptureRoutes }          from './routes/leadCapture';
+import { leadCaptureKeysRoutes }      from './routes/leadCaptureKeys';
+import { fiscalOpenFinanceRoutes }    from './routes/fiscalOpenFinance';
+import { fiscalSimulatorRoutes }      from './routes/fiscalSimulator';
+import { fiscalScoreRoutes }          from './routes/fiscalScore';
+import { fiscalAlertsRoutes }         from './routes/fiscalAlerts';
+import { fiscalClosingRoutes }        from './routes/fiscalClosing';
+import { fiscalAssistantRoutes }      from './routes/fiscalAssistant';
+import { accountingRoutes }           from './routes/accounting';
 import { bankAccountsRoutes }       from './routes/bankAccounts';
 import { marketplaceIntegrationRoutes }   from './routes/marketplaceIntegration';
 import { materialMarketplaceLinksRoutes } from './routes/materialMarketplaceLinks';
@@ -68,6 +85,8 @@ import { startDueSoonWorker, stopDueSoonWorker }                    from './work
 import { startMarketplaceSyncResultsWorker, stopMarketplaceSyncResultsWorker } from './workers/marketplaceSyncResultsWorker';
 import { startWhatsAppResultsWorker, stopWhatsAppResultsWorker } from './workers/whatsappResultsWorker';
 import { startWhatsAppBillingWorker, stopWhatsAppBillingWorker } from './workers/whatsappBillingWorker';
+import { startFiscalAlertsWorker, stopFiscalAlertsWorker } from './workers/fiscalAlertsWorker';
+import { startSchedulingReminderWorker, stopSchedulingReminderWorker } from './workers/schedulingReminderWorker';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -83,6 +102,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, { origin: true });
   await app.register(sensible);
+  // Upload de arquivos de importação fiscal (OFX/CSV/XLSX) — parse no backend.
+  // Limite acima do bodyLimit JSON: extratos reais chegam a dezenas de MB.
+  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1, parts: 20 } });
   await app.register(jwt, {
     secret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
   });
@@ -130,6 +152,22 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(clientContactsRoutes,     { prefix: '/v1' });
   await app.register(supplierContactsRoutes,   { prefix: '/v1' });
   await app.register(companiesRoutes,          { prefix: '/v1' });
+  await app.register(fiscalCompanyConfigRoutes, { prefix: '/v1' });
+  await app.register(fiscalImportsRoutes,      { prefix: '/v1' });
+  await app.register(fiscalReconciliationRoutes, { prefix: '/v1' });
+  await app.register(fiscalConsolidationRoutes, { prefix: '/v1' });
+  await app.register(fiscalApuracaoRoutes,      { prefix: '/v1' });
+  await app.register(engineRoutes,              { prefix: '/v1' });
+  await app.register(engineKeysRoutes,          { prefix: '/v1' });
+  await app.register(leadCaptureRoutes,         { prefix: '/v1' });
+  await app.register(leadCaptureKeysRoutes,     { prefix: '/v1' });
+  await app.register(fiscalOpenFinanceRoutes,   { prefix: '/v1' });
+  await app.register(fiscalSimulatorRoutes,     { prefix: '/v1' });
+  await app.register(fiscalScoreRoutes,         { prefix: '/v1' });
+  await app.register(fiscalAlertsRoutes,        { prefix: '/v1' });
+  await app.register(fiscalClosingRoutes,       { prefix: '/v1' });
+  await app.register(fiscalAssistantRoutes,     { prefix: '/v1' });
+  await app.register(accountingRoutes,          { prefix: '/v1' });
   await app.register(bankAccountsRoutes,       { prefix: '/v1' });
   await app.register(marketplaceIntegrationRoutes,   { prefix: '/v1' });
   await app.register(materialMarketplaceLinksRoutes, { prefix: '/v1' });
@@ -175,6 +213,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     // boot em caso de falha — owner segue com acesso pleno por código.
     syncRbacCatalog().catch((err) =>
       app.log.error({ event: 'rbac_sync_failed', error: String(err) }, 'rbac_sync_failed'));
+    // Sob vitest os workers NÃO sobem: os loops de fundo (alertas fiscais,
+    // cobranças recorrentes...) rodariam contra o `db` MOCKADO de cada arquivo
+    // de teste, sujando spies (ex.: expect(mockDb.insert).not.toHaveBeenCalled()
+    // via 12 inserts do worker) e gerando flakes dependentes de timing. Workers
+    // têm testes próprios que importam as funções diretamente.
+    if (process.env.VITEST) return;
     startNfeResultsWorker();
     startBoletoResultsWorker();
     startContractBillingWorker();
@@ -183,6 +227,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     startMarketplaceSyncResultsWorker();
     startWhatsAppResultsWorker();
     startWhatsAppBillingWorker();
+    startFiscalAlertsWorker();
+    startSchedulingReminderWorker();
   });
   app.addHook('onClose', async () => {
     stopNfeResultsWorker();
@@ -193,6 +239,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     stopMarketplaceSyncResultsWorker();
     stopWhatsAppResultsWorker();
     stopWhatsAppBillingWorker();
+    stopFiscalAlertsWorker();
+    stopSchedulingReminderWorker();
   });
 
   return app;

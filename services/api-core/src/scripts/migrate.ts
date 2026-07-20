@@ -98,11 +98,38 @@ const migrations = [
   '0065_receivables_invoice_idempotency.sql',
   '0066_google_calendar.sql',
   '0067_whatsapp_integration.sql',
+  // Colisão de numeração com feat/fiscal-simples-nacional (0068-0079 abaixo):
+  // mesmo padrão já tolerado em 0065 (tenant_branding vs
+  // receivables_invoice_idempotency) — nomes de arquivo são únicos, o número
+  // é só prefixo de leitura humana. Ordem entre os dois blocos não importa
+  // (nenhuma FK cruzada: projects/proposals/rental dependem de tabelas
+  // pré-0065; fiscal depende só de nfe_configs/pos_sales/orders).
   '0068_projects.sql',
   '0069_proposal_commercial_message.sql',
   '0070_contract_rental_receipt.sql',
+  // Colisão também em 0071/0072 (develop: fiscal_integration/contracts_module
+  // vs fiscal: imports/reconciliation) — mesma regra: nome de arquivo é a
+  // identidade, número é só prefixo. NUNCA descartar linha em conflito.
   '0071_fiscal_integration.sql',
   '0072_contracts_module_dynamic_fields.sql',
+  '0068_fiscal_core.sql',
+  '0069_fiscal_company_config.sql',
+  '0070_fiscal_tax_simples.sql',
+  '0071_fiscal_imports.sql',
+  '0072_fiscal_reconciliation.sql',
+  '0073_fiscal_consolidation.sql',
+  '0074_nfse_engine.sql',
+  '0075_fiscal_apuracao.sql',
+  '0076_fiscal_alerts.sql',
+  '0077_fiscal_period_locks.sql',
+  '0078_accounting_core.sql',
+  '0079_pgdasd_transmissions.sql',
+  '0080_engine_api_keys.sql',
+  '0081_openfinance_connections.sql',
+  '0082_openfinance_treasury.sql',
+  '0083_scheduling_noshow_reminders.sql',
+  '0084_lead_capture.sql',
+  '0085_client_tax_regime.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

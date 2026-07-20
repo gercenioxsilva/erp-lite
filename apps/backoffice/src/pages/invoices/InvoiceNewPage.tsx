@@ -16,6 +16,8 @@ const PCT = (n: number) => `${n.toFixed(2).replace('.', ',')}%`;
 interface ClientOption   {
   id: string; company_name: string | null; full_name: string | null;
   state?: string | null; icms_taxpayer?: string | null; consumer_type?: string | null;
+  // Regra 61/74: travado no cadastro do cliente, nunca perguntado aqui.
+  tax_regime?: string | null;
 }
 interface MaterialOption { id: string; sku: string; name: string; ncm_code: string | null; cfop: string | null; sale_price: number | null; description?: string | null; type?: string | null; }
 interface KitComponentRow { component_id: string; quantity: string; sku: string | null; name: string; unit: string; sale_price: string | null; ncm_code: string | null; cfop: string | null; }
@@ -138,8 +140,8 @@ export function InvoiceNewPage() {
       api.get<{ data: ClientOption[] }>(`/v1/clients?tenant_id=${tenantId}&per_page=100`),
       api.get<{ data: MaterialOption[] }>(`/v1/materials?tenant_id=${tenantId}&per_page=500`),
       api.get<{ data: OrderOption[] }>(`/v1/orders?tenant_id=${tenantId}&per_page=100`),
-      api.get<{ focus_ambiente: number | null; uf?: string; regime_tributario?: number }>(`/v1/nfe-config?tenant_id=${tenantId}`)
-        .catch(() => ({ focus_ambiente: null, uf: undefined, regime_tributario: undefined })),
+      api.get<{ focus_ambiente: number | null; uf?: string }>(`/v1/nfe-config?tenant_id=${tenantId}`)
+        .catch(() => ({ focus_ambiente: null, uf: undefined })),
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
       api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfe: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
@@ -154,12 +156,11 @@ export function InvoiceNewPage() {
       const companyRows = (comp.data ?? []).filter(c => c.emite_nfe);
       setCompanies(companyRows);
       setFormCompanyId(prev => prev || companyRows.find(c => c.is_default)?.id || '');
-      // Origem e regime tributário herdam o cadastro fiscal do tenant — só
-      // sobrescreve o default inicial, nunca uma escolha que o usuário já fez.
+      // UF de origem herda o cadastro fiscal do tenant — só sobrescreve o
+      // default inicial, nunca uma escolha que o usuário já fez. Regime
+      // tributário NÃO herda mais daqui (regra 61/74): vem sempre do cliente
+      // selecionado (clients.tax_regime), nunca do cadastro fiscal do tenant.
       if (cfg.uf) { setOriginState(cfg.uf); setFormDestState(prev => prev || cfg.uf!); }
-      if (cfg.regime_tributario === 1 || cfg.regime_tributario === 2) {
-        setFormTaxRegime(prev => prev === 'lucro_presumido' ? 'simples_nacional' : prev);
-      }
     }).catch(() => {/* non-fatal */});
     return () => { cancelled = true; };
   }, [tenantId]);
@@ -186,6 +187,9 @@ export function InvoiceNewPage() {
         }>;
       }>(`/v1/orders/${orderId}`);
       setFormClientId(detail.client_id);
+      // Regime tributário vem sempre do cadastro do cliente (regra 61/74) —
+      // mesmo quando o cliente chega via pedido, não da API do pedido em si.
+      setFormTaxRegime(clients.find(c => c.id === detail.client_id)?.tax_regime ?? '');
       setFormSellerId(detail.seller_id ?? '');
       // handleCostCenterChange (não setFormCostCenterId direto) — também
       // busca o saldo de estoque do centro de custo herdado, senão o aviso
@@ -281,6 +285,10 @@ export function InvoiceNewPage() {
   async function handleCalculateTaxes() {
     const valid = formItems.filter(it => it.name && Number(it.quantity) > 0);
     if (!valid.length) { setCalcTaxError(t('o.errNoItems')); return; }
+    // Regime tributário vem do cadastro do cliente (regra 61/74) — sem ele,
+    // /v1/tax/calculate rejeita (campo obrigatório); melhor avisar aqui do
+    // que deixar a chamada estourar um 400 genérico.
+    if (!formTaxRegime) { setCalcTaxError(t('tax.regimeMissing')); return; }
     setCalcTaxLoad(true); setCalcTaxError('');
     try {
       const result = await api.post<TaxResult>('/v1/tax/calculate', {
@@ -334,7 +342,10 @@ export function InvoiceNewPage() {
         cost_center_id: formCostCenterId || null,
         seller_id: formSellerId || undefined,
         company_id: formCompanyId || undefined,
-        tax_regime: formTaxRegime, origin_state: originState,
+        // formTaxRegime pode estar vazio quando o cliente ainda não tem o
+        // regime cadastrado (regra 61/74) — undefined deixa o backend cair
+        // no próprio default em vez de gravar string vazia na nota.
+        tax_regime: formTaxRegime || undefined, origin_state: originState,
         items: formItems.filter(it => it.name).map(it => {
           const base = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
           return {
@@ -361,6 +372,14 @@ export function InvoiceNewPage() {
   }
 
   const selectedClient = clients.find(c => c.id === formClientId);
+  // Regra 61/74: rótulo do regime tributário travado no cadastro do cliente
+  // — reaproveita as mesmas chaves i18n que antes populavam o <select> manual.
+  const TAX_REGIME_LABELS: Record<string, string> = {
+    lucro_presumido:  t('tax.regimeLLP'),
+    lucro_real:       t('tax.regimeLR'),
+    simples_nacional: t('tax.regimeSN'),
+    mei:              t('tax.regimeMEI'),
+  };
 
   return (
     <form onSubmit={handleSave} noValidate>
@@ -459,6 +478,9 @@ export function InvoiceNewPage() {
                   // usuário ainda pode ajustar manualmente (ex.: entrega em outro UF).
                   const picked = clients.find(c => c.id === id);
                   if (picked?.state) setFormDestState(picked.state.toUpperCase());
+                  // Regime tributário vem sempre do cadastro do cliente (regra
+                  // 61/74) — nunca mais uma escolha manual nesta tela.
+                  setFormTaxRegime(picked?.tax_regime ?? '');
                 }}>
                 <option value="">{t('o.selectClient')}</option>
                 {clients.map(c => (
@@ -565,13 +587,21 @@ export function InvoiceNewPage() {
             <div className="field-row">
               <div className="field">
                 <label htmlFor="inv-regime">{t('tax.regime')}</label>
-                <select id="inv-regime" value={formTaxRegime}
-                  onChange={e => { setFormTaxRegime(e.target.value); setTaxResult(null); }}>
-                  <option value="lucro_presumido">{t('tax.regimeLLP')}</option>
-                  <option value="lucro_real">{t('tax.regimeLR')}</option>
-                  <option value="simples_nacional">{t('tax.regimeSN')}</option>
-                  <option value="mei">{t('tax.regimeMEI')}</option>
-                </select>
+                {/* Regra 61/74: travado no cadastro do cliente, nunca mais
+                    escolhido manualmente aqui — mesmo padrão de NCM/CFOP
+                    (FiscalCodeCell, regra 61). */}
+                {!selectedClient ? (
+                  <span id="inv-regime" style={{ fontSize: 13, color: 'var(--muted)' }}>—</span>
+                ) : formTaxRegime ? (
+                  <span id="inv-regime" style={{ fontSize: 13 }}>{TAX_REGIME_LABELS[formTaxRegime] ?? formTaxRegime}</span>
+                ) : (
+                  <div id="inv-regime" style={{ fontSize: 12, color: 'var(--danger)' }}>
+                    ⚠ {t('tax.regimeMissing')}{' '}
+                    <Link to={`/clients?edit=${selectedClient.id}`} style={{ color: 'var(--danger)', textDecoration: 'underline' }}>
+                      {t('c.edit')}
+                    </Link>
+                  </div>
+                )}
               </div>
               <div className="field" style={{ flex: '0 0 130px' }}>
                 <label htmlFor="inv-dest">{t('tax.destState')}</label>

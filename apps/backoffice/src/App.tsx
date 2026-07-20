@@ -24,6 +24,9 @@ import { ContractsPage }   from './pages/contracts/ContractsPage';
 import { NfsePage }        from './pages/nfse/NfsePage';
 import { NfseNewPage }     from './pages/nfse/NfseNewPage';
 import { SimplesRemessaPage } from './pages/fiscal/SimplesRemessaPage';
+import { FiscalPage } from './pages/fiscal/FiscalPage';
+import { FiscalOverviewPage } from './pages/fiscal/FiscalOverviewPage';
+import { AccountingPage } from './pages/accounting/AccountingPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 import { VerifyEmailPage }    from './pages/auth/VerifyEmailPage';
@@ -68,6 +71,7 @@ import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
 import { EmployeesPage }       from './pages/employees/EmployeesPage';
 import { PayrollPage }         from './pages/payroll/PayrollPage';
 import { PayslipPrintPage }    from './pages/payroll/PayslipPrintPage';
+import { GuiaImpostosPrintPage } from './pages/fiscal/GuiaImpostosPrintPage';
 import { ServiceOrderPrintPage } from './pages/service-orders/ServiceOrderPrintPage';
 import { ContractBillingReceiptPrintPage } from './pages/contracts/ContractBillingReceiptPrintPage';
 import { ContractPrintPage } from './pages/contracts/ContractPrintPage';
@@ -116,10 +120,14 @@ function GuardedRoutes() {
     <ProtectedRoute permission={permission}>{element}</ProtectedRoute>
   );
 
+  // Home por papel: o profissional não tem dashboard:view — mandá-lo pro
+  // /dashboard era um /403 garantido logo após o login (fix de auditoria).
+  const home = user.role === 'professional' ? '/scheduling' : '/dashboard';
+
   return (
     <Layout>
       <Routes>
-        <Route path="/"           element={<Navigate to="/dashboard" replace />} />
+        <Route path="/"           element={<Navigate to={home} replace />} />
         <Route path="/dashboard"  element={gate('dashboard:view', <DashboardPage />)} />
         <Route path="/clients"    element={gate('clients:view', <ClientsPage />)} />
         <Route path="/materials"  element={gate('materials:view', <MaterialsPage />)} />
@@ -136,11 +144,14 @@ function GuardedRoutes() {
         <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
         <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
         <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
-        <Route path="/nfse/new"    element={gate('nfse:create', <NfseNewPage />)} />
+        <Route path="/nfse/new"    element={gate('nfse:emit', <NfseNewPage />)} />
         {/* TODO(follow-up RBAC): simples-remessa e sales-pipeline são módulos novos
             de develop, sem chave no catálogo de permissões ainda — deixados sem
             gate() para não bloquear ninguém além do owner até o catálogo cobrir. */}
         <Route path="/simples-remessa" element={<SimplesRemessaPage />} />
+        <Route path="/fiscal"          element={gate('fiscal:view', <FiscalOverviewPage />)} />
+        <Route path="/fiscal/pipeline" element={gate('fiscal:view', <FiscalPage />)} />
+        <Route path="/contabil"        element={gate('contabil:view', <AccountingPage />)} />
         <Route path="/proposals"       element={gate('proposals:view', <ProposalsPage />)} />
         <Route path="/reports"              element={gate('reports:view', <ReportsPage />)} />
         <Route path="/reports/cashflow"     element={gate('reports:view', <CashflowPage />)} />
@@ -195,7 +206,7 @@ function GuardedRoutes() {
         <Route path="/scheduling/clients/:id"        element={gate('scheduling:view', <SchedulingClientDetailPage />)} />
         <Route path="/scheduling/settings"           element={gate('scheduling:settings', <SchedulingSettingsPage />)} />
         <Route path="/403"             element={<AccessDeniedPage />} />
-        <Route path="*"                element={<Navigate to="/dashboard" replace />} />
+        <Route path="*"                element={<Navigate to={home} replace />} />
       </Routes>
     </Layout>
   );
@@ -224,6 +235,7 @@ export function App() {
               <Route path="/contracts/:contractId/billings/:billingId/receipt" element={<ContractBillingReceiptPrintPage />} />
               <Route path="/contracts/:contractId/print" element={<ContractPrintPage />} />
               <Route path="/payroll/entries/:id/print" element={<PayslipPrintPage />} />
+              <Route path="/fiscal/apuracao/:id/guia" element={<GuiaImpostosPrintPage />} />
               <Route path="/tecnico/entrar"          element={<TechnicianLoginPage />} />
               <Route path="/tecnico/visitas"         element={<TechnicianVisitsPage />} />
               <Route path="/tecnico/visitas/:id"     element={<TechnicianVisitDetailPage />} />

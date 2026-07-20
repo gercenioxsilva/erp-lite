@@ -44,7 +44,7 @@ const OPERATIONAL = [
 // Subconjunto do dia a dia para o Operador (escrita leve, sem excluir).
 const OPERATOR_MODULES = [
   'clients', 'orders', 'proposals', 'invoices', 'materials', 'stock',
-  'receivables', 'payables', 'pos', 'service_orders',
+  'receivables', 'payables', 'pos', 'service_orders', 'technicians',
 ];
 
 const OWNER = ALL_PERMISSION_KEYS;
@@ -64,13 +64,23 @@ const MANAGER = Array.from(new Set([
   // operacional, mas conectar credenciais (whatsapp:manage) fica só com
   // owner/admin (mesma trava de bank_accounts:manage).
   'whatsapp:view',
+  // Gestão Fiscal: a operação (importar/conciliar/consolidar/apurar/emitir) é
+  // do gestor; o certificado A1 (manage_certificate), a reabertura de
+  // competência (reopen) e a TRANSMISSÃO do PGDAS-D (transmit — protocola uma
+  // declaração federal irreversível E gasta dinheiro por chamada) ficam só com
+  // owner/admin — mesma trava de bank_accounts:manage/whatsapp:manage.
+  ...keysOf(['fiscal']),
 // Configuração do agendamento (fuso, antecedência, auto-agendamento) é
 // decisão do dono/admin, não operação — gestor fica de fora.
-])).filter((k) => k !== 'scheduling:settings');
+])).filter((k) => k !== 'scheduling:settings' && k !== 'fiscal:manage_certificate'
+  && k !== 'fiscal:reopen' && k !== 'fiscal:transmit');
 
 const USER = Array.from(new Set([
   'dashboard:view',
   'reports:view',
+  // Fix de auditoria: o operador ganhava create/edit de áreas/profissionais
+  // via OPERATOR_MODULES mas NÃO conseguia abrir a agenda (sem scheduling:view).
+  'scheduling:view',
   ...keysOfActions(OPERATOR_MODULES, ['view', 'create', 'edit']),
   'proposals:send',
   'pos:operate',

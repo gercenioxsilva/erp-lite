@@ -7,6 +7,42 @@ import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
 import { createReceivableFromInvoice } from '../services/receivableService';
+import { recordRevenue } from '../services/fiscalRevenueService';
+import { postEntry, resolveRegime } from '../services/accountingService';
+import { linesForAuthorization } from '../domain/accounting/accountingDomain';
+import { competenciaFromDate, fiscalDate } from '../domain/fiscal/competencia';
+import { runScheduled as runScheduledConsolidation } from '../services/consolidationService';
+import { syncAllActive } from '../services/openFinanceService';
+
+/** Ciclo fiscal 23:59: roda o consolidar→validar→emitir de cada tenant com o
+ *  módulo 'fiscal' habilitado. Erro em um tenant nunca derruba os demais. */
+async function runFiscalScheduledCycle(): Promise<void> {
+  // Passo 0: sincroniza o extrato Open Finance de toda conexão ativa ANTES
+  // da consolidação — o dia da véspera entra, concilia e emite na mesma
+  // passada. Erro é isolado por conexão dentro de syncAllActive; um throw
+  // aqui (ex.: banco fora) não pode derrubar a consolidação dos tenants.
+  try {
+    const sync = await syncAllActive();
+    if (sync.synced + sync.failed > 0) {
+      console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_openfinance', ...sync }));
+    }
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'fiscal_scheduled_cycle_openfinance_error', error: String(err) }));
+  }
+
+  const { rows } = await db.execute<{ tenant_id: string }>(sql`
+    SELECT tenant_id FROM tenant_modules WHERE module_key = 'fiscal' AND enabled = true
+  `);
+  console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_start', tenants: rows.length }));
+  for (const { tenant_id } of rows) {
+    try {
+      const result = await runScheduledConsolidation(tenant_id);
+      console.info(JSON.stringify({ event: 'fiscal_scheduled_cycle_tenant', tenant_id, ...result, errors: result.errors.length }));
+    } catch (err) {
+      console.error(JSON.stringify({ event: 'fiscal_scheduled_cycle_error', tenant_id, error: String(err) }));
+    }
+  }
+}
 import { notifyFiscalDocumentAuthorized } from '../services/whatsappAutomationService';
 
 interface NfeResultMessage {
@@ -93,6 +129,10 @@ async function poll(queueUrl: string): Promise<void> {
             await processNfseResult(body as NfseResultMessage);
           } else if (body.type === 'remessa') {
             await processRemessaResult(body as RemessaResultMessage);
+          } else if (body.type === 'fiscal_consolidation_run') {
+            // Ciclo agendado 23:59 (EventBridge → esta fila): consolida →
+            // valida → emite por tenant com o módulo fiscal habilitado.
+            await runFiscalScheduledCycle();
           } else if (body.type === 'company_registration') {
             await processCompanyRegistrationResult(body as CompanyRegistrationResultMessage);
           } else {
@@ -122,10 +162,10 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
   if (nfe_status === 'authorized') {
     const { rows: [inv] } = await db.execute<{
       tenant_id: string; serie: string; number: string | null;
-      client_id: string | null; total: string;
+      client_id: string | null; total: string; company_id: string | null;
       client_name: string | null; client_email: string | null;
     }>(sql`
-      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total,
+      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM invoices i
@@ -133,6 +173,10 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       WHERE i.id = ${invoice_id}
     `);
     if (!inv) return;
+
+    // Competência/data pela AUTORIZAÇÃO (fuso fiscal BR), nunca pelo relógio do
+    // worker — 23:59 America/Sao_Paulo já é o dia/mês seguinte em UTC.
+    const authAt = nfe_auth_date ? new Date(nfe_auth_date) : new Date();
 
     let number = inv.number ?? '';
     if (!number) {
@@ -147,7 +191,7 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       .set({
         status:        'issued',
         number,
-        issue_date:    new Date().toISOString().slice(0, 10),
+        issue_date:    fiscalDate(authAt),
         nfe_status:    'authorized',
         // Focus devolve a chave com prefixo "NFe"; a coluna é CHAR(44), então
         // normalizamos para somente os 44 dígitos.
@@ -265,6 +309,38 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
     // conta não conectada, cliente sem opt-in etc.).
     void notifyFiscalDocumentAuthorized(result.tenant_id, { id: invoice_id, client_id: inv.client_id, number, total: inv.total });
 
+    // ── Projeção de receita fiscal (fire-and-forget, idempotente por doc) ────
+    // Alimenta fiscal_revenue_monthly → RBT12 calculado por empresa (módulo
+    // fiscal). NF-e = receita de comércio (Anexo I). Mesmo racional da regra
+    // 60: a nota autorizada é o fato gerador; UNIQUE(source_doc) impede dupla
+    // contagem no redelivery do SQS.
+    if (inv.company_id) {
+      try {
+        await recordRevenue({
+          tenantId: result.tenant_id, companyId: inv.company_id,
+          competencia: competenciaFromDate(authAt),
+          anexo: 1, amount: Number(inv.total),
+          sourceDocType: 'invoice', sourceDocId: invoice_id,
+        }, db);
+      } catch (revErr) {
+        console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', invoice_id, error: String(revErr) }));
+      }
+      // Posting contábil da autorização (regime competência posta; caixa no-op).
+      try {
+        const { regime } = await resolveRegime(result.tenant_id, inv.company_id, db);
+        await postEntry({
+          tenantId: result.tenant_id, companyId: inv.company_id,
+          sourceType: 'invoice_authorized', sourceId: invoice_id,
+          entryDate: fiscalDate(authAt),
+          competencia: competenciaFromDate(authAt),
+          description: `NF-e nº ${number} autorizada`,
+          lines: linesForAuthorization({ kind: 'invoice', gross: Number(inv.total), issRetido: 0 }, regime),
+        }, db);
+      } catch (accErr) {
+        console.error(JSON.stringify({ event: 'accounting_post_error', source: 'invoice_authorized', invoice_id, error: String(accErr) }));
+      }
+    }
+
     if (inv.client_email) {
       await sendNotificationIfEnabled({
         tenant_id: result.tenant_id, type: 'nfe_authorized',
@@ -311,6 +387,32 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
           nfse_verify_code, nfse_protocol, nfse_auth_date,
           nfse_pdf_url, nfse_xml_s3_key, nfse_reject_reason } = result;
 
+  // Competência/data pela AUTORIZAÇÃO (fuso fiscal BR), nunca pelo relógio do
+  // worker — o ciclo 23:59 America/Sao_Paulo já é o dia/mês seguinte em UTC.
+  const authAt = nfse_auth_date ? new Date(nfse_auth_date) : new Date();
+
+  // ── Cancelamento (motor próprio 0074, action:'cancel') ──────────────────
+  // NfseResultMessage tipa nfse_status como authorized|rejected (contrato do
+  // Focus); o transporte ABRASF publica 'cancelled' — daí o cast local.
+  if ((result as any).action === 'cancel') {
+    if ((nfse_status as string) === 'cancelled') {
+      await db.update(nfseInvoices)
+        .set({ nfse_status: 'cancelled', cancel_date: new Date() })
+        .where(and(eq(nfseInvoices.id, nfse_id), eq(nfseInvoices.nfse_status, 'authorized')));
+      await db.insert(nfseEvents).values({
+        nfse_id, tenant_id, event_type: 'cancellation', payload: { nfse_number },
+      });
+      console.info(JSON.stringify({ event: 'nfse_result_cancelled', nfse_id }));
+    } else {
+      await db.insert(nfseEvents).values({
+        nfse_id, tenant_id, event_type: 'cancellation_rejected',
+        payload: { reason: nfse_reject_reason ?? null },
+      });
+      console.warn(JSON.stringify({ event: 'nfse_cancel_rejected', nfse_id, reason: nfse_reject_reason }));
+    }
+    return;
+  }
+
   if (nfse_status === 'authorized') {
     await db.update(nfseInvoices)
       .set({
@@ -335,16 +437,56 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
 
     console.info(JSON.stringify({ event: 'nfse_result_authorized', nfse_id, nfse_number }));
 
+    // Draft de consolidação vinculado (0073): autorização fecha o ciclo.
+    await db.execute(sql`
+      UPDATE fiscal_document_drafts SET status = 'emitted', updated_at = NOW()
+      WHERE nfse_id = ${nfse_id} AND status = 'emitting'
+    `);
+
     const { rows: [inv] } = await db.execute<{
-      amount: string; iss_value: string;
+      amount: string; iss_value: string; company_id: string | null; iss_retido: boolean | null;
       client_name: string | null; client_email: string | null;
     }>(sql`
-      SELECT n.amount, n.iss_value,
+      SELECT n.amount, n.iss_value, n.company_id, n.iss_retido,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM nfse_invoices n LEFT JOIN clients c ON c.id = n.client_id
       WHERE n.id = ${nfse_id}
     `);
+
+    // Projeção de receita fiscal (fire-and-forget, idempotente por documento):
+    // NFS-e autorizada = receita de serviço no ledger do RBT12; o anexo (III/IV/V)
+    // é resolvido na apuração pelo cadastro/Fator R, não aqui.
+    if (inv?.company_id) {
+      try {
+        await recordRevenue({
+          tenantId: tenant_id, companyId: inv.company_id,
+          competencia: competenciaFromDate(authAt),
+          amount: Number(inv.amount),
+          comRetencao: inv.iss_retido ? Number(inv.amount) : 0,
+          sourceDocType: 'nfse', sourceDocId: nfse_id,
+        }, db);
+      } catch (revErr) {
+        console.error(JSON.stringify({ event: 'fiscal_revenue_projection_error', nfse_id, error: String(revErr) }));
+      }
+      try {
+        const { regime } = await resolveRegime(tenant_id, inv.company_id, db);
+        await postEntry({
+          tenantId: tenant_id, companyId: inv.company_id,
+          sourceType: 'nfse_authorized', sourceId: nfse_id,
+          entryDate: fiscalDate(authAt),
+          competencia: competenciaFromDate(authAt),
+          description: `NFS-e nº ${nfse_number ?? ''} autorizada`,
+          lines: linesForAuthorization({
+            kind: 'nfse', gross: Number(inv.amount),
+            issRetido: inv.iss_retido ? Number(inv.iss_value) : 0,
+          }, regime),
+        }, db);
+      } catch (accErr) {
+        console.error(JSON.stringify({ event: 'accounting_post_error', source: 'nfse_authorized', nfse_id, error: String(accErr) }));
+      }
+    }
+
     if (inv?.client_email) {
       await sendNotificationIfEnabled({
         tenant_id, type: 'nfse_authorized',
@@ -368,6 +510,13 @@ async function processNfseResult(result: NfseResultMessage): Promise<void> {
       event_type: 'emission_rejected',
       payload:    { nfse_reject_reason },
     });
+
+    // Draft vinculado volta para 'failed' com o motivo — reenvio recalcula/emite.
+    await db.execute(sql`
+      UPDATE fiscal_document_drafts
+      SET status = 'failed', error_message = ${nfse_reject_reason || 'rejeitada'}, updated_at = NOW()
+      WHERE nfse_id = ${nfse_id} AND status = 'emitting'
+    `);
 
     console.warn(JSON.stringify({ event: 'nfse_result_rejected', nfse_id, nfse_reject_reason }));
 

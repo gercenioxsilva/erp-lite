@@ -9,6 +9,7 @@
 //    tenant_id + client_id — o cliente só enxerga os próprios dados.
 
 import { FastifyPluginAsync } from 'fastify';
+import bcrypt from 'bcryptjs';
 import { eq, and } from 'drizzle-orm';
 import { db, users, clients } from '../db';
 import { requireModule } from '../lib/requireModule';
@@ -80,6 +81,62 @@ export const schedulingPortalRoutes: FastifyPluginAsync = async (fastify) => {
           cancel_window_hours: settings.cancel_window_hours,
         },
       };
+    } catch (err) { return handlePortalError(err, reply); }
+  });
+
+  /* ── Perfil editável (0083) ─────────────────────────────────────────── */
+  // O cliente corrige o PRÓPRIO telefone — e-mail/nome ficam com o staff
+  // (e-mail é identidade de login; mudar exige fluxo próprio).
+  fastify.patch('/portal/me', {
+    ...guard,
+    schema: {
+      body: {
+        type: 'object',
+        properties: { phone: { type: ['string', 'null'], maxLength: 20 } },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
+    const { tenantId } = (request as any).user;
+    const { phone } = (request.body ?? {}) as { phone?: string | null };
+    try {
+      const clientId = await currentClientId(request);
+      const [updated] = await db.update(clients)
+        .set({ phone: phone?.trim() || null })
+        .where(and(eq(clients.id, clientId), eq(clients.tenant_id, tenantId)))
+        .returning({ id: clients.id, phone: clients.phone });
+      return { ok: true, phone: updated?.phone ?? null };
+    } catch (err) { return handlePortalError(err, reply); }
+  });
+
+  // Troca de senha exige a senha ATUAL (o portal pode ficar logado num
+  // celular compartilhado — senha atual é a prova de posse).
+  fastify.post('/portal/me/password', {
+    ...guard,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['current_password', 'new_password'],
+        properties: {
+          current_password: { type: 'string', minLength: 1 },
+          new_password:     { type: 'string', minLength: 8, maxLength: 100 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
+    const { tenantId, userId } = (request as any).user;
+    const { current_password, new_password } = request.body as { current_password: string; new_password: string };
+    try {
+      await currentClientId(request); // garante vínculo antes de qualquer coisa
+      const [user] = await db.select({ password_hash: users.password_hash }).from(users)
+        .where(and(eq(users.id, userId), eq(users.tenant_id, tenantId)));
+      if (!user || !(await bcrypt.compare(current_password, user.password_hash))) {
+        return reply.code(422).send({ error: 'current_password_invalid', message: 'Senha atual incorreta.' });
+      }
+      const hash = await bcrypt.hash(new_password, 12);
+      await db.update(users).set({ password_hash: hash }).where(eq(users.id, userId));
+      return { ok: true };
     } catch (err) { return handlePortalError(err, reply); }
   });
 

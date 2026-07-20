@@ -165,80 +165,24 @@ describe('NFS-e routes', () => {
 
   // NFS-e avulsa — mesma UX de "nota fiscal de venda avulsa" (POST /v1/invoices):
   // cria o rascunho aqui, a emissão em si continua sendo POST /:id/emit acima.
+  // Emissão avulsa (E7): cria+emite via createAndEmitNfse (nfseCreateService.ts).
+  // As regras de negócio (amount inválido, cliente de outro tenant, readiness,
+  // trava de competência, service_code ausente) já são cobertas na camada de
+  // serviço em nfseCreateService.test.ts, com o mock apropriado para a
+  // transação + gates que essa função atravessa. Aqui só o que é específico
+  // da ROTA: o guard de campos obrigatórios ANTES de chamar o serviço, e auth.
   describe('POST /v1/nfse', () => {
     const BASE_PAYLOAD = {
       client_id: 'client-1', description: 'Consultoria avulsa', amount: 500,
     };
 
-    it('400 sem client_id', async () => {
+    it('400 sem client_id/description/amount', async () => {
       const res = await app.inject({
         method: 'POST', url: '/v1/nfse',
         headers: { Authorization: `Bearer ${token}` },
-        payload: { description: 'svc', amount: 100 },
+        payload: { description: 'svc' },
       });
       expect(res.statusCode).toBe(400);
-    });
-
-    it('400 sem amount > 0', async () => {
-      const res = await app.inject({
-        method: 'POST', url: '/v1/nfse',
-        headers: { Authorization: `Bearer ${token}` },
-        payload: { client_id: 'client-1', description: 'svc', amount: 0 },
-      });
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('400 quando o cliente não pertence ao tenant', async () => {
-      state.clientRows = [];
-      const res = await app.inject({
-        method: 'POST', url: '/v1/nfse',
-        headers: { Authorization: `Bearer ${token}` },
-        payload: BASE_PAYLOAD,
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().message).toMatch(/Cliente/);
-    });
-
-    it('400 quando a empresa resolvida não tem Inscrição Municipal configurada', async () => {
-      state.clientRows = [{ id: 'client-1' }];
-      state.companyRows = [{ id: 'company-1', is_active: true, is_default: true, emite_nfse: true, inscricao_municipal: null }];
-      const res = await app.inject({
-        method: 'POST', url: '/v1/nfse',
-        headers: { Authorization: `Bearer ${token}` },
-        payload: BASE_PAYLOAD,
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().message).toMatch(/Inscrição Municipal/);
-    });
-
-    it('201 e calcula iss_value a partir da alíquota padrão da empresa quando iss_rate não é informado', async () => {
-      state.clientRows = [{ id: 'client-1' }];
-      state.companyRows = [{
-        id: 'company-1', is_active: true, is_default: true, emite_nfse: true,
-        inscricao_municipal: '12345', codigo_servico_padrao: '14.01', aliquota_iss_padrao: '5.00',
-      }];
-      const res = await app.inject({
-        method: 'POST', url: '/v1/nfse',
-        headers: { Authorization: `Bearer ${token}` },
-        payload: BASE_PAYLOAD,
-      });
-      expect(res.statusCode).toBe(201);
-      expect(res.json().id).toBe('nfse-1');
-    });
-
-    it('400 quando não há service_code (nem no body, nem configurado na empresa)', async () => {
-      state.clientRows = [{ id: 'client-1' }];
-      state.companyRows = [{
-        id: 'company-1', is_active: true, is_default: true, emite_nfse: true,
-        inscricao_municipal: '12345', codigo_servico_padrao: null, aliquota_iss_padrao: '5.00',
-      }];
-      const res = await app.inject({
-        method: 'POST', url: '/v1/nfse',
-        headers: { Authorization: `Bearer ${token}` },
-        payload: BASE_PAYLOAD,
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().message).toMatch(/Código de serviço/);
     });
 
     it('401 sem token de autenticação', async () => {

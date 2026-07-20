@@ -5,23 +5,43 @@ import { db, nfseInvoices, nfseEvents } from '../db';
 import { getSqsClient } from '../lib/sqsClient';
 import { buildNfseEmitMessage } from '../lib/nfse';
 import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
-import { createStandaloneNfse, NfseDomainError } from '../services/nfseService';
 import { requirePermission } from '../lib/requirePermission';
-
-function nfseDomainErrorMessage(err: NfseDomainError): string {
-  switch (err.code) {
-    case 'nfse_client_not_found':             return 'Cliente não encontrado';
-    case 'nfse_client_required':               return 'Cliente é obrigatório';
-    case 'nfse_description_required':          return 'Descrição é obrigatória';
-    case 'nfse_amount_invalid':                return 'Valor deve ser maior que zero';
-    case 'nfse_service_code_required':         return 'Código de serviço (LC 116) é obrigatório — configure em Empresa → NF-e/NFS-e ou informe manualmente';
-    case 'nfse_iss_rate_invalid':              return 'Alíquota de ISS inválida';
-    case 'nfse_missing_inscricao_municipal':   return 'Inscrição Municipal é obrigatória para emitir NFS-e';
-    default:                                   return 'Não foi possível criar a NFS-e';
-  }
-}
+import { enqueueAbrasfCancel, enqueueAbrasfEmission } from '../services/nfseProviderService';
+import { getOrCreateConfig } from '../services/fiscalCompanyConfigService';
+import { createAndEmitNfse, NfseCreateError } from '../services/nfseCreateService';
+import { FiscalLockError } from '../services/fiscalPeriodLockGuard';
+import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
 
 export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
+
+  /* ── POST /v1/nfse ──────────────────────────────────────────────────── */
+  // Emissão avulsa: cria + emite numa tacada. É o alvo do "Aceitar" do
+  // rascunho proposto pelo assistente IA (o modelo nunca chama isto).
+  fastify.post('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:emit')] }, async (request, reply) => {
+    const { tenantId, userId } = (request as any).user;
+    const b = request.body as {
+      client_id?: string; amount?: number; description?: string; service_code?: string;
+      iss_rate?: number; iss_retido?: boolean; company_id?: string; due_date?: string; idempotency_key?: string;
+    };
+    if (!b?.client_id || !b?.description || b?.amount == null) {
+      return reply.badRequest('client_id, description e amount são obrigatórios');
+    }
+    try {
+      const result = await createAndEmitNfse(tenantId, {
+        clientId: b.client_id, amount: Number(b.amount), description: b.description,
+        serviceCode: b.service_code ?? null, issRate: b.iss_rate ?? null, issRetido: b.iss_retido,
+        companyId: b.company_id ?? null, dueDate: b.due_date ?? null, idempotencyKey: b.idempotency_key ?? null,
+      }, userId);
+      return reply.code(result.duplicate ? 200 : 201).send({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof NfseCreateError) return reply.code(422).send({ error: err.code, ...err.payload });
+      if (err instanceof FiscalLockError) return reply.code(422).send({ error: err.code, ...err.payload });
+      if (err instanceof CompanyDomainError) {
+        return reply.badRequest(companyResolutionErrorMessage(err, 'NFS-e'));
+      }
+      throw err;
+    }
+  });
 
   /* ── GET /v1/nfse ───────────────────────────────────────────────────── */
   fastify.get('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:view')] }, async (request, reply) => {
@@ -52,39 +72,6 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     `);
 
     return { data: rows, total, page: Number(page), per_page: limit };
-  });
-
-  /* ── POST /v1/nfse ──────────────────────────────────────────────────── */
-  // NFS-e avulsa: emissão direta de serviço, sem passar pelo faturamento de
-  // Ordem de Serviço (regra 47) nem por Contrato de Serviço — mesma UX de
-  // "nota fiscal de venda avulsa" (POST /v1/invoices). Cria o rascunho; a
-  // emissão em si é o POST /:id/emit acima, reaproveitado sem duplicar.
-  fastify.post('/nfse', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:create')] }, async (request, reply) => {
-    const tenantId = (request as any).user.tenantId;
-    const b = request.body as any;
-
-    if (!b.client_id)                    return reply.badRequest('client_id é obrigatório');
-    if (!b.description?.trim())          return reply.badRequest('description é obrigatório');
-    if (!(Number(b.amount) > 0))         return reply.badRequest('amount deve ser maior que zero');
-
-    try {
-      const nfse = await createStandaloneNfse({
-        tenantId,
-        clientId:    b.client_id,
-        description: b.description,
-        amount:      Number(b.amount),
-        serviceCode: b.service_code || null,
-        issRate:     b.iss_rate != null ? Number(b.iss_rate) : null,
-        periodStart: b.period_start || null,
-        periodEnd:   b.period_end   || null,
-        companyId:   b.company_id   || null,
-      }, db);
-      return reply.code(201).send(nfse);
-    } catch (err) {
-      if (err instanceof CompanyDomainError) return reply.badRequest(companyResolutionErrorMessage(err, 'NFS-e'));
-      if (err instanceof NfseDomainError)     return reply.badRequest(nfseDomainErrorMessage(err));
-      throw err;
-    }
   });
 
   /* ── GET /v1/nfse/:id ───────────────────────────────────────────────── */
@@ -160,6 +147,31 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
     if (cfg.focus_ambiente === 1 && !cfg.focus_token_producao)
       return reply.badRequest('Configure o token de Produção em Empresa → Fiscal antes de emitir em produção.');
 
+    // Provider próprio (ABRASF): reemitir tem de seguir o MESMO motor da 1ª
+    // emissão (assina no api-core, série/RPS própria). Sem este branch a
+    // reemissão de uma empresa abrasf sairia pela conta Focus global, com a
+    // linha ainda marcada provider:'abrasf' — e um cancelamento futuro assinaria
+    // ABRASF para uma nota que o Focus autorizou. enqueueAbrasfEmission faz o
+    // próprio incremento de status/nfse_attempts, então retornamos antes do
+    // caminho Focus (evita o duplo incremento).
+    const fiscalConfig = await getOrCreateConfig(tenantId, cfg.id, db);
+    if (fiscalConfig.nfse_provider === 'abrasf') {
+      try {
+        const res = await enqueueAbrasfEmission(tenantId, id, db);
+        return reply.code(202).send({
+          ok: true,
+          nfse_status: res.enqueued ? 'processing' : 'pending',
+          message: 'NFS-e enviada para processamento. Acompanhe o status em tempo real.',
+        });
+      } catch (err) {
+        if (err instanceof FiscalDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
+        throw err;
+      }
+    }
+    if (fiscalConfig.nfse_provider !== 'focus') {
+      return reply.badRequest(`Reemissão não suportada para o provider '${fiscalConfig.nfse_provider}'.`);
+    }
+
     if (!nfse.client_id) return reply.badRequest('NFS-e sem cliente vinculado');
     const { rows: cRows } = await db.execute<any>(sql`SELECT * FROM clients WHERE id = ${nfse.client_id}`);
     const clientRow = cRows[0];
@@ -196,5 +208,27 @@ export const nfseRoutes: FastifyPluginAsync = async (fastify) => {
       ok: true, nfse_status: 'processing',
       message: 'NFS-e enviada para processamento. Acompanhe o status em tempo real.',
     });
+  });
+
+  /* ── POST /v1/nfse/:id/cancel ───────────────────────────────────────── */
+  // Cancelamento via adapter próprio (motor 0074): assina o
+  // InfPedidoCancelamento no api-core e enfileira action:'cancel'.
+  fastify.post('/nfse/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('nfse:cancel')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const userId   = (request as any).user.userId;
+    const { id }   = request.params as { id: string };
+    const body     = request.body as { reason?: string };
+    if (!body?.reason) return reply.badRequest('reason é obrigatório');
+
+    try {
+      const result = await enqueueAbrasfCancel(tenantId, id, body.reason, userId);
+      return reply.code(202).send({ ok: true, ...result });
+    } catch (err) {
+      if (err instanceof FiscalDomainError) {
+        if (err.code === 'nfse_not_found') return reply.notFound('NFS-e não encontrada');
+        return reply.code(422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 };

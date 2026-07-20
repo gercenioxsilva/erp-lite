@@ -119,9 +119,9 @@ export function ServiceOrdersPage() {
   useEffect(() => {
     if (!drawerOpen || !tenantId) return;
     Promise.all([
-      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`),
-      api.get<{ data: TechnicianOption[] }>(`/v1/technicians?per_page=100`),
-      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=500&tenant_id=${tenantId}`),
+      api.get<{ data: ClientOption[] }>(`/v1/clients?per_page=100&tenant_id=${tenantId}`).catch(() => ({ data: [] })),
+      api.get<{ data: TechnicianOption[] }>(`/v1/technicians?per_page=100`).catch(() => ({ data: [] })),
+      api.get<{ data: MaterialOption[] }>(`/v1/materials?per_page=500&tenant_id=${tenantId}`).catch(() => ({ data: [] })),
       api.get<{ data: CompanyOption[] }>('/v1/companies').catch(() => ({ data: [] })),
     ]).then(([cl, tc, mt, comp]) => {
       setClients(cl.data ?? []);

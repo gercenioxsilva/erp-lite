@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useModal } from '../../contexts/ModalContext';
 import { Can } from '../../rbac';
@@ -106,7 +107,7 @@ export function BookingRequestsPage() {
               {/* Cabeçalho do card */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <strong style={{ flex: 1, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {s.client_name}
+                  <Link to={`/scheduling/clients/${s.client_id}`} style={{ color: 'inherit' }}>{s.client_name}</Link>
                 </strong>
                 {s.requested_by === 'client' && <Badge variant="product">Portal</Badge>}
                 <Badge variant="pending">Pendente</Badge>

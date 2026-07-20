@@ -157,6 +157,14 @@ export const clients = pgTable('clients', {
   whatsapp_opt_in:     boolean('whatsapp_opt_in').notNull().default(false),
   whatsapp_opt_in_at:  timestamp('whatsapp_opt_in_at',  { withTimezone: true }),
   whatsapp_opt_out_at: timestamp('whatsapp_opt_out_at', { withTimezone: true }),
+  // Origem do registro (migration 0084, mesmo padrão de orders.origin) —
+  // 'erp' é sempre o default (cadastro manual/import); 'landing_page' marca
+  // o que entrou pela API pública de captação de leads.
+  origin: varchar('origin', { length: 20 }).notNull().default('erp'),
+  // Regime tributário do cliente (migration 0085, regra 61/74) — travado no
+  // cadastro, nunca perguntado na tela de emissão de NF-e. Nullable: cliente
+  // já cadastrado antes desta coluna simplesmente ainda não tem o valor.
+  tax_regime: varchar('tax_regime', { length: 20 }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -287,9 +295,13 @@ export const orders = pgTable('orders', {
   // Mercado Livre (migration 0048, regra 42) — pedido importado de um marketplace
   marketplace_order_id: varchar('marketplace_order_id', { length: 50 }),
   origin: varchar('origin', { length: 20 }).notNull().default('erp'),
-  // Projeto (migration 0068) — vínculo direto, mesmo padrão de cost_center_id
-  // acima; vinculado/desvinculado via POST|DELETE /v1/projects/:id/orders,
-  // nunca por aqui (PATCH /orders/:id só edita em 'draft').
+  // Empresa/CNPJ da venda (migration 0068_fiscal_core) — receita atribuível
+  // por empresa para RBT12/apuração multiempresa; NULL = tenant ainda sem
+  // empresa cadastrada.
+  company_id: uuid('company_id'),
+  // Projeto (migration 0068_projects) — vínculo direto, mesmo padrão de
+  // cost_center_id acima; vinculado/desvinculado via POST|DELETE
+  // /v1/projects/:id/orders, nunca por aqui (PATCH /orders/:id só edita em 'draft').
   project_id: uuid('project_id'),
 });
 
@@ -981,6 +993,38 @@ export const nfseInvoices = pgTable('nfse_invoices', {
   nfse_xml_s3_key:     text('nfse_xml_s3_key'),
   created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Motor multi-provider (migration 0074): ciclo completo com adapters próprios.
+  provider:            varchar('provider', { length: 16 }),
+  municipio_ibge:      varchar('municipio_ibge', { length: 10 }),
+  ambiente:            smallint('ambiente').notNull().default(2),
+  rps_numero:          integer('rps_numero'),
+  rps_serie:           varchar('rps_serie', { length: 5 }),
+  lote_protocolo:      varchar('lote_protocolo', { length: 60 }),
+  nfse_pdf_s3_key:     text('nfse_pdf_s3_key'),
+  cancel_reason:       text('cancel_reason'),
+  cancel_date:         timestamp('cancel_date', { withTimezone: true }),
+  substitute_of_id:    uuid('substitute_of_id'),
+  iss_retido:          boolean('iss_retido').notNull().default(false),
+  deducoes:            decimal('deducoes', { precision: 15, scale: 2 }),
+  idempotency_key:     varchar('idempotency_key', { length: 160 }),
+});
+
+// Registry GLOBAL município → provider/versão/endpoints/perfil de assinatura
+// (migration 0074, regra 33 — sem tenant_id). Adicionar prefeitura = 1 linha.
+export const nfseMunicipalities = pgTable('nfse_municipalities', {
+  codigo_ibge:       varchar('codigo_ibge', { length: 10 }).primaryKey(),
+  uf:                char('uf', { length: 2 }).notNull(),
+  nome:              varchar('nome', { length: 120 }).notNull(),
+  provider:          varchar('provider', { length: 16 }).notNull(),
+  abrasf_versao:     varchar('abrasf_versao', { length: 8 }),
+  perfil:            varchar('perfil', { length: 20 }),
+  endpoint_homolog:  text('endpoint_homolog'),
+  endpoint_producao: text('endpoint_producao'),
+  signature_algo:    varchar('signature_algo', { length: 12 }).notNull().default('rsa-sha1'),
+  c14n:              varchar('c14n', { length: 10 }).notNull().default('inclusive'),
+  lote_assincrono:   boolean('lote_assincrono').notNull().default(true),
+  ativo:             boolean('ativo').notNull().default(true),
+  notes:             text('notes'),
 });
 
 // ── nfse_events ───────────────────────────────────────────────────────────────
@@ -1258,6 +1302,9 @@ export const posSales = pgTable('pos_sales', {
   cancel_reason:   text('cancel_reason'),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Empresa/CNPJ da venda (migration 0068) — receita de PDV atribuível por
+  // empresa para RBT12/apuração multiempresa.
+  company_id:      uuid('company_id'),
 });
 
 // ── pos_sale_items ────────────────────────────────────────────────────────────
@@ -1376,16 +1423,18 @@ export const taxStRules = pgTable('tax_st_rules', {
 }));
 
 // ── tax_simples_nacional_brackets ─────────────────────────────────────────────────
-// Anexo I (Comércio), LC 123/2006 pós-reforma 2018 — tabela legal estável.
+// Anexos I–V, LC 123/2006 pós-reforma 2018. Versionada por ano de vigência
+// (migration 0070) — parametrização anual sem mudança de código.
 export const taxSimplesNacionalBrackets = pgTable('tax_simples_nacional_brackets', {
-  anexo:            char('anexo', { length: 1 }).notNull().default('I'),
+  vigencia_ano:     smallint('vigencia_ano').notNull().default(2018),
+  anexo:            varchar('anexo', { length: 3 }).notNull().default('I'),
   faixa:            smallint('faixa').notNull(),
   rbt12_min:        decimal('rbt12_min', { precision: 15, scale: 2 }).notNull(),
   rbt12_max:        decimal('rbt12_max', { precision: 15, scale: 2 }).notNull(),
   aliquota_nominal: decimal('aliquota_nominal', { precision: 5, scale: 2 }).notNull(),
   parcela_deduzir:  decimal('parcela_deduzir',  { precision: 15, scale: 2 }).notNull(),
 }, (t) => ({
-  pk: primaryKey({ columns: [t.anexo, t.faixa] }),
+  pk: primaryKey({ columns: [t.vigencia_ano, t.anexo, t.faixa] }),
 }));
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1942,6 +1991,9 @@ export const schedulingSessions = pgTable('scheduling_sessions', {
   created_by:      uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // 0083: lembrete D-1 idempotente + carimbo de falta (no_show).
+  reminder_sent_at: timestamp('reminder_sent_at', { withTimezone: true }),
+  no_show_at:       timestamp('no_show_at', { withTimezone: true }),
 });
 
 // ── scheduling_calendar_connections (integração Google Calendar, migration 0066)
@@ -2072,4 +2124,593 @@ export const whatsappWebhookEvents = pgTable('whatsapp_webhook_events', {
   error_message:   text('error_message'),
   received_at:     timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
   processed_at:    timestamp('processed_at', { withTimezone: true }),
+});
+
+// ── fiscal_events (migration 0068) ────────────────────────────────────────────
+// ÍNDICE UNIFICADO de auditoria do módulo Fiscal, append-only (nunca UPDATE/
+// DELETE). Dono único: 0068_fiscal_core. Os *_events por agregado continuam
+// como log detalhado; o dashboard de auditoria lê daqui. Escrita SEMPRE via
+// fiscalAuditService.record() (mascara segredos e aplica idempotência 23505).
+export const fiscalEvents = pgTable('fiscal_events', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  aggregate_type:     varchar('aggregate_type', { length: 40 }).notNull(),
+  aggregate_id:       uuid('aggregate_id'),
+  event_type:         varchar('event_type', { length: 60 }).notNull(),
+  // NULL = sistema (worker/job agendado).
+  actor_user_id:      uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  source_file_s3_key: text('source_file_s3_key'),
+  xml_s3_key:         text('xml_s3_key'),
+  pdf_s3_key:         text('pdf_s3_key'),
+  payload_hash:       varchar('payload_hash', { length: 64 }),
+  request_payload:    jsonb('request_payload'),
+  response_payload:   jsonb('response_payload'),
+  attempt:            integer('attempt'),
+  idempotency_key:    varchar('idempotency_key', { length: 160 }),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Cadastro fiscal por empresa (migration 0069) ─────────────────────────────
+// Tabela FILHA 1:1 de nfe_configs — o cadastro profundo do Simples/NFS-e fica
+// atrás do módulo 'fiscal' sem acoplar ao CRUD base de empresa. Campos já
+// existentes em nfe_configs são lidos por JOIN, nunca duplicados.
+export const fiscalCompanyConfig = pgTable('fiscal_company_config', {
+  id:                        uuid('id').primaryKey().defaultRandom(),
+  tenant_id:                 uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:                uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }).unique(),
+  // MEI = DAS-SIMEI fixo; apuração percentual é bloqueada para MEI no MVP.
+  enquadramento:             varchar('enquadramento', { length: 3 }).notNull().default('ME'),
+  optante_simples:           boolean('optante_simples').notNull().default(false),
+  data_opcao_simples:        date('data_opcao_simples'),
+  // Início de atividade (<12 meses) proporcionaliza o RBT12 (LC123 art.18 §§1-2).
+  data_abertura:             date('data_abertura'),
+  anexo_padrao:              smallint('anexo_padrao'),
+  fator_r_aplicavel:         boolean('fator_r_aplicavel').notNull().default(false),
+  regime_apuracao:           varchar('regime_apuracao', { length: 12 }).notNull().default('competencia'),
+  iss_retido_padrao:         boolean('iss_retido_padrao').notNull().default(false),
+  iss_fixo:                  boolean('iss_fixo').notNull().default(false),
+  iss_fixo_valor:            decimal('iss_fixo_valor', { precision: 15, scale: 2 }),
+  retencao_federal:          boolean('retencao_federal').notNull().default(false),
+  retencoes:                 jsonb('retencoes'),
+  // Bootstrap de RBT12 na transição (sem documentos internos no histórico).
+  receita_acumulada_abertura: decimal('receita_acumulada_abertura', { precision: 15, scale: 2 }),
+  rbt12_manual:              decimal('rbt12_manual', { precision: 15, scale: 2 }),
+  nfse_provider:             varchar('nfse_provider', { length: 16 }).notNull().default('focus'),
+  nfse_provider_profile:     varchar('nfse_provider_profile', { length: 24 }),
+  rps_serie:                 varchar('rps_serie', { length: 5 }).notNull().default('1'),
+  rps_proximo_numero:        integer('rps_proximo_numero').notNull().default(1),
+  lote_proximo_numero:       integer('lote_proximo_numero').notNull().default(1),
+  created_by:                uuid('created_by'),
+  created_at:                timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:                timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalCompanyCnae = pgTable('fiscal_company_cnae', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:   uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  codigo:       varchar('codigo', { length: 9 }).notNull(),
+  descricao:    varchar('descricao', { length: 255 }),
+  is_principal: boolean('is_principal').notNull().default(false),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalCompanyServiceCode = pgTable('fiscal_company_service_code', {
+  id:               uuid('id').primaryKey().defaultRandom(),
+  tenant_id:        uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:       uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  codigo_lc116:     varchar('codigo_lc116', { length: 10 }).notNull(),
+  codigo_municipal: varchar('codigo_municipal', { length: 20 }),
+  descricao:        varchar('descricao', { length: 255 }),
+  aliquota_iss:     decimal('aliquota_iss', { precision: 5, scale: 2 }),
+  iss_retido:       boolean('iss_retido').notNull().default(false),
+  anexo:            smallint('anexo'),
+  is_default:       boolean('is_default').notNull().default(false),
+  created_at:       timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Folha + pró-labore por competência ('YYYY-MM') — insumo rolling-12m do Fator R.
+export const fiscalCompanyPayrollMonth = pgTable('fiscal_company_payroll_month', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:       varchar('competencia', { length: 7 }).notNull(),
+  folha_amount:      decimal('folha_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  pro_labore_amount: decimal('pro_labore_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  source:            varchar('source', { length: 14 }).notNull().default('manual'),
+  created_by:        uuid('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Certificado A1 por empresa — credentials {pfx_base64, senha} em texto puro
+// (padrão bank_accounts.credentials; KMS = Fase 2). 1 ativo por empresa
+// (UNIQUE parcial); trocar = desativar anterior + inserir (histórico auditável).
+export const fiscalCertificates = pgTable('fiscal_certificates', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  credentials: jsonb('credentials').notNull(),
+  cn:          varchar('cn', { length: 255 }),
+  not_before:  timestamp('not_before', { withTimezone: true }),
+  not_after:   timestamp('not_after', { withTimezone: true }),
+  thumbprint:  varchar('thumbprint', { length: 64 }),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Importação multi-fonte (migration 0071) ──────────────────────────────────
+// Molde do importador Mercado Livre: batch (auditoria do upload, original no
+// S3 + checksum) + LEDGER CANÔNICO imported_transactions (dedup físico por
+// UNIQUE tenant+dedup_key; raw jsonb preserva o não-mapeado). O motor de
+// conciliação (0072) é o ÚNICO escritor de reconciliation_status.
+export const importBatches = pgTable('import_batches', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  source_kind:        varchar('source_kind', { length: 20 }).notNull(),
+  source_template_id: uuid('source_template_id'),
+  original_filename:  varchar('original_filename', { length: 255 }).notNull(),
+  s3_key:             text('s3_key'),
+  checksum_sha256:    char('checksum_sha256', { length: 64 }).notNull(),
+  byte_size:          integer('byte_size').notNull().default(0),
+  content_type:       varchar('content_type', { length: 100 }),
+  status:             varchar('status', { length: 20 }).notNull().default('received'),
+  total_rows:         integer('total_rows').notNull().default(0),
+  inserted_rows:      integer('inserted_rows').notNull().default(0),
+  duplicate_rows:     integer('duplicate_rows').notNull().default(0),
+  error_rows:         integer('error_rows').notNull().default(0),
+  error_message:      text('error_message'),
+  uploaded_by:        uuid('uploaded_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  processed_at:       timestamp('processed_at', { withTimezone: true }),
+});
+
+export const importSourceTemplates = pgTable('import_source_templates', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  name:              varchar('name', { length: 80 }).notNull(),
+  source_kind:       varchar('source_kind', { length: 20 }).notNull().default('csv'),
+  provider_hint:     varchar('provider_hint', { length: 30 }),
+  column_map:        jsonb('column_map').notNull(),
+  delimiter:         varchar('delimiter', { length: 3 }),
+  encoding:          varchar('encoding', { length: 10 }).notNull().default('utf8'),
+  date_format:       varchar('date_format', { length: 20 }).notNull().default('DD/MM/YYYY'),
+  decimal_separator: char('decimal_separator', { length: 1 }).notNull().default(','),
+  has_header:        boolean('has_header').notNull().default(true),
+  skip_rows:         smallint('skip_rows').notNull().default(0),
+  dedup_strategy:    varchar('dedup_strategy', { length: 12 }).notNull().default('auto'),
+  is_active:         boolean('is_active').notNull().default(true),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const importedTransactions = pgTable('imported_transactions', {
+  id:                    uuid('id').primaryKey().defaultRandom(),
+  tenant_id:             uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:            uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  batch_id:              uuid('batch_id').notNull().references(() => importBatches.id, { onDelete: 'cascade' }),
+  source:                varchar('source', { length: 10 }).notNull(),
+  source_kind:           varchar('source_kind', { length: 20 }).notNull(),
+  dedup_key:             varchar('dedup_key', { length: 200 }).notNull(),
+  occurred_at:           timestamp('occurred_at', { withTimezone: true }),
+  nsu:                   varchar('nsu', { length: 40 }),
+  authorization_code:    varchar('authorization_code', { length: 40 }),
+  acquirer:              varchar('acquirer', { length: 40 }),
+  card_brand:            varchar('card_brand', { length: 30 }),
+  customer_name:         varchar('customer_name', { length: 255 }),
+  customer_document:     varchar('customer_document', { length: 14 }),
+  gross_amount:          decimal('gross_amount', { precision: 15, scale: 2 }),
+  fee_amount:            decimal('fee_amount', { precision: 15, scale: 2 }),
+  net_amount:            decimal('net_amount', { precision: 15, scale: 2 }),
+  installments:          smallint('installments'),
+  payment_method:        varchar('payment_method', { length: 30 }),
+  // Tesouraria (0082): taxonomia da Pluggy — uploads OFX/CSV ficam NULL.
+  category:              varchar('category', { length: 80 }),
+  establishment:         varchar('establishment', { length: 120 }),
+  terminal_serial:       varchar('terminal_serial', { length: 60 }),
+  bank_account_ref:      varchar('bank_account_ref', { length: 60 }),
+  fitid:                 varchar('fitid', { length: 120 }),
+  memo:                  text('memo'),
+  trn_type:              varchar('trn_type', { length: 20 }),
+  amount:                decimal('amount', { precision: 15, scale: 2 }),
+  raw:                   jsonb('raw').notNull(),
+  reconciliation_status: varchar('reconciliation_status', { length: 20 }).notNull().default('pending'),
+  created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Motor contábil de dupla entrada (migration 0078) ─────────────────────────
+export const chartOfAccounts = pgTable('chart_of_accounts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }), // NULL = global
+  code:              varchar('code', { length: 20 }).notNull(),
+  name:              varchar('name', { length: 120 }).notNull(),
+  nature:            varchar('nature', { length: 10 }).notNull(),
+  normal_balance:    varchar('normal_balance', { length: 6 }).notNull(),
+  is_postable:       boolean('is_postable').notNull().default(true),
+  system_key:        varchar('system_key', { length: 40 }),
+  dre_category_code: varchar('dre_category_code', { length: 30 }),
+  is_active:         boolean('is_active').notNull().default(true),
+});
+
+export const journalEntries = pgTable('journal_entries', {
+  id:                   uuid('id').primaryKey().defaultRandom(),
+  tenant_id:            uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:           uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'set null' }),
+  entry_date:           date('entry_date').notNull(),
+  competencia:          char('competencia', { length: 7 }).notNull(),
+  source_type:          varchar('source_type', { length: 30 }).notNull(),
+  source_id:            uuid('source_id'),
+  description:          varchar('description', { length: 200 }).notNull(),
+  reversed_by_entry_id: uuid('reversed_by_entry_id'),
+  posted_by:            uuid('posted_by'),
+  created_at:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const journalLines = pgTable('journal_lines', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  entry_id:   uuid('entry_id').notNull().references(() => journalEntries.id, { onDelete: 'cascade' }),
+  account_id: uuid('account_id').notNull().references(() => chartOfAccounts.id),
+  side:       varchar('side', { length: 6 }).notNull(),
+  amount:     decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  line_order: smallint('line_order').notNull().default(0),
+});
+
+// ── Fechamento de competência (migration 0077) ───────────────────────────────
+// FECHAR ≠ TRAVAR: runs = checklist executável; locks = trava explícita
+// (enforcement único via fiscalClosingService.assertCompetenciaAberta).
+export const fiscalClosingRuns = pgTable('fiscal_closing_runs', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia: char('competencia', { length: 7 }).notNull(),
+  status:      varchar('status', { length: 24 }).notNull().default('running'),
+  steps:       jsonb('steps').notNull().default({}),
+  report:      jsonb('report'),
+  started_by:  uuid('started_by'),
+  started_at:  timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finished_at: timestamp('finished_at', { withTimezone: true }),
+});
+
+export const fiscalPeriodLocks = pgTable('fiscal_period_locks', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:     uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:    char('competencia', { length: 7 }).notNull(),
+  status:         varchar('status', { length: 10 }).notNull().default('locked'),
+  closing_run_id: uuid('closing_run_id'),
+  report:         jsonb('report'),
+  locked_by:      uuid('locked_by'),
+  locked_at:      timestamp('locked_at', { withTimezone: true }).notNull().defaultNow(),
+  unlocked_by:    uuid('unlocked_by'),
+  unlocked_at:    timestamp('unlocked_at', { withTimezone: true }),
+  unlock_reason:  text('unlock_reason'),
+});
+
+// ── Central de alertas fiscais (migration 0076) ──────────────────────────────
+// Dedupe físico por dedupe_key TEXT NOT NULL + UNIQUE parcial WHERE status
+// <> 'resolved' (resolvido pode recorrer como nova linha). Escrita SEMPRE via
+// fiscalAlertService (catch-23505 → touch last_detected_at).
+export const fiscalAlerts = pgTable('fiscal_alerts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  rule_key:          varchar('rule_key', { length: 40 }).notNull(),
+  severity:          varchar('severity', { length: 8 }).notNull(),
+  title:             varchar('title', { length: 200 }).notNull(),
+  detail:            text('detail'),
+  payload:           jsonb('payload'),
+  ref_type:          varchar('ref_type', { length: 24 }),
+  ref_id:            uuid('ref_id'),
+  periodo:           char('periodo', { length: 7 }),
+  dedupe_key:        varchar('dedupe_key', { length: 160 }).notNull(),
+  status:            varchar('status', { length: 12 }).notNull().default('open'),
+  acknowledged_by:   uuid('acknowledged_by'),
+  acknowledged_at:   timestamp('acknowledged_at', { withTimezone: true }),
+  resolved_by:       uuid('resolved_by'),
+  resolved_at:       timestamp('resolved_at', { withTimezone: true }),
+  resolution:        varchar('resolution', { length: 8 }),
+  email_sent:        boolean('email_sent').notNull().default(false),
+  first_detected_at: timestamp('first_detected_at', { withTimezone: true }).notNull().defaultNow(),
+  last_detected_at:  timestamp('last_detected_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Apuração PGDAS-D (migration 0075) ────────────────────────────────────────
+export const simplesApuracao = pgTable('simples_apuracao', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:         uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:        char('competencia', { length: 7 }).notNull(),
+  rbt12:              decimal('rbt12', { precision: 15, scale: 2 }).notNull(),
+  rbt12_source:       varchar('rbt12_source', { length: 10 }).notNull().default('ledger'),
+  receita_competencia: decimal('receita_competencia', { precision: 15, scale: 2 }).notNull(),
+  fator_r:            decimal('fator_r', { precision: 6, scale: 4 }),
+  sublimite_excedido: boolean('sublimite_excedido').notNull().default(false),
+  das_total:          decimal('das_total', { precision: 15, scale: 2 }).notNull(),
+  valor_irpj:         decimal('valor_irpj', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_csll:         decimal('valor_csll', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_cofins:       decimal('valor_cofins', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_pis:          decimal('valor_pis', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_cpp:          decimal('valor_cpp', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_icms:         decimal('valor_icms', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_ipi:          decimal('valor_ipi', { precision: 15, scale: 2 }).notNull().default('0'),
+  valor_iss:          decimal('valor_iss', { precision: 15, scale: 2 }).notNull().default('0'),
+  iss_retido:         decimal('iss_retido', { precision: 15, scale: 2 }).notNull().default('0'),
+  memoria:            jsonb('memoria').notNull(),
+  status:             varchar('status', { length: 14 }).notNull().default('calculated'),
+  created_by:         uuid('created_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:         timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const simplesApuracaoEvents = pgTable('simples_apuracao_events', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  apuracao_id: uuid('apuracao_id').notNull().references(() => simplesApuracao.id, { onDelete: 'cascade' }),
+  event_type:  varchar('event_type', { length: 30 }).notNull(),
+  payload:     jsonb('payload'),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const dasPayments = pgTable('das_payments', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:  uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia: char('competencia', { length: 7 }).notNull(),
+  paid_at:     date('paid_at').notNull(),
+  amount:      decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  source:      varchar('source', { length: 14 }).notNull().default('manual'),
+  reference:   varchar('reference', { length: 100 }),
+  created_by:  uuid('created_by'),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Transmissão PGDAS-D via SERPRO Integra Contador (0079). Agregado SEPARADO de
+// simples_apuracao (que tem status próprio clobbered pelo export). status:
+// building|sent|confirmed|failed|failed_unknown (failed_unknown é TERMINAL —
+// Declarar não é idempotente; nunca auto-retry).
+export const pgdasdTransmissions = pgTable('pgdasd_transmissions', {
+  id:                    uuid('id').primaryKey().defaultRandom(),
+  tenant_id:             uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:            uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  apuracao_id:           uuid('apuracao_id').notNull().references(() => simplesApuracao.id, { onDelete: 'cascade' }),
+  competencia:           char('competencia', { length: 7 }).notNull(),
+  indicador_transmissao: boolean('indicador_transmissao').notNull().default(false),
+  status:                varchar('status', { length: 16 }).notNull().default('building'),
+  payload_dados:         jsonb('payload_dados').notNull(),
+  numero_declaracao:     varchar('numero_declaracao', { length: 30 }),
+  valores_rfb:           jsonb('valores_rfb'),
+  das_pdf_s3_key:        varchar('das_pdf_s3_key', { length: 255 }),
+  erro_codigo:           varchar('erro_codigo', { length: 60 }),
+  erro_mensagem:         text('erro_mensagem'),
+  created_by:            uuid('created_by'),
+  created_at:            timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:            timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Repartição do DAS por tributo (GLOBAL, regra 33; seed na 0075).
+export const taxSimplesRepartition = pgTable('tax_simples_repartition', {
+  vigencia_ano: smallint('vigencia_ano').notNull(),
+  anexo:        varchar('anexo', { length: 3 }).notNull(),
+  faixa:        smallint('faixa').notNull(),
+  irpj:         decimal('irpj', { precision: 6, scale: 4 }).notNull().default('0'),
+  csll:         decimal('csll', { precision: 6, scale: 4 }).notNull().default('0'),
+  cofins:       decimal('cofins', { precision: 6, scale: 4 }).notNull().default('0'),
+  pis:          decimal('pis', { precision: 6, scale: 4 }).notNull().default('0'),
+  cpp:          decimal('cpp', { precision: 6, scale: 4 }).notNull().default('0'),
+  icms:         decimal('icms', { precision: 6, scale: 4 }).notNull().default('0'),
+  ipi:          decimal('ipi', { precision: 6, scale: 4 }).notNull().default('0'),
+  iss:          decimal('iss', { precision: 6, scale: 4 }).notNull().default('0'),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.vigencia_ano, t.anexo, t.faixa] }),
+}));
+
+// Ledger de receita segregada (migration 0070) — base do RBT12 por empresa.
+export const fiscalRevenueMonthly = pgTable('fiscal_revenue_monthly', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:          uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  competencia:         char('competencia', { length: 7 }).notNull(),
+  anexo:               smallint('anexo'),
+  municipio_ibge:      varchar('municipio_ibge', { length: 10 }),
+  cnae:                char('cnae', { length: 7 }),
+  receita_bruta:       decimal('receita_bruta', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_tributavel:  decimal('receita_tributavel', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_isenta:      decimal('receita_isenta', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_com_retencao: decimal('receita_com_retencao', { precision: 15, scale: 2 }).notNull().default('0'),
+  receita_exportacao:  decimal('receita_exportacao', { precision: 15, scale: 2 }).notNull().default('0'),
+  source_doc_type:     varchar('source_doc_type', { length: 20 }).notNull(),
+  source_doc_id:       uuid('source_doc_id'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Conciliação (migration 0072) ─────────────────────────────────────────────
+// Ledger de matches (append-only + reversão auditada). Vínculo POLIMÓRFICO
+// target_type/target_id cobre alvos sem receivable (pedido/agenda). Este
+// motor é o ÚNICO escritor de imported_transactions.reconciliation_status.
+export const reconciliationMatches = pgTable('reconciliation_matches', {
+  id:                      uuid('id').primaryKey().defaultRandom(),
+  tenant_id:               uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:              uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  imported_transaction_id: uuid('imported_transaction_id').notNull().references(() => importedTransactions.id, { onDelete: 'cascade' }),
+  target_type:             varchar('target_type', { length: 24 }).notNull(),
+  target_id:               uuid('target_id'),
+  receivable_id:           uuid('receivable_id'),
+  receivable_payment_id:   uuid('receivable_payment_id'),
+  // Tesouraria (0082): débito conciliado ↔ conta a pagar + pagamento gerado.
+  payable_id:              uuid('payable_id'),
+  payable_payment_id:      uuid('payable_payment_id'),
+  amount_matched:          decimal('amount_matched', { precision: 15, scale: 2 }).notNull(),
+  score:                   decimal('score', { precision: 5, scale: 4 }).notNull().default('0'),
+  matched_keys:            jsonb('matched_keys'),
+  match_method:            varchar('match_method', { length: 10 }).notNull().default('auto'),
+  status:                  varchar('status', { length: 12 }).notNull().default('suggested'),
+  dedup_key:               varchar('dedup_key', { length: 200 }).notNull(),
+  matched_by:              uuid('matched_by'),
+  confirmed_at:            timestamp('confirmed_at', { withTimezone: true }),
+  reversed_by:             uuid('reversed_by'),
+  reversed_at:             timestamp('reversed_at', { withTimezone: true }),
+  created_at:              timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const reconciliationRules = pgTable('reconciliation_rules', {
+  id:                     uuid('id').primaryKey().defaultRandom(),
+  tenant_id:              uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:             uuid('company_id').references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  amount_tolerance:       decimal('amount_tolerance', { precision: 15, scale: 2 }).notNull().default('0.01'),
+  date_window_days:       smallint('date_window_days').notNull().default(3),
+  auto_confirm_threshold: decimal('auto_confirm_threshold', { precision: 5, scale: 4 }).notNull().default('0.90'),
+  match_net_amount:       boolean('match_net_amount').notNull().default(true),
+  is_active:              boolean('is_active').notNull().default(true),
+  created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Consolidação (migration 0073) ────────────────────────────────────────────
+export const consolidationRules = pgTable('consolidation_rules', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:   uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  client_id:    uuid('client_id'),
+  contract_id:  uuid('contract_id'),
+  strategy:     varchar('strategy', { length: 12 }).notNull().default('monthly'),
+  service_code: varchar('service_code', { length: 10 }),
+  is_active:    boolean('is_active').notNull().default(true),
+  created_by:   uuid('created_by'),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDrafts = pgTable('fiscal_document_drafts', {
+  id:                uuid('id').primaryKey().defaultRandom(),
+  tenant_id:         uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:        uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  client_id:         uuid('client_id'),
+  rule_id:           uuid('rule_id'),
+  strategy_snapshot: varchar('strategy_snapshot', { length: 12 }).notNull(),
+  doc_type:          varchar('doc_type', { length: 6 }).notNull().default('nfse'),
+  competency_ref:    char('competency_ref', { length: 7 }).notNull(),
+  service_code:      varchar('service_code', { length: 10 }),
+  grouping_key:      varchar('grouping_key', { length: 200 }).notNull(),
+  status:            varchar('status', { length: 12 }).notNull().default('open'),
+  amount:            decimal('amount', { precision: 15, scale: 2 }).notNull().default('0'),
+  simples_effective_rate: decimal('simples_effective_rate', { precision: 6, scale: 4 }),
+  rbt12:             decimal('rbt12', { precision: 15, scale: 2 }),
+  anexo:             varchar('anexo', { length: 3 }),
+  iss_rate:          decimal('iss_rate', { precision: 5, scale: 2 }),
+  iss_value:         decimal('iss_value', { precision: 15, scale: 2 }),
+  iss_retido:        boolean('iss_retido').notNull().default(false),
+  nfse_id:           uuid('nfse_id'),
+  error_message:     text('error_message'),
+  created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDraftLines = pgTable('fiscal_document_draft_lines', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  draft_id:       uuid('draft_id').notNull().references(() => fiscalDocumentDrafts.id, { onDelete: 'cascade' }),
+  transaction_id: uuid('transaction_id').notNull().references(() => importedTransactions.id, { onDelete: 'cascade' }),
+  service_code:   varchar('service_code', { length: 10 }),
+  amount:         decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  sale_date:      date('sale_date'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fiscalDocumentDraftEvents = pgTable('fiscal_document_draft_events', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  tenant_id:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  draft_id:   uuid('draft_id').notNull().references(() => fiscalDocumentDrafts.id, { onDelete: 'cascade' }),
+  event_type: varchar('event_type', { length: 40 }).notNull(),
+  payload:    jsonb('payload'),
+  created_by: uuid('created_by'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const acquirerAccounts = pgTable('acquirer_accounts', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  tenant_id:       uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:      uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  label:           varchar('label', { length: 80 }).notNull(),
+  provider:        varchar('provider', { length: 30 }).notNull(),
+  merchant_id:     varchar('merchant_id', { length: 60 }),
+  terminal_serial: varchar('terminal_serial', { length: 60 }),
+  fee_schedule:    jsonb('fee_schedule'),
+  credentials:     jsonb('credentials'),
+  is_active:       boolean('is_active').notNull().default(true),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Fiscal Engine API (0080) ─────────────────────────────────────────────────
+// Chaves de API para consumidores EXTERNOS do motor fiscal (/v1/engine/*).
+// O segredo nunca é armazenado: key_hash (SHA-256) + key_prefix p/ lookup.
+export const apiKeys = pgTable('api_keys', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  tenant_id:          uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:               varchar('name', { length: 120 }).notNull(),
+  key_prefix:         varchar('key_prefix', { length: 20 }).notNull(),
+  key_hash:           char('key_hash', { length: 64 }).notNull(),
+  scopes:             jsonb('scopes').notNull().default(['engine']),
+  rate_limit_per_min: smallint('rate_limit_per_min').notNull().default(60),
+  status:             varchar('status', { length: 10 }).notNull().default('active'),
+  // Captação de Leads (migration 0084): 'secret' (Engine, nunca roda fora de
+  // um backend) vs 'publishable' (só escopo leads:create, seguro pra ficar
+  // embutida em JS de landing page — padrão Stripe). allowed_origins é
+  // defesa em profundidade opcional (checagem de Origin/Referer, nunca a
+  // garantia real — ver lib/apiKeyAuth.ts).
+  key_type:           varchar('key_type', { length: 12 }).notNull().default('secret'),
+  allowed_origins:    jsonb('allowed_origins'),
+  last_used_at:       timestamp('last_used_at', { withTimezone: true }),
+  revoked_at:         timestamp('revoked_at', { withTimezone: true }),
+  created_by:         uuid('created_by'),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Medição por chave/dia/endpoint — base do billing futuro (v1 só mede).
+export const apiKeyUsage = pgTable('api_key_usage', {
+  api_key_id: uuid('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  dia:        date('dia').notNull(),
+  endpoint:   varchar('endpoint', { length: 80 }).notNull(),
+  count:      integer('count').notNull().default(0),
+});
+
+// ── Open Finance / conciliação automática (0081) ─────────────────────────────
+// Conexão bancária via Pluggy: o extrato entra sozinho (sync diário + botão)
+// em imported_transactions e cai na fila de conciliação existente.
+export const bankConnections = pgTable('bank_connections', {
+  id:             uuid('id').primaryKey().defaultRandom(),
+  tenant_id:      uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  company_id:     uuid('company_id').notNull().references(() => nfeConfigs.id, { onDelete: 'cascade' }),
+  provider:       varchar('provider', { length: 20 }).notNull().default('pluggy'),
+  item_id:        varchar('item_id', { length: 60 }).notNull(),
+  institution:    varchar('institution', { length: 120 }),
+  status:         varchar('status', { length: 15 }).notNull().default('active'),
+  last_synced_at: timestamp('last_synced_at', { withTimezone: true }),
+  last_error:     text('last_error'),
+  created_by:     uuid('created_by'),
+  created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bankConnectionAccounts = pgTable('bank_connection_accounts', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  connection_id: uuid('connection_id').notNull().references(() => bankConnections.id, { onDelete: 'cascade' }),
+  account_id:    varchar('account_id', { length: 60 }).notNull(),
+  type:          varchar('type', { length: 20 }),
+  subtype:       varchar('subtype', { length: 30 }),
+  name:          varchar('name', { length: 120 }),
+  number_masked: varchar('number_masked', { length: 40 }),
+  currency:      char('currency', { length: 3 }).notNull().default('BRL'),
+  sync_enabled:  boolean('sync_enabled').notNull().default(true),
+  // Tesouraria (0082): saldo espelhado da Pluggy a cada sync.
+  balance:           decimal('balance', { precision: 15, scale: 2 }),
+  balance_synced_at: timestamp('balance_synced_at', { withTimezone: true }),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

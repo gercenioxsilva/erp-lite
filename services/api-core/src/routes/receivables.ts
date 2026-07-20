@@ -3,6 +3,8 @@ import { eq, and, or, ilike, sql, desc, gte, lte } from 'drizzle-orm';
 import { db, receivables, receivablePayments, clients } from '../db';
 import { requirePermission } from '../lib/requirePermission';
 import { notifyPaymentConfirmed } from '../services/whatsappAutomationService';
+import { registerReceivablePayment, ReceivablePaymentError } from '../services/receivableService';
+import { reverseEntry } from '../services/accountingService';
 
 const VALID_STATUSES  = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
 const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -159,55 +161,32 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /* ── POST /v1/receivables/:id/payments ─────────────────────────────────── */
+  // Lógica extraída para receivableService.registerReceivablePayment (0072):
+  // compartilhada com o motor de conciliação; replies preservados 1:1.
   fastify.post('/receivables/:id/payments', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('receivables:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
     const { payment_date, amount, payment_method = 'other', reference, notes } = request.body as any;
 
-    if (!payment_date) return reply.badRequest('payment_date é obrigatório');
-    if (!amount || Number(amount) <= 0) return reply.badRequest('amount deve ser maior que zero');
-    if (!VALID_METHODS.includes(payment_method))
-      return reply.badRequest(`payment_method inválido. Valores aceitos: ${VALID_METHODS.join(', ')}`);
-
-    const [rec] = await db.select({
-      id: receivables.id, status: receivables.status,
-      amount: receivables.amount, paid_amount: receivables.paid_amount,
-      client_id: receivables.client_id, description: receivables.description,
-    }).from(receivables).where(and(eq(receivables.id, id), eq(receivables.tenant_id, tenantId)));
-
-    if (!rec) return reply.notFound('Conta a receber não encontrada');
-    if (rec.status === 'cancelled') return reply.badRequest('Não é possível registrar pagamento em conta cancelada');
-
-    const payAmt       = Number(amount);
-    const newPaidAmt   = Math.round((Number(rec.paid_amount) + payAmt) * 100) / 100;
-    const totalAmt     = Number(rec.amount);
-    const newStatus    = newPaidAmt >= totalAmt ? 'paid' : 'partial';
-
-    const payment = await db.transaction(async (tx) => {
-      const [pay] = await tx.insert(receivablePayments).values({
-        tenant_id: tenantId, receivable_id: id,
-        payment_date, amount: String(payAmt.toFixed(2)),
-        payment_method, reference: reference || null, notes: notes || null,
-        created_by: userId,
-      }).returning();
-
-      await tx.update(receivables).set({ paid_amount: String(newPaidAmt.toFixed(2)), status: newStatus })
-        .where(eq(receivables.id, id));
-
-      return pay;
-    });
-
-    // WhatsApp — Cobranças e Notificações: só na quitação total (mesmo
-    // template não cobre pagamento parcial nesta v1). Fire-and-forget, nunca
-    // bloqueia a resposta.
-    if (newStatus === 'paid') {
-      void notifyPaymentConfirmed(tenantId, {
-        id: rec.id, client_id: rec.client_id, description: rec.description, amount: rec.amount,
+    try {
+      const { payment, newStatus, newPaidAmount } = await registerReceivablePayment({
+        tenantId, receivableId: id, paymentDate: payment_date, amount,
+        paymentMethod: payment_method, reference, notes, createdBy: userId,
       });
+      return reply.code(201).send({ ...payment, new_status: newStatus, new_paid_amount: newPaidAmount });
+    } catch (err) {
+      if (err instanceof ReceivablePaymentError) {
+        switch (err.code) {
+          case 'payment_date_required':  return reply.badRequest('payment_date é obrigatório');
+          case 'invalid_amount':         return reply.badRequest('amount deve ser maior que zero');
+          case 'invalid_method':         return reply.badRequest(`payment_method inválido. Valores aceitos: ${VALID_METHODS.join(', ')}`);
+          case 'receivable_not_found':   return reply.notFound('Conta a receber não encontrada');
+          case 'receivable_cancelled':   return reply.badRequest('Não é possível registrar pagamento em conta cancelada');
+        }
+      }
+      throw err;
     }
-
-    return reply.code(201).send({ ...payment, new_status: newStatus, new_paid_amount: newPaidAmt });
   });
 
   /* ── DELETE /v1/receivables/:id/payments/:paymentId ────────────────────── */
@@ -232,6 +211,10 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
       await tx.update(receivables).set({ paid_amount: String(newPaidAmt.toFixed(2)), status: newStatus })
         .where(eq(receivables.id, id));
     });
+
+    // Estorno contábil (fire-and-forget): reverte o recebimento excluído.
+    void reverseEntry(tenantId, { sourceType: 'receivable_payment', sourceId: paymentId, reason: 'pagamento excluído' }, null)
+      .catch((err) => console.error(JSON.stringify({ event: 'accounting_reverse_error', source: 'receivable_payment', id: paymentId, error: String(err) })));
 
     return { ok: true, new_status: newStatus, new_paid_amount: newPaidAmt };
   });

@@ -1,10 +1,28 @@
 import { FastifyPluginAsync } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, payables, payablePayments, suppliers } from '../db';
+import { db, payables, payablePayments, suppliers, dreCategories } from '../db';
 import { requirePermission } from '../lib/requirePermission';
+import { postEntry, resolveRegime, reverseEntry } from '../services/accountingService';
+import { linesForPayablePayment, DRE_TO_ACCOUNT } from '../domain/accounting/accountingDomain';
 
 const VALID_CATEGORIES = ['rent', 'utilities', 'payroll', 'supplies', 'services', 'taxes', 'other'] as const;
 const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
+
+// Conta de despesa quando não há dre_category_id vinculada (categoria simples).
+const CATEGORY_TO_ACCOUNT: Record<string, string> = {
+  rent: 'despesa_aluguel', utilities: 'despesa_utilidades', payroll: 'despesa_pessoal',
+  supplies: 'cmv', services: 'despesa_admin', taxes: 'despesa_tributaria', other: 'despesa_outras',
+};
+
+/** dre_category_id → dre_categories.code → conta; senão a categoria simples;
+ *  fallback despesa_outras. */
+async function resolveExpenseKey(dreCategoryId: string | null, category: string | null): Promise<string> {
+  if (dreCategoryId) {
+    const [dc] = await db.select({ code: dreCategories.code }).from(dreCategories).where(eq(dreCategories.id, dreCategoryId));
+    if (dc?.code && DRE_TO_ACCOUNT[dc.code]) return DRE_TO_ACCOUNT[dc.code];
+  }
+  return (category && CATEGORY_TO_ACCOUNT[category]) || 'despesa_outras';
+}
 
 export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -197,6 +215,8 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
     const [pay] = await db.select({
       id: payables.id, status: payables.status,
       amount: payables.amount, paid_amount: payables.paid_amount,
+      category: payables.category, dre_category_id: payables.dre_category_id,
+      description: payables.description,
     }).from(payables).where(and(eq(payables.id, id), eq(payables.tenant_id, tenantId)));
 
     if (!pay) return reply.notFound('Conta a pagar não encontrada');
@@ -220,6 +240,24 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
 
       return p;
     });
+
+    // Posting contábil (fire-and-forget, idempotente por payment.id):
+    // D-conta de despesa / C-Bancos.
+    void (async () => {
+      try {
+        const expenseKey = await resolveExpenseKey(pay.dre_category_id, pay.category);
+        const { companyId } = await resolveRegime(tenantId, null, db);
+        await postEntry({
+          tenantId, companyId,
+          sourceType: 'payable_payment', sourceId: payment.id,
+          entryDate: payment_date, competencia: String(payment_date).slice(0, 7),
+          description: `Pagamento — ${pay.description}`,
+          lines: linesForPayablePayment({ amount: payAmt, expenseKey }),
+        }, db);
+      } catch (err) {
+        console.error(JSON.stringify({ event: 'accounting_post_error', source: 'payable_payment', id: payment.id, error: String(err) }));
+      }
+    })();
 
     return reply.code(201).send({ ...payment, new_status: newStatus, new_paid_amount: newPaidAmt });
   });
@@ -246,6 +284,11 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       await tx.update(payables).set({ paid_amount: String(newPaidAmt.toFixed(2)), status: newStatus })
         .where(eq(payables.id, id));
     });
+
+    // Estorno contábil (fire-and-forget): reverte o lançamento do pagamento
+    // excluído. No-op se o pagamento nunca foi postado.
+    void reverseEntry(tenantId, { sourceType: 'payable_payment', sourceId: paymentId, reason: 'pagamento excluído' }, null)
+      .catch((err) => console.error(JSON.stringify({ event: 'accounting_reverse_error', source: 'payable_payment', id: paymentId, error: String(err) })));
 
     return { ok: true, new_status: newStatus, new_paid_amount: newPaidAmt };
   });

@@ -22,7 +22,7 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ tenantId: 'tenant-123', user: { name: 'Test', role: 'owner', permissions: ['nfse:create'] } }),
+  useAuth: () => ({ tenantId: 'tenant-123', user: { name: 'Test', role: 'owner', permissions: ['nfse:emit'] } }),
 }));
 
 vi.mock('../../../i18n', () => ({

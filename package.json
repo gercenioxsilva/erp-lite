@@ -7,13 +7,19 @@
     "apps/*"
   ],
   "scripts": {
-    "dev:api":        "npm run dev --workspace=services/api-core",
+    "dev:api": "npm run dev --workspace=services/api-core",
     "dev:backoffice": "npm run dev --workspace=apps/backoffice",
-    "build:all":      "npm run build --workspaces --if-present",
-    "test:all":       "npm run test --workspaces --if-present",
-    "migrate":        "npm run migrate --workspace=services/api-core"
+    "build:all": "npm run build --workspaces --if-present",
+    "test:all": "npm run test --workspaces --if-present",
+    "migrate": "npm run migrate --workspace=services/api-core",
+    "docs:api:lint": "redocly lint docs/openapi/public-api.yaml",
+    "docs:api:build": "redocly build-docs docs/openapi/public-api.yaml --output docs/openapi/dist/api-docs.html",
+    "docs:api:preview": "redocly preview-docs docs/openapi/public-api.yaml"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.39.0"
   }
 }
