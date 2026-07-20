@@ -29,14 +29,14 @@ export const engineKeysRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/engine-keys', guard, async (request) => {
     const { tenantId } = (request as any).user;
-    return { success: true, data: await listKeys(tenantId) };
+    return { success: true, data: await listKeys(tenantId, undefined, 'engine') };
   });
 
   fastify.delete('/engine-keys/:id', guard, async (request, reply) => {
     const { tenantId } = (request as any).user;
     const { id } = request.params as { id: string };
     try {
-      return { success: true, data: await revokeKey(tenantId, id) };
+      return { success: true, data: await revokeKey(tenantId, id, undefined, 'engine') };
     } catch (err) {
       if (err instanceof EngineKeyError) return reply.code(404).send({ success: false, error: err.code });
       throw err;

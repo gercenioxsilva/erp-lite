@@ -90,6 +90,15 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
     label: 'API do Motor Fiscal',
     actions: { manage: 'Criar, listar e revogar chaves de API do motor fiscal' },
   },
+  // Captação de Leads (0084) — chaves de API PUBLICÁVEIS (embutíveis em JS de
+  // landing page) que só criam registro em `clients` (origin='landing_page').
+  // Fora do Gestor: chave de API é credencial de longa duração (mesma trava
+  // de bank_accounts:manage/engine:manage) — ver a criação de lead em si é
+  // só clients:view/clients:edit, que o Gestor já tem.
+  lead_capture: {
+    label: 'Captação de Leads',
+    actions: { manage: 'Criar, listar e revogar chaves de captação de leads' },
+  },
   // Contabilidade automática (módulo opcional 'contabil') — dupla entrada.
   contabil: {
     label: 'Contabilidade',
