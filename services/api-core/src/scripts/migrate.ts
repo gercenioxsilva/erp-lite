@@ -128,6 +128,7 @@ const migrations = [
   '0081_openfinance_connections.sql',
   '0082_openfinance_treasury.sql',
   '0083_scheduling_noshow_reminders.sql',
+  '0084_lead_capture.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

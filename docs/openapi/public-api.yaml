@@ -1,0 +1,534 @@
+openapi: 3.0.3
+
+info:
+  title: Orquestra ERP — API Pública
+  version: "1.0.0"
+  description: |
+    APIs REST autenticadas por chave (`X-API-Key`), pensadas para consumo por
+    **sistemas de terceiros** — landing pages, ERPs de contador, integrações
+    de parceiro. Nenhuma delas usa sessão/cookie/JWT: cada chave já resolve o
+    tenant sozinha.
+
+    Duas famílias hoje:
+    - **Captação de Leads** — envia um lead de formulário público direto pro
+      cadastro de clientes do tenant.
+    - **Motor Fiscal (Simples Nacional)** — cálculo tributário stateless
+      (apuração, RBT12, Fator R, projeção, tabelas oficiais, payload PGDAS-D).
+
+    Gere sua chave em **Minha Empresa → Integrações** no backoffice — o
+    segredo aparece **uma única vez** no momento da criação.
+  contact:
+    name: Orquestra ERP
+  license:
+    name: Proprietary — uso restrito a tenants autenticados por chave
+
+servers:
+  - url: https://orquestraerp.com.br
+    description: Produção
+
+tags:
+  - name: leads
+    x-displayName: Captação de Leads
+    description: Envio de leads de landing pages direto pro cadastro de clientes do tenant.
+  - name: engine
+    x-displayName: Motor Fiscal (Simples Nacional)
+    description: Cálculo tributário stateless do Simples Nacional para sistemas externos.
+
+x-tagGroups:
+  - name: Captação de Leads
+    tags: [leads]
+  - name: Motor Fiscal
+    tags: [engine]
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        `pk_live_...` (publishable — segura pra embutir em JS client-side,
+        escopo único `leads:create`) ou `ek_live_...` (secret — server-side
+        only, escopo `engine`). Nunca use uma chave `ek_live_` no navegador.
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+          description: Código estável da causa do erro (ver por endpoint).
+      additionalProperties: true
+
+  responses:
+    Unauthorized:
+      description: |
+        Chave ausente (`api_key_missing`) ou inválida/revogada
+        (`api_key_invalid`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: |
+        Chave sem o escopo exigido (`api_key_scope_denied`), módulo
+        desligado pelo tenant (`module_disabled`) ou origem fora do
+        allowlist da chave, quando configurado (`api_key_origin_denied` —
+        defesa em profundidade, nunca a garantia real de segurança).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: |
+        Limite por minuto da chave excedido (`rate_limit_exceeded`).
+        Header `Retry-After: 60` presente na resposta.
+      headers:
+        Retry-After:
+          schema: { type: string }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+paths:
+  /v1/public/leads:
+    post:
+      operationId: createLead
+      tags: [leads]
+      summary: Envia um lead de landing page
+      description: |
+        Cria (ou mescla, se já existir) um cliente a partir de um formulário
+        público. `tenant_id` **nunca** vem do corpo — é resolvido
+        exclusivamente pela chave; um `tenant_id` enviado no body é
+        silenciosamente ignorado.
+
+        **Nome + pelo menos um contato (`email` ou `phone`) são obrigatórios.**
+        `company_name`/`cnpj` inferem pessoa jurídica; sem eles o lead vira
+        pessoa física.
+
+        Dedup: casa por CNPJ normalizado se informado; senão por e-mail
+        (minúsculo) quando nenhum dos dois lados tem documento. Quando casa
+        com um cliente já existente, o merge **só preenche campo vazio** —
+        nunca sobrescreve um dado que o tenant já editou. Sem CNPJ nem
+        e-mail (só telefone), sempre cria um registro novo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:          { type: string, description: "Nome da pessoa ou razão social (se PJ)." }
+                email:         { type: string, format: email }
+                phone:         { type: string, description: "Só dígitos ou formatado — não normalizado no envelope." }
+                company_name:  { type: string, description: "Presença infere pessoa jurídica." }
+                cnpj:          { type: string, description: "Só dígitos ou formatado. Presença infere pessoa jurídica." }
+                message:       { type: string, description: "Vira a observação (notes) do cliente." }
+            examples:
+              pessoaFisica:
+                summary: Lead pessoa física (só e-mail)
+                value: { name: "Ana Souza", email: "ana@exemplo.com", message: "Quero um orçamento" }
+              pessoaJuridica:
+                summary: Lead pessoa jurídica (com CNPJ)
+                value: { name: "Ana Souza", company_name: "Acme Ltda", cnpj: "11444777000161", phone: "11999990000" }
+      responses:
+        '201':
+          description: Lead novo — cliente criado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      id:      { type: string, format: uuid }
+                      created: { type: boolean, enum: [true] }
+              example: { success: true, data: { id: "f47ac10b-58cc-4372-a567-0e02b2c3d479", created: true } }
+        '200':
+          description: Lead já existia — mesclado com o cliente encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      id:      { type: string, format: uuid }
+                      created: { type: boolean, enum: [false] }
+        '422':
+          description: |
+            Entrada recusada pelo domínio: `lead_name_required`,
+            `lead_email_invalid` ou `lead_contact_required` (nem e-mail
+            nem telefone informados).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/simples/apurar:
+    post:
+      operationId: engineApurar
+      tags: [engine]
+      summary: DAS por tributo (apuração completa)
+      description: |
+        Alíquota efetiva (LC 123 art. 18), teto de 5% do ISS com
+        redistribuição (§22-A), sublimite de R$ 3,6M (ICMS/ISS por fora),
+        Anexo IV sem CPP, ISS retido abatido, empresa mista (vários anexos
+        somam). Mesmo motor usado pela apuração PGDAS-D interna do ERP,
+        validado ao centavo contra DAS reais emitidos pela Receita.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [competencia, rbt12, anexos]
+              properties:
+                competencia: { type: string, example: "2026-02", description: "AAAA-MM" }
+                rbt12:       { type: number, example: 33600 }
+                anexos:
+                  type: array
+                  items:
+                    type: object
+                    required: [anexo, receita]
+                    properties:
+                      anexo:                { type: string, enum: [I, II, III, IV, V] }
+                      receita:              { type: number }
+                      receita_com_retencao: { type: number, default: 0 }
+            example:
+              competencia: "2026-02"
+              rbt12: 33600
+              anexos: [{ anexo: "III", receita: 2800, receita_com_retencao: 0 }]
+      responses:
+        '200':
+          description: Cálculo completo, com memória de apuração.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  dasTotal: 168
+                  tributos: { irpj: 6.72, csll: 5.88, cofins: 21.54, pis: 4.67, cpp: 72.91, icms: 0, ipi: 0, iss: 56.28 }
+                  issRetidoTotal: 0
+                  sublimiteExcedido: false
+                  memoria: { porAnexo: [{ faixa: 1, aliquotaEfetiva: 6 }] }
+        '400':
+          description: "`competencia_invalida` / `rbt12_obrigatorio` / `anexos_obrigatorio` / `anexo_invalido` / `receita_invalida`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Recusa do domínio tributário (regra de negócio violada).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/simples/rbt12:
+    post:
+      operationId: engineRbt12
+      tags: [engine]
+      summary: Receita bruta dos últimos 12 meses
+      description: |
+        Janela dos 12 meses **anteriores** à competência (a própria
+        competência não entra), com proporcionalização de início de
+        atividade (< 12 meses → média × 12; 1º mês → receita × 12).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [competencia, receitas_por_competencia]
+              properties:
+                competencia:    { type: string, example: "2026-02" }
+                data_abertura:  { type: string, nullable: true, example: "2023-08-15" }
+                receitas_por_competencia:
+                  type: object
+                  additionalProperties: { type: number }
+                  description: "Mapa AAAA-MM → receita do mês."
+            example:
+              competencia: "2026-02"
+              data_abertura: "2023-08-15"
+              receitas_por_competencia: { "2025-02": 2800, "2025-03": 2800, "2026-01": 2800 }
+      responses:
+        '200':
+          description: RBT12 calculado.
+          content:
+            application/json:
+              example: { success: true, data: { competencia: "2026-02", rbt12: 33600 } }
+        '400':
+          description: "`competencia_invalida` / `receitas_por_competencia_obrigatorio` / `receita_competencia_invalida`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Recusa do domínio tributário.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/simples/fator-r:
+    post:
+      operationId: engineFatorR
+      tags: [engine]
+      summary: Resolve Anexo III ou V pelo Fator R
+      description: |
+        Com menos de 12 meses de folha a chamada é **recusada**
+        (`422 folha_12m_incompleta`) em vez de assumir zero — folha
+        subestimada jogaria a empresa indevidamente no Anexo V.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [folha_12m, receita_12m]
+              properties:
+                folha_12m:       { type: number }
+                receita_12m:     { type: number }
+                meses_com_folha: { type: integer, default: 12 }
+            example: { folha_12m: 2800, receita_12m: 10000, meses_com_folha: 12 }
+      responses:
+        '200':
+          description: Anexo resolvido.
+          content:
+            application/json:
+              example: { success: true, data: { fator_r: 0.28, anexo: "III" } }
+        '400':
+          description: "`folha_12m_obrigatorio` / `receita_12m_obrigatorio`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: "Inclui `folha_12m_incompleta`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/simples/projecao:
+    post:
+      operationId: engineProjecao
+      tags: [engine]
+      summary: DAS projetado do mês + distância até a próxima faixa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [competencia, rbt12, anexo, receita_mes]
+              properties:
+                competencia:       { type: string, example: "2026-02" }
+                rbt12:             { type: number, example: 33600 }
+                anexo:             { type: string, enum: [I, II, III, IV, V] }
+                receita_mes:       { type: number, example: 2800 }
+                receita_pipeline:  { type: number, default: 0 }
+      responses:
+        '200':
+          description: "`data.projecao` (DAS projetado, alíquota efetiva, faixa) + `data.distancia_proxima_faixa`."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      projecao: { type: object }
+                      distancia_proxima_faixa: { type: object }
+        '400':
+          description: "`competencia_invalida` / `rbt12_obrigatorio` / `anexo_invalido` / `receita_mes_obrigatorio`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Recusa do domínio tributário.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/tabelas/{anexo}:
+    get:
+      operationId: engineTabelas
+      tags: [engine]
+      summary: Tabelas oficiais do Simples Nacional por vigência
+      description: |
+        Transparência do cálculo: as faixas (RBT12 mín/máx, alíquota
+        nominal, parcela a deduzir) e a repartição por tributo da vigência
+        consultada.
+      parameters:
+        - name: anexo
+          in: path
+          required: true
+          schema: { type: string, enum: [I, II, III, IV, V] }
+        - name: vigencia
+          in: query
+          required: false
+          schema: { type: integer, example: 2026 }
+          description: "Ano da vigência. Default: ano corrente."
+      responses:
+        '200':
+          description: Tabelas da vigência consultada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      anexo: { type: string }
+                      vigencia_consultada: { type: integer }
+                      faixas: { type: array, items: { type: object } }
+                      reparticao: { type: object }
+        '400':
+          description: "`anexo_invalido` / `vigencia_invalida`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/engine/pgdasd/payload:
+    post:
+      operationId: enginePgdasdPayload
+      tags: [engine]
+      summary: Payload TRANSDECLARACAO11 (SERPRO Integra Contador)
+      description: |
+        Gera o objeto `dados` pronto para a **SERPRO Integra Contador**
+        (transmissão do PGDAS-D) — para quem tem contrato SERPRO próprio.
+        **Não transmite nada**: `indicador_transmissao` default `false`
+        (conferência).
+
+        ⚠️ `id_atividade` é o **enum 1..43 do PGDAS-D** — não é o código
+        LC 116 nem o CNAE. Serviço no próprio município: `11` (sujeito ao
+        Fator R) ou `14` (Anexo III fixo); com ISS retido: `12`/`15`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cnpj, competencia, regime, receita_mes, id_atividade, receitas_brutas_anteriores]
+              properties:
+                cnpj:                       { type: string, example: "00000000000191", description: "14 dígitos." }
+                competencia:                { type: string, example: "2026-02" }
+                regime:                     { type: string, enum: [competencia, caixa] }
+                receita_mes:                { type: number, example: 2800 }
+                id_atividade:               { type: integer, minimum: 1, maximum: 43, example: 11 }
+                receitas_brutas_anteriores:
+                  type: array
+                  items:
+                    type: object
+                    required: [competencia, valor]
+                    properties: { competencia: { type: string }, valor: { type: number } }
+                folhas_salario:
+                  type: array
+                  items:
+                    type: object
+                    properties: { competencia: { type: string }, valor: { type: number } }
+                valores_para_comparacao:
+                  type: object
+                  additionalProperties: { type: number }
+                  example: { iss: 56.28, cpp: 72.91 }
+                indicador_transmissao: { type: boolean, default: false }
+                tipo_declaracao:       { type: integer, enum: [1, 2], default: 1 }
+            example:
+              cnpj: "00000000000191"
+              competencia: "2026-02"
+              regime: "competencia"
+              receita_mes: 2800
+              id_atividade: 11
+              receitas_brutas_anteriores: [{ competencia: "2025-02", valor: 2800 }]
+              folhas_salario: [{ competencia: "2025-02", valor: 1500 }]
+              valores_para_comparacao: { iss: 56.28, cpp: 72.91 }
+      responses:
+        '200':
+          description: "`data.dados` (objeto) + `data.dados_serializado` (string, pronto pro payload SERPRO)."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      dados: { type: object }
+                      dados_serializado: { type: string }
+        '400':
+          description: "`cnpj_invalido` / `competencia_invalida` / `regime_invalido` / `receita_mes_obrigatorio` / `id_atividade_invalido` / `receitas_brutas_anteriores_invalido` / `folhas_salario_invalido`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Recusa do domínio tributário.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'

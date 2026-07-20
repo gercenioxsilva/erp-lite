@@ -157,6 +157,10 @@ export const clients = pgTable('clients', {
   whatsapp_opt_in:     boolean('whatsapp_opt_in').notNull().default(false),
   whatsapp_opt_in_at:  timestamp('whatsapp_opt_in_at',  { withTimezone: true }),
   whatsapp_opt_out_at: timestamp('whatsapp_opt_out_at', { withTimezone: true }),
+  // Origem do registro (migration 0084, mesmo padrão de orders.origin) —
+  // 'erp' é sempre o default (cadastro manual/import); 'landing_page' marca
+  // o que entrou pela API pública de captação de leads.
+  origin: varchar('origin', { length: 20 }).notNull().default('erp'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2651,6 +2655,13 @@ export const apiKeys = pgTable('api_keys', {
   scopes:             jsonb('scopes').notNull().default(['engine']),
   rate_limit_per_min: smallint('rate_limit_per_min').notNull().default(60),
   status:             varchar('status', { length: 10 }).notNull().default('active'),
+  // Captação de Leads (migration 0084): 'secret' (Engine, nunca roda fora de
+  // um backend) vs 'publishable' (só escopo leads:create, seguro pra ficar
+  // embutida em JS de landing page — padrão Stripe). allowed_origins é
+  // defesa em profundidade opcional (checagem de Origin/Referer, nunca a
+  // garantia real — ver lib/apiKeyAuth.ts).
+  key_type:           varchar('key_type', { length: 12 }).notNull().default('secret'),
+  allowed_origins:    jsonb('allowed_origins'),
   last_used_at:       timestamp('last_used_at', { withTimezone: true }),
   revoked_at:         timestamp('revoked_at', { withTimezone: true }),
   created_by:         uuid('created_by'),

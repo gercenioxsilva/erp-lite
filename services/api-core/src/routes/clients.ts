@@ -165,7 +165,7 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /v1/clients
   fastify.get('/clients', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('clients:view')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
-    const { person_type, search, page = '1', per_page = '20' } =
+    const { person_type, origin, search, page = '1', per_page = '20' } =
       request.query as Record<string, string>;
 
     const limit  = Math.min(Number(per_page) || 20, 100);
@@ -173,6 +173,10 @@ export const clientsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const conditions: any[] = [eq(clients.tenant_id, tenantId), eq(clients.is_active, true)];
     if (person_type) conditions.push(eq(clients.person_type, person_type));
+    // Filtro "Origem" (migration 0084) — só pra distinguir leads capturados
+    // pela API pública (origin='landing_page') do resto da carteira, nunca
+    // muda o comportamento padrão (sem o filtro, mostra tudo, como sempre).
+    if (origin) conditions.push(eq(clients.origin, origin));
     if (search) conditions.push(or(
       ilike(clients.company_name, `%${search}%`),
       ilike(clients.full_name,    `%${search}%`),

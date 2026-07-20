@@ -37,6 +37,7 @@ interface Client {
   is_active:     boolean;
   notes:         string | null;
   whatsapp_opt_in: boolean;
+  origin:        string;
 }
 
 interface ClientContact {
@@ -189,6 +190,7 @@ export function ClientsPage() {
   const [page,    setPage]    = useState(1);
   const [search,  setSearch]  = useState('');
   const [filter,  setFilter]  = useState('');
+  const [originFilter, setOriginFilter] = useState('');
   const [loading, setLoading] = useState(true);
 
   // ── Drawer (create / edit) state ───────────────────────────────────────────
@@ -232,6 +234,7 @@ export function ClientsPage() {
         tenant_id: tenantId, page: String(page), per_page: String(perPage),
         ...(search ? { search } : {}),
         ...(filter ? { person_type: filter } : {}),
+        ...(originFilter ? { origin: originFilter } : {}),
       });
       const resp = await api.get<ListResp>(`/v1/clients?${p}`);
       setItems(resp.data);
@@ -239,7 +242,7 @@ export function ClientsPage() {
     } catch { /**/ } finally { setLoading(false); }
   }
 
-  useEffect(() => { void load(); }, [tenantId, page, search, filter]);
+  useEffect(() => { void load(); }, [tenantId, page, search, filter, originFilter]);
 
   // Load history when drawer opens for edit
   useEffect(() => {
@@ -543,6 +546,11 @@ export function ClientsPage() {
           <option value="PJ">{t('cl.pj')}</option>
           <option value="PF">{t('cl.pf')}</option>
         </select>
+        <select value={originFilter} onChange={e => { setOriginFilter(e.target.value); setPage(1); }} style={{ width: 'auto' }}>
+          <option value="">{t('cl.allOrigins')}</option>
+          <option value="erp">{t('cl.originErp')}</option>
+          <option value="landing_page">{t('cl.originLanding')}</option>
+        </select>
       </div>
 
       {/* ── Table ────────────────────────────────────────────────────── */}
@@ -576,7 +584,14 @@ export function ClientsPage() {
                     </span>
                   </td>
                   <td>
-                    <div style={{ fontWeight: 500 }}>{c.company_name ?? c.full_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 500 }}>{c.company_name ?? c.full_name}</span>
+                      {c.origin === 'landing_page' && (
+                        <span className="badge badge-service" style={{ fontSize: 10 }} title={t('cl.originLanding')}>
+                          {t('cl.originLanding')}
+                        </span>
+                      )}
+                    </div>
                     {c.trade_name && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.trade_name}</div>}
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12 }}>

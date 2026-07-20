@@ -492,6 +492,19 @@ jobs:
             "s3://${{ steps.tf.outputs.s3_bucket }}/index.html" \
             --cache-control "no-cache,no-store,must-revalidate"
 
+      # ── Deploy API docs (OpenAPI + Redoc) ─────────────────────────────────────
+      # Reuses the same S3 bucket + CloudFront distribution as the backoffice —
+      # no new AWS resource. Published at /api-docs.html, same-origin, no auth
+      # required to view (the API itself still requires X-API-Key to call).
+      - name: Build API docs
+        run: npm run docs:api:build
+
+      - name: Sync API docs to S3
+        run: |
+          aws s3 cp docs/openapi/dist/api-docs.html \
+            "s3://${{ steps.tf.outputs.s3_bucket }}/api-docs.html" \
+            --cache-control "no-cache,no-store,must-revalidate"
+
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
@@ -503,3 +516,4 @@ jobs:
         run: |
           echo "API:        ${{ steps.tf.outputs.api_url }}"
           echo "Backoffice: ${{ steps.tf.outputs.cf_domain }}"
+          echo "API Docs:   ${{ steps.tf.outputs.cf_domain }}/api-docs.html"

@@ -1,6 +1,10 @@
-// Gestão de chaves do Fiscal Engine + medição de uso. O segredo aparece UMA
-// vez (retorno do create) e nunca é recuperável — perda de segredo = revogar
-// e criar outra. Revogação é soft (status) para manter api_key_usage auditável.
+// Gestão de chaves de API + medição de uso — nasceu com o Fiscal Engine
+// (0080) e passou a servir também a Captação de Leads (0084): a lógica de
+// criar/listar/revogar/medir é genérica por natureza, só o conjunto de
+// scopes/tipo de chave muda por chamador (routes/engineKeys.ts vs
+// routes/leadCaptureKeys.ts). O segredo aparece UMA vez (retorno do create)
+// e nunca é recuperável — perda de segredo = revogar e criar outra.
+// Revogação é soft (status) para manter api_key_usage auditável.
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db as _db } from '../db';
@@ -28,8 +32,21 @@ export interface CreatedKey {
   created_at: Date;
 }
 
+export interface CreateKeyOptions {
+  scopes?:          string[];
+  keyType?:         'secret' | 'publishable';
+  rateLimitPerMin?: number;
+  allowedOrigins?:  string[] | null;
+}
+
+/**
+ * Default preserva exatamente o comportamento original do Fiscal Engine
+ * (scopes=['engine'], keyType='secret', rate limit da coluna=60) — chamadores
+ * existentes (`routes/engineKeys.ts`) continuam funcionando sem passar opts.
+ */
 export async function createKey(
   tenantId: string, name: string, createdBy: string | null, db: DrizzleDB = _db,
+  opts: CreateKeyOptions = {},
 ): Promise<CreatedKey> {
   if (!name?.trim()) throw new EngineKeyError('key_name_required');
 
@@ -37,12 +54,19 @@ export async function createKey(
     .where(and(eq(apiKeys.tenant_id, tenantId), eq(apiKeys.status, 'active')));
   if (existing.length >= MAX_KEYS_PER_TENANT) throw new EngineKeyError('key_limit_reached');
 
-  const gen = generateApiKey();
-  const [row] = await db.insert(apiKeys).values({
+  const keyType = opts.keyType ?? 'secret';
+  const gen = generateApiKey(keyType);
+  const values: Record<string, unknown> = {
     tenant_id: tenantId, name: name.trim(),
     key_prefix: gen.keyPrefix, key_hash: gen.keyHash,
+    key_type: keyType,
     created_by: createdBy,
-  }).returning();
+  };
+  if (opts.scopes)          values.scopes = opts.scopes;
+  if (opts.rateLimitPerMin) values.rate_limit_per_min = opts.rateLimitPerMin;
+  if (opts.allowedOrigins)  values.allowed_origins = opts.allowedOrigins;
+
+  const [row] = await db.insert(apiKeys).values(values as any).returning();
 
   return {
     id: row.id, name: row.name, secret: gen.secret, key_prefix: row.key_prefix,
@@ -50,22 +74,42 @@ export async function createKey(
   };
 }
 
-/** Lista SEM segredo e sem hash — só metadados. */
-export async function listKeys(tenantId: string, db: DrizzleDB = _db) {
+/**
+ * Lista SEM segredo e sem hash — só metadados. `scopeFilter` restringe às
+ * chaves daquele escopo (ex.: 'engine' vs 'leads:create') — sem isso, um
+ * tenant com os dois tipos de chave veria tudo misturado em qualquer uma das
+ * duas telas. Filtra em memória (teto de MAX_KEYS_PER_TENANT por tenant,
+ * sem custo real) em vez de um operador JSONB no SQL, por simplicidade.
+ */
+export async function listKeys(tenantId: string, db: DrizzleDB = _db, scopeFilter?: string) {
   const rows = await db.select({
     id: apiKeys.id, name: apiKeys.name, key_prefix: apiKeys.key_prefix,
     status: apiKeys.status, rate_limit_per_min: apiKeys.rate_limit_per_min,
+    key_type: apiKeys.key_type, scopes: apiKeys.scopes,
     last_used_at: apiKeys.last_used_at, created_at: apiKeys.created_at,
   }).from(apiKeys).where(eq(apiKeys.tenant_id, tenantId)).orderBy(desc(apiKeys.created_at));
-  return rows;
+
+  if (!scopeFilter) return rows;
+  return rows.filter(r => Array.isArray(r.scopes) && (r.scopes as string[]).includes(scopeFilter));
 }
 
-export async function revokeKey(tenantId: string, keyId: string, db: DrizzleDB = _db) {
+/**
+ * `scopeFilter` impede que a tela de gestão de um escopo (ex.: Captação de
+ * Leads) revogue por engano uma chave de outro escopo do mesmo tenant (ex.:
+ * Engine) — o `tenant_id` já isola entre tenants, isto isola entre telas.
+ */
+export async function revokeKey(tenantId: string, keyId: string, db: DrizzleDB = _db, scopeFilter?: string) {
+  const [current] = await db.select({ id: apiKeys.id, scopes: apiKeys.scopes }).from(apiKeys)
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.tenant_id, tenantId)));
+  if (!current) throw new EngineKeyError('key_not_found');
+  if (scopeFilter && !(Array.isArray(current.scopes) && (current.scopes as string[]).includes(scopeFilter))) {
+    throw new EngineKeyError('key_not_found');
+  }
+
   const [row] = await db.update(apiKeys)
     .set({ status: 'revoked', revoked_at: new Date() })
-    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.tenant_id, tenantId)))
+    .where(eq(apiKeys.id, keyId))
     .returning({ id: apiKeys.id });
-  if (!row) throw new EngineKeyError('key_not_found');
   return { id: row.id, status: 'revoked' as const };
 }
 

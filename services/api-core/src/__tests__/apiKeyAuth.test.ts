@@ -14,6 +14,13 @@ describe('apiKeyAuth — geração e verificação', () => {
     expect(k.keyHash).toBe(hashApiKey(k.secret));
   });
 
+  it('gera pk_live_ quando keyType=publishable (chave segura pra embutir em JS client-side)', () => {
+    const k = generateApiKey('publishable');
+    expect(k.secret).toMatch(/^pk_live_[0-9a-f]{32}$/);
+    expect(k.keyPrefix).toBe(k.secret.slice(0, 12));
+    expect(k.keyHash).toBe(hashApiKey(k.secret));
+  });
+
   it('duas gerações nunca colidem em segredo nem prefixo', () => {
     const a = generateApiKey();
     const b = generateApiKey();
