@@ -93,6 +93,7 @@ export const fiscalReconciliationRoutes: FastifyPluginAsync = async (fastify) =>
     const b = request.body as {
       company_id?: string; amount_tolerance?: number; date_window_days?: number;
       auto_confirm_threshold?: number; match_net_amount?: boolean;
+      description_weight?: number; use_ai_matching?: boolean;
     };
     const companyId = b.company_id ? (await resolveCompanyId(tenantId, b.company_id, db)).id : null;
     const [row] = await db.insert(reconciliationRules).values({
@@ -101,6 +102,8 @@ export const fiscalReconciliationRoutes: FastifyPluginAsync = async (fastify) =>
       date_window_days: b.date_window_days ?? undefined,
       auto_confirm_threshold: b.auto_confirm_threshold != null ? String(b.auto_confirm_threshold) : undefined,
       match_net_amount: b.match_net_amount ?? undefined,
+      description_weight: b.description_weight != null ? String(b.description_weight) : undefined,
+      use_ai_matching: b.use_ai_matching ?? undefined,
     }).returning();
     return reply.code(201).send(row);
   });
@@ -114,6 +117,8 @@ export const fiscalReconciliationRoutes: FastifyPluginAsync = async (fastify) =>
     if (b.date_window_days != null) patch.date_window_days = b.date_window_days;
     if (b.auto_confirm_threshold != null) patch.auto_confirm_threshold = String(b.auto_confirm_threshold);
     if (b.match_net_amount != null) patch.match_net_amount = b.match_net_amount;
+    if (b.description_weight != null) patch.description_weight = String(b.description_weight);
+    if (b.use_ai_matching != null) patch.use_ai_matching = b.use_ai_matching;
     const [row] = await db.update(reconciliationRules).set(patch)
       .where(and(eq(reconciliationRules.id, id), eq(reconciliationRules.tenant_id, tenantId))).returning();
     if (!row) return reply.notFound('Regra não encontrada');

@@ -2566,6 +2566,8 @@ export const reconciliationRules = pgTable('reconciliation_rules', {
   date_window_days:       smallint('date_window_days').notNull().default(3),
   auto_confirm_threshold: decimal('auto_confirm_threshold', { precision: 5, scale: 4 }).notNull().default('0.90'),
   match_net_amount:       boolean('match_net_amount').notNull().default(true),
+  description_weight:     decimal('description_weight', { precision: 5, scale: 4 }).notNull().default('0.25'),
+  use_ai_matching:        boolean('use_ai_matching').notNull().default(false),
   is_active:              boolean('is_active').notNull().default(true),
   created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

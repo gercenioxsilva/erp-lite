@@ -17,13 +17,20 @@ import { assertCompetenciaAberta } from './fiscalPeriodLockGuard';
 import { toNumber, toDecimalString } from '../lib/money';
 import {
   TxForMatch, ReceivableCandidate, MatchRule, rankCandidates, decideOutcome,
-  matchDedupKey, ReconciliationDomainError,
+  matchDedupKey, ReconciliationDomainError, valueCompatible, payableValueCompatible,
   PayableCandidate, rankPayableCandidates, decidePayableOutcome, txDebitAmount,
 } from '../domain/reconciliation/reconciliationDomain';
+import { scoreDescriptions, SemanticCandidate } from './reconciliationSemanticService';
 
 export type DrizzleDB = typeof _db;
 
-const DEFAULT_RULE: MatchRule = { amountTolerance: 0.01, dateWindowDays: 3, autoConfirmThreshold: 0.9, matchNetAmount: true };
+// Defaults espelham as colunas de reconciliation_rules (0072 + 0086), para o
+// comportamento ser o mesmo com ou sem regra salva. O peso 0.25 liga o
+// componente LEXICAL (grátis); a IA só entra com use_ai_matching explícito.
+const DEFAULT_RULE: MatchRule = {
+  amountTolerance: 0.01, dateWindowDays: 3, autoConfirmThreshold: 0.9, matchNetAmount: true,
+  descriptionWeight: 0.25, useAiMatching: false,
+};
 
 export async function getRule(tenantId: string, companyId: string, db: DrizzleDB = _db): Promise<MatchRule> {
   const rows = await db.select().from(reconciliationRules)
@@ -35,7 +42,22 @@ export async function getRule(tenantId: string, companyId: string, db: DrizzleDB
     dateWindowDays: specific.date_window_days,
     autoConfirmThreshold: toNumber(specific.auto_confirm_threshold),
     matchNetAmount: specific.match_net_amount,
+    descriptionWeight: toNumber(specific.description_weight),
+    useAiMatching: specific.use_ai_matching,
   };
+}
+
+/** Similaridade de descrição candidateId → 0..1 para o ranking.
+ *  Pré-filtra por valor (só candidatos que o valor já não descartaria) e só
+ *  aciona a IA quando permitido, ligado na regra e o caso é ambíguo (>1
+ *  candidato) — o léxico local roda sempre e de graça. Sem peso na regra ⇒
+ *  undefined (score idêntico ao histórico). */
+async function similaritiesFor(
+  memo: string | null, cands: SemanticCandidate[], rule: MatchRule, allowAi: boolean,
+): Promise<Map<string, number> | undefined> {
+  if ((rule.descriptionWeight ?? 0) <= 0 || cands.length === 0) return undefined;
+  const useAi = allowAi && Boolean(rule.useAiMatching) && cands.length > 1;
+  return scoreDescriptions(memo, cands, { useAi });
 }
 
 function toTxForMatch(row: typeof importedTransactions.$inferSelect): TxForMatch {
@@ -206,7 +228,10 @@ export async function runReconciliation(
     // que a normalização grava em customer_document.
     if (txDebitAmount(tx) !== null) {
       const txDebit = { ...tx, counterpartDocument: row.customer_document };
-      const rankedP = rankPayableCandidates(txDebit, payableCandidates.filter((c) => !takenPayables.has(c.id)), rule);
+      const freeP = payableCandidates.filter((c) => !takenPayables.has(c.id));
+      const valueP = freeP.filter((c) => payableValueCompatible(txDebit, c, rule));
+      const simsP = await similaritiesFor(row.memo, valueP, rule, true);
+      const rankedP = rankPayableCandidates(txDebit, freeP, rule, simsP);
       const outcomeP = decidePayableOutcome(rankedP, rule);
 
       if (outcomeP.kind === 'auto_confirm') {
@@ -237,7 +262,10 @@ export async function runReconciliation(
       continue;
     }
 
-    const ranked = rankCandidates(tx, candidates.filter((c) => !taken.has(c.id)), rule);
+    const freeCands = candidates.filter((c) => !taken.has(c.id));
+    const valueCands = freeCands.filter((c) => valueCompatible(tx, c, rule));
+    const sims = await similaritiesFor(tx.memo, valueCands, rule, true);
+    const ranked = rankCandidates(tx, freeCands, rule, sims);
     const outcome = decideOutcome(ranked, rule);
 
     if (outcome.kind === 'auto_confirm') {
@@ -332,9 +360,14 @@ export async function listCandidatesFor(tenantId: string, txId: string, db: Driz
   const tx = toTxForMatch(row);
   if (txDebitAmount(tx) !== null) {
     const txDebit = { ...tx, counterpartDocument: row.customer_document };
-    return rankPayableCandidates(txDebit, await loadPayableCandidates(tenantId, db), wide).slice(0, 20);
+    const cands = await loadPayableCandidates(tenantId, db);
+    // Léxico local só (allowAi=false): sem custo de IA ao abrir a lista.
+    const sims = await similaritiesFor(row.memo, cands.filter((c) => payableValueCompatible(txDebit, c, wide)), wide, false);
+    return rankPayableCandidates(txDebit, cands, wide, sims).slice(0, 20);
   }
-  return rankCandidates(tx, await loadCandidates(tenantId, db), wide).slice(0, 20);
+  const cands = await loadCandidates(tenantId, db);
+  const sims = await similaritiesFor(tx.memo, cands.filter((c) => valueCompatible(tx, c, wide)), wide, false);
+  return rankCandidates(tx, cands, wide, sims).slice(0, 20);
 }
 
 export async function reconciliationSummary(tenantId: string, db: DrizzleDB = _db) {

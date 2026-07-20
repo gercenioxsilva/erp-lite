@@ -1,14 +1,26 @@
 // Motor de conciliação — scoring PURO (sem I/O). Estratégias em cascata:
 // chave exata (NSU/autorização no reference ou memo) > valor exato > valor
-// com tolerância; proximidade de data modula o score. O serviço decide
-// auto-confirmar (score >= threshold da regra) ou sugerir para a fila
-// "Pendente de Conciliação".
+// com tolerância; proximidade de data modula o score; e — quando o serviço
+// fornece — a SIMILARIDADE de descrição (0..1) soma um componente ponderado
+// (rule.descriptionWeight). O serviço decide auto-confirmar (score >= threshold
+// da regra) ou sugerir para a fila "Pendente de Conciliação". A similaridade é
+// calculada FORA daqui (lexical local e/ou IA) e injetada já pronta, para o
+// domínio seguir sem I/O.
+
+import { SEMANTIC_KEY_FLOOR } from './descriptionSimilarity';
 
 export class ReconciliationDomainError extends Error {
   constructor(public code: string, public payload: Record<string, unknown> = {}) {
     super(code);
     this.name = 'ReconciliationDomainError';
   }
+}
+
+/** Componente de descrição no score: rule.descriptionWeight × similaridade. */
+function descriptionScore(similarity: number | undefined, rule: MatchRule): { add: number; matched: boolean } {
+  const weight = rule.descriptionWeight ?? 0;
+  if (weight <= 0 || similarity == null || similarity <= 0) return { add: 0, matched: false };
+  return { add: weight * similarity, matched: similarity >= SEMANTIC_KEY_FLOOR };
 }
 
 export interface TxForMatch {
@@ -36,6 +48,11 @@ export interface MatchRule {
   dateWindowDays: number;
   autoConfirmThreshold: number;
   matchNetAmount: boolean;
+  /** Peso do componente de similaridade de descrição (0..1). Ausente/0 →
+   *  comportamento idêntico ao histórico (sem contribuição semântica). */
+  descriptionWeight?: number;
+  /** Liga o enriquecimento por IA no serviço; o domínio ignora esta flag. */
+  useAiMatching?: boolean;
 }
 
 export interface ScoredCandidate {
@@ -55,14 +72,24 @@ function daysBetween(a: Date, b: Date): number {
   return Math.abs(Math.round((a.getTime() - b.getTime()) / 86_400_000));
 }
 
+/** Candidato compatível por valor (mesma checagem-porteira de scoreCandidate).
+ *  Usado pelo serviço para pré-filtrar antes de calcular similaridade (evita
+ *  gastar IA em candidato que o valor já descartaria). */
+export function valueCompatible(tx: TxForMatch, cand: ReceivableCandidate, rule: MatchRule): boolean {
+  const value = txAmount(tx, rule);
+  if (value === null || value <= 0) return false;
+  return Math.abs(cand.amount - value) <= rule.amountTolerance;
+}
+
 /**
  * Score de um candidato contra uma transação:
  *  - NSU/autorização presente na descrição do receivable → match forte (0.6)
  *  - valor exato → 0.5 | valor dentro da tolerância → 0.35
  *  - data dentro da janela → +0.4 decaindo linearmente com a distância
+ *  - similaridade de descrição (0..1, opcional) → + rule.descriptionWeight × sim
  * Sem valor compatível o candidato é descartado (score 0).
  */
-export function scoreCandidate(tx: TxForMatch, cand: ReceivableCandidate, rule: MatchRule): ScoredCandidate | null {
+export function scoreCandidate(tx: TxForMatch, cand: ReceivableCandidate, rule: MatchRule, similarity?: number): ScoredCandidate | null {
   const value = txAmount(tx, rule);
   if (value === null || value <= 0) return null;
 
@@ -86,13 +113,20 @@ export function scoreCandidate(tx: TxForMatch, cand: ReceivableCandidate, rule: 
     }
   }
 
+  const sem = descriptionScore(similarity, rule);
+  if (sem.add > 0) { score += sem.add; if (sem.matched) keys.push('description_semantic'); }
+
   return { receivableId: cand.id, score: Math.min(1, Math.round(score * 10000) / 10000), matchedKeys: keys, amountMatched: cand.amount };
 }
 
-/** Ranqueia todos os candidatos compatíveis, melhor primeiro. */
-export function rankCandidates(tx: TxForMatch, candidates: ReceivableCandidate[], rule: MatchRule): ScoredCandidate[] {
+/** Ranqueia todos os candidatos compatíveis, melhor primeiro. `similarities`
+ *  (opcional) mapeia candidateId → similaridade de descrição (0..1). */
+export function rankCandidates(
+  tx: TxForMatch, candidates: ReceivableCandidate[], rule: MatchRule,
+  similarities?: Map<string, number>,
+): ScoredCandidate[] {
   return candidates
-    .map((c) => scoreCandidate(tx, c, rule))
+    .map((c) => scoreCandidate(tx, c, rule, similarities?.get(c.id)))
     .filter((s): s is ScoredCandidate => s !== null)
     .sort((a, b) => b.score - a.score);
 }
@@ -144,9 +178,18 @@ export function txDebitAmount(tx: TxForMatch): number | null {
   return Math.abs(tx.amount);
 }
 
+/** Débito compatível por valor com o saldo aberto do payable (pré-filtro). */
+export function payableValueCompatible(
+  tx: TxForMatch & { counterpartDocument?: string | null }, cand: PayableCandidate, rule: MatchRule,
+): boolean {
+  const value = txDebitAmount(tx);
+  if (value === null || value <= 0) return false;
+  return Math.abs(cand.openAmount - value) <= rule.amountTolerance;
+}
+
 export function scorePayableCandidate(
   tx: TxForMatch & { counterpartDocument?: string | null },
-  cand: PayableCandidate, rule: MatchRule,
+  cand: PayableCandidate, rule: MatchRule, similarity?: number,
 ): ScoredPayable | null {
   const value = txDebitAmount(tx);
   if (value === null || value <= 0) return null;
@@ -171,15 +214,19 @@ export function scorePayableCandidate(
     }
   }
 
+  const sem = descriptionScore(similarity, rule);
+  if (sem.add > 0) { score += sem.add; if (sem.matched) keys.push('description_semantic'); }
+
   return { payableId: cand.id, score: Math.min(1, Math.round(score * 10000) / 10000), matchedKeys: keys, amountMatched: value };
 }
 
 export function rankPayableCandidates(
   tx: TxForMatch & { counterpartDocument?: string | null },
   candidates: PayableCandidate[], rule: MatchRule,
+  similarities?: Map<string, number>,
 ): ScoredPayable[] {
   return candidates
-    .map((c) => scorePayableCandidate(tx, c, rule))
+    .map((c) => scorePayableCandidate(tx, c, rule, similarities?.get(c.id)))
     .filter((s): s is ScoredPayable => s !== null)
     .sort((a, b) => b.score - a.score);
 }
