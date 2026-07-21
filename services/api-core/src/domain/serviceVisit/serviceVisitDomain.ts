@@ -96,3 +96,68 @@ export function validateServiceVisitCreate(input: ServiceVisitCreateInput, now: 
     throw new ServiceVisitDomainError('service_visit_scheduled_in_past');
   }
 }
+
+// ── Agenda / conflito de horário ─────────────────────────────────────────────
+// Intervalo SEMPRE meio-aberto [start, end) — mesma convenção do módulo de
+// Agendamento (domain/scheduling/timeDomain.ts): terminar às 09:00 não
+// conflita com começar às 09:00. Diferente do Agendamento, aqui o intervalo
+// nasce de um instante absoluto (scheduled_at + duration_minutes), não de
+// strings 'HH:mm' de wall-clock — não há grade de disponibilidade nem fuso de
+// tenant nesta camada, então comparar Date direto é suficiente e mais simples.
+//
+// Deliberadamente NÃO importa nada de domain/scheduling — são dois domínios
+// de negócio diferentes (visita técnica com checklist/foto/assinatura vs.
+// sessão com pacote) que só coincidem em "alguém tem um horário reservado";
+// a pequena duplicação de overlap() evita acoplar um bounded context ao
+// outro por um utilitário de 3 linhas.
+
+export const DEFAULT_VISIT_DURATION_MINUTES = 60;
+
+export interface VisitTimeRange {
+  start: Date;
+  end:   Date;
+}
+
+export function visitTimeRange(scheduledAt: Date, durationMinutes: number): VisitTimeRange {
+  return { start: scheduledAt, end: new Date(scheduledAt.getTime() + durationMinutes * 60_000) };
+}
+
+/** Overlap meio-aberto: [a.start, a.end) ∩ [b.start, b.end) ≠ ∅. */
+export function visitRangesOverlap(a: VisitTimeRange, b: VisitTimeRange): boolean {
+  return a.start < b.end && b.start < a.end;
+}
+
+export interface VisitSlot {
+  technicianId: string;
+  range:        VisitTimeRange;
+}
+
+const BLOCKING_VISIT_STATUSES = new Set<ServiceVisitStatus>(['scheduled', 'in_progress']);
+
+export function isBlockingVisitStatus(status: ServiceVisitStatus): boolean {
+  return BLOCKING_VISIT_STATUSES.has(status);
+}
+
+/** Mesmo técnico + intervalos se sobrepondo + status que ainda segura o
+ *  horário (scheduled/in_progress — cancelled/completed/no_show liberam). */
+export function visitConflictsWith(
+  candidate: VisitSlot,
+  existing: VisitSlot & { status: ServiceVisitStatus },
+): boolean {
+  return (
+    candidate.technicianId === existing.technicianId &&
+    isBlockingVisitStatus(existing.status) &&
+    visitRangesOverlap(candidate.range, existing.range)
+  );
+}
+
+/** Primeira visita existente que conflita com a candidata, ou null. */
+export function findVisitConflict<T extends VisitSlot & { status: ServiceVisitStatus }>(
+  candidate: VisitSlot,
+  existing: T[],
+): T | null {
+  for (const v of existing) {
+    if (visitConflictsWith(candidate, v)) return v;
+  }
+  return null;
+}

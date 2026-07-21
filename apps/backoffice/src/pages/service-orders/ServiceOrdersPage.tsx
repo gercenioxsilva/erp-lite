@@ -1,11 +1,27 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { api }      from '../../lib/api';
+import { useSearchParams } from 'react-router-dom';
+import { api, ApiError } from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
 import { Can } from '../../rbac';
+
+// Mensagem amigável para o conflito de horário do técnico (regra 78) — mesmo
+// padrão de conflictMessage() em SessionFormDrawer.tsx (Agendamento):
+// reaproveitado também pela Agenda do Técnico (ServiceOrdersAgendaPage.tsx).
+export function visitConflictMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status !== 422 || err.body?.error !== 'visit_conflict') return null;
+  const c = err.body?.conflicting as
+    | { technician_name?: string; scheduled_at?: string; ends_at?: string }
+    | undefined;
+  if (!c) return 'Esse técnico já tem uma visita nesse horário.';
+  const start = c.scheduled_at ? new Date(c.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  const end   = c.ends_at ? new Date(c.ends_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  return `${c.technician_name ?? 'Esse técnico'} já tem visita das ${start} às ${end}.`;
+}
 
 interface ServiceOrder {
   id: string; number: string; title: string; type: string; status: string;
@@ -61,6 +77,7 @@ export function ServiceOrdersPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [orders, setOrders]         = useState<ServiceOrder[]>([]);
   const [total, setTotal]           = useState(0);
@@ -85,8 +102,9 @@ export function ServiceOrdersPage() {
   const [materials, setMaterials]     = useState<MaterialOption[]>([]);
   const [companies, setCompanies]     = useState<CompanyOption[]>([]);
 
-  const [visitTechId, setVisitTechId] = useState('');
-  const [visitAt, setVisitAt]         = useState('');
+  const [visitTechId, setVisitTechId]   = useState('');
+  const [visitAt, setVisitAt]           = useState('');
+  const [visitDuration, setVisitDuration] = useState('60');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
   const [copiedVisitId, setCopiedVisitId] = useState('');
   const [photosOpen, setPhotosOpen]       = useState(false);
@@ -145,18 +163,34 @@ export function ServiceOrdersPage() {
     setDrawerOpen(true);
   }
 
-  async function openView(o: ServiceOrder) {
+  async function openViewById(id: string) {
     setFormError('');
     setDrawerOpen(true);
     setEditing(null);
     setEditMode(false);
     try {
-      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${o.id}`);
+      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${id}`);
       setEditing(detail);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('c.loading'));
     }
   }
+  async function openView(o: ServiceOrder) { return openViewById(o.id); }
+
+  // Deep-link "?edit=<id>" (regra 61/74) — vem da Agenda dos Técnicos (regra
+  // 78), "Ver Ordem de Serviço" no detalhe de uma visita. Busca direto por
+  // id (não depende da OS estar na página/filtro atual da listagem), mesmo
+  // padrão de ClientsPage.tsx/MaterialsPage.tsx.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !tenantId) return;
+    void openViewById(editId).finally(() => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, searchParams]);
 
   // Só entra em modo de edição a partir de uma OS já carregada em 'draft'
   // (regra 52-like: assertServiceOrderEditable no backend) — pré-preenche o
@@ -238,12 +272,17 @@ export function ServiceOrdersPage() {
     try {
       await api.post(`/v1/service-orders/${editing.id}/visits`, {
         technician_id: visitTechId, scheduled_at: new Date(visitAt).toISOString(),
+        duration_minutes: Number(visitDuration),
       });
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
       setEditing(detail);
-      setVisitTechId(''); setVisitAt('');
+      setVisitTechId(''); setVisitAt(''); setVisitDuration('60');
       void load();
-    } catch (err: unknown) { modal.error(err); }
+    } catch (err: unknown) {
+      const conflict = visitConflictMessage(err);
+      if (conflict) setFormError(conflict);
+      else modal.error(err);
+    }
     finally { setSchedulingVisit(false); }
   }
 
@@ -467,6 +506,17 @@ export function ServiceOrdersPage() {
                       <div className="field">
                         <label>{t('so.scheduledAt')}</label>
                         <input type="datetime-local" value={visitAt} onChange={e => setVisitAt(e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label>{t('so.duration')}</label>
+                        <select value={visitDuration} onChange={e => setVisitDuration(e.target.value)}>
+                          <option value="30">30 {t('so.durationMinutesSuffix')}</option>
+                          <option value="60">60 {t('so.durationMinutesSuffix')}</option>
+                          <option value="90">90 {t('so.durationMinutesSuffix')}</option>
+                          <option value="120">120 {t('so.durationMinutesSuffix')}</option>
+                          <option value="180">180 {t('so.durationMinutesSuffix')}</option>
+                          <option value="240">240 {t('so.durationMinutesSuffix')}</option>
+                        </select>
                       </div>
                     </div>
                     <Can permission="service_orders:assign">

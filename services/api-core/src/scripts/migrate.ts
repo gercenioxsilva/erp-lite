@@ -131,6 +131,7 @@ const migrations = [
   '0084_lead_capture.sql',
   '0085_client_tax_regime.sql',
   '0086_payment_plans.sql',
+  '0087_service_visits_agenda.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

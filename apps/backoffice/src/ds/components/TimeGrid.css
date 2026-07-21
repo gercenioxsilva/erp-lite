@@ -8,8 +8,8 @@
 .ds-cal__header,
 .ds-cal__body {
   display: grid;
-  grid-template-columns: 56px repeat(7, minmax(110px, 1fr));
-  min-width: 840px;
+  /* gridTemplateColumns/minWidth vêm inline (nº de colunas é dinâmico —
+     dias da semana no Agendamento, técnicos na Agenda do Técnico). */
 }
 
 .ds-cal__header {
@@ -107,6 +107,8 @@
   outline-offset: 1px;
 }
 
+/* ── Status do Agendamento (SchedulingCalendarPage) ─────────────────────── */
+
 .ds-cal__block--confirmed {
   background: var(--status-processing-bg);
   color: var(--status-processing-fg);
@@ -131,6 +133,20 @@
   color: var(--status-authorized-fg);
   border-left-color: var(--status-authorized-fg);
   opacity: 0.75;
+}
+
+/* ── Status da Agenda do Técnico (ServiceOrdersAgendaPage, regra 78) ─────── */
+
+.ds-cal__block--scheduled {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-fg);
+  border-left-color: var(--status-pending-fg);
+}
+
+.ds-cal__block--in_progress {
+  background: var(--status-processing-bg);
+  color: var(--status-processing-fg);
+  border-left-color: var(--status-processing-fg);
 }
 
 .ds-cal__block-time {

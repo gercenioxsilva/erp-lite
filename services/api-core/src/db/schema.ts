@@ -1698,6 +1698,7 @@ export const serviceVisits = pgTable('service_visits', {
   service_order_id:  uuid('service_order_id').notNull().references(() => serviceOrders.id, { onDelete: 'cascade' }),
   technician_id:     uuid('technician_id').notNull().references(() => technicians.id, { onDelete: 'restrict' }),
   scheduled_at:      timestamp('scheduled_at', { withTimezone: true }).notNull(),
+  duration_minutes:  smallint('duration_minutes').notNull().default(60),
   status:            varchar('status', { length: 20 }).notNull().default('scheduled'),
   routing_token:     varchar('routing_token', { length: 64 }).notNull(),
   token_expires_at:  timestamp('token_expires_at', { withTimezone: true }).notNull(),
