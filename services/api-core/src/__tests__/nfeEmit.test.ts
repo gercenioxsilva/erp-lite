@@ -17,6 +17,11 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 let companyRows: unknown[] = [];
+// Plano de Pagamento (regra 75) — só populado nos testes que exercitam
+// invoice.payment_plan_id; getPlanWithInstallments/loadInstallments (regra
+// 75) fazem os únicos outros SELECT via query builder neste fluxo.
+let paymentPlanRows: unknown[] = [];
+let paymentPlanInstallmentRows: unknown[] = [];
 
 vi.mock('../db', async () => {
   const actual = await vi.importActual<any>('../db');
@@ -25,7 +30,18 @@ vi.mock('../db', async () => {
   // workers de background que também rodam durante buildApp() (ex.: ContractBillingWorker).
   mockDb.select.mockImplementation(() => ({
     from: (table: unknown) => ({
-      where: () => Promise.resolve(table === actual.nfeConfigs ? companyRows : []),
+      // where() precisa ser awaitable direto (thenable) E encadeável com
+      // .orderBy() — getPlanWithInstallments usa um, loadInstallments usa o outro.
+      where: () => {
+        const rows = table === actual.nfeConfigs ? companyRows
+          : table === actual.paymentPlans ? paymentPlanRows
+          : table === actual.paymentPlanInstallments ? paymentPlanInstallmentRows
+          : [];
+        return {
+          then: (resolve: (v: unknown) => void) => resolve(rows),
+          orderBy: () => Promise.resolve(rows),
+        };
+      },
     }),
   }));
   return { ...actual, db: mockDb };
@@ -66,6 +82,8 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
   beforeEach(async () => {
     vi.clearAllMocks();
     companyRows = [];
+    paymentPlanRows = [];
+    paymentPlanInstallmentRows = [];
     process.env.NFE_REQUESTS_QUEUE_URL = 'http://localhost/queue/nfe-requests';
     mockDb.update.mockReturnValue(updateChain());
     app = await buildApp();
@@ -298,6 +316,113 @@ describe('POST /v1/invoices/:id/emit — resolução de empresa (regra 40)', () 
     const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
     expect(sentBody.destinatario.indicador_ie).toBe(9);
     expect(sentBody.destinatario.inscricao_estadual).toBeUndefined();
+  });
+
+  it('[regra 75] nota sem Plano de Pagamento não inclui "duplicatas" no payload (comportamento inalterado)', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, payment_plan_id: null }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.duplicatas).toBeUndefined();
+  });
+
+  it('[regra 75] nota com Plano de Pagamento monta o quadro de duplicatas (grupo cobr/dup) na mensagem SQS', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, total: '100.00', payment_plan_id: 'plan-1' }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+    paymentPlanRows = [{ id: 'plan-1', tenant_id: TENANT_ID, name: '3x sem juros', is_active: true }];
+    paymentPlanInstallmentRows = [
+      { id: 'i1', payment_plan_id: 'plan-1', installment_number: 1, days_offset: 0,  percentage: '33.34' },
+      { id: 'i2', payment_plan_id: 'plan-1', installment_number: 2, days_offset: 30, percentage: '33.33' },
+      { id: 'i3', payment_plan_id: 'plan-1', installment_number: 3, days_offset: 60, percentage: '33.33' },
+    ];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.duplicatas).toHaveLength(3);
+    expect(sentBody.duplicatas[0]).toMatchObject({ numero: '001', valor: 33.34 });
+    expect(sentBody.duplicatas[1].numero).toBe('002');
+    expect(sentBody.duplicatas[2].numero).toBe('003');
+    const sumCents = sentBody.duplicatas.reduce((s: number, d: { valor: number }) => s + Math.round(d.valor * 100), 0);
+    expect(sumCents).toBe(10000);
+  });
+
+  it('[bug fix] observação digitada na tela de emissão (invoices.notes) sai na mensagem SQS como informacoes_adicionais_contribuinte', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, notes: 'Entrega agendada para a tarde, portaria B.' }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.informacoes_adicionais_contribuinte).toBe('Entrega agendada para a tarde, portaria B.');
+  });
+
+  it('nota sem observação não inclui informacoes_adicionais_contribuinte na mensagem SQS (comportamento inalterado)', async () => {
+    mockExecuteByQuery(
+      baseInvoiceRow({ company_id: null, notes: null }),
+      [{ ncm_code: '12345678', name: 'Item 1', quantity: '1', unit_price: '100.00' }],
+    );
+    companyRows = [{
+      id: COMPANY_DEFAULT, is_default: true, is_active: true,
+      cnpj: '11444777000161', razao_social: 'Empresa Padrão Ltda',
+      focus_ambiente: 2, focus_token_homologacao: 'hml-token', focus_token_producao: null,
+      uf: 'SP', cfop_padrao: '5102', cfop_interestadual: '6102', regime_tributario: 1,
+      emite_nfe: true, emite_nfse: true,
+    }];
+
+    const sqsMock = (await import('../lib/sqsClient')).getSqsClient();
+    const res = await app.inject({
+      method: 'POST', url: `/v1/invoices/${INVOICE_ID}/emit?tenant_id=${TENANT_ID}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    const sentBody = JSON.parse((sqsMock.send as any).mock.calls[0][0].input.MessageBody);
+    expect(sentBody.informacoes_adicionais_contribuinte).toBeUndefined();
   });
 
   it('retorna 404 quando a nota não existe (comportamento inalterado)', async () => {

@@ -33,7 +33,7 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     const [{ rows }, { rows: [cnt] }] = await Promise.all([
       db.execute<any>(sql`
         SELECT o.id, o.number, o.status, o.subtotal, o.discount, o.shipping, o.total,
-               o.notes, o.created_at, o.cost_center_id, o.seller_id, c.id AS client_id,
+               o.notes, o.created_at, o.cost_center_id, o.seller_id, o.payment_plan_id, c.id AS client_id,
                COALESCE(c.company_name, c.full_name) AS client_name
         FROM orders o JOIN clients c ON c.id = o.client_id
         WHERE o.tenant_id = ${tenantId} ${statusFilter} ${searchFilter}
@@ -52,7 +52,7 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   /* ── POST /v1/orders ─────────────────────────────────────────────────── */
   fastify.post('/orders', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:create')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
-    const { client_id, items, notes, discount = 0, shipping = 0, created_by, cost_center_id, seller_id } =
+    const { client_id, items, notes, discount = 0, shipping = 0, created_by, cost_center_id, seller_id, payment_plan_id } =
       request.body as any;
     if (!client_id)  return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
@@ -70,9 +70,9 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             SELECT COALESCE(MAX(CASE WHEN number ~ '^[0-9]+$' THEN number::INTEGER END), 0) + 1 AS n
             FROM orders WHERE tenant_id = ${tenantId}
           )
-          INSERT INTO orders (tenant_id, client_id, number, notes, subtotal, discount, shipping, total, created_by, cost_center_id, seller_id)
+          INSERT INTO orders (tenant_id, client_id, number, notes, subtotal, discount, shipping, total, created_by, cost_center_id, seller_id, payment_plan_id)
           SELECT ${tenantId}, ${client_id}, LPAD(n::TEXT, 5, '0'), ${notes || null},
-                 ${subtotal}, ${discount}, ${shipping}, ${total}, ${created_by || null}, ${cost_center_id || null}, ${seller_id || null}
+                 ${subtotal}, ${discount}, ${shipping}, ${total}, ${created_by || null}, ${cost_center_id || null}, ${seller_id || null}, ${payment_plan_id || null}
           FROM next
           RETURNING id, number, status, total
         `);
@@ -131,7 +131,7 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch('/orders/:id', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('orders:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
-    const { client_id, notes, discount, shipping, items, cost_center_id, seller_id } = request.body as any;
+    const { client_id, notes, discount, shipping, items, cost_center_id, seller_id, payment_plan_id } = request.body as any;
 
     const [order] = await db.select({ id: orders.id, tenant_id: orders.tenant_id, status: orders.status })
       .from(orders).where(and(eq(orders.id, id), eq(orders.tenant_id, tenantId)));
@@ -146,6 +146,7 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       if (shipping       !== undefined) updateData.shipping       = String(shipping);
       if (cost_center_id !== undefined) updateData.cost_center_id = cost_center_id || null;
       if (seller_id      !== undefined) updateData.seller_id      = seller_id || null;
+      if (payment_plan_id !== undefined) updateData.payment_plan_id = payment_plan_id || null;
 
       if (Array.isArray(items)) {
         await tx.delete(orderItems).where(eq(orderItems.order_id, id));

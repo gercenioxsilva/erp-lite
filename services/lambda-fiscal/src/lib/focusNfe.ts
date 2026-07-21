@@ -275,6 +275,21 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
     }
   }
 
+  // Plano de Pagamento (regra 75) — só entra no payload quando a nota tem
+  // duplicatas (mensagem sem payment plan não ganha a chave, payload
+  // idêntico ao de sempre pra quem não usa a feature).
+  if (msg.duplicatas?.length) {
+    payload.duplicatas = msg.duplicatas.map(d => ({
+      numero: d.numero, data_vencimento: d.data_vencimento, valor: d.valor,
+    }));
+  }
+
+  // Observação digitada na tela de emissão — só entra no payload quando
+  // presente (nota sem observação não muda 1 byte do payload de sempre).
+  if (msg.informacoes_adicionais_contribuinte) {
+    payload.informacoes_adicionais_contribuinte = msg.informacoes_adicionais_contribuinte;
+  }
+
   return payload;
 }
 

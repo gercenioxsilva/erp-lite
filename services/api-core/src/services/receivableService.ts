@@ -1,7 +1,9 @@
-import { sql } from 'drizzle-orm';
+import crypto from 'crypto';
+import { sql, eq, and } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { receivables } from '../db/schema';
 import { isUniqueConstraintViolation } from '../lib/pgErrors';
+import { generateInstallmentSchedule, type PaymentPlanInstallmentInput } from '../domain/paymentPlan/paymentPlanDomain';
 
 export type DrizzleDB = typeof _db;
 export type Receivable = typeof receivables.$inferSelect;
@@ -53,12 +55,71 @@ export async function createReceivableFromInvoice(
   }
 }
 
+export interface CreateReceivablesFromInvoiceWithPlanArgs {
+  tenantId:    string;
+  invoiceId:   string;
+  clientId:    string | null;
+  amount:      number;   // total da nota (não string — o domínio faz a matemática)
+  description: string;   // base, ex.: "NF-e nº 123 (série 1)" — cada parcela ganha "— Parcela N/T"
+  baseDate:    string;   // YYYY-MM-DD — data de emissão, ponto de partida dos days_offset
+  installments: PaymentPlanInstallmentInput[]; // parcelas do Plano de Pagamento (payment_plan_installments)
+}
+
+/**
+ * Variante de `createReceivableFromInvoice()` pra quando a nota tem um Plano
+ * de Pagamento (regra 75, migration 0086): gera N recebíveis (um por
+ * parcela) em vez de um só, cada um com `installment_number` distinto —
+ * idempotente por `(invoice_id, installment_number)` (UNIQUE parcial,
+ * migration 0086), mesmo padrão de try/insert → catch 23505 → select já
+ * existente usado em `createReceivableFromInvoice()` acima, só repetido por
+ * parcela. `createReceivableFromInvoice()` continua intocada — chamadores
+ * sem plano nunca passam por aqui.
+ */
+export async function createReceivablesFromInvoiceWithPlan(
+  args: CreateReceivablesFromInvoiceWithPlanArgs, db: DrizzleDB = _db,
+): Promise<Receivable[]> {
+  const schedule = generateInstallmentSchedule(args.amount, args.baseDate, args.installments);
+  const groupId = schedule.length > 1 ? crypto.randomUUID() : null;
+
+  const results: Receivable[] = [];
+  for (const item of schedule) {
+    const description = schedule.length > 1
+      ? `${args.description} — Parcela ${item.installment_number}/${item.installment_total}`
+      : args.description;
+    try {
+      const [inserted] = await db.insert(receivables).values({
+        tenant_id:   args.tenantId,
+        client_id:   args.clientId,
+        invoice_id:  args.invoiceId,
+        description,
+        amount:      item.amount,
+        due_date:    item.due_date,
+        status:      'pending',
+        installment_number:   item.installment_number,
+        installment_total:    item.installment_total,
+        installment_group_id: groupId,
+      }).returning();
+      results.push(inserted);
+    } catch (err) {
+      if (isUniqueConstraintViolation(err)) {
+        const [existing] = await db.select().from(receivables).where(and(
+          eq(receivables.invoice_id, args.invoiceId),
+          eq(receivables.installment_number, item.installment_number),
+        ));
+        results.push(existing);
+      } else {
+        throw err;
+      }
+    }
+  }
+  return results;
+}
+
 // ── Registro de pagamento (extraído de routes/receivables.ts POST /:id/payments)
 // Compartilhado pela rota e pelo motor de conciliação (0072) — a lógica de
 // flip pending→partial/paid + insert em receivable_payments nunca diverge
 // entre os dois caminhos. Comportamento preservado 1:1 (validações e valores).
 
-import { eq, and } from 'drizzle-orm';
 import { receivablePayments } from '../db/schema';
 import { notifyPaymentConfirmed } from './whatsappAutomationService';
 import { postEntry, resolveRegime } from './accountingService';

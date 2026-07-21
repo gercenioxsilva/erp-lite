@@ -17,6 +17,11 @@ vi.mock('../db/index', () => ({
   tenants: { id: 'id' },
   users:   { id: 'id', email: 'email', name: 'name', role: 'role', password_hash: 'password_hash',
              status: 'status', tenant_id: 'tenant_id' },
+  // Plano de Pagamento padrão (regra 75) — auth.ts seeda "À Vista" na mesma
+  // transação do registro; só precisa existir como export, o mock genérico
+  // de transaction/insert acima já cobre o resto.
+  paymentPlans:            { id: 'id' },
+  paymentPlanInstallments: { id: 'id' },
 }));
 
 vi.mock('drizzle-orm', () => ({

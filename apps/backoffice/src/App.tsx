@@ -57,6 +57,7 @@ import { PurchaseOrdersPage }     from './pages/purchasing/PurchaseOrdersPage';
 import { SupplierInvoicesPage }   from './pages/purchasing/SupplierInvoicesPage';
 import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
 import { CostCenterDetailPage } from './pages/cost-centers/CostCenterDetailPage';
+import { PaymentPlansPage }    from './pages/payment-plans/PaymentPlansPage';
 import { SellersPage }       from './pages/sellers/SellersPage';
 import { SellerDetailPage }  from './pages/sellers/SellerDetailPage';
 import { BillingPage }          from './pages/billing/BillingPage';
@@ -173,6 +174,7 @@ function GuardedRoutes() {
         <Route path="/reports/tax-summary"              element={gate('reports:view', <TaxSummaryPage />)} />
         <Route path="/cost-centers"     element={gate('cost_centers:view', <CostCentersPage />)} />
         <Route path="/cost-centers/:id" element={gate('cost_centers:view', <CostCenterDetailPage />)} />
+        <Route path="/payment-plans"    element={gate('payment_plans:view', <PaymentPlansPage />)} />
         <Route path="/sellers"     element={gate('sellers:view', <SellersPage />)} />
         <Route path="/sellers/:id" element={gate('sellers:view', <SellerDetailPage />)} />
         <Route path="/purchase-orders"   element={gate('purchase_orders:view', <PurchaseOrdersPage />)} />

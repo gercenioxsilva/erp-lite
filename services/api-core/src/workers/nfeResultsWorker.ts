@@ -6,7 +6,8 @@ import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
-import { createReceivableFromInvoice } from '../services/receivableService';
+import { createReceivableFromInvoice, createReceivablesFromInvoiceWithPlan } from '../services/receivableService';
+import { getPlanWithInstallments } from '../services/paymentPlanService';
 import { recordRevenue } from '../services/fiscalRevenueService';
 import { postEntry, resolveRegime } from '../services/accountingService';
 import { linesForAuthorization } from '../domain/accounting/accountingDomain';
@@ -164,8 +165,9 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       tenant_id: string; serie: string; number: string | null;
       client_id: string | null; total: string; company_id: string | null;
       client_name: string | null; client_email: string | null;
+      payment_plan_id: string | null;
     }>(sql`
-      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id,
+      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id, i.payment_plan_id,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM invoices i
@@ -289,15 +291,34 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
     // recebível. Faltava aqui: só o caminho legado POST /invoices/:id/issue
     // (que nunca passa pelo SEFAZ de verdade) criava isso — regra 60.
     try {
-      const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      await createReceivableFromInvoice({
-        tenantId:    result.tenant_id,
-        invoiceId:   invoice_id,
-        clientId:    inv.client_id,
-        amount:      inv.total,
-        description: `NF-e nº ${number} (série ${inv.serie})`,
-        dueDate,
-      }, db);
+      // Plano de Pagamento (regra 75, migration 0086): nota com plano gera N
+      // recebíveis (schedule ancorado em authAt — mesmo racional "fuso fiscal
+      // BR" já usado acima, nunca o relógio do worker); sem plano, caminho
+      // idêntico ao de sempre (heurística fixa de +30 dias).
+      if (inv.payment_plan_id) {
+        const plan = await getPlanWithInstallments(inv.tenant_id, inv.payment_plan_id, db);
+        await createReceivablesFromInvoiceWithPlan({
+          tenantId:    result.tenant_id,
+          invoiceId:   invoice_id,
+          clientId:    inv.client_id,
+          amount:      Number(inv.total),
+          description: `NF-e nº ${number} (série ${inv.serie})`,
+          baseDate:    authAt.toISOString().slice(0, 10),
+          installments: plan.installments.map(i => ({
+            installment_number: i.installment_number, days_offset: i.days_offset, percentage: Number(i.percentage),
+          })),
+        }, db);
+      } else {
+        const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        await createReceivableFromInvoice({
+          tenantId:    result.tenant_id,
+          invoiceId:   invoice_id,
+          clientId:    inv.client_id,
+          amount:      inv.total,
+          description: `NF-e nº ${number} (série ${inv.serie})`,
+          dueDate,
+        }, db);
+      }
     } catch (recvErr) {
       console.error(JSON.stringify({ event: 'receivable_creation_error', invoice_id, error: String(recvErr) }));
     }
