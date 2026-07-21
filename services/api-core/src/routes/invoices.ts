@@ -82,7 +82,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     // tenant_id ainda é aceito no body por retrocompatibilidade de contrato,
     // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
     const { client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id, payment_plan_id } = body;
     if (!client_id) return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
@@ -108,11 +108,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     // invoices.cost_center_id).
     let resolvedSellerId:     string | null = seller_id      || null;
     let resolvedCostCenterId: string | null = cost_center_id || null;
-    if ((!resolvedSellerId || !resolvedCostCenterId) && order_id) {
-      const [ord] = await db.select({ seller_id: orders.seller_id, cost_center_id: orders.cost_center_id })
-        .from(orders).where(eq(orders.id, order_id));
-      resolvedSellerId     = resolvedSellerId     ?? ord?.seller_id      ?? null;
-      resolvedCostCenterId = resolvedCostCenterId ?? ord?.cost_center_id ?? null;
+    // Plano de Pagamento (regra 75) segue o mesmo racional: herda do pedido
+    // de origem quando a nota não escolhe um explicitamente — é a fonte de
+    // verdade lida por routes/nfe.ts/nfeResultsWorker.ts pra gerar as
+    // parcelas de receivables e o quadro de duplicatas da NF-e.
+    let resolvedPaymentPlanId: string | null = payment_plan_id || null;
+    if ((!resolvedSellerId || !resolvedCostCenterId || !resolvedPaymentPlanId) && order_id) {
+      const [ord] = await db.select({
+        seller_id: orders.seller_id, cost_center_id: orders.cost_center_id, payment_plan_id: orders.payment_plan_id,
+      }).from(orders).where(eq(orders.id, order_id));
+      resolvedSellerId      = resolvedSellerId      ?? ord?.seller_id       ?? null;
+      resolvedCostCenterId  = resolvedCostCenterId  ?? ord?.cost_center_id  ?? null;
+      resolvedPaymentPlanId = resolvedPaymentPlanId ?? ord?.payment_plan_id ?? null;
     }
 
     const n = (v: unknown) => Number(v) || 0;
@@ -142,6 +149,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         ibs_total: String(ibsTotal), cbs_total: String(cbsTotal),
         cost_center_id: resolvedCostCenterId,
         seller_id: resolvedSellerId,
+        payment_plan_id: resolvedPaymentPlanId,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
       for (const it of items as InvoiceItemPayload[]) {

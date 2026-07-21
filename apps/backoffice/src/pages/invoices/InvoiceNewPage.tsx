@@ -25,6 +25,7 @@ interface OrderOption    { id: string; number: string; client_id: string; client
 interface CostCenter { id: string; code: string; name: string; }
 interface StockItem  { material_id: string; quantity: number; }
 interface SellerOption { id: string; name: string; }
+interface PaymentPlanOption { id: string; name: string; is_default: boolean; }
 
 interface FormItem {
   _key: string; material_id: string; name: string;
@@ -119,6 +120,8 @@ export function InvoiceNewPage() {
   const [ccStock,          setCcStock]          = useState<StockItem[]>([]);
   const [sellers,          setSellers]          = useState<SellerOption[]>([]);
   const [formSellerId,     setFormSellerId]     = useState('');
+  const [paymentPlans,     setPaymentPlans]     = useState<PaymentPlanOption[]>([]);
+  const [formPaymentPlanId, setFormPaymentPlanId] = useState('');
   // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
   // Filtrado por emite_nfe=true (regra 53) — só oferece empresas responsáveis
   // por NF-e de venda; NFC-e (POS) e outros documentos não entram aqui.
@@ -145,7 +148,8 @@ export function InvoiceNewPage() {
       api.get<{ data: CostCenter[] }>(`/v1/cost-centers/active?tenant_id=${tenantId}`).catch(() => ({ data: [] as CostCenter[] })),
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
       api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfe: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
-    ]).then(([cl, mt, or, cfg, cc, sl, comp]) => {
+      api.get<{ data: PaymentPlanOption[] }>('/v1/payment-plans/active').catch(() => ({ data: [] as PaymentPlanOption[] })),
+    ]).then(([cl, mt, or, cfg, cc, sl, comp, pp]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
       setMaterials(mt.data ?? []);
@@ -153,6 +157,12 @@ export function InvoiceNewPage() {
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
       setSellers(Array.isArray(sl) ? sl : []);
+      const planRows = pp.data ?? [];
+      setPaymentPlans(planRows);
+      // Plano padrão (regra 75) pré-selecionado numa nota avulsa — só
+      // sobrescreve o default inicial, nunca uma escolha que o usuário já
+      // fez ou o que foi herdado do pedido (handleOrderChange roda depois).
+      setFormPaymentPlanId(prev => prev || planRows.find(p => p.is_default)?.id || '');
       const companyRows = (comp.data ?? []).filter(c => c.emite_nfe);
       setCompanies(companyRows);
       setFormCompanyId(prev => prev || companyRows.find(c => c.is_default)?.id || '');
@@ -181,6 +191,7 @@ export function InvoiceNewPage() {
       // mesmo com o cadastro do produto correto.
       const detail = await api.get<{
         client_id: string; seller_id: string | null; cost_center_id: string | null;
+        payment_plan_id: string | null;
         items: Array<{
           material_id: string | null; name: string; quantity: number; unit_price: number;
           ncm_code: string | null; cfop: string | null;
@@ -191,6 +202,9 @@ export function InvoiceNewPage() {
       // mesmo quando o cliente chega via pedido, não da API do pedido em si.
       setFormTaxRegime(clients.find(c => c.id === detail.client_id)?.tax_regime ?? '');
       setFormSellerId(detail.seller_id ?? '');
+      // Plano de Pagamento (regra 75) herda do pedido de origem — mesmo
+      // padrão de seller_id/cost_center_id logo acima.
+      setFormPaymentPlanId(detail.payment_plan_id ?? '');
       // handleCostCenterChange (não setFormCostCenterId direto) — também
       // busca o saldo de estoque do centro de custo herdado, senão o aviso
       // de "saldo insuficiente" (abaixo, na tabela de itens) nunca aparece
@@ -342,6 +356,7 @@ export function InvoiceNewPage() {
         cost_center_id: formCostCenterId || null,
         seller_id: formSellerId || undefined,
         company_id: formCompanyId || undefined,
+        payment_plan_id: formPaymentPlanId || undefined,
         // formTaxRegime pode estar vazio quando o cliente ainda não tem o
         // regime cadastrado (regra 61/74) — undefined deixa o backend cair
         // no próprio default em vez de gravar string vazia na nota.
@@ -447,6 +462,20 @@ export function InvoiceNewPage() {
                 <option value="">{t('sel.none')}</option>
                 {sellers.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            {/* Plano de Pagamento (regra 75) — herda do pedido quando a nota
+                nasce de um pedido (handleOrderChange), editável numa nota
+                avulsa. É lido na autorização da NF-e pra gerar as parcelas
+                de recebíveis e o quadro de duplicatas do DANFE. */}
+            <div className="field">
+              <label htmlFor="inv-payment-plan">{t('pp.paymentPlan')}</label>
+              <select id="inv-payment-plan" value={formPaymentPlanId}
+                onChange={e => setFormPaymentPlanId(e.target.value)}>
+                <option value="">{t('pp.none')}</option>
+                {paymentPlans.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>

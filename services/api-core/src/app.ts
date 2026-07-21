@@ -57,6 +57,7 @@ import { proposalsRoutes }    from './routes/proposals';
 import { publicRoutes }       from './routes/public';
 import { reportsRoutes }      from './routes/reports';
 import { costCentersRoutes }  from './routes/costCenters';
+import { paymentPlansRoutes } from './routes/paymentPlans';
 import { sellersRoutes }         from './routes/sellers';
 import { purchaseOrdersRoutes }  from './routes/purchaseOrders';
 import { supplierInvoicesRoutes } from './routes/supplierInvoices';
@@ -182,6 +183,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(publicRoutes,             { prefix: '/v1' });
   await app.register(reportsRoutes,            { prefix: '/v1' });
   await app.register(costCentersRoutes,        { prefix: '/v1' });
+  await app.register(paymentPlansRoutes,       { prefix: '/v1' });
   await app.register(sellersRoutes,            { prefix: '/v1' });
   await app.register(purchaseOrdersRoutes,     { prefix: '/v1' });
   await app.register(supplierInvoicesRoutes,   { prefix: '/v1' });

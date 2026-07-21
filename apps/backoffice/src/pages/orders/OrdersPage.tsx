@@ -13,6 +13,7 @@ interface Order {
   subtotal: number; discount: number; shipping: number; total: number;
   notes: string | null; created_at: string; client_id: string;
   cost_center_id: string | null; seller_id: string | null;
+  payment_plan_id: string | null;
 }
 interface OrderDetail extends Order {
   items: OrderItemRow[];
@@ -31,6 +32,7 @@ interface FormItem {
 interface ListResp { data: Order[]; total: number; page: number; per_page: number; }
 interface CostCenter { id: string; code: string; name: string; }
 interface SellerOption { id: string; name: string; }
+interface PaymentPlanOption { id: string; name: string; is_default: boolean; }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -63,6 +65,8 @@ export function OrdersPage() {
   const [formCostCenterId, setFormCostCenterId] = useState('');
   const [sellers, setSellers] = useState<SellerOption[]>([]);
   const [formSellerId, setFormSellerId] = useState('');
+  const [paymentPlans, setPaymentPlans] = useState<PaymentPlanOption[]>([]);
+  const [formPaymentPlanId, setFormPaymentPlanId] = useState('');
 
   /* drawer */
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -141,6 +145,13 @@ export function OrdersPage() {
       .catch(() => {});
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    api.get<{ data: PaymentPlanOption[] }>('/v1/payment-plans/active')
+      .then(d => setPaymentPlans(d.data ?? []))
+      .catch(() => {});
+  }, [tenantId]);
+
   /* ── Drawer open helpers ── */
   function openCreate() {
     setEditing(null);
@@ -148,6 +159,10 @@ export function OrdersPage() {
     setFormClientId(''); setFormNotes(''); setFormDiscount('0'); setFormShipping('0');
     setFormCostCenterId('');
     setFormSellerId('');
+    // Plano de Pagamento padrão (regra 75) pré-selecionado em pedido novo —
+    // mesmo espírito de "empresa padrão" já usado noutras telas; o usuário
+    // ainda pode trocar.
+    setFormPaymentPlanId(paymentPlans.find(p => p.is_default)?.id ?? '');
     setFormItems([newItem()]);
     setFormError('');
     setDrawerOpen(true);
@@ -160,6 +175,7 @@ export function OrdersPage() {
     setFormDiscount(String(o.discount)); setFormShipping(String(o.shipping));
     setFormCostCenterId(o.cost_center_id ?? '');
     setFormSellerId(o.seller_id ?? '');
+    setFormPaymentPlanId(o.payment_plan_id ?? '');
     setFormItems([]);
     setFormError('');
     setDrawerOpen(true);
@@ -247,6 +263,7 @@ export function OrdersPage() {
         discount: Number(formDiscount) || 0, shipping: Number(formShipping) || 0,
         cost_center_id: formCostCenterId || null,
         seller_id: formSellerId || null,
+        payment_plan_id: formPaymentPlanId || null,
         items: namedItems.map(it => ({
           material_id: it.material_id || undefined, name: it.name, sku: it.sku || undefined,
           unit: it.unit, quantity: Number(it.quantity), unit_price: Number(it.unit_price),
@@ -481,6 +498,21 @@ export function OrdersPage() {
                     <option value="">{t('sel.none')}</option>
                     {sellers.map(s => (
                       <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Plano de Pagamento (regra 75) */}
+                <div className="field">
+                  <label htmlFor="order-payment-plan">{t('pp.paymentPlan')}</label>
+                  <select
+                    id="order-payment-plan"
+                    value={formPaymentPlanId}
+                    onChange={e => setFormPaymentPlanId(e.target.value)}
+                  >
+                    <option value="">{t('pp.none')}</option>
+                    {paymentPlans.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
                 </div>

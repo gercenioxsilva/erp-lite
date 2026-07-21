@@ -28,6 +28,7 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   receivables:      { label: 'Recebíveis',           actions: { view: 'Ver recebíveis', create: 'Criar recebível', edit: 'Editar recebível', delete: 'Excluir recebível', export: 'Exportar recebíveis' } },
   payables:         { label: 'Pagáveis',             actions: { view: 'Ver pagáveis', create: 'Criar pagável', edit: 'Editar pagável', delete: 'Excluir pagável', export: 'Exportar pagáveis' } },
   cost_centers:     { label: 'Centros de Custo',     actions: { view: 'Ver centros de custo', create: 'Criar centro de custo', edit: 'Editar centro de custo', delete: 'Excluir centro de custo' } },
+  payment_plans:    { label: 'Planos de Pagamento',  actions: { view: 'Ver planos de pagamento', create: 'Criar plano de pagamento', edit: 'Editar plano de pagamento', delete: 'Excluir plano de pagamento' } },
   sellers:          { label: 'Vendedores',           actions: { view: 'Ver vendedores', create: 'Criar vendedor', edit: 'Editar vendedor', delete: 'Excluir vendedor' } },
   purchase_orders:  { label: 'Ordens de Compra',     actions: { view: 'Ver ordens de compra', create: 'Criar ordem de compra', edit: 'Editar ordem de compra', delete: 'Excluir ordem de compra' } },
   supplier_invoices:{ label: 'Faturas de Fornecedor',actions: { view: 'Ver faturas', create: 'Criar fatura', edit: 'Editar fatura', delete: 'Excluir fatura' } },

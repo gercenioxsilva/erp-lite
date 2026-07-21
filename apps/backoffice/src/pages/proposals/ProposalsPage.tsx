@@ -293,15 +293,21 @@ export function ProposalsPage() {
     }
   }
 
-  async function convertToOrder(id: string) {
+  async function convertToOrder(p: Proposal) {
+    // Rascunho nunca passou pelo aceite do cliente (portal público só aceita
+    // sent/viewed) — converter direto do rascunho registra um aceite
+    // interno feito pelo próprio tenant, então o aviso é mais específico
+    // aqui do que pra proposta já enviada/aceita.
+    const isDraft = p.status === 'draft';
     const ok = await modal.confirm({
       title: t('prop.convert'),
-      message: t('prop.convert') + '?',
+      message: isDraft ? t('prop.convertDraftConfirm') : t('prop.convert') + '?',
       confirmLabel: t('prop.convert'),
+      danger: isDraft,
     });
     if (!ok) return;
     try {
-      const r = await api.post<{ order_id: string; order_number: string }>(`/v1/proposals/${id}/convert`, {});
+      const r = await api.post<{ order_id: string; order_number: string }>(`/v1/proposals/${p.id}/convert`, {});
       modal.success(t('prop.convertSuccess') + ' #' + r.order_number);
       void load();
     } catch (err: unknown) {
@@ -434,6 +440,16 @@ export function ProposalsPage() {
                               {t('prop.send')}
                             </button>
                           </Can>
+                          {/* Em alguns casos o aceite é decidido pelo próprio tenant (ex.:
+                              acordo verbal), sem passar pelo aceite do cliente no portal —
+                              converter aqui registra esse aceite interno antes de criar o
+                              pedido (routes/proposals.ts, POST /:id/convert). */}
+                          <Can permission="proposals:edit">
+                            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => convertToOrder(p)}>
+                              {t('prop.convert')}
+                            </button>
+                          </Can>
                           <Can permission="proposals:edit">
                             <button className="btn btn-danger btn-sm"
                               onClick={() => cancelProposal(p.id)}>
@@ -459,7 +475,7 @@ export function ProposalsPage() {
                           {!p.converted_to_order_id && (
                             <Can permission="proposals:edit">
                               <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                                onClick={() => convertToOrder(p.id)}>
+                                onClick={() => convertToOrder(p)}>
                                 {t('prop.convert')}
                               </button>
                             </Can>
@@ -477,7 +493,7 @@ export function ProposalsPage() {
                           {!p.converted_to_order_id ? (
                             <Can permission="proposals:edit">
                               <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
-                                onClick={() => convertToOrder(p.id)}>
+                                onClick={() => convertToOrder(p)}>
                                 {t('prop.convert')}
                               </button>
                             </Can>

@@ -45,6 +45,36 @@ export interface NfeEmitMessage {
 
   itens:      NfeItem[];
   pagamentos: NfePagamento[];
+
+  // Plano de Pagamento (regra 75, migration 0086) — grupo cobr/dup da NF-e,
+  // opcional: só presente quando a nota tem um plano de pagamento com mais
+  // de 1 parcela escolhido (routes/nfe.ts). Ausente = nota sem plano,
+  // comportamento idêntico ao de sempre.
+  //
+  // ⚠️ Nomes de campo (duplicatas/numero/data_vencimento/valor) seguem a
+  // documentação pública do Focus NF-e v2 — ainda não confirmados contra uma
+  // emissão real em homologação; validar/ajustar no primeiro teste real
+  // antes de usar em produção.
+  duplicatas?: NfeDuplicata[];
+
+  // Observação digitada na tela de emissão (invoices.notes) — antes ficava
+  // só gravada no banco, nunca saía na nota de verdade (bug real: o tenant
+  // digitava a observação e ela nunca chegava no XML/DANFE). Mapeia pro
+  // grupo infAdic/infCpl da NF-e.
+  //
+  // ⚠️ Nome de campo (`informacoes_adicionais_contribuinte`) segue a
+  // documentação pública do Focus NF-e v2 pelo meu conhecimento geral — sem
+  // precedente em nenhum outro lugar deste código (NFC-e/NFS-e também nunca
+  // mandaram observação nenhuma pro Focus) pra confirmar contra uma emissão
+  // real; validar/ajustar no primeiro teste em homologação, mesma ressalva
+  // já feita pra `duplicatas` acima.
+  informacoes_adicionais_contribuinte?: string;
+}
+
+export interface NfeDuplicata {
+  numero:          string; // ex.: "001", "002"...
+  data_vencimento: string; // YYYY-MM-DD
+  valor:           number;
 }
 
 export interface NfeItem {

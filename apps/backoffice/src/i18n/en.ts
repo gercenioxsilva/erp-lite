@@ -952,6 +952,7 @@ const en: Record<TKey, string> = {
 
   // ── Cost Centers ──────────────────────────────────────────────────────
   'nav.costCenters':      'Cost Centers',
+  'nav.paymentPlans':     'Payment Plans',
   'cc.title':             'Cost Centers',
   'cc.new':               'New Cost Center',
   'cc.code':              'Code',
@@ -971,6 +972,34 @@ const en: Record<TKey, string> = {
   'cc.direction.in':      'In',
   'cc.direction.out':     'Out',
   'cc.insufficientStock': 'Insufficient balance in this cost center',
+
+  // ── Payment Plans (rule 75) ────────────────────────────────────────────────
+  'pp.title':          'Payment Plans',
+  'pp.subtitle':       'Reusable payment terms (cash, installments) that a sales order can pick.',
+  'pp.new':            'New Plan',
+  'pp.edit':           'Edit Payment Plan',
+  'pp.name':           'Name',
+  'pp.namePH':         'e.g. "3x interest-free" or "Invoice 30/60/90"',
+  'pp.description':    'Description',
+  'pp.descriptionPH':  'Optional description…',
+  'pp.isDefault':      'Default plan',
+  'pp.isDefaultHint':  'Pre-selected on new orders.',
+  'pp.installments':      'Installments',
+  'pp.installmentsCol':   'Installments',
+  'pp.defaultCol':        'Default',
+  'pp.singleInstallment': 'Cash',
+  'pp.daysOffset':     'Days',
+  'pp.percentage':     'Percentage (%)',
+  'pp.addInstallment': 'Add installment',
+  'pp.sum':            'Sum',
+  'pp.errName':        'Give the payment plan a name.',
+  'pp.errNoInstallments': 'The plan needs at least 1 installment.',
+  'pp.errSum':         'Percentages must add up to 100% (currently {sum}%).',
+  'pp.errSave':        'Failed to save the payment plan.',
+  'pp.deactivate':     'Deactivate this payment plan?',
+  'pp.deactivateMsg':  'The plan will be deactivated and stop appearing as an option on new orders/invoices. Orders/invoices already using it keep working normally.',
+  'pp.paymentPlan':    'Payment Plan',
+  'pp.none':           'No payment plan',
 
   // ── Sellers / Commissions ────────────────────────────────────────────────
   'nav.sellers':            'Sellers',
@@ -1361,6 +1390,7 @@ const en: Record<TKey, string> = {
   'prop.sendConfirm':      'Send this proposal to the client by email?',
   'prop.cancelConfirm':    'Cancel this proposal?',
   'prop.convertSuccess':   'Order created successfully!',
+  'prop.convertDraftConfirm': 'This proposal is still a draft and has not been accepted by the client. Converting now records the acceptance internally, under your user, and creates the order. Confirm?',
   'prop.duplicateSuccess': 'Proposal duplicated as',
   'prop.errorNoEmail':     'The client does not have an email address.',
 

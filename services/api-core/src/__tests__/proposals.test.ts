@@ -283,4 +283,99 @@ describe('Proposals routes', () => {
       expect(res.statusCode).toBe(401);
     });
   });
+
+  // Em alguns casos o aceite é decidido pelo próprio tenant (ex.: acordo
+  // verbal), sem passar pelo aceite do cliente no portal público — converter
+  // direto do rascunho precisa registrar esse aceite interno antes de criar
+  // o pedido (accepted_at/accepted_by_*), mas nunca mudar o comportamento já
+  // existente pra accepted/sent/viewed.
+  describe('POST /v1/proposals/:id/convert', () => {
+    function mockConvertFlow(proposalRow: Record<string, unknown> | undefined, opts: { userRow?: Record<string, unknown> } = {}) {
+      const executeCalls: string[] = [];
+      (db.execute as any).mockImplementation(async (query: any) => {
+        const text = JSON.stringify(query?.queryChunks ?? query ?? '');
+        executeCalls.push(text);
+        if (/FROM proposals p/i.test(text) && /LEFT JOIN clients/i.test(text)) {
+          return { rows: proposalRow ? [proposalRow] : [] };
+        }
+        if (/SELECT name, email FROM users/i.test(text)) {
+          return { rows: opts.userRow ? [opts.userRow] : [] };
+        }
+        if (/max_order FROM orders/i.test(text)) return { rows: [{ max_order: 0 }] };
+        if (/FROM proposal_items/i.test(text)) return { rows: [] };
+        if (/INSERT INTO orders/i.test(text)) return { rows: [{ id: 'order-1', number: '00001' }] };
+        return { rows: [] };
+      });
+      return executeCalls;
+    }
+
+    it('404 quando a proposta não existe', async () => {
+      mockConvertFlow(undefined);
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it.each(['rejected', 'expired', 'cancelled'])('400 quando status=%s (fora do conjunto convertível)', async (status) => {
+      mockConvertFlow({ id: 'prop-1', status, client_id: 'client-1', number: '00001', subtotal: '100', discount: '0', shipping: '0', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('400 quando já foi convertida antes (converted_to_order_id já setado)', async () => {
+      mockConvertFlow({ id: 'prop-1', status: 'sent', client_id: 'client-1', converted_to_order_id: 'order-0', number: '00001', subtotal: '100', discount: '0', shipping: '0', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('400 quando a proposta não tem cliente vinculado', async () => {
+      mockConvertFlow({ id: 'prop-1', status: 'sent', client_id: null, number: '00001', subtotal: '100', discount: '0', shipping: '0', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it.each(['accepted', 'sent', 'viewed'])('201 quando status=%s — comportamento inalterado, nunca toca accepted_by_* (já vinha aceita/enviada)', async (status) => {
+      const calls = mockConvertFlow({ id: 'prop-1', status, client_id: 'client-1', number: '00001', subtotal: '100', discount: '0', shipping: '0', total: '100' });
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(calls.some(c => /SELECT name, email FROM users/i.test(c))).toBe(false);
+      expect(calls.some(c => /accepted_by_name/i.test(c))).toBe(false);
+    });
+
+    it('201 quando status=draft — registra aceite interno (status=accepted, accepted_by_name/email do usuário autenticado) antes de criar o pedido', async () => {
+      const calls = mockConvertFlow(
+        { id: 'prop-1', status: 'draft', client_id: 'client-1', number: '00001', subtotal: '100', discount: '0', shipping: '0', total: '100' },
+        { userRow: { name: 'Ana Dona', email: 'ana@tenant.com' } },
+      );
+      const res = await app.inject({
+        method: 'POST', url: '/v1/proposals/prop-1/convert',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(201);
+      const acceptUpdate = calls.find(c => /accepted_by_name/i.test(c));
+      expect(acceptUpdate).toBeDefined();
+      expect(acceptUpdate).toMatch(/Ana Dona/);
+      expect(acceptUpdate).toMatch(/ana@tenant\.com/);
+      expect(acceptUpdate).toMatch(/status = 'accepted'/);
+    });
+
+    it('401 sem token de autenticação', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/proposals/prop-1/convert' });
+      expect(res.statusCode).toBe(401);
+    });
+  });
 });
