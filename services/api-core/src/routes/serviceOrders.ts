@@ -204,7 +204,9 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/service-orders/:id/visits', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
-    const { technician_id, scheduled_at } = request.body as { technician_id: string; scheduled_at: string };
+    const { technician_id, scheduled_at, duration_minutes } = request.body as {
+      technician_id: string; scheduled_at: string; duration_minutes?: number;
+    };
 
     if (!technician_id) return reply.badRequest('technician_id é obrigatório');
     if (!scheduled_at)  return reply.badRequest('scheduled_at é obrigatório');
@@ -212,12 +214,60 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const visit = await scheduleVisit({
         tenantId, serviceOrderId: id, technicianId: technician_id, scheduledAt: new Date(scheduled_at),
+        durationMinutes: duration_minutes ? Number(duration_minutes) : undefined,
       });
       return reply.code(201).send(visit);
     } catch (err) {
       if (err instanceof ServiceVisitDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
       throw err;
     }
+  });
+
+  // ── GET /v1/service-orders/visits ────────────────────────────────────────
+  // Agenda do Técnico (regra 78): leitura por período, opcionalmente filtrada
+  // por técnico — alimenta o calendário estilo Google Agenda no backoffice.
+  // Rota estática (não aninhada em /:id) — find-my-way (roteador do Fastify)
+  // sempre prioriza rota estática sobre parametrizada, então nunca colide com
+  // GET /service-orders/:id mesmo que ambas comecem com o mesmo prefixo.
+  fastify.get('/service-orders/visits', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:view') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { technician_id, from, to } = request.query as { technician_id?: string; from?: string; to?: string };
+
+    if (!from) return reply.badRequest('from é obrigatório (YYYY-MM-DD)');
+    if (!to)   return reply.badRequest('to é obrigatório (YYYY-MM-DD)');
+
+    const technicianFilter = technician_id ? sql`AND sv.technician_id = ${technician_id}` : sql``;
+
+    const { rows } = await db.execute<any>(sql`
+      SELECT sv.id, sv.service_order_id, sv.scheduled_at, sv.duration_minutes, sv.status,
+             sv.technician_id, t.name AS technician_name,
+             so.number AS service_order_number, so.title AS service_order_title,
+             COALESCE(c.company_name, c.full_name) AS client_name
+      FROM service_visits sv
+      JOIN technicians t ON t.id = sv.technician_id
+      JOIN service_orders so ON so.id = sv.service_order_id
+      LEFT JOIN clients c ON c.id = so.client_id
+      WHERE sv.tenant_id = ${tenantId}
+        AND sv.scheduled_at >= ${from}::date
+        AND sv.scheduled_at < (${to}::date + interval '1 day')
+        ${technicianFilter}
+      ORDER BY sv.scheduled_at
+    `);
+
+    const data = rows.map((r: any) => {
+      const scheduledAt = new Date(r.scheduled_at);
+      const endsAt = new Date(scheduledAt.getTime() + r.duration_minutes * 60_000);
+      return {
+        id: r.id, service_order_id: r.service_order_id,
+        service_order_number: r.service_order_number, service_order_title: r.service_order_title,
+        technician_id: r.technician_id, technician_name: r.technician_name,
+        client_name: r.client_name,
+        scheduled_at: scheduledAt.toISOString(), ends_at: endsAt.toISOString(),
+        duration_minutes: r.duration_minutes, status: r.status,
+      };
+    });
+
+    return { data };
   });
 
   // ── GET /v1/service-orders/:id/visits/:visitId ───────────────────────────
