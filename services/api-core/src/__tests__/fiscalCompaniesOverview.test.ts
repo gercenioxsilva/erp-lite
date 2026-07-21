@@ -50,7 +50,10 @@ describe('getCompaniesOverview', () => {
       .mockResolvedValueOnce([{ competencia: '2026-06', das_total: '1000.00' }] as any)
       .mockResolvedValueOnce([{ competencia: '2026-06', das_total: '2000.00' }] as any);
 
-    const result = await getCompaniesOverview('tenant-1', mockDb as any);
+    // now fixo, anterior ao vencimento do DAS da competência 2026-06 (dia 20/07/2026)
+    // — sem isso o teste vira "time bomb": passa até o relógio real cruzar essa
+    // data e o status computado vira 'atrasado' sozinho, sem nenhuma mudança de código.
+    const result = await getCompaniesOverview('tenant-1', mockDb as any, new Date('2026-07-01T12:00:00Z'));
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({

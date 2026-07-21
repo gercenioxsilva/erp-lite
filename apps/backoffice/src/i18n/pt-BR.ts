@@ -949,6 +949,7 @@ const ptBR = {
 
   // ── Centros de Custo ─────────────────────────────────────────────────────
   'nav.costCenters':      'Centros de Custo',
+  'nav.paymentPlans':     'Planos de Pagamento',
   'cc.title':             'Centros de Custo',
   'cc.new':               'Novo Centro de Custo',
   'cc.code':              'Código',
@@ -968,6 +969,34 @@ const ptBR = {
   'cc.direction.in':      'Entrada',
   'cc.direction.out':     'Saída',
   'cc.insufficientStock': 'Saldo insuficiente neste centro de custo',
+
+  // ── Planos de Pagamento (regra 75) ────────────────────────────────────────
+  'pp.title':          'Planos de Pagamento',
+  'pp.subtitle':       'Formas de pagamento reutilizáveis (à vista, parcelado) que o pedido de venda pode escolher.',
+  'pp.new':            'Novo Plano',
+  'pp.edit':           'Editar Plano de Pagamento',
+  'pp.name':           'Nome',
+  'pp.namePH':         'Ex.: "3x sem juros" ou "Boleto 30/60/90"',
+  'pp.description':    'Descrição',
+  'pp.descriptionPH':  'Descrição opcional…',
+  'pp.isDefault':      'Plano padrão',
+  'pp.isDefaultHint':  'Pré-selecionado nos pedidos novos.',
+  'pp.installments':      'Parcelas',
+  'pp.installmentsCol':   'Parcelas',
+  'pp.defaultCol':        'Padrão',
+  'pp.singleInstallment': 'À vista',
+  'pp.daysOffset':     'Dias corridos',
+  'pp.percentage':     'Percentual (%)',
+  'pp.addInstallment': 'Adicionar parcela',
+  'pp.sum':            'Soma',
+  'pp.errName':        'Dê um nome ao plano de pagamento.',
+  'pp.errNoInstallments': 'O plano precisa de ao menos 1 parcela.',
+  'pp.errSum':         'A soma dos percentuais precisa ser 100% (está em {sum}%).',
+  'pp.errSave':        'Erro ao salvar o plano de pagamento.',
+  'pp.deactivate':     'Desativar este plano de pagamento?',
+  'pp.deactivateMsg':  'O plano será desativado e deixará de aparecer como opção em novos pedidos/notas. Pedidos/notas que já usam este plano continuam funcionando normalmente.',
+  'pp.paymentPlan':    'Plano de Pagamento',
+  'pp.none':           'Sem plano de pagamento',
 
   // ── Vendedores / Comissões ───────────────────────────────────────────────
   'nav.sellers':            'Vendedores',
@@ -1358,6 +1387,7 @@ const ptBR = {
   'prop.sendConfirm':      'Enviar proposta para o cliente por e-mail?',
   'prop.cancelConfirm':    'Cancelar esta proposta?',
   'prop.convertSuccess':   'Pedido criado com sucesso!',
+  'prop.convertDraftConfirm': 'Esta proposta ainda está em rascunho e não foi aceita pelo cliente. Converter agora registra o aceite internamente, em nome do seu usuário, e cria o pedido. Confirma?',
   'prop.duplicateSuccess': 'Proposta duplicada como',
   'prop.errorNoEmail':     'O cliente não possui e-mail cadastrado.',
 

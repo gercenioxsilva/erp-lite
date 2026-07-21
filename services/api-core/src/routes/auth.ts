@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
-import { db, tenants, users } from '../db';
+import { db, tenants, users, paymentPlans, paymentPlanInstallments } from '../db';
 import { sendSystemNotification } from '../lib/notificationsClient';
 import { getStripe } from '../lib/stripeClient';
 import { getPermissionsList } from '../rbac/permissionService';
@@ -78,6 +78,24 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           role:   'owner',
           status: 'active',
         }).returning({ id: users.id, email: users.email, name: users.name, role: users.role });
+
+        // Plano de Pagamento padrão (regra 75, migration 0086) — todo tenant
+        // nasce com "À Vista" pronto pra usar, mesma transação do tenant/user
+        // (nunca existe tenant sem ao menos 1 plano configurado). Tenants
+        // pré-existentes ganham o mesmo seed via backfill na própria migration.
+        const [defaultPlan] = await tx.insert(paymentPlans).values({
+          tenant_id:   tenant.id,
+          name:        'À Vista',
+          description: 'Pagamento integral, sem parcelamento',
+          is_active:   true,
+          is_default:  true,
+        }).returning({ id: paymentPlans.id });
+        await tx.insert(paymentPlanInstallments).values({
+          payment_plan_id:    defaultPlan.id,
+          installment_number: 1,
+          days_offset:         0,
+          percentage:          '100.00',
+        });
 
         // Ativação de conta por e-mail: token dedicado (48h) gerado na MESMA
         // transação do tenant/usuário — atômico, nunca existe um tenant sem

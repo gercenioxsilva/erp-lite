@@ -242,6 +242,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/receivables',  label: t('nav.receivables'), permission: 'receivables:view'  },
       { to: '/payables',     label: t('nav.payables'),    permission: 'payables:view'     },
       { to: '/cost-centers', label: t('nav.costCenters'), permission: 'cost_centers:view' },
+      { to: '/payment-plans', label: t('nav.paymentPlans'), permission: 'payment_plans:view' },
       { to: '/sellers',      label: t('nav.sellers'),     permission: 'sellers:view'      },
     ] },
     { id: 'reports', label: t('nav.reports'), icon: IcoReports, permission: 'reports:view', children: [

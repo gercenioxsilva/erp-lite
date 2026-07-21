@@ -185,3 +185,49 @@ describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
     expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
   });
 });
+
+describe('buildFocusPayload — duplicatas (Plano de Pagamento, regra 75)', () => {
+  it('nota sem plano de pagamento não inclui "duplicatas" no payload (comportamento inalterado)', () => {
+    const payload = buildFocusPayload(makeMsg()) as any;
+    expect(payload.duplicatas).toBeUndefined();
+  });
+
+  it('nota com plano de pagamento inclui o quadro de duplicatas com os mesmos campos da mensagem', () => {
+    const msg = makeMsg();
+    msg.duplicatas = [
+      { numero: '001', data_vencimento: '2026-07-20', valor: 33.34 },
+      { numero: '002', data_vencimento: '2026-08-19', valor: 33.33 },
+      { numero: '003', data_vencimento: '2026-09-18', valor: 33.33 },
+    ];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.duplicatas).toEqual(msg.duplicatas);
+  });
+
+  it('lista vazia de duplicatas não inclui a chave no payload (mesmo tratamento de ausente)', () => {
+    const msg = makeMsg();
+    msg.duplicatas = [];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.duplicatas).toBeUndefined();
+  });
+});
+
+describe('buildFocusPayload — informacoes_adicionais_contribuinte (observação da tela de emissão)', () => {
+  it('nota sem observação não inclui a chave no payload (comportamento inalterado)', () => {
+    const payload = buildFocusPayload(makeMsg()) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBeUndefined();
+  });
+
+  it('nota com observação inclui exatamente o texto digitado na tela de emissão', () => {
+    const msg = makeMsg();
+    msg.informacoes_adicionais_contribuinte = 'Entrega agendada para a tarde, portaria B.';
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBe('Entrega agendada para a tarde, portaria B.');
+  });
+
+  it('string vazia não inclui a chave no payload (mesmo tratamento de ausente)', () => {
+    const msg = makeMsg();
+    msg.informacoes_adicionais_contribuinte = '';
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBeUndefined();
+  });
+});

@@ -53,7 +53,7 @@ async function hasFiscalConfig(tenantId: string, companyId: string, db: DrizzleD
 }
 
 async function buildDas(
-  tenantId: string, companyId: string, db: DrizzleDB,
+  tenantId: string, companyId: string, db: DrizzleDB, now: Date = new Date(),
 ): Promise<CompanyOverview['das']> {
   const apuracoes = await listApuracoes(tenantId, companyId, db);
   const latest = apuracoes[0];
@@ -64,7 +64,7 @@ async function buildDas(
       eq(dasPayments.competencia, latest.competencia)));
 
   const due = dasDueDate(latest.competencia);
-  const diasRestantes = Math.ceil((due.getTime() - Date.now()) / 86_400_000);
+  const diasRestantes = Math.ceil((due.getTime() - now.getTime()) / 86_400_000);
   const status: 'pendente' | 'atrasado' | 'pago' =
     payments.length > 0 ? 'pago' : diasRestantes < 0 ? 'atrasado' : 'pendente';
 
@@ -78,13 +78,13 @@ async function buildDas(
 }
 
 async function buildConfiguredOverview(
-  tenantId: string, companyId: string, companyName: string, competencia: string, db: DrizzleDB,
+  tenantId: string, companyId: string, companyName: string, competencia: string, db: DrizzleDB, now: Date = new Date(),
 ): Promise<CompanyOverview> {
   try {
     const [scoreResult, closing, das] = await Promise.all([
       computeScore(tenantId, companyId, db),
       getClosingStatus(tenantId, companyId, competencia, db),
-      buildDas(tenantId, companyId, db),
+      buildDas(tenantId, companyId, db, now),
     ]);
 
     const alerts = { critical: 0, warning: 0, info: 0 };
@@ -106,7 +106,18 @@ async function buildConfiguredOverview(
   }
 }
 
-export async function getCompaniesOverview(tenantId: string, db: DrizzleDB = _db): Promise<CompanyOverview[]> {
+/**
+ * `now` é injetável (default `new Date()`, comportamento de produção
+ * inalterado) — mesmo padrão de `AlertSnapshot.today` em
+ * `alertRulesDomain.ts`: lógica dependente de calendário nunca lê o relógio
+ * direto lá dentro, sempre recebe "agora" de fora. Sem isso, o teste que
+ * fixava uma competência e esperava status "pendente" virava um "time bomb"
+ * — passava até a data de vencimento do DAS daquela competência (dia 20 do
+ * mês seguinte) e quebrava sozinho depois, sem nenhuma mudança de código.
+ */
+export async function getCompaniesOverview(
+  tenantId: string, db: DrizzleDB = _db, now: Date = new Date(),
+): Promise<CompanyOverview[]> {
   const companies = await listCompanies(tenantId, db);
   const competencia = currentCompetencia();
   const result: CompanyOverview[] = [];
@@ -127,7 +138,7 @@ export async function getCompaniesOverview(tenantId: string, db: DrizzleDB = _db
       });
       continue;
     }
-    result.push(await buildConfiguredOverview(tenantId, company.id, company.razao_social, competencia, db));
+    result.push(await buildConfiguredOverview(tenantId, company.id, company.razao_social, competencia, db, now));
   }
 
   return result;

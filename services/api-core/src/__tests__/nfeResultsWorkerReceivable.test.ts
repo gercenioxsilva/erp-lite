@@ -18,7 +18,7 @@ vi.mock('../lib/notificationsClient', () => ({
 }));
 
 import { processResult } from '../workers/nfeResultsWorker';
-import { receivables } from '../db/schema';
+import { receivables, paymentPlans, paymentPlanInstallments } from '../db/schema';
 
 const TENANT_ID  = '11111111-1111-1111-1111-111111111111';
 const INVOICE_ID = '22222222-2222-2222-2222-222222222222';
@@ -116,6 +116,53 @@ describe('nfeResultsWorker — conta a receber na autorização de NF-e de venda
     // mas o 2º select (fallback de idempotência) não deveria lançar — sem
     // erro não-tratado chegando até aqui já prova que a duplicidade foi
     // absorvida com sucesso.
+  });
+
+  it('com Plano de Pagamento (regra 75), gera N recebíveis parcelados em vez de um só', async () => {
+    setupExecuteMock(baseInvoiceRow({ payment_plan_id: 'plan-1', total: '100.00' }));
+
+    const insertedByTable: Record<string, unknown>[] = [];
+    mockDb.insert.mockImplementation((table: unknown) => ({
+      values: (data: Record<string, unknown>) => {
+        if (table === receivables) {
+          insertedByTable.push(data);
+          return { returning: () => Promise.resolve([{ id: `recv-${data.installment_number}`, ...data }]) };
+        }
+        return Promise.resolve(undefined);
+      },
+    }));
+    const installmentRows = [
+      { id: 'i1', payment_plan_id: 'plan-1', installment_number: 1, days_offset: 0,  percentage: '33.34' },
+      { id: 'i2', payment_plan_id: 'plan-1', installment_number: 2, days_offset: 30, percentage: '33.33' },
+      { id: 'i3', payment_plan_id: 'plan-1', installment_number: 3, days_offset: 60, percentage: '33.33' },
+    ];
+    mockDb.select.mockImplementation(() => ({
+      from: (table: unknown) => ({
+        // where() precisa ser awaitable direto (thenable) E encadeável com
+        // .orderBy() — getPlanWithInstallments usa um, loadInstallments usa o outro.
+        where: () => {
+          const rows = table === paymentPlans
+            ? [{ id: 'plan-1', tenant_id: TENANT_ID, name: '3x sem juros', is_active: true }]
+            : table === paymentPlanInstallments ? installmentRows : [];
+          return {
+            then: (resolve: (v: unknown) => void) => resolve(rows),
+            orderBy: () => Promise.resolve(rows),
+          };
+        },
+      }),
+    }));
+
+    await processResult({
+      invoice_id: INVOICE_ID, tenant_id: TENANT_ID, nfe_status: 'authorized',
+      nfe_chave: '1234'.repeat(11), nfe_protocol: 'proto-1', nfe_auth_date: '2026-07-20T10:00:00Z',
+    });
+
+    expect(insertedByTable).toHaveLength(3);
+    expect(insertedByTable.map(r => r.installment_number)).toEqual([1, 2, 3]);
+    const groupIds = new Set(insertedByTable.map(r => r.installment_group_id));
+    expect(groupIds.size).toBe(1);
+    const sumCents = insertedByTable.reduce((s, r) => s + Math.round(Number(r.amount) * 100), 0);
+    expect(sumCents).toBe(10000);
   });
 
   it('uma NF-e rejeitada nunca gera conta a receber', async () => {

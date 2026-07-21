@@ -303,6 +303,11 @@ export const orders = pgTable('orders', {
   // cost_center_id acima; vinculado/desvinculado via POST|DELETE
   // /v1/projects/:id/orders, nunca por aqui (PATCH /orders/:id só edita em 'draft').
   project_id: uuid('project_id'),
+  // Plano de Pagamento (migration 0086, regra 75) — escolhido no pedido,
+  // sem .references() aqui de propósito (mesmo padrão de cost_center_id/
+  // seller_id acima: payment_plans é declarada mais adiante neste arquivo,
+  // FK real vive na migration).
+  payment_plan_id: uuid('payment_plan_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -364,6 +369,11 @@ export const invoices = pgTable('invoices', {
   cost_center_id: uuid('cost_center_id'),
   // Vendedor (migration 0036)
   seller_id: uuid('seller_id'),
+  // Plano de Pagamento (migration 0086, regra 75) — herdado do pedido de
+  // origem (mesmo padrão de cost_center_id/seller_id acima); é a fonte de
+  // verdade lida por routes/nfe.ts e nfeResultsWorker.ts pra gerar as
+  // parcelas de receivables e o quadro de duplicatas da NF-e.
+  payment_plan_id: uuid('payment_plan_id'),
 });
 
 // ── invoice_items ─────────────────────────────────────────────────────────────
@@ -687,6 +697,15 @@ export const receivables = pgTable('receivables', {
   // definição, já que service_orders é declarada mais adiante neste arquivo).
   // UNIQUE parcial (na migration) garante no máximo 1 receivable por OS.
   service_order_id: uuid('service_order_id'),
+  // Parcelamento por Plano de Pagamento (migration 0086, regra 75) — mesmo
+  // padrão de payables.installment_number/total/group_id (regra 47).
+  // installment_number NUNCA é NULL (default 1): o UNIQUE parcial em
+  // (invoice_id, installment_number) depende disso pra continuar garantindo
+  // "no máximo 1 recebível por nota" no caso sem plano (NULL não bloqueia
+  // duplicata em UNIQUE no Postgres).
+  installment_number:   smallint('installment_number').notNull().default(1),
+  installment_total:    smallint('installment_total').notNull().default(1),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────
@@ -1144,6 +1163,33 @@ export const salesOpportunityActivities = pgTable('sales_opportunity_activities'
   description:    text('description'),
   created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Plano de Pagamento  (migration 0086, regra 75) — catálogo por tenant
+// ("À Vista", "3x sem juros", "30/60/90 dias corridos"), escolhido no pedido
+// de venda, herdado pela nota fiscal. Todo tenant nasce com "À Vista" (seed
+// na migration + em routes/auth.ts pra tenant novo).
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const paymentPlans = pgTable('payment_plans', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 255 }),
+  is_active:   boolean('is_active').notNull().default(true),
+  is_default:  boolean('is_default').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const paymentPlanInstallments = pgTable('payment_plan_installments', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  payment_plan_id:    uuid('payment_plan_id').notNull().references(() => paymentPlans.id, { onDelete: 'cascade' }),
+  installment_number: smallint('installment_number').notNull(),
+  days_offset:        smallint('days_offset').notNull(),
+  percentage:         decimal('percentage', { precision: 5, scale: 2 }).notNull(),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
