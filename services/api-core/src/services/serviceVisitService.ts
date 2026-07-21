@@ -17,8 +17,12 @@ import {
   canComplete,
   isRoutingTokenValid,
   validateServiceVisitCreate,
+  visitTimeRange,
+  findVisitConflict,
+  DEFAULT_VISIT_DURATION_MINUTES,
   ServiceVisitDomainError,
   type ServiceVisitStatus,
+  type VisitTimeRange,
 } from '../domain/serviceVisit/serviceVisitDomain';
 import { canCompleteServiceOrder } from '../domain/serviceOrder/serviceOrderDomain';
 import { sendSystemNotification } from '../lib/notificationsClient';
@@ -45,16 +49,83 @@ export function buildVisitLink(visitId: string, routingToken: string): string {
 }
 
 // ── Agendamento (lado do backoffice) ─────────────────────────────────────────
+//
+// CONCORRÊNCIA (agenda do técnico, regra 78): a checagem de conflito de
+// horário é atômica com a gravação, mesmo desenho de createSession em
+// schedulingSessionService.ts — pg_advisory_xact_lock com chave
+// (`service_visit:${technicianId}`) dentro da transação serializa dois
+// agendamentos concorrentes do mesmo técnico; o segundo enxerga o primeiro e
+// falha com 'visit_conflict'. Seed do hash (43) é diferente da usada pelo
+// Agendamento (42, mesmo arquivo de referência) só para nunca colidir no
+// mesmo espaço de chaves de advisory lock por coincidência de hash.
+// SELECT ... FOR UPDATE não serve aqui pelo mesmo motivo do Agendamento:
+// numa agenda vazia não há linha para travar (phantom read).
+//
+// Diferente do Agendamento, NÃO há um `EXCLUDE USING gist` físico como
+// backstop (migration 0087 explica o porquê: service_visits já é uma tabela
+// existente com dado real possível, e validar essa constraint contra
+// histórico já gravado arriscaria falhar o deploy — risco que este projeto
+// nunca aceita numa migration). `scheduleVisit()` é o único ponto de escrita
+// de agendamento de `service_visits` — o advisory lock é suficiente aqui.
+
+interface VisitBlocker {
+  id:           string;
+  technicianId: string;
+  range:        VisitTimeRange;
+  status:       ServiceVisitStatus;
+}
+
+async function lockTechnicianAgenda(tx: DrizzleDB, technicianId: string): Promise<void> {
+  const key = `service_visit:${technicianId}`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 43))`);
+}
+
+/** Visitas que seguram horário (scheduled/in_progress) do técnico. */
+async function loadTechnicianBlockers(tx: DrizzleDB, tenantId: string, technicianId: string): Promise<VisitBlocker[]> {
+  const rows = await tx.select({
+    id:               serviceVisits.id,
+    scheduled_at:     serviceVisits.scheduled_at,
+    duration_minutes: serviceVisits.duration_minutes,
+    status:           serviceVisits.status,
+  }).from(serviceVisits)
+    .where(and(
+      eq(serviceVisits.tenant_id, tenantId),
+      eq(serviceVisits.technician_id, technicianId),
+      sql`${serviceVisits.status} IN ('scheduled', 'in_progress')`,
+    ));
+
+  return rows.map(r => ({
+    id:           r.id,
+    technicianId,
+    range:        visitTimeRange(new Date(r.scheduled_at), r.duration_minutes),
+    status:       r.status as ServiceVisitStatus,
+  }));
+}
+
+/** Erro citando o horário conflitante — vira a mensagem da UI. */
+function throwVisitConflict(hit: VisitBlocker, technicianName: string): never {
+  throw new ServiceVisitDomainError('visit_conflict', {
+    conflicting: {
+      visit_id:         hit.id,
+      technician_name:  technicianName,
+      scheduled_at:     hit.range.start.toISOString(),
+      ends_at:          hit.range.end.toISOString(),
+      status:           hit.status,
+    },
+  });
+}
 
 export interface ScheduleVisitArgs {
-  tenantId:       string;
-  serviceOrderId: string;
-  technicianId:   string;
-  scheduledAt:    Date;
+  tenantId:         string;
+  serviceOrderId:   string;
+  technicianId:     string;
+  scheduledAt:      Date;
+  durationMinutes?: number;
 }
 
 export async function scheduleVisit(args: ScheduleVisitArgs, db: DrizzleDB = _db) {
   validateServiceVisitCreate({ scheduledAt: args.scheduledAt });
+  const durationMinutes = args.durationMinutes ?? DEFAULT_VISIT_DURATION_MINUTES;
 
   const [order] = await db.select().from(serviceOrders)
     .where(and(eq(serviceOrders.id, args.serviceOrderId), eq(serviceOrders.tenant_id, args.tenantId)));
@@ -66,16 +137,28 @@ export async function scheduleVisit(args: ScheduleVisitArgs, db: DrizzleDB = _db
 
   const routingToken = generateRoutingToken();
   const tokenExpiresAt = new Date(args.scheduledAt.getTime() + ROUTING_TOKEN_VALID_DAYS * 24 * 60 * 60 * 1000);
+  const candidateRange = visitTimeRange(args.scheduledAt, durationMinutes);
 
-  const [visit] = await db.insert(serviceVisits).values({
-    tenant_id:        args.tenantId,
-    service_order_id: args.serviceOrderId,
-    technician_id:    args.technicianId,
-    scheduled_at:      args.scheduledAt,
-    status:             'scheduled',
-    routing_token:      routingToken,
-    token_expires_at:   tokenExpiresAt,
-  }).returning();
+  const visit = await db.transaction(async (tx) => {
+    const txDb = tx as unknown as DrizzleDB;
+    await lockTechnicianAgenda(txDb, args.technicianId);
+
+    const blockers = await loadTechnicianBlockers(txDb, args.tenantId, args.technicianId);
+    const hit = findVisitConflict({ technicianId: args.technicianId, range: candidateRange }, blockers);
+    if (hit) throwVisitConflict(hit, technician.name);
+
+    const [v] = await txDb.insert(serviceVisits).values({
+      tenant_id:         args.tenantId,
+      service_order_id:  args.serviceOrderId,
+      technician_id:     args.technicianId,
+      scheduled_at:       args.scheduledAt,
+      duration_minutes:   durationMinutes,
+      status:              'scheduled',
+      routing_token:       routingToken,
+      token_expires_at:    tokenExpiresAt,
+    }).returning();
+    return v;
+  });
 
   // draft → scheduled na OS, se ainda não estava agendada/em andamento
   if (order.status === 'draft') {

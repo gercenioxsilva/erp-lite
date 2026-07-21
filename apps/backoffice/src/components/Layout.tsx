@@ -201,8 +201,9 @@ export function Layout({ children }: { children: ReactNode }) {
     ] },
     ...(enabledModules.includes('service_orders') ? [{
       id: 'fieldService', label: t('nav.group.fieldService'), icon: IcoField, children: [
-        { to: '/service-orders', label: t('nav.serviceOrders'), permission: 'service_orders:view' },
-        { to: '/technicians',    label: t('nav.technicians'),   permission: 'technicians:view'    },
+        { to: '/service-orders',        label: t('nav.serviceOrders'), permission: 'service_orders:view' },
+        { to: '/service-orders/agenda', label: t('nav.techAgenda'),    permission: 'service_orders:view' },
+        { to: '/technicians',           label: t('nav.technicians'),   permission: 'technicians:view'    },
       ],
     } as NavGroupDef] : []),
     ...(enabledModules.includes('pos') ? [{

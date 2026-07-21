@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ServiceOrdersPage } from '../ServiceOrdersPage';
 import ptBR from '../../../i18n/pt-BR';
@@ -58,7 +59,7 @@ describe('ServiceOrdersPage — modal Nova OS', () => {
   it('carrega clientes e materiais mesmo quando a lista de técnicos falha (403)', async () => {
     mockResponses('fail');
     const user = userEvent.setup();
-    render(<ServiceOrdersPage />);
+    render(<MemoryRouter><ServiceOrdersPage /></MemoryRouter>);
 
     await user.click(await screen.findByText(`+ ${t('so.new')}`));
 
@@ -118,7 +119,7 @@ function setupMocks(detail: unknown = DRAFT_DETAIL) {
 }
 
 function renderPage() {
-  return render(<ServiceOrdersPage />);
+  return render(<MemoryRouter><ServiceOrdersPage /></MemoryRouter>);
 }
 
 describe('ServiceOrdersPage — edição de OS (regra: editável só em draft)', () => {

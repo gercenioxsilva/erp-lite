@@ -128,9 +128,11 @@ export function CompanyPage() {
   const [bannerSaving, setBannerSaving] = useState(false);
   const bannerRef = useRef<HTMLInputElement>(null);
 
-  // Zona de risco — desativação em massa de produtos sem movimentação de
-  // estoque (nunca um DELETE físico, regra 8; mesmo soft-delete de sempre).
-  const [bulkDeactivating, setBulkDeactivating] = useState(false);
+  // Zona de risco — EXCLUSÃO FÍSICA em massa de produtos nunca referenciados
+  // em nenhum documento (regra 69, revisada): reset de emergência pra quando
+  // uma importação de planilha errada precisa ser apagada de vez, não só
+  // desativada.
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Upload de certificado/chave C6 (mTLS) — mesmo padrão de fileRef/bannerRef
   // acima, mas lendo como texto puro (readAsText), não base64: cert/key já são
@@ -858,21 +860,21 @@ export function CompanyPage() {
     } finally { setBannerSaving(false); }
   }
 
-  async function handleBulkDeactivateProducts() {
+  async function handleBulkDeleteUnusedProducts() {
     const ok = await modal.confirm({
-      title:        t('comp.bulkDeactivateProducts'),
-      message:      t('comp.bulkDeactivateConfirmMsg'),
-      confirmLabel: t('comp.bulkDeactivateProducts'),
+      title:        t('comp.bulkDeleteProducts'),
+      message:      t('comp.bulkDeleteConfirmMsg'),
+      confirmLabel: t('comp.bulkDeleteProducts'),
       danger:       true,
     });
     if (!ok) return;
-    setBulkDeactivating(true);
+    setBulkDeleting(true);
     try {
-      const result = await api.post<{ deactivated: number }>('/v1/materials/bulk-deactivate', {});
-      modal.success(t('comp.bulkDeactivateResult').replace('{n}', String(result.deactivated)));
+      const result = await api.post<{ deleted: number }>('/v1/materials/bulk-delete-unused', {});
+      modal.success(t('comp.bulkDeleteResult').replace('{n}', String(result.deleted)));
     } catch (err: unknown) {
       modal.error(err);
-    } finally { setBulkDeactivating(false); }
+    } finally { setBulkDeleting(false); }
   }
 
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
@@ -1110,12 +1112,12 @@ export function CompanyPage() {
             <h3 style={{ marginBottom: 4, color: 'var(--danger)' }}>{t('comp.dangerZone')}</h3>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
               <div style={{ maxWidth: 560 }}>
-                <strong style={{ display: 'block', marginBottom: 4 }}>{t('comp.bulkDeactivateProducts')}</strong>
-                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.bulkDeactivateProductsDesc')}</p>
+                <strong style={{ display: 'block', marginBottom: 4 }}>{t('comp.bulkDeleteProducts')}</strong>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.bulkDeleteProductsDesc')}</p>
               </div>
               <button className="btn btn-danger btn-sm" style={{ width: 'auto' }}
-                disabled={bulkDeactivating} onClick={handleBulkDeactivateProducts}>
-                {bulkDeactivating ? t('c.saving') : t('comp.bulkDeactivateProducts')}
+                disabled={bulkDeleting} onClick={handleBulkDeleteUnusedProducts}>
+                {bulkDeleting ? t('c.saving') : t('comp.bulkDeleteProducts')}
               </button>
             </div>
           </div>

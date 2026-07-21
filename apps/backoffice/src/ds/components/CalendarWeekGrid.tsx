@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import './CalendarWeekGrid.css';
+import { TimeGrid } from './TimeGrid';
+import type { TimeGridColumn, TimeGridBlock } from './TimeGrid';
 import {
-  hmToMinutes, weekOf, todayISO, WEEKDAY_LABELS_SHORT, weekdayOf,
+  weekOf, todayISO, WEEKDAY_LABELS_SHORT, weekdayOf,
 } from '../../lib/schedulingTime';
 
 export interface CalendarSession {
@@ -23,18 +24,14 @@ type CalendarWeekGridProps = {
   onSlotClick?:    (date: string, time: string) => void;
 };
 
-const HOUR_PX = 48;
-const SNAP_MINUTES = 30;
-
 /**
- * Agenda semanal com eixo de horas e blocos posicionados por minuto.
- * A janela de horas se ajusta ao conteúdo (min 07–19h) — uma barbearia
- * noturna e uma autoescola matinal enxergam a própria realidade.
- * Canceladas/recusadas ficam de fora (horário liberado); pendentes
- * aparecem hachuradas — seguram horário mas ainda pedem decisão.
+ * Agenda semanal do Agendamento (regra 65) — adapter de domínio sobre o
+ * motor genérico TimeGrid (colunas = dias da semana). Props/comportamento
+ * idênticos aos de sempre; a matemática de layout mora em TimeGrid.tsx,
+ * reaproveitada também pela Agenda do Técnico (colunas = técnicos, regra 78).
+ * Visão diária (0083): o chamador pode restringir as colunas (ex.: [anchor]).
  */
 export function CalendarWeekGrid({ anchorDate, days: daysProp, sessions, onSessionClick, onSlotClick }: CalendarWeekGridProps) {
-  // Visão diária (0083): o chamador pode restringir as colunas (ex.: [anchor]).
   const days = daysProp ?? weekOf(anchorDate);
   const today = todayISO();
 
@@ -43,80 +40,33 @@ export function CalendarWeekGrid({ anchorDate, days: daysProp, sessions, onSessi
     [sessions],
   );
 
-  const [startHour, endHour] = useMemo(() => {
-    let min = 7 * 60, max = 19 * 60;
-    for (const s of visible) {
-      min = Math.min(min, hmToMinutes(s.start_time));
-      max = Math.max(max, hmToMinutes(s.end_time));
-    }
-    return [Math.floor(min / 60), Math.ceil(max / 60)];
-  }, [visible]);
+  const columns: TimeGridColumn[] = useMemo(() => days.map(date => ({
+    key:         date,
+    label:       Number(date.slice(8, 10)),
+    sublabel:    WEEKDAY_LABELS_SHORT[weekdayOf(date)],
+    highlighted: date === today,
+  })), [days, today]);
 
-  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
-  const bodyHeight = hours.length * HOUR_PX;
+  const blocks: TimeGridBlock[] = useMemo(() => visible.map(s => ({
+    id:          s.id,
+    columnKey:   s.date,
+    start:       s.start_time,
+    end:         s.end_time,
+    statusClass: s.status,
+    title:       s.client_name,
+    subtitle:    s.area_name,
+    tooltip:     `${s.start_time}–${s.end_time} · ${s.client_name}${s.area_name ? ` · ${s.area_name}` : ''}`,
+  })), [visible]);
 
-  const blockStyle = (s: CalendarSession) => {
-    const top = ((hmToMinutes(s.start_time) - startHour * 60) / 60) * HOUR_PX;
-    const height = ((hmToMinutes(s.end_time) - hmToMinutes(s.start_time)) / 60) * HOUR_PX;
-    return { top, height: Math.max(height - 2, 18) };
-  };
-
-  const clickSlot = (date: string, e: React.MouseEvent<HTMLDivElement>) => {
-    if (!onSlotClick) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const minutes = startHour * 60 + ((e.clientY - rect.top) / HOUR_PX) * 60;
-    const snapped = Math.floor(minutes / SNAP_MINUTES) * SNAP_MINUTES;
-    const h = Math.floor(snapped / 60), m = snapped % 60;
-    onSlotClick(date, `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-  };
+  const sessionById = useMemo(() => new Map(sessions.map(s => [s.id, s])), [sessions]);
 
   return (
-    <div className="ds-cal" role="grid" aria-label="Agenda da semana">
-      <div className="ds-cal__header">
-        <div className="ds-cal__axis-spacer" />
-        {days.map(date => (
-          <div key={date} className={`ds-cal__day-head${date === today ? ' ds-cal__day-head--today' : ''}`}>
-            <span className="ds-cal__day-name">{WEEKDAY_LABELS_SHORT[weekdayOf(date)]}</span>
-            <span className="ds-cal__day-num">{Number(date.slice(8, 10))}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="ds-cal__body" style={{ height: bodyHeight }}>
-        <div className="ds-cal__axis">
-          {hours.map(h => (
-            <div key={h} className="ds-cal__hour" style={{ height: HOUR_PX }}>
-              {String(h).padStart(2, '0')}:00
-            </div>
-          ))}
-        </div>
-
-        {days.map(date => (
-          <div
-            key={date}
-            className={`ds-cal__col${date === today ? ' ds-cal__col--today' : ''}`}
-            onClick={onSlotClick ? (e) => clickSlot(date, e) : undefined}
-          >
-            {hours.map(h => (
-              <div key={h} className="ds-cal__line" style={{ height: HOUR_PX }} />
-            ))}
-            {visible.filter(s => s.date === date).map(s => (
-              <button
-                key={s.id}
-                type="button"
-                className={`ds-cal__block ds-cal__block--${s.status}`}
-                style={blockStyle(s)}
-                title={`${s.start_time}–${s.end_time} · ${s.client_name}${s.area_name ? ` · ${s.area_name}` : ''}`}
-                onClick={(e) => { e.stopPropagation(); onSessionClick?.(s); }}
-              >
-                <span className="ds-cal__block-time">{s.start_time}</span>
-                <span className="ds-cal__block-client">{s.client_name}</span>
-                {s.area_name && <span className="ds-cal__block-area">{s.area_name}</span>}
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
+    <TimeGrid
+      ariaLabel="Agenda da semana"
+      columns={columns}
+      blocks={blocks}
+      onBlockClick={onSessionClick ? (id) => { const s = sessionById.get(id); if (s) onSessionClick(s); } : undefined}
+      onSlotClick={onSlotClick}
+    />
   );
 }

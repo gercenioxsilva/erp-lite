@@ -68,6 +68,7 @@ import { PosHistoryPage }       from './pages/pos/PosHistoryPage';
 import { PosTerminalsPage }     from './pages/pos/PosTerminalsPage';
 import { PosSessionsPage }     from './pages/pos/PosSessionsPage';
 import { ServiceOrdersPage }   from './pages/service-orders/ServiceOrdersPage';
+import { ServiceOrdersAgendaPage } from './pages/service-orders/ServiceOrdersAgendaPage';
 import { SalesPipelinePage }   from './pages/sales-pipeline/SalesPipelinePage';
 import { EmployeesPage }       from './pages/employees/EmployeesPage';
 import { PayrollPage }         from './pages/payroll/PayrollPage';
@@ -188,6 +189,7 @@ function GuardedRoutes() {
         <Route path="/pos/terminals"   element={gate('pos:manage', <PosTerminalsPage />)} />
         <Route path="/pos/sessions"    element={gate('pos:view', <PosSessionsPage />)} />
         <Route path="/service-orders"  element={gate('service_orders:view', <ServiceOrdersPage />)} />
+        <Route path="/service-orders/agenda" element={gate('service_orders:view', <ServiceOrdersAgendaPage />)} />
         {/* TODO(follow-up RBAC): sales-pipeline é módulo novo de develop, sem chave
             no catálogo ainda — ver nota acima em simples-remessa. */}
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
