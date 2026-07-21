@@ -455,23 +455,51 @@ export const materialsRoutes: FastifyPluginAsync = async (app: FastifyInstance) 
     return reply.send(row);
   });
 
-  // POST /v1/materials/bulk-deactivate — desativa (is_active=false) todos os
-  // produtos ativos do tenant que NUNCA tiveram movimentação de estoque.
-  // Nunca um DELETE físico (regra 8): mesmo padrão soft-delete do DELETE
-  // /materials/:id acima, só que em massa — e com uma trava a mais (o
-  // DELETE de um único produto não checa movimentações; em massa, sim,
-  // porque afeta o catálogo inteiro de uma vez).
-  app.post('/materials/bulk-deactivate', {
+  // POST /v1/materials/bulk-delete-unused — EXCLUSÃO FÍSICA em massa (regra
+  // 69, revisada): "zona de risco" pra recuperar de uma importação errada —
+  // o cliente sobe uma planilha de cadastro ruim e precisa apagar tudo pra
+  // recomeçar do zero, não só desativar. Diferente do soft-delete de
+  // DELETE /materials/:id (que nunca muda), este é um DELETE de verdade.
+  //
+  // Elegibilidade exige NUNCA ter sido referenciado em NENHUMA tabela que
+  // aponta pra materials — não só inventory_movements (esse continua sendo o
+  // critério de negócio "nunca teve entrada/saída"), mas também toda tabela
+  // com FK `ON DELETE SET NULL`/sem `ON DELETE` (NO ACTION ⇒ restrict): um
+  // material citado num pedido/nota/proposta/contrato/OS/pedido de
+  // compra/NF-e de entrada/venda PDV/saldo ou movimento de centro de custo/
+  // componente de outro kit NUNCA é elegível — apagar corromperia
+  // (SET NULL) ou seria bloqueado (RESTRICT/NO ACTION) por esse documento
+  // histórico. As tabelas com `ON DELETE CASCADE` (material_images,
+  // inventory, material_price_history, material_marketplace_links, e os
+  // componentes do PRÓPRIO kit em material_components.kit_id) não entram no
+  // filtro — o Postgres já limpa elas sozinho quando a linha de materials
+  // sai, é exatamente o "todas demais relacionadas" pedido.
+  //
+  // Sem filtro de `is_active`, de propósito: um produto já desativado numa
+  // tentativa anterior também precisa sumir de vez no reset de emergência.
+  app.post('/materials/bulk-delete-unused', {
     onRequest: [(app as any).authenticate], preHandler: [requirePermission('materials:delete')],
   }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { rows } = await db.execute<{ id: string }>(sql`
-      UPDATE materials m SET is_active = false, updated_at = now()
-      WHERE m.tenant_id = ${tenantId} AND m.is_active = true
-        AND NOT EXISTS (SELECT 1 FROM inventory_movements im WHERE im.material_id = m.id)
+      DELETE FROM materials m
+      WHERE m.tenant_id = ${tenantId}
+        AND NOT EXISTS (SELECT 1 FROM inventory_movements    WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM order_items            WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM invoice_items          WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM simples_remessa_items  WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM service_contracts      WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM proposal_items         WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM purchase_order_items   WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM service_order_items    WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM pos_sale_items         WHERE product_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM cost_center_stock      WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM cost_center_movements  WHERE material_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM material_components    WHERE component_id = m.id)
       RETURNING m.id
     `);
-    return reply.send({ deactivated: rows.length });
+    return reply.send({ deleted: rows.length });
   });
 
   // GET /v1/materials/:id/stock
