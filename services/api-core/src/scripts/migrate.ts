@@ -157,6 +157,7 @@ const migrations = [
   '0090_reconciliation_semantic.sql',
   '0091_integrations.sql',
   '0092_integration_services.sql',
+  '0093_whatsapp_automation_attempt_status.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:
