@@ -86,7 +86,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     // tenant_id ainda é aceito no body por retrocompatibilidade de contrato,
     // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
     const { client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id, payment_plan_id } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id, payment_plan_id,
+            transportadora_id, modalidade_frete } = body;
     if (!client_id) return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
@@ -154,6 +155,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         cost_center_id: resolvedCostCenterId,
         seller_id: resolvedSellerId,
         payment_plan_id: resolvedPaymentPlanId,
+        // Transportadora (migration 0089) — mesmo padrão não-mágico de
+        // seller_id/cost_center_id, sem herança automática do pedido (frete
+        // é escolha da nota, não do pedido).
+        transportadora_id: transportadora_id || null,
+        modalidade_frete: modalidade_frete != null ? Number(modalidade_frete) : null,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
       for (const it of items as InvoiceItemPayload[]) {
