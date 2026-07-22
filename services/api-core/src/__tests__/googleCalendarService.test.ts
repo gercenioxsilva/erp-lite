@@ -39,8 +39,11 @@ describe('feature-flag (env-unset → inerte)', () => {
   beforeEach(() => { delete process.env.GOOGLE_CLIENT_ID; delete process.env.GOOGLE_CLIENT_SECRET; });
   afterEach(() => { process.env = { ...saved }; });
 
-  it('isGoogleCalendarConfigured é false sem credenciais', () => {
-    expect(isGoogleCalendarConfigured()).toBe(false);
+  // 0087: a credencial virou por tenant com fallback de plataforma. O db mock
+  // devolve [] (nenhuma config própria), então o resultado ainda é governado
+  // pelas envs que este bloco apaga — a semântica do teste segue a mesma.
+  it('isGoogleCalendarConfigured é false sem credenciais', async () => {
+    expect(await isGoogleCalendarConfigured(TENANT, makeDb())).toBe(false);
   });
 
   it('getAuthorizationUrl lança google_not_configured sem credenciais', async () => {

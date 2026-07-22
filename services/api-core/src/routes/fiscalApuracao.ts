@@ -4,6 +4,7 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
+import { IntegrationServiceDisabledError } from '../services/integrations/integrationService';
 import { requirePermission } from '../lib/requirePermission';
 import { CompanyDomainError, resolveCompanyId } from '../services/companyService';
 import { FiscalDomainError } from '../domain/fiscal/fiscalCompanyConfigDomain';
@@ -39,9 +40,21 @@ export const fiscalApuracaoRoutes: FastifyPluginAsync = async (fastify) => {
     if (err instanceof FiscalLockError) {
       return reply.code(422).send({ error: err.code, ...err.payload });
     }
-    // SERPRO não configurado neste ambiente → 503 (molde do assistente IA).
+    // SERPRO sem credencial (nem do tenant nem de plataforma) → 503 com o corpo
+    // PADRÃO de integração ausente (0087): `reason` é o que o frontend usa para
+    // renderizar o aviso "aguardando configuração" em vez de um erro vermelho.
     if (err instanceof PgdasdDisabledError) {
-      return reply.code(503).send({ error: 'pgdasd_disabled' });
+      return reply.code(503).send({
+        error: 'pgdasd_disabled', reason: 'missing_credentials', provider: 'serpro',
+      });
+    }
+    // Serviço desligado pelo próprio tenant (0088) — 422, não 503: não falta
+    // credencial, falta autorização de uso. Mensagem diz o que fazer.
+    if (err instanceof IntegrationServiceDisabledError) {
+      return reply.code(422).send({
+        error: err.code, provider: err.providerKey, service: err.serviceKey,
+        message: 'Esta operação está desativada nas configurações de integração.',
+      });
     }
     throw err;
   }
@@ -128,7 +141,7 @@ export const fiscalApuracaoRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/fiscal/apuracao/:id/pgdasd/transmissions', guard('fiscal:view'), async (request, reply) => {
     const { tenantId } = (request as any).user;
     const { id } = request.params as { id: string };
-    try { return { data: await listTransmissions(tenantId, id, db), enabled: isPgdasdEnabled() }; }
+    try { return { data: await listTransmissions(tenantId, id, db), enabled: await isPgdasdEnabled(tenantId, db) }; }
     catch (err) { return handleError(err, reply); }
   });
 

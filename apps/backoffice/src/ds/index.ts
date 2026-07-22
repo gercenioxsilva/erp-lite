@@ -20,6 +20,10 @@ export type { TimelineEvent } from './components/Timeline';
 
 export { Drawer } from './components/Drawer';
 
+export { Switch } from './components/Switch';
+
+export { IntegrationUnavailable } from './components/IntegrationUnavailable';
+
 export { BalanceBar } from './components/BalanceBar';
 
 export { SlotPicker } from './components/SlotPicker';

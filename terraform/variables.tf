@@ -150,6 +150,122 @@ variable "stripe_webhook_secret" {
   default     = ""
 }
 
+# ── Integrações (0087) ────────────────────────────────────────────────────────
+# ATENÇÃO ao ler o que segue: desde a migration 0087, credencial de integração é
+# configurada POR TENANT na tela Integrações do backoffice e vive no banco. As
+# variáveis abaixo são FALLBACK DE PLATAFORMA — valem só para tenants que ainda
+# não configuraram a própria conta.
+#
+# Todas com default "" de propósito: ausente NÃO quebra deploy nem runtime. A
+# rota responde 503 com corpo padronizado e a tela mostra "integração aguardando
+# configuração". Nunca 500.
+
+variable "app_url" {
+  description = "URL pública do backoffice. Base dos redirects de OAuth (Google) e Stripe — errar isto devolve o usuário ao ambiente errado depois do consentimento."
+  type        = string
+  default     = "https://orquestraerp.com.br"
+}
+
+variable "anthropic_api_key" {
+  description = "Chave da Anthropic (assistente fiscal + similaridade semântica na conciliação). NÃO é por tenant: o custo é da plataforma. Vazio = assistente responde 503 e a conciliação usa só o algoritmo determinístico local."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "anthropic_model" {
+  description = "Override do modelo. Vazio = default do código (claude-sonnet-5)."
+  type        = string
+  default     = ""
+}
+
+variable "assistant_daily_cap" {
+  description = "Teto de chamadas/dia por tenant no assistente (429 ao estourar). Vazio = default do código."
+  type        = string
+  default     = ""
+}
+
+variable "pluggy_client_id" {
+  description = "Client ID da Pluggy (Open Finance) — fallback de plataforma. Prefixo 'local-' liga o modo de simulação."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "pluggy_client_secret" {
+  description = "Client Secret da Pluggy — fallback de plataforma."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "serpro_consumer_key" {
+  description = <<-EOT
+    Consumer Key do SERPRO Integra Contador (PGDAS-D/DAS) — fallback de plataforma.
+    O normal em produção é cada empresa contratar a própria na loja SERPRO e
+    configurar na tela Integrações; isto atende ambientes de teste.
+    As 4 variáveis SERPRO_* são all-or-nothing: faltando uma, a integração fica inativa.
+    ⚠ CUSTO: HTTP 403 é COBRADO pela SERPRO — permissão mal configurada gasta dinheiro.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "serpro_consumer_secret" {
+  description = "Consumer Secret do SERPRO Integra Contador — fallback de plataforma."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "serpro_mtls_pfx_base64" {
+  description = "Certificado e-CNPJ A1 (.pfx) em base64 para o mTLS do SERPRO. TEM de ser o mesmo CNPJ que contratou na loja SERPRO."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "serpro_mtls_pfx_password" {
+  description = "Senha do .pfx do e-CNPJ usado no mTLS do SERPRO."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "serpro_env" {
+  description = "Ambiente SERPRO: 'trial' (default) ou 'producao'."
+  type        = string
+  default     = "trial"
+}
+
+variable "google_client_id" {
+  description = "Client ID OAuth 2.0 (tipo Aplicativo Web) para o Google Calendar — fallback de plataforma. O escopo calendar.events é sensível: publicar exige app verificado pelo Google."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "google_client_secret" {
+  description = "Client Secret OAuth do Google Calendar — fallback de plataforma."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "google_redirect_uri" {
+  description = "URI de callback do OAuth Google. Precisa estar registrada IDÊNTICA no Google Cloud Console. Vazio = derivada de app_url. Aponta para a API, não para o backoffice."
+  type        = string
+  default     = ""
+}
+
+variable "marketplace_state_secret" {
+  description = "Segredo que assina o `state` do OAuth (Google/Mercado Livre). Vazio = cai em jwt_secret."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "app_public_origins" {
   description = <<-EOT
     Origens (scheme+host) autorizadas a fazer upload direto no bucket de fotos

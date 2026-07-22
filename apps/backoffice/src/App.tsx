@@ -80,6 +80,7 @@ import { TechnicianLoginPage }       from './pages/technician/TechnicianLoginPag
 import { TechnicianVisitsPage }      from './pages/technician/TechnicianVisitsPage';
 import { TechnicianVisitDetailPage } from './pages/technician/TechnicianVisitDetailPage';
 import { RolesPage }        from './pages/users/RolesPage';
+import { IntegrationsPage } from './pages/integrations/IntegrationsPage';
 import { AccessDeniedPage } from './pages/AccessDeniedPage';
 import { ProtectedRoute }   from './rbac';
 import { SchedulingDashboardPage }  from './pages/scheduling/SchedulingDashboardPage';
@@ -142,6 +143,9 @@ function GuardedRoutes() {
         <Route path="/suppliers"   element={gate('suppliers:view', <SuppliersPage />)} />
         <Route path="/payables"    element={gate('payables:view', <PayablesPage />)} />
         <Route path="/company"     element={gate('company:view', <CompanyPage />)} />
+        {/* Integrações: administrativa transversal, mesma permissão que liga e
+            desliga módulo — é a mesma classe de ato de configuração do tenant. */}
+        <Route path="/integracoes" element={gate('tenant_modules:manage', <IntegrationsPage />)} />
         <Route path="/contracts"   element={gate('contracts:view', <ContractsPage />)} />
         <Route path="/nfse"        element={gate('nfse:view', <NfsePage />)} />
         <Route path="/nfse/new"    element={gate('nfse:emit', <NfseNewPage />)} />

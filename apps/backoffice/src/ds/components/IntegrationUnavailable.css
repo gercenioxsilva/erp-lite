@@ -1,0 +1,45 @@
+/* Tom deliberadamente neutro: é informação, não falha. Nada de vermelho, nada
+   de ícone de alerta — a tela em volta continua utilizável. */
+.ds-int-unavailable {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.ds-int-unavailable__icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ds-int-unavailable__body { min-width: 0; }
+
+.ds-int-unavailable__title {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ds-int-unavailable__desc {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.ds-int-unavailable .btn { margin-top: 12px; }

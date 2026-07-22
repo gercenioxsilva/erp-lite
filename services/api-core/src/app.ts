@@ -63,6 +63,7 @@ import { supplierInvoicesRoutes } from './routes/supplierInvoices';
 import { subscriptionRoutes, subscriptionWebhookRoute } from './routes/subscription';
 import { posRoutes }           from './routes/pos';
 import { tenantModulesRoutes }     from './routes/tenantModules';
+import { tenantIntegrationsRoutes } from './routes/tenantIntegrations';
 import { techniciansRoutes }       from './routes/technicians';
 import { serviceOrdersRoutes }     from './routes/serviceOrders';
 import { projectsRoutes }          from './routes/projects';
@@ -189,6 +190,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(subscriptionWebhookRoute, { prefix: '/v1' });
   await app.register(posRoutes,                { prefix: '/v1' });
   await app.register(tenantModulesRoutes,      { prefix: '/v1' });
+  await app.register(tenantIntegrationsRoutes, { prefix: '/v1' });
   await app.register(techniciansRoutes,        { prefix: '/v1' });
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
   await app.register(projectsRoutes,           { prefix: '/v1' });
