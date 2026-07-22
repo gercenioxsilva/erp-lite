@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -37,13 +37,24 @@ export function FiscalOverviewPage() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<CompanyOverview[] | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [moduleDisabled, setModuleDisabled] = useState(false);
 
   function fetchOverview() {
     setLoadError(false);
+    setModuleDisabled(false);
     setCompanies(null);
     api.get<{ data: CompanyOverview[] }>('/v1/fiscal/companies-overview')
       .then((r) => setCompanies(r.data))
-      .catch(() => setLoadError(true));
+      .catch((err) => {
+        // Módulo desligado devolve 403 ModuleNotEnabled — nunca o mesmo
+        // "tentar novamente" de uma falha real, senão o botão fica
+        // condenado a repetir o mesmo 403 pra sempre.
+        if (err instanceof ApiError && err.status === 403 && err.body?.error === 'ModuleNotEnabled') {
+          setModuleDisabled(true);
+        } else {
+          setLoadError(true);
+        }
+      });
   }
 
   useEffect(() => {
@@ -55,6 +66,19 @@ export function FiscalOverviewPage() {
       navigate('/fiscal/pipeline', { replace: true });
     }
   }, [companies, navigate]);
+
+  if (moduleDisabled) {
+    return (
+      <div style={{ display: 'grid', gap: 12, justifyItems: 'start' }}>
+        <p style={{ fontSize: 14, color: 'var(--muted, #64748b)', margin: 0 }}>
+          O módulo Gestão Fiscal está desabilitado para este tenant.
+        </p>
+        <button type="button" className="btn btn-sm" onClick={() => navigate('/company')}>
+          Ir para Minha Empresa → Módulos
+        </button>
+      </div>
+    );
+  }
 
   if (loadError) {
     return (

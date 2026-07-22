@@ -1523,9 +1523,12 @@ const en: Record<TKey, string> = {
   'comp.whatsapp.update':      'Update connection',
   'comp.whatsapp.manage':      'Automations and messages',
   'comp.whatsapp.errSave':     'Error saving the WhatsApp connection.',
+  'comp.whatsapp.test':        'Test connection',
+  'comp.whatsapp.testing':     'Testing…',
+  'comp.whatsapp.testOk':      'Twilio connection working normally.',
+  'comp.whatsapp.testFailed':  'Could not confirm the connection.',
 
   // ── Technician Visit Custom Fields (migration 0088, admin-only) ──────────
-  'comp.tabVisitFields':          'Technician Visit Fields',
   'comp.visitFields.hint':        'Define your own fields for the field technician to fill in from their portal, at the time of the visit — e.g. "Is there internet on-site?". They show up in the technician form, on the service order print-out, and on the visit screen so the operator can check what was collected in the field.',
   'comp.visitFields.empty':       'No custom fields registered yet.',
   'comp.visitFields.label':       'Field name',
@@ -1591,6 +1594,7 @@ const en: Record<TKey, string> = {
   'nav.payroll':   'Payroll',
   'so.title':          'Service Orders',
   'so.new':            'New Service Order',
+  'so.customFields.manage': 'Visit Custom Fields',
   'so.number':         'No.',
   'so.client':         'Client',
   'so.selectClient':   'Select a client…',

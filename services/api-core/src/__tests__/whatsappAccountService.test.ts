@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { upsertWhatsAppAccount, resolveConnectedAccount } from '../services/whatsappAccountService';
+import { upsertWhatsAppAccount, resolveConnectedAccount, testWhatsAppConnection } from '../services/whatsappAccountService';
 import { WhatsAppDomainError } from '../domain/whatsapp/whatsappDomain';
 import type { DrizzleDB } from '../services/whatsappAccountService';
+
+vi.mock('../services/whatsappConnectionClient', () => ({
+  testarConexaoProvider: vi.fn(),
+}));
 
 // Mesmo padrão de bankAccountService.test.ts: injeção direta de `db` mockado
 // via último parâmetro, sem vi.mock('../db'). Prova o merge de credenciais
@@ -105,5 +109,26 @@ describe('resolveConnectedAccount', () => {
   it('lança quando a conta existe mas está desconectada', async () => {
     const { db } = makeMockDb({ id: 'account-1', tenant_id: TENANT_ID, status: 'disconnected' });
     await expect(resolveConnectedAccount(TENANT_ID, db)).rejects.toBeInstanceOf(WhatsAppDomainError);
+  });
+});
+
+describe('testWhatsAppConnection', () => {
+  it('lança account_not_connected quando não existe conta cadastrada ainda', async () => {
+    const { db } = makeMockDb(null);
+    await expect(testWhatsAppConnection(TENANT_ID, db)).rejects.toBeInstanceOf(WhatsAppDomainError);
+  });
+
+  it('delega ao cliente do provedor com o provider e as credenciais salvas', async () => {
+    const { db } = makeMockDb({
+      id: 'account-1', tenant_id: TENANT_ID, provider: 'twilio', status: 'connected',
+      credentials: { account_sid: 'AC123', auth_token: 'tok123' },
+    });
+    const { testarConexaoProvider } = await import('../services/whatsappConnectionClient');
+    (testarConexaoProvider as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+
+    const result = await testWhatsAppConnection(TENANT_ID, db);
+
+    expect(testarConexaoProvider).toHaveBeenCalledWith('twilio', { account_sid: 'AC123', auth_token: 'tok123' });
+    expect(result).toEqual({ ok: true });
   });
 });

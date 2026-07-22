@@ -1520,9 +1520,12 @@ const ptBR = {
   'comp.whatsapp.update':      'Atualizar conexão',
   'comp.whatsapp.manage':      'Automações e mensagens',
   'comp.whatsapp.errSave':     'Erro ao salvar a conexão do WhatsApp.',
+  'comp.whatsapp.test':        'Testar conexão',
+  'comp.whatsapp.testing':     'Testando…',
+  'comp.whatsapp.testOk':      'Conexão com o Twilio funcionando normalmente.',
+  'comp.whatsapp.testFailed':  'Não foi possível confirmar a conexão.',
 
   // ── Campos Personalizados de Visita Técnica (migration 0088, admin-only) ──
-  'comp.tabVisitFields':          'Campos da Visita Técnica',
   'comp.visitFields.hint':        'Defina campos próprios que o técnico de campo vai preencher no portal dele, no momento da visita — ex.: "Tem internet no local?". Aparecem no formulário técnico, na impressão da OS e na tela de visita para o operador conferir o que foi coletado em campo.',
   'comp.visitFields.empty':       'Nenhum campo personalizado cadastrado ainda.',
   'comp.visitFields.label':       'Nome do campo',
@@ -1588,6 +1591,7 @@ const ptBR = {
   'nav.payroll':   'Folha de Pagamento',
   'so.title':          'Ordens de Serviço',
   'so.new':            'Nova OS',
+  'so.customFields.manage': 'Campos Personalizados da Visita',
   'so.number':         'Nº',
   'so.client':         'Cliente',
   'so.selectClient':   'Selecione um cliente…',

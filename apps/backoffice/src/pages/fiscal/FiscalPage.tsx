@@ -4,7 +4,7 @@
 // sobre estes mesmos endpoints.
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../rbac';
 import { AssistantChat } from './AssistantChat';
@@ -177,6 +177,7 @@ function Card({ title, children, action }: { title: string; children: React.Reac
 
 export function FiscalPage() {
   const { can } = usePermissions();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [batches, setBatches] = useState<Batch[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -198,13 +199,26 @@ export function FiscalPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [pgdasd, setPgdasd] = useState<Record<string, PgdasdState>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  // Otimista (true) pra não piscar um loading no caso comum (módulo ligado);
+  // só vira false depois de confirmado desligado — mesmo racional de
+  // EngineKeysCard.tsx: checar o módulo ANTES de disparar as chamadas
+  // /v1/fiscal/*, nunca deixar o 403 ModuleNotEnabled estourar cru na tela.
+  const [moduleEnabled, setModuleEnabled] = useState(true);
 
   useEffect(() => {
-    api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies')
-      .then((r) => setCompanies(r.data)).catch(() => setCompanies([]));
+    api.get<{ enabled: string[] }>('/v1/tenant/modules')
+      .then((r) => setModuleEnabled(r.enabled.includes('fiscal')))
+      .catch(() => setModuleEnabled(true)); // falha na checagem não deve esconder o painel indevidamente
   }, []);
 
+  useEffect(() => {
+    if (!moduleEnabled) return;
+    api.get<{ data: { id: string; razao_social: string; is_default: boolean }[] }>('/v1/companies')
+      .then((r) => setCompanies(r.data)).catch(() => setCompanies([]));
+  }, [moduleEnabled]);
+
   const load = useCallback(async () => {
+    if (!moduleEnabled) return;
     const q = companyId ? `?company_id=${companyId}` : '';
     const [s, b, d, p, a, ds] = await Promise.all([
       api.get<Record<string, number>>('/v1/fiscal/reconciliation/summary').catch(() => ({})),
@@ -225,7 +239,7 @@ export function FiscalPage() {
     api.get<ScoreData>(`/v1/fiscal/score${q}`).then(setScore).catch(() => setScore(null));
     api.get<{ data: FiscalAlert[] }>('/v1/fiscal/alerts?status=open,acknowledged&limit=20')
       .then((r) => setAlerts(r.data)).catch(() => setAlerts([]));
-  }, [companyId]);
+  }, [companyId, moduleEnabled]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -295,6 +309,19 @@ export function FiscalPage() {
     const form = new FormData();
     form.append('file', file);
     await run('Importação', () => api.postForm('/v1/fiscal/imports', form));
+  }
+
+  if (!moduleEnabled) {
+    return (
+      <div style={{ display: 'grid', gap: 12, justifyItems: 'start' }}>
+        <p style={{ fontSize: 14, color: 'var(--muted, #64748b)', margin: 0 }}>
+          O módulo Gestão Fiscal está desabilitado para este tenant.
+        </p>
+        <button type="button" className="btn btn-sm" onClick={() => navigate('/company')}>
+          Ir para Minha Empresa → Módulos
+        </button>
+      </div>
+    );
   }
 
   return (
