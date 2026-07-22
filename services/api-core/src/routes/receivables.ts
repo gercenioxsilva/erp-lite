@@ -5,6 +5,7 @@ import { requirePermission } from '../lib/requirePermission';
 import { notifyPaymentConfirmed } from '../services/whatsappAutomationService';
 import { registerReceivablePayment, ReceivablePaymentError } from '../services/receivableService';
 import { reverseEntry } from '../services/accountingService';
+import { isValidISODate } from '../lib/dateValidation';
 
 const VALID_STATUSES  = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
 const VALID_METHODS   = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -120,11 +121,23 @@ export const receivablesRoutes: FastifyPluginAsync = async (fastify) => {
     const { id }   = request.params as { id: string };
     const body     = request.body as any;
 
-    const [existing] = await db.select({ id: receivables.id, status: receivables.status })
+    const [existing] = await db.select({ id: receivables.id, status: receivables.status, boleto_id: receivables.boleto_id })
       .from(receivables)
       .where(and(eq(receivables.id, id), eq(receivables.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Conta a receber não encontrada');
     if (existing.status === 'cancelled') return reply.badRequest('Não é possível editar uma conta cancelada');
+
+    // Alterar o vencimento (regra 82) tem duas travas próprias, além do
+    // guard geral de 'cancelled' acima: nunca numa conta já quitada (não faz
+    // sentido reagendar o que já foi pago) e nunca com boleto emitido (o
+    // vencimento registrado no banco ficaria dessincronizado do daqui —
+    // sem um fluxo de "alterar boleto já emitido", expirar o boleto primeiro
+    // é o caminho, mesmo racional de emit-boleto bloquear reemissão).
+    if (body.due_date !== undefined) {
+      if (existing.status === 'paid') return reply.badRequest('Não é possível alterar o vencimento de uma conta já paga');
+      if (existing.boleto_id) return reply.badRequest('Não é possível alterar o vencimento: já existe um boleto emitido para esta conta. Expire o boleto antes de alterar a data.');
+      if (typeof body.due_date !== 'string' || !isValidISODate(body.due_date)) return reply.badRequest('due_date inválida (formato esperado: YYYY-MM-DD)');
+    }
 
     const patch: Record<string, unknown> = {};
     if (body.description !== undefined) patch.description = body.description;

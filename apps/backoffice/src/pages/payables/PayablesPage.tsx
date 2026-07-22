@@ -88,6 +88,12 @@ export function PayablesPage() {
   const [payError, setPayError]     = useState('');
   const [payingSave, setPayingSave] = useState(false);
 
+  // Alterar vencimento (regra 82)
+  const [dueDateEditing, setDueDateEditing] = useState(false);
+  const [dueDateValue,   setDueDateValue]   = useState('');
+  const [dueDateSaving,  setDueDateSaving]  = useState(false);
+  const [dueDateError,   setDueDateError]   = useState('');
+
   const PER_PAGE = 20;
 
   useEffect(() => {
@@ -128,6 +134,22 @@ export function PayablesPage() {
     const full = await api.get<any>(`/v1/payables/${pay.id}`);
     setSelected(full); setDetailOpen(true); setPayError('');
     setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
+    setDueDateEditing(false); setDueDateValue(''); setDueDateError('');
+  }
+
+  async function handleChangeDueDate() {
+    if (!selected) return;
+    if (!dueDateValue) { setDueDateError(t('pay.errDue')); return; }
+    setDueDateSaving(true); setDueDateError('');
+    try {
+      await api.patch(`/v1/payables/${selected.id}`, { due_date: dueDateValue });
+      const updated = await api.get<any>(`/v1/payables/${selected.id}`);
+      setSelected(updated);
+      setDueDateEditing(false);
+      loadItems();
+    } catch (err: any) {
+      setDueDateError(err.message || t('pay.errSave'));
+    } finally { setDueDateSaving(false); }
   }
 
   async function handleCreate(e: FormEvent) {
@@ -462,14 +484,43 @@ export function PayablesPage() {
                 </div>
               </div>
 
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>
                 {t('pay.dueDate')}: <strong>{fmtDate(selected.due_date)}</strong>
+                {selected.status !== 'paid' && selected.status !== 'cancelled' && !dueDateEditing && (
+                  <Can permission="payables:edit">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: 'auto', marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
+                      onClick={() => { setDueDateValue(selected.due_date.slice(0, 10)); setDueDateEditing(true); setDueDateError(''); }}
+                    >
+                      {t('pay.changeDueDate')}
+                    </button>
+                  </Can>
+                )}
                 &nbsp;·&nbsp; {t('pay.category')}: <strong>{catLabel(selected.category)}</strong>
                 &nbsp;·&nbsp;
                 <span style={{ color: STATUS_COLORS[selected.status], fontWeight: 600 }}>
                   {t(`pay.status.${selected.status}` as any)}
                 </span>
               </div>
+
+              {dueDateEditing && (
+                <div className="field-row" style={{ marginBottom: 16, alignItems: 'flex-end' }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label htmlFor="pay-new-due-date">{t('pay.newDueDate')}</label>
+                    <input id="pay-new-due-date" type="date" value={dueDateValue} onChange={e => setDueDateValue(e.target.value)} />
+                  </div>
+                  <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                    disabled={dueDateSaving} onClick={() => void handleChangeDueDate()}>
+                    {dueDateSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                    onClick={() => { setDueDateEditing(false); setDueDateError(''); }}>
+                    {t('c.cancel')}
+                  </button>
+                </div>
+              )}
+              {dueDateError && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{dueDateError}</div>}
 
               {selected.payments.length > 0 && (
                 <>
