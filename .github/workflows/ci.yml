@@ -63,6 +63,28 @@ jobs:
       - name: Type check — backoffice
         run: npx tsc --noEmit --project apps/backoffice/tsconfig.json
 
+  lint:
+    name: Lint — backoffice
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # ESLint 10 exige Node >= 20.19 — '20' resolve para o 20.x mais recente.
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Falha só em ERRO. Os ~145 warnings atuais são dívida conhecida e estão
+      # documentados em apps/backoffice/eslint.config.js — não bloqueiam o PR.
+      # A regra que importa aqui é react-hooks/rules-of-hooks (error): foi um
+      # hook depois de return condicional que serviu tela branca em produção.
+      - name: ESLint
+        run: npm run lint --workspace=apps/backoffice
+
   build-api:
     name: Build api-core Docker
     runs-on: ubuntu-latest

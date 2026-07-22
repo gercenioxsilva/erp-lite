@@ -4,7 +4,7 @@
  * DIFERENTE de digits(): nunca remove letras.
  */
 export function normalizeCNPJ(v: string): string {
-  return v.replace(/[.\-\/\s]/g, '').toUpperCase();
+  return v.replace(/[.\-/\s]/g, '').toUpperCase();
 }
 
 /**
