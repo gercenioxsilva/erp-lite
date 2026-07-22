@@ -85,6 +85,26 @@ jobs:
       - name: ESLint
         run: npm run lint --workspace=apps/backoffice
 
+  test-backoffice:
+    name: Test — backoffice
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # O job `test` acima roda SÓ --workspace=services/api-core; os testes do
+      # backoffice existiam mas nunca executavam na esteira. Não precisam de
+      # banco nem de serviço externo (jsdom + vitest).
+      - name: Vitest
+        run: npm test --workspace=apps/backoffice
+
   build-api:
     name: Build api-core Docker
     runs-on: ubuntu-latest
