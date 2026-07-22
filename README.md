@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. Fatos que mudam com frequência (schema exato, lista de rotas) **apontam para o código-fonte em vez de serem copiados aqui** — copiar gera drift (este README já teve isso corrigido uma vez; não repetir).
 
-1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`, `contract_field_definitions`, `contract_field_values`, `api_keys`, `api_key_usage`, `payment_plans`, `payment_plan_installments`.
+1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`, `contract_field_definitions`, `contract_field_values`, `api_keys`, `api_key_usage`, `payment_plans`, `payment_plan_installments`, `service_visit_field_definitions`, `service_visit_field_values`.
 
 2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration), whatsapp (account + templates + automations + messages + webhook público `/public/whatsapp/webhook`), projects (+ professionals + orders + service-orders + start/complete/cancel), engine (API do Motor Fiscal por chave `X-API-Key`, `/v1/engine/*`, sem JWT) + engine-keys (autoatendimento de chave, JWT), lead-capture (`POST /v1/public/leads` por chave `X-API-Key`, sem JWT) + lead-capture-keys (autoatendimento de chave, JWT), payment-plans (CRUD do catálogo de planos de pagamento + `/active`, regra 75).
 
@@ -174,6 +174,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
     - **`POST /v1/public/leads` é síncrono (nunca SQS/Lambda) — é um INSERT/UPDATE de uma tabela só, sem dependência externa lenta**, diferente do padrão assíncrono reservado pra chamadas SEFAZ/Focus/banco/WhatsApp. `tenant_id` nunca vem do body (regra 4) — vem exclusivamente da chave (`request.apiKey.tenantId`, resolvida dentro de `requireApiKey`); um `tenant_id` no payload é silenciosamente ignorado. Contrato de resposta `{success:true,data}`/`{success:false,error}` (convenção de `routes/engine.ts`, distinta do JSON "nu" das rotas internas por JWT) — `201` quando cria, `200` quando mescla com cliente existente. Nenhuma infraestrutura nova (sem WAF/API Gateway/rate limit distribuído) — aceita o mesmo risco/custo operacional já em produção pro Engine; CORS já era `{origin:true}` (permissivo) antes desta feature, sem mudança.
 
 73. **Documentação de API pública para integradores: spec OpenAPI hand-maintained em `docs/openapi/public-api.yaml`, publicado como página estática (Redoc) em `/api-docs.html` — reaproveita o mesmo bucket S3 + distribuição CloudFront do backoffice, nenhum recurso AWS novo.** Cobre as duas famílias de endpoint autenticadas por `X-API-Key` (Captação de Leads + Motor Fiscal), nunca as rotas internas por JWT. Gerado via `@redocly/cli` (`npm run docs:api:build`, script na raiz) num único HTML autocontido (JS inlinado, sem dependência de CDN em runtime); `npm run docs:api:preview` dá live-reload local pra quem edita o spec. **O spec não é gerado a partir do código** — as rotas (`routes/leadCapture.ts`/`routes/engine.ts`) validam o body manualmente, sem `schema` do Fastify, então não há geração automática viável sem refatorar as rotas; **toda mudança de contrato num desses dois arquivos precisa atualizar o spec na mesma PR**, sob risco de a doc divergir do comportamento real (mesmo princípio anti-drift do resto deste README). CI (`.github/workflows/ci.yml`, job `api-docs`) roda `docs:api:lint`+`docs:api:build` em todo push/PR — pega spec quebrado antes do merge, mas não publica nada; só o deploy real (`deploy.yml`, branch `main`) builda e sincroniza pro S3, na mesma invalidação `/*` que já existe pro backoffice.
+    - **Jornada do tenant, do zero até a primeira chamada autenticada** (não existe link dentro do produto apontando pra doc hoje — o caminho é este):
+      1. Módulo relevante ativo no tenant — `lead_capture` ou `engine` (Minha Empresa → Módulos, se opcional no plano contratado).
+      2. Backoffice → **Minha Empresa → Integrações** → card "Captação de Leads" (`LeadCaptureKeysCard.tsx`) ou "Engine API" (`EngineKeysCard.tsx`), visível só a quem tem `lead_capture:manage`/`engine:manage` (admin-only por padrão em cada matriz de RBAC).
+      3. **+ Nova chave** → nome da chave (rate limit e domínios permitidos são opcionais na Captação de Leads) → o backend devolve o segredo: `pk_live_...` pra Captação de Leads (escopo `leads:create`) ou `ek_live_...` pro Engine/Motor Fiscal (escopo `engine`).
+      4. **O segredo aparece uma única vez na tela** — só hash + prefixo ficam persistidos; se perder, a única saída é revogar e gerar outra chave, não existe "mostrar de novo".
+      5. Documentação interativa em `https://<domínio do backoffice>/api-docs.html` — mesma origem do CloudFront, **página pública, sem login** (só a chamada à API exige `X-API-Key`; visualizar a doc não exige nada).
+      6. Chamada real: header `X-API-Key: pk_live_...` ou `ek_live_...` em `POST /v1/public/leads` ou `POST /v1/engine/simples/...` — nunca `Authorization: Bearer`, exclusivo das rotas internas por JWT.
 
 74. **Regime tributário do cliente é travado no cadastro (`clients.tax_regime`, migration 0085) — nunca mais perguntado na tela de emissão de NF-e, mesma receita da regra 61 (NCM/CFOP travado no cadastro do produto).** Antes, `InvoiceNewPage.tsx` (Step 4) deixava o tenant escolher manualmente num `<select>` a cada nota (default hardcoded `lucro_presumido`, com uma tentativa de herdar de `nfe_configs.regime_tributario` — configuração fiscal do **tenant**, não do cliente/destinatário). Agora `formTaxRegime` é só leitura, sincronizado a partir do cliente selecionado (tanto via `<select id="inv-client">` quanto via `handleOrderChange`, quando a nota nasce de um pedido); cliente sem o campo preenchido mostra aviso + link `/clients?edit=<id>` (nunca um select como fallback — mesmo princípio de nunca deixar o mesmo erro entrar por dois caminhos diferentes). `ClientsPage.tsx` ganhou o deep-link `?edit=<id>` nesta entrega (antes só `MaterialsPage.tsx` tinha, regra 61) — é o que faz o link "Cadastrar" abrir o cliente certo já em modo edição. Coluna nullable, sem default e sem backfill — não dá pra inferir o regime tributário de um cliente já cadastrado a partir de nenhum outro campo (diferente de `icms_taxpayer`, que é sobre contribuinte de ICMS, não regime societário); a nota continua podendo ser salva sem o regime calculado (como já era antes — `handleCalculateTaxes` agora só recusa com um aviso amigável em vez de estourar 400 no `POST /v1/tax/calculate`, que exige o campo).
 
@@ -195,6 +202,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
     - **Leitura da agenda**: `GET /v1/service-orders/visits?from=&to=&technician_id=` (rota estática em `routes/serviceOrders.ts` — nunca colide com `GET /service-orders/:id`, find-my-way sempre prioriza rota estática) devolve `{data:[...]}` (regra 63) com `ends_at` já calculado. Segue a convenção já estabelecida neste módulo (diferente do Agendamento): consulta de leitura fica direto na rota, não numa função de serviço — mesmo padrão de `GET /service-orders`/`GET /service-orders/:id`.
     - **Componente compartilhado**: o motor de posicionamento de `CalendarWeekGrid.tsx` (Agendamento) foi extraído para `ds/components/TimeGrid.tsx` — genérico em "colunas × horas" (sem saber o que é sessão ou visita), com número de colunas dinâmico (antes fixo em 7 via CSS). `CalendarWeekGrid` virou um adapter fino sobre `TimeGrid` com props/comportamento idênticos de antes (Agendamento não muda 1 linha de comportamento); `ServiceOrdersAgendaPage.tsx` é o segundo adapter, com colunas = dias (visão por técnico) OU colunas = técnicos (visão "todos, um dia"). ⚠️ `service_visits.status` usa `'cancelled'` (2 L); `CalendarSession.status` do Agendamento usa `'canceled'` (1 L) — nomes de status nunca são intercambiáveis entre os dois adapters.
     - **Sem gate de módulo novo** — vive dentro do módulo já existente `service_orders`; permissões reaproveitadas (`service_orders:view` pra ver, `service_orders:assign` pra criar visita), nenhuma chave nova no catálogo RBAC.
+    - **Reagendar e cancelar** (`PATCH /v1/service-orders/:id/visits/:visitId` e `POST /v1/service-orders/:id/visits/:visitId/cancel`, mesma permissão `service_orders:assign`) — `rescheduleVisit()`/`cancelVisit()` (`serviceVisitService.ts`) só existem no lado backoffice; nunca reaproveitam `assertTechnicianOwnsVisit()` (isso é só pro portal do técnico). `rescheduleVisit()` replica a MESMA checagem atômica de conflito de `scheduleVisit()` (advisory lock + `findVisitConflict`), com uma diferença: exclui a PRÓPRIA visita da lista de bloqueadores antes de checar (senão ela sempre "conflitaria consigo mesma"). Só elegível em `status='scheduled'` (`canRescheduleVisit`) — depois do check-in mudar data/hora não faz sentido, a visita já está acontecendo. `cancelVisit()` é elegível em `scheduled`/`in_progress` (`canCancelVisit`, mesma tabela `VALID_TRANSITIONS` da regra 38) e **nunca mexe no status da Ordem de Serviço** — uma OS pode ter outras visitas ainda ativas, mesma filosofia de `scheduleVisit()` só tocar a OS na transição `draft→scheduled`, nunca sincronizar o status inteiro. Frontend: os dois botões vivem no mesmo drawer de detalhe da `ServiceOrdersAgendaPage.tsx` — "Reagendar" abre uma sub-view com data/hora/duração dentro do próprio drawer (sem drawer novo), "Cancelar visita" usa o mesmo `modal.confirm({danger:true})` já padrão do projeto pra ações irreversíveis.
+
+79. **Campos Personalizados de Visita Técnica (migration 0088): mesmo EAV de contrato (regra 71), aplicado a `service_visits` — mas quem PREENCHE o valor é o técnico, no portal dele, no momento da visita, nunca o backoffice no cadastro.** Schema (`service_visit_field_definitions`/`service_visit_field_values`, tenant, tipos `text`/`decimal`/`integer`/`date`/`boolean`, `field_key` imutável) idêntico ao de contrato; a diferença toda é ONDE o valor nasce e QUEM configura o schema.
+    - **Domínio extraído para `domain/customFields/customFieldDomain.ts`** — `slugifyFieldKey()`/`validateFieldValue()`/`formatFieldValueForDisplay()`/`FIELD_TYPES` nunca souberam o que é "contrato" (só operam em `field_type`/`label`/`value`), então em vez de duplicar ~90 linhas pra visita, `domain/contractField/contractFieldDomain.ts` virou um **shim** que reexporta daqui — `ContractFieldDomainError` é literalmente `CustomFieldDomainError` sob outro nome de export (`export { CustomFieldDomainError as ContractFieldDomainError }`), então `instanceof` nas rotas/testes de contrato continua funcionando sem tocar em nada. `serviceVisitFieldService.ts`/`routes/serviceVisitFields.ts` importam direto do módulo compartilhado — zero duplicação de validação por tipo entre os dois recursos.
+    - **Admin-only de verdade, não por convenção**: diferente de contrato (campos geridos por `contracts:edit`, qualquer perfil com essa permissão configura o schema), aqui existe um recurso RBAC **dedicado** — `service_visit_fields:view`/`service_visit_fields:manage` — que NUNCA entra nas listas explícitas de `MANAGER`/`USER`/`TECHNICIAN`/`PROFESSIONAL`/`CLIENT` em `roleMatrix.ts`. Só `OWNER` (`ALL_PERMISSION_KEYS`) e `ADMIN` (`ALL_PERMISSION_KEYS` menos `billing:manage`) ganham a permissão automaticamente — exatamente "owner + administradores do tenant", nunca quem só despacha visita (`service_orders:assign`) ou o próprio técnico (`portal:access`). Frontend: a aba "Campos da Visita Técnica" em Minha Empresa nem aparece na lista de tabs pra quem não tem `service_visit_fields:view` (`CompanyPage.tsx`) — reforço de UX em cima do reforço real, que é sempre o backend.
+    - **Onde o valor nasce**: `TechnicianVisitDetailPage.tsx` (portal do técnico) renderiza o formulário dinâmico dentro do bloco `in_progress` (mesma janela de fotos/assinatura/relatório) — respostas só são enviadas junto de `POST /v1/technician/visits/:id/complete` (`custom_fields`, mesmo padrão de `report_notes`, nunca salvo incrementalmente). `completeVisit()` (`serviceVisitService.ts`) valida/persiste os campos ANTES de mudar o status pra `completed` — um campo obrigatório sem resposta lança `field_value_required` e a visita nunca fica "meio completa" (o técnico também vê essa checagem client-side antes do POST, mas o backend é sempre a autoridade).
+    - **Onde o valor aparece pro operador do tenant**: `GET /v1/service-orders/:id` (drawer da OS, `ServiceOrdersPage.tsx`), `GET /v1/service-orders/:id/visits/:visitId` (mesmo endpoint, reaproveitado sob demanda pelo drawer de detalhe da Agenda do Técnico, regra 78, já que a listagem leve `GET /v1/service-orders/visits` não carrega campo nenhum de propósito) e `GET /v1/service-orders/:id/print` ("espelho do técnico", regra 38) — este último já formatado (`formatted_value`), mesmo padrão de impressão/e-mail de contrato.
 
 ---
 
@@ -256,6 +270,7 @@ C4Context
 
     Person(user, "Usuário ERP", "Gestor, vendedor, financeiro ou técnico de campo — acessa via browser")
     Person_Ext(client, "Cliente Final", "Recebe proposta comercial por e-mail e acessa o portal público")
+    Person_Ext(integrator, "Sistema Integrador / Parceiro", "Landing page ou sistema externo do tenant — consome a API pública via X-API-Key (regra 73)")
 
     System(erp, "Orquestra ERP", "SaaS multi-tenant: pedidos, NF-e, NFS-e, Simples Remessa, PDV, agendamento, financeiro, propostas, CRM, RH, centros de custo, relatórios")
 
@@ -285,6 +300,7 @@ C4Context
     Rel(erp, twilio, "Envia mensagem de template (cobrança, pagamento, NF-e, orçamento)", "REST HTTPS")
     Rel(twilio, erp, "Status callback (sent/delivered/read/failed) e reply (opt-out SAIR)", "Webhook POST")
     Rel(erp, client, "Notifica por WhatsApp (opt-in LGPD)", "Twilio")
+    Rel(integrator, erp, "Lê a documentação pública (/api-docs.html) e chama a API (captação de leads, Motor Fiscal)", "REST HTTPS · X-API-Key")
 ```
 
 ---
@@ -297,9 +313,10 @@ C4Container
 
     Person(user, "Usuário ERP", "Opera o backoffice")
     Person_Ext(client, "Cliente Final", "Acessa portal de propostas")
+    Person_Ext(integrator, "Sistema Integrador / Parceiro", "Consome a API pública via X-API-Key (regra 73)")
 
     Container_Boundary(aws, "AWS Cloud") {
-        Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA e assets. Roteia /v1/* para NLB. Certificado ACM us-east-1")
+        Container(cdn, "CloudFront + S3 Static", "AWS CDN / S3", "Entrega a SPA, assets e a documentação pública da API (/api-docs.html, Redoc estático). Roteia /v1/* para NLB. Certificado ACM us-east-1")
         Container(spa, "React SPA", "React 18 · TypeScript · Vite", "Backoffice completo + portal público /p/:token")
         Container(api, "api-core", "Node 22 · Fastify · Drizzle ORM · ECS Fargate Spot", "API REST multi-tenant. Workers in-process: nfeResults, boletoResults, contractBilling, recurringPayables, dueSoon, marketplaceSyncResults")
         ContainerDb(db, "RDS PostgreSQL 16", "PostgreSQL · SSL obrigatório", "Todos os dados isolados por tenant_id. Migrations em db/migrations/")
@@ -322,6 +339,8 @@ C4Container
 
     Rel(user, cdn, "Acessa via browser", "HTTPS")
     Rel(client, cdn, "Acessa /p/:token", "HTTPS")
+    Rel(integrator, cdn, "Lê /api-docs.html (sem autenticação)", "HTTPS")
+    Rel(integrator, api, "Chama /v1/public/leads e /v1/engine/*", "REST HTTPS · X-API-Key")
     Rel(cdn, spa, "Serve SPA", "S3 origin")
     Rel(cdn, api, "Proxia /v1/*", "HTTPS → NLB → ECS")
     Rel(spa, api, "Chama API autenticada", "REST HTTPS · JWT Bearer")
@@ -414,6 +433,7 @@ flowchart LR
         VD["Vendedor"]
         TC["Técnico de Campo"]
         CL["Cliente Final"]
+        INT["Sistema Integrador\n(landing page / parceiro)"]
     end
 
     subgraph Externos["Sistemas Externos"]
@@ -431,6 +451,9 @@ flowchart LR
     OW --> UC5["Consultar DRE Gerencial"]
     OW --> UC6["Gerenciar Centro de Custo"]
     OW --> UC19["Configurar Automações de WhatsApp (opcional)"]
+    OW --> UC21["Agendar, Reagendar ou Cancelar Visita Técnica"]
+    OW --> UC22["Configurar Campos Personalizados da Visita (schema por tenant)"]
+    OW --> UC24["Gerar Chave de API (Leads ou Motor Fiscal)"]
 
     VD --> UC7["Criar Pedido de Venda"]
     VD --> UC8["Enviar Proposta Comercial"]
@@ -439,8 +462,12 @@ flowchart LR
 
     TC --> UC11["Fazer Check-in/Check-out de Visita"]
     TC --> UC12["Registrar Fotos e Assinatura do Cliente"]
+    TC --> UC23["Preencher Campos Personalizados no Encerramento da Visita"]
 
     CL --> UC13["Visualizar e Aceitar/Rejeitar Proposta"]
+
+    INT --> UC25["Capturar Lead via API Pública"]
+    INT --> UC26["Consultar Motor Fiscal (Simples Nacional) via API"]
 
     UC1 --> SF
     UC1 --> UC14["Gerar Conta a Receber (automático na autorização)"]
@@ -460,6 +487,10 @@ flowchart LR
     UC1 --> UC20
     UC8 --> UC20
     UC20 --> TW
+    UC22 --> UC23
+    UC21 --> UC11
+    UC24 --> UC25
+    UC24 --> UC26
 ```
 
 ---
@@ -1031,6 +1062,76 @@ sequenceDiagram
 
 ---
 
+### Ordens de Serviço — Agenda do Técnico (agendar, reagendar, cancelar) e Campos Personalizados de Visita
+
+```mermaid
+sequenceDiagram
+    actor O as Owner/Admin/Manager (backoffice)
+    participant F as Frontend (React — Agenda dos Técnicos)
+    participant A as api-core (ECS)
+    participant DB as PostgreSQL
+    actor T as Técnico de Campo
+    participant TF as Portal do Técnico (React)
+
+    Note over O,F: Configuração do schema — uma vez por tenant, owner-only (service_visit_fields:manage)
+
+    O->>F: "Campos Personalizados de Visita" → Novo campo (label, tipo, obrigatório)
+    F->>A: POST /v1/service-visit-fields
+    A-->>F: 201 {id, field_key, label, field_type}
+
+    Note over O,F: Agendar — Ordens de Serviço → Agenda
+
+    O->>F: Escolhe técnico + data/hora na Agenda
+    F->>A: POST /v1/service-orders/:id/visits {technician_id, scheduled_at, duration_minutes}
+    A->>DB: pg_advisory_xact_lock(tenant, technician) + findConflict() contra visitas ativas do técnico
+    alt sem conflito
+        A->>DB: INSERT service_visits (status='scheduled')
+        A-->>F: 201 {id, scheduled_at}
+    else conflito de horário
+        A-->>F: 422 visit_conflict {conflicting: {visit_id, scheduled_at}}
+    end
+
+    Note over O,F: Reagendar — mesmo card na Agenda, novo horário
+
+    O->>F: Arrasta/edita o card → novo scheduled_at
+    F->>A: PATCH /v1/service-orders/:id/visits/:visitId {scheduled_at}
+    A->>DB: mesmo lock + findConflict() — exclui a própria visita da checagem de blockers
+    A->>DB: UPDATE service_visits SET scheduled_at=...
+    A-->>F: 200 {id, scheduled_at}
+
+    Note over O,F: Cancelar — bloqueado se a visita já está num estado terminal
+
+    O->>F: Clica "Cancelar" no card
+    F->>A: POST /v1/service-orders/:id/visits/:visitId/cancel
+    alt status permite cancelamento (scheduled | in_progress)
+        A->>DB: UPDATE service_visits SET status='cancelled'
+        A-->>F: 200 {ok: true, status: "cancelled"}
+    else visita já completed/cancelled
+        A-->>F: 422 visit_cannot_cancel {status}
+    end
+
+    Note over T,TF: Preenchimento em campo — no encerramento da visita, não na configuração
+
+    T->>TF: Abre a visita agendada (link/PIN, sem senha de backoffice)
+    T->>TF: Check-in → executa o serviço → preenche os campos personalizados (ex.: "Tem internet no local?")
+    TF->>A: POST /v1/technician/visits/:id/complete {report_notes, custom_fields: [{field_definition_id, value}]}
+    A->>A: validateFieldValue() por campo — obrigatório sem resposta bloqueia a conclusão (nunca "meio completa")
+    A->>DB: INSERT service_visit_field_values + UPDATE service_visits SET status='completed'
+    A-->>TF: 200 {ok: true, status: "completed"}
+
+    Note over O,F: Consulta pelo operador — respostas coletadas em campo, disponíveis onde a visita aparece
+
+    O->>F: Abre a visita concluída
+    F->>A: GET /v1/service-orders/:id/visits/:visitId
+    A-->>F: {visit, custom_fields: [{label, field_type, value}]}
+
+    O->>F: Imprime o formulário técnico da Ordem de Serviço
+    F->>A: GET /v1/service-orders/:id/print
+    A-->>F: {..., visits: [{..., custom_fields: [{label, field_type, formatted_value}]}]}
+```
+
+---
+
 ### Captação de Leads via API Pública (Landing Pages)
 
 ```mermaid
@@ -1156,19 +1257,18 @@ sequenceDiagram
 | RH Simplificado *(opcional)* | `/employees`, `/payroll`, `/payroll/entries/:id/print` | employees, payroll_runs, payroll_entries, payroll_tax_brackets |
 | Minha Empresa | `/company` | tenants, nfe_configs, notification_configs, bank_accounts |
 | Empresas / Multi-CNPJ *(opcional)* | `/company` (aba Fiscal) | nfe_configs (N por tenant), fiscal_integration_events |
-| Ordens de Serviço *(opcional)* | `/service-orders`, `/service-orders/agenda` | service_orders, service_order_items, service_visits |
+| Ordens de Serviço *(opcional)* | `/service-orders`, `/service-orders/agenda` | service_orders, service_order_items, service_visits, service_visit_field_definitions, service_visit_field_values |
 | Técnicos *(opcional)* | `/technicians` | technicians, users |
-| Portal do Técnico *(opcional, autenticado)* | `/tecnico/entrar`, `/tecnico/visitas`, `/tecnico/visitas/:id` | service_visits, service_visit_photos |
+| Portal do Técnico *(opcional, autenticado)* | `/tecnico/entrar`, `/tecnico/visitas`, `/tecnico/visitas/:id` | service_visits, service_visit_photos, service_visit_field_values |
 | Integração Mercado Livre *(opcional)* | `/company` (aba Integrações), aba "Mercado Livre" em `/materials` | marketplace_connections, material_marketplace_links, marketplace_webhook_events |
 | Funil de Vendas *(opcional)* | `/sales-pipeline` | sales_pipeline_stages, sales_opportunities, sales_opportunity_activities |
 | PDV / NFC-e *(opcional)* | `/pos`, `/pos/caixa`, `/pos/sales`, `/pos/terminals`, `/pos/sessions` | pos_terminals, pos_sessions, pos_cash_movements, pos_sales, pos_sale_items, pos_sale_payments |
 | Agendamento *(opcional)* | `/scheduling`, `/scheduling/calendar`, `/scheduling/professionals`, `/scheduling/areas`, `/scheduling/package-templates`, `/scheduling/settings` | scheduling_professionals, scheduling_areas, scheduling_availability_rules/exceptions, scheduling_sessions, scheduling_client_packages, scheduling_calendar_connections |
 | Assinatura SaaS *(opt-in via `STRIPE_SECRET_KEY`)* | `/subscription` | plans, billing_events |
 | WhatsApp — Cobranças e Notificações *(opcional, cobrado à parte)* | `/company` (aba Integrações), `/whatsapp` | whatsapp_accounts, whatsapp_message_templates, whatsapp_automations, whatsapp_messages, whatsapp_message_events, whatsapp_webhook_events |
-| Projetos *(opcional)* | `/projects` | projects, project_professionals |
+| Projetos *(opcional)* | `/projects` | projects, project_professionals (+ orders.project_id, service_orders.project_id) |
 | **Gestão Fiscal** *(opcional)* — importação (OFX/CSV/XLSX), conciliação, consolidação, emissão NFS-e (ABRASF próprio + Focus), apuração PGDAS-D, simulador de DAS, transmissão via SERPRO Integra Contador, Score Fiscal, alertas, fechamento de competência, Assistente Fiscal IA | `/fiscal` (painel executivo por empresa) | fiscal_company_config, fiscal_events, fiscal_revenue_monthly, fiscal_document_drafts, simples_apuracao, pgdasd_transmissions, fiscal_alerts, fiscal_closing_runs — ver `docs/fiscal-module.md` |
 | **Contabilidade** *(opcional)* — livro diário, razão, balancete, livro caixa, DRE contábil, balanço, plano de contas (dupla entrada derivada dos fatos fiscais) | `/contabil` | chart_of_accounts, journal_entries, journal_lines — ver `docs/fiscal-module.md` |
-| Projetos *(opcional)* | `/projects` | projects, project_professionals (+ orders.project_id, service_orders.project_id) |
 
 ---
 
@@ -1206,7 +1306,7 @@ Não é necessário atualizar manualmente listas de tabelas/rotas no Protocolo A
 | suppliers | `is_active` | `false` |
 | supplier_contacts | `is_active` | `false` |
 | nfe_configs (empresas) | `is_active` | `false` (bloqueado se for a padrão ou a última ativa) |
-| contract_field_definitions | `is_active` | `false` (valores já salvos em contratos existentes nunca somem) |
+| contract_field_definitions, service_visit_field_definitions | `is_active` | `false` (valores já salvos em contratos/visitas existentes nunca somem) |
 | bank_accounts | `is_active` | `false` (bloqueado se for a padrão da empresa ou a última ativa daquela empresa) |
 | material_marketplace_links | `status` | `'closed'` |
 | cost_centers | `is_active` | `false` |

@@ -1524,6 +1524,26 @@ const en: Record<TKey, string> = {
   'comp.whatsapp.manage':      'Automations and messages',
   'comp.whatsapp.errSave':     'Error saving the WhatsApp connection.',
 
+  // ── Technician Visit Custom Fields (migration 0088, admin-only) ──────────
+  'comp.tabVisitFields':          'Technician Visit Fields',
+  'comp.visitFields.hint':        'Define your own fields for the field technician to fill in from their portal, at the time of the visit — e.g. "Is there internet on-site?". They show up in the technician form, on the service order print-out, and on the visit screen so the operator can check what was collected in the field.',
+  'comp.visitFields.empty':       'No custom fields registered yet.',
+  'comp.visitFields.label':       'Field name',
+  'comp.visitFields.labelPH':     'E.g.: Is there internet on-site?',
+  'comp.visitFields.type':        'Type',
+  'comp.visitFields.required':    'Required',
+  'comp.visitFields.new':         'New field',
+  'comp.visitFields.add':         'Add field',
+  'comp.visitFields.remove':      'Remove',
+  'comp.visitFields.removeConfirm': 'Remove this field? Visits that already have an answer filled in keep the history, but the field stops showing up on the form for new visits.',
+  'comp.visitFields.errLabel':    'Enter a name for the field.',
+  'comp.visitFields.errSave':     'Error saving the field.',
+  'comp.visitFields.fieldType.text':    'Text',
+  'comp.visitFields.fieldType.decimal': 'Decimal',
+  'comp.visitFields.fieldType.integer': 'Whole number',
+  'comp.visitFields.fieldType.date':    'Date',
+  'comp.visitFields.fieldType.boolean': 'Yes/No',
+
   // ── Optional modules (My Company) ──────────────────────────────────────────
   'comp.tabModules':            'Modules',
   'comp.modules.title':         'Optional modules',
@@ -1661,6 +1681,9 @@ const en: Record<TKey, string> = {
   'soa.date':           'Date',
   'soa.time':           'Time',
   'soa.createTitle':    'Schedule Visit',
+  'soa.reschedule':        'Reschedule',
+  'soa.cancelVisit':       'Cancel visit',
+  'soa.cancelVisitConfirm': 'Cancel this visit? The time slot goes back to being free on the technician\'s agenda. This action cannot be undone.',
 
   // ── Technicians ───────────────────────────────────────────────────────────
   'tech.title':        'Technicians',
@@ -1700,6 +1723,8 @@ const en: Record<TKey, string> = {
   'tp.complete':       'Complete Visit',
   'tp.reportNotes':    'Visit report',
   'tp.reportNotesPH':  'Describe what was done, parts used, notes…',
+  'tp.customFieldsTitle': 'Visit information',
+  'tp.fieldRequired':      'required field',
   'tp.photos':         'Visit photos',
   'tp.addPhoto':       '+ Add photo',
   'tp.uploading':      'Uploading…',

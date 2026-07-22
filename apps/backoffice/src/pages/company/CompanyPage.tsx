@@ -8,7 +8,7 @@ import { digits, fetchAddressByCEP } from '../../lib/brazil';
 import type { TKey } from '../../i18n/pt-BR';
 import { Switch } from '../../ds/components/Switch';
 import { Badge } from '../../ds/components/Badge';
-import { Can } from '../../rbac';
+import { Can, usePermissions } from '../../rbac';
 import { SEGMENTS, getSegment } from '../../branding/segments';
 import { EngineKeysCard } from './EngineKeysCard';
 import { LeadCaptureKeysCard } from './LeadCaptureKeysCard';
@@ -112,8 +112,9 @@ export function CompanyPage() {
   const { tenantId, refreshUser } = useAuth();
   const { t }        = useI18n();
   const modal         = useModal();
+  const { can }       = usePermissions();
 
-  const [tab, setTab] = useState<'general' | 'branding' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations'>(
+  const [tab, setTab] = useState<'general' | 'branding' | 'banking' | 'fiscal' | 'notifications' | 'modules' | 'integrations' | 'visitFields'>(
     () => (new URLSearchParams(window.location.search).get('ml_status') ? 'integrations' : 'general'),
   );
   const [tenant, setTenant]     = useState<Tenant | null>(null);
@@ -879,6 +880,13 @@ export function CompanyPage() {
 
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
 
+  // Admin-only (regra a documentar): service_visit_fields:view nunca é
+  // concedido por padrão a manager/user — só owner/admin enxergam esta aba.
+  const tabKeys: (typeof tab)[] = [
+    'general', 'branding', 'banking', 'fiscal', 'notifications', 'integrations', 'modules',
+    ...(can('service_visit_fields:view') ? (['visitFields'] as const) : []),
+  ];
+
   return (
     <div>
       <div className="page-header">
@@ -886,8 +894,8 @@ export function CompanyPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'branding', 'banking', 'fiscal', 'notifications', 'integrations', 'modules'] as const).map(key => (
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)', flexWrap: 'wrap' }}>
+        {tabKeys.map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -895,7 +903,7 @@ export function CompanyPage() {
             borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
             marginBottom: -2, fontSize: 14,
           }}>
-            {key === 'general' ? t('comp.tabGeneral') : key === 'branding' ? t('comp.tabBranding') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : key === 'integrations' ? t('comp.tabIntegrations') : t('comp.tabModules')}
+            {key === 'general' ? t('comp.tabGeneral') : key === 'branding' ? t('comp.tabBranding') : key === 'banking' ? t('comp.tabBanking') : key === 'fiscal' ? t('comp.tabFiscal') : key === 'notifications' ? t('comp.tabNotifications') : key === 'integrations' ? t('comp.tabIntegrations') : key === 'modules' ? t('comp.tabModules') : t('comp.tabVisitFields')}
           </button>
         ))}
       </div>
@@ -1874,6 +1882,7 @@ export function CompanyPage() {
 
       {tab === 'integrations' && <><IntegrationsTab /><EngineKeysCard /><LeadCaptureKeysCard /></>}
       {tab === 'modules' && <ModulesTab />}
+      {tab === 'visitFields' && <VisitFieldsTab />}
     </div>
   );
 }
@@ -2187,6 +2196,150 @@ function ModulesSummary({ enabledCount, total }: { enabledCount: number; total: 
         {Array.from({ length: total }, (_, i) => (
           <span key={i} className={`modules-summary__dot${i < enabledCount ? ' is-on' : ''}`} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Campos Personalizados de Visita Técnica (migration 0088) ────────────────
+// Admin-only por desenho: só quem tem service_visit_fields:view chega a esta
+// aba (filtrada na lista de tabs, acima) — owner/admin por padrão, nunca
+// manager/user (roleMatrix.ts). Mesmo molde do modal de Campos Personalizados
+// de Contrato (ContractsPage.tsx::FieldDefinitionsModal), mas como aba própria
+// e preenchido pelo TÉCNICO no portal dele no momento da visita, não pelo
+// backoffice no cadastro (diferente de contrato).
+interface VisitFieldDefinition {
+  id:         string;
+  field_key:  string;
+  label:      string;
+  field_type: 'text' | 'decimal' | 'integer' | 'date' | 'boolean';
+  required:   boolean;
+  sort_order: number;
+}
+
+const VISIT_FIELD_TYPES: VisitFieldDefinition['field_type'][] = ['text', 'decimal', 'integer', 'date', 'boolean'];
+
+function VisitFieldsTab() {
+  const { t } = useI18n();
+  const modal = useModal();
+  const { can } = usePermissions();
+  const canManage = can('service_visit_fields:manage');
+
+  const [definitions, setDefinitions] = useState<VisitFieldDefinition[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [label, setLabel]             = useState('');
+  const [fieldType, setFieldType]     = useState<VisitFieldDefinition['field_type']>('text');
+  const [required, setRequired]       = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const resp = await api.get<{ data: VisitFieldDefinition[] }>('/v1/service-visit-fields');
+      setDefinitions(resp.data);
+    } catch { /* módulo service_orders pode estar desabilitado — aba fica vazia, sem alarde */ }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) { setError(t('comp.visitFields.errLabel')); return; }
+    setSaving(true); setError('');
+    try {
+      await api.post('/v1/service-visit-fields', { label, field_type: fieldType, required, sort_order: definitions.length });
+      setLabel(''); setFieldType('text'); setRequired(false);
+      void load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('comp.visitFields.errSave'));
+    } finally { setSaving(false); }
+  }
+
+  async function handleRemove(id: string) {
+    const ok = await modal.confirm({
+      title:        t('comp.visitFields.remove'),
+      message:      t('comp.visitFields.removeConfirm'),
+      confirmLabel: t('comp.visitFields.remove'),
+      danger:       true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/v1/service-visit-fields/${id}`);
+      void load();
+    } catch (err: unknown) { modal.error(err); }
+  }
+
+  if (loading) return <div className="spinner">{t('c.loading')}</div>;
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>{t('comp.tabVisitFields')}</h3>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.visitFields.hint')}</p>
+
+        {definitions.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.visitFields.empty')}</div>
+        ) : (
+          <table style={{ marginBottom: 20 }}>
+            <thead>
+              <tr>
+                <th>{t('comp.visitFields.label')}</th>
+                <th>{t('comp.visitFields.type')}</th>
+                {canManage && <th></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {definitions.map(def => (
+                <tr key={def.id}>
+                  <td>{def.label}{def.required ? ' *' : ''}</td>
+                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t(`comp.visitFields.fieldType.${def.field_type}` as TKey)}</td>
+                  {canManage && (
+                    <td>
+                      <button type="button" className="btn btn-danger btn-sm" onClick={() => void handleRemove(def.id)}>
+                        {t('c.del')}
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {canManage && (
+          <>
+            <strong style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>{t('comp.visitFields.new')}</strong>
+            <form onSubmit={handleAdd} noValidate>
+              {error && <div className="alert alert-error" role="alert">{error}</div>}
+              <div className="field">
+                <label>{t('comp.visitFields.label')} *</label>
+                <input value={label} onChange={e => setLabel(e.target.value)}
+                  placeholder={t('comp.visitFields.labelPH')} required />
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('comp.visitFields.type')}</label>
+                  <select value={fieldType} onChange={e => setFieldType(e.target.value as VisitFieldDefinition['field_type'])}>
+                    {VISIT_FIELD_TYPES.map(ft => (
+                      <option key={ft} value={ft}>{t(`comp.visitFields.fieldType.${ft}` as TKey)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={required} style={{ width: 'auto' }}
+                      onChange={e => setRequired(e.target.checked)} />
+                    {t('comp.visitFields.required')}
+                  </label>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={saving}>
+                {saving ? t('c.saving') : t('comp.visitFields.add')}
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

@@ -21,6 +21,13 @@ vi.mock('../db', async () => {
   return { ...actual, db: mockDb };
 });
 
+// Campos personalizados de visita (migration 0088) não são o foco deste
+// teste (link de roteamento) — mockado à parte pra não precisar simular a
+// cadeia innerJoin() do getFieldValuesForVisit() no mockDb.select acima.
+vi.mock('../services/serviceVisitFieldService', () => ({
+  getFieldValuesForVisit: vi.fn().mockResolvedValue([]),
+}));
+
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const SO_ID     = '22222222-2222-2222-2222-222222222222';
 
