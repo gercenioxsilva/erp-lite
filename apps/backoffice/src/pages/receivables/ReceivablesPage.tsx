@@ -91,6 +91,12 @@ export function ReceivablesPage() {
   const [payError, setPayError]     = useState('');
   const [payingSave, setPayingSave] = useState(false);
 
+  // Alterar vencimento (regra 82)
+  const [dueDateEditing, setDueDateEditing] = useState(false);
+  const [dueDateValue,   setDueDateValue]   = useState('');
+  const [dueDateSaving,  setDueDateSaving]  = useState(false);
+  const [dueDateError,   setDueDateError]   = useState('');
+
   // Boleto section
   const [boleto, setBoleto]           = useState<BoletoInfo | null>(null);
   const [boletoLoading, setBoletoLoading] = useState(false);
@@ -160,8 +166,24 @@ export function ReceivablesPage() {
     setBoleto(null); setBoletoError(''); setBrcodeCopied(false);
     setPayError('');
     setPayForm({ payment_date: '', amount: '', payment_method: 'pix', reference: '', notes: '' });
+    setDueDateEditing(false); setDueDateValue(''); setDueDateError('');
     if (full.boleto_id) await loadBoleto(full.id);
     setDetailOpen(true);
+  }
+
+  async function handleChangeDueDate() {
+    if (!selected) return;
+    if (!dueDateValue) { setDueDateError(t('rec.errDue')); return; }
+    setDueDateSaving(true); setDueDateError('');
+    try {
+      await api.patch(`/v1/receivables/${selected.id}`, { due_date: dueDateValue });
+      const updated = await api.get<any>(`/v1/receivables/${selected.id}`);
+      setSelected(updated);
+      setDueDateEditing(false);
+      loadItems();
+    } catch (err: any) {
+      setDueDateError(err.message || t('rec.errSave'));
+    } finally { setDueDateSaving(false); }
   }
 
   async function handleCreate(e: FormEvent) {
@@ -466,13 +488,48 @@ export function ReceivablesPage() {
                 </div>
               </div>
 
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>
                 {t('rec.dueDate')}: <strong>{fmtDate(selected.due_date)}</strong>
+                {selected.status !== 'paid' && selected.status !== 'cancelled' && !selected.boleto_id && !dueDateEditing && (
+                  <Can permission="receivables:edit">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: 'auto', marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
+                      onClick={() => { setDueDateValue(selected.due_date.slice(0, 10)); setDueDateEditing(true); setDueDateError(''); }}
+                    >
+                      {t('rec.changeDueDate')}
+                    </button>
+                  </Can>
+                )}
                 &nbsp;·&nbsp;
                 {t('rec.status')}: <span style={{ color: STATUS_COLORS[selected.status], fontWeight: 600 }}>
                   {t(`rec.status.${selected.status}` as any)}
                 </span>
               </div>
+
+              {selected.status !== 'paid' && selected.status !== 'cancelled' && selected.boleto_id && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                  {t('rec.dueDateLockedBoleto')}
+                </div>
+              )}
+
+              {dueDateEditing && (
+                <div className="field-row" style={{ marginBottom: 16, alignItems: 'flex-end' }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label htmlFor="rec-new-due-date">{t('rec.newDueDate')}</label>
+                    <input id="rec-new-due-date" type="date" value={dueDateValue} onChange={e => setDueDateValue(e.target.value)} />
+                  </div>
+                  <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                    disabled={dueDateSaving} onClick={() => void handleChangeDueDate()}>
+                    {dueDateSaving ? t('c.saving') : t('c.save')}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                    onClick={() => { setDueDateEditing(false); setDueDateError(''); }}>
+                    {t('c.cancel')}
+                  </button>
+                </div>
+              )}
+              {dueDateError && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{dueDateError}</div>}
 
               {/* Pagamentos registrados */}
               {selected.payments.length > 0 && (
