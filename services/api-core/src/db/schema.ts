@@ -2729,6 +2729,8 @@ export const reconciliationRules = pgTable('reconciliation_rules', {
   date_window_days:       smallint('date_window_days').notNull().default(3),
   auto_confirm_threshold: decimal('auto_confirm_threshold', { precision: 5, scale: 4 }).notNull().default('0.90'),
   match_net_amount:       boolean('match_net_amount').notNull().default(true),
+  description_weight:     decimal('description_weight', { precision: 5, scale: 4 }).notNull().default('0.25'),
+  use_ai_matching:        boolean('use_ai_matching').notNull().default(false),
   is_active:              boolean('is_active').notNull().default(true),
   created_at:             timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:             timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2859,6 +2861,41 @@ export const bankConnections = pgTable('bank_connections', {
   created_by:     uuid('created_by'),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── integrações por tenant (0091) ────────────────────────────────────────────
+// Credencial de integração vive aqui, não em ENV — ENV é só fallback de
+// plataforma. O catálogo de campos/serviços fica em services/integrations/
+// catalog.ts (forma em código, valor em banco).
+export const integrationProviders = pgTable('integration_providers', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  provider_key: varchar('provider_key', { length: 40 }).notNull(),
+  environment:  varchar('environment', { length: 20 }).notNull().default('sandbox'),
+  enabled:      boolean('enabled').notNull().default(false),
+  credentials:  jsonb('credentials').notNull().default({}),
+  // 0092 — NULL = todos os serviços do catálogo; [] = nenhum; [...] = os listados.
+  enabled_services: jsonb('enabled_services').$type<string[] | null>(),
+  last_ping_at:      timestamp('last_ping_at', { withTimezone: true }),
+  last_ping_ok:      boolean('last_ping_ok'),
+  last_ping_message: text('last_ping_message'),
+  updated_by:   uuid('updated_by'),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const integrationLogs = pgTable('integration_logs', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  tenant_id:    uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  provider_key: varchar('provider_key', { length: 40 }).notNull(),
+  environment:  varchar('environment', { length: 20 }),
+  service:      varchar('service', { length: 60 }).notNull(),
+  status:       varchar('status', { length: 20 }).notNull(),
+  http_status:  smallint('http_status'),
+  latency_ms:   integer('latency_ms'),
+  error_code:   varchar('error_code', { length: 80 }),
+  detail:       jsonb('detail'),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const bankConnectionAccounts = pgTable('bank_connection_accounts', {

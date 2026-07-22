@@ -1424,19 +1424,142 @@ npm run dev:backoffice
 
 ## Variáveis de ambiente (api-core — ECS task definition)
 
+> A referência completa e comentada vive em [`services/api-core/.env.example`](services/api-core/.env.example).
+> O que segue é o resumo. Toda variável de integração é **opcional**: ausente
+> não quebra nada — a rota devolve 503 com corpo padronizado e a tela mostra
+> "integração aguardando configuração". Nunca 500.
+
 ```
+# Obrigatórias
 DATABASE_URL              # postgres://user:pass@host:5432/db
 PGSSLMODE                 # require (ECS) | ausente (local Docker)
 JWT_SECRET                # segredo JWT (mínimo 32 chars em produção)
-FOCUS_NFE_TOKEN           # fallback se tenant não tiver token próprio
+NODE_ENV                  # prod (ECS) | development (local)
+APP_URL                   # base dos redirects OAuth/Stripe
+
+# Filas, buckets e e-mail
 NOTIFICATIONS_QUEUE_URL   # SQS queue para e-mails
 NFE_QUEUE_URL             # SQS nfe-requests
 NFE_RESULTS_QUEUE_URL     # SQS nfe-results
 BILLING_QUEUE_URL         # SQS billing-requests
 BILLING_RESULTS_QUEUE_URL # SQS billing-results
 NFE_BUCKET                # S3 para XMLs NF-e
-APP_URL                   # https://www.orquestraerp.com.br (padrão)
-NODE_ENV                  # prod (ECS) | development (local)
+FISCAL_IMPORTS_BUCKET     # S3 do arquivo original importado (OFX/CSV/XLSX)
+FISCAL_DOCS_BUCKET        # S3 do PDF do DAS (cai em FISCAL_IMPORTS_BUCKET)
+
+# Emissão de notas
+FOCUS_NFE_TOKEN           # fallback se tenant não tiver token próprio
+FOCUS_NFE_BASE_URL        # default é HOMOLOGAÇÃO — troque para emitir de verdade
+
+# Assinaturas
 STRIPE_SECRET_KEY         # opt-in — sem isso, módulo de assinatura é no-op (regra 43)
 STRIPE_WEBHOOK_SECRET     # verificação HMAC do webhook Stripe
+
+# IA (plataforma — o custo é nosso, não do tenant)
+ANTHROPIC_API_KEY         # assistente fiscal + similaridade semântica na conciliação
+ANTHROPIC_MODEL           # opcional (default claude-sonnet-5)
+ASSISTANT_DAILY_CAP       # teto de chamadas/dia POR TENANT (429 ao estourar)
+
+# Fallback de plataforma das integrações POR TENANT (ver seção abaixo)
+SERPRO_CONSUMER_KEY / SERPRO_CONSUMER_SECRET
+SERPRO_MTLS_PFX_BASE64 / SERPRO_MTLS_PFX_PASSWORD / SERPRO_ENV
+PLUGGY_CLIENT_ID / PLUGGY_CLIENT_SECRET / PLUGGY_BASE_URL
+GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI
+MARKETPLACE_STATE_SECRET  # assina o `state` do OAuth; cai em JWT_SECRET
 ```
+
+---
+
+## Integrações por tenant (migrations 0091/0092)
+
+Credencial de integração **não é variável de ambiente**: cada empresa configura
+a própria na tela **Integrações** do backoffice, e o valor vive em
+`integration_providers`. Foi a mesma escolha já feita para C6 Bank e WhatsApp —
+credencial de cliente não pode exigir redeploy do ECS para trocar.
+
+O ENV não morreu: virou **fallback de plataforma** para quem ainda não
+configurou a conta própria. Sem isso, a 0091 seria um breaking change silencioso
+para todo tenant que já emite hoje pelo token mestre.
+
+### Resolução em cascata
+
+```
+1. linha do tenant com enabled=true e todas as obrigatórias preenchidas
+2. ENV de plataforma (envFallback do catálogo)
+3. nada  →  IntegrationNotConfiguredError  →  503 { reason: 'missing_credentials' }
+```
+
+Linha ligada mas **incompleta** não cai para o ENV de propósito: o tenant
+declarou intenção de usar a conta própria, e transmitir pela credencial da
+plataforma emitiria no CNPJ errado.
+
+### Três níveis de liga/desliga
+
+Não confunda — são coisas diferentes, do mais grosso ao mais fino:
+
+| Nível | Onde | O que controla |
+|---|---|---|
+| **Módulo** | Minha Empresa → Módulos (`tenant_modules`) | O módulo inteiro (ex.: Gestão Fiscal) |
+| **Provider × ambiente** | Integrações, toggle do card (`integration_providers.enabled`) | Uma conta num ambiente (ex.: SERPRO produção). Ligar produção desliga sandbox — índice parcial garante um só ativo |
+| **Serviço** | Integrações, switches no drawer (`enabled_services`) | Uma capacidade (ex.: manter "Geração de DAS" e desligar "Transmissão PGDAS-D", que é o ato irreversível) |
+
+`enabled_services` é `NULL` = **todos habilitados**, `[]` = nenhum, `[...]` = os
+listados. NULL como "todos" porque a coluna nasce em linhas já existentes: um
+default `[]` desligaria, no deploy, toda integração configurada em produção.
+
+### Catálogo em código, valor em banco
+
+`services/api-core/src/services/integrations/catalog.ts` define quais campos
+cada provider tem, quais são obrigatórios e quais serviços ele expõe. Provider
+novo é mudança de código, não migration — e o TypeScript garante que provider e
+campo existem. O banco guarda só valores e o log de chamadas.
+
+Hoje o catálogo tem **SERPRO**, **Pluggy** e **Google Calendar**. Focus NF-e
+ficou de fora (decisão 2026-07-22): a emissão funciona em produção pelo token
+mestre e o risco de mexer não se paga agora.
+
+### Segurança das credenciais
+
+- A API **nunca** devolve o valor de uma credencial — só `filled: boolean` e um
+  rabicho mascarado (`••••a1b2`, últimos 4 caracteres) para o admin reconhecer
+  qual chave está salva. Não existe rota de revelação.
+- No PUT, campo vazio **mantém** o valor atual; `null` explícito apaga. Sem
+  isso, editar uma chave exigiria reenviar as outras — que não dá para ler.
+- `integration_logs.detail` passa por redação por nome de chave antes de
+  persistir (`secret`, `password`, `token`, `pfx`, `authorization`…) e trunca
+  strings gigantes (o PDF do DAS em base64 pesaria megabytes por log).
+- ⚠️ `credentials` é JSONB em **texto puro** — mesma dívida de
+  `fiscal_certificates.credentials` (0069). Cifrar aqui enquanto o `.pfx` do
+  certificado A1 segue em claro ao lado seria falsa sensação de segurança; KMS
+  é fase separada, para os dois juntos. Acesso restrito por
+  `tenant_modules:manage`.
+
+### Ping
+
+Botão por card que valida a credencial **agora**, sem custo e sem efeito
+colateral. Sempre responde **HTTP 200** — o resultado do teste é dado, não erro
+de transporte; devolver 502 faria o interceptor genérico do frontend mostrar
+"erro no sistema", que é exatamente o que esta tela existe para eliminar.
+
+- **SERPRO**: só `/authenticate`. A cobrança da SERPRO incide sobre chamadas ao
+  gateway, não sobre a autenticação. ⚠️ Lembre que **HTTP 403 é cobrado** —
+  permissão mal configurada gasta dinheiro a cada tentativa.
+- **Pluggy**: `POST /auth`.
+- **Google**: troca um `authorization_code` inválido de propósito.
+  `invalid_client` = credencial errada; `invalid_grant` = **credencial certa**
+  (só o code é ruim). Não há client_credentials no Google para validar o par.
+
+Cada ping grava uma linha em `integration_logs` com REQUEST/RESPONSE, visível
+ao clicar na linha da tabela "Logs de integração".
+
+### SERPRO — modelo de contratação
+
+Decisão 2026-07-22: **cada empresa contrata a própria** na loja SERPRO. Isso
+torna o envelope correto como está — `contratante = autorPedidoDados =
+contribuinte = CNPJ da própria empresa`, ou seja auto-declaração, sem exigir
+procuração eletrônica e-CAC. O e-CNPJ A1 do mTLS tem de ser do mesmo CNPJ que
+contratou.
+
+A alternativa (plataforma contrata, `contratante` = nosso CNPJ, procuração
+e-CAC de cada cliente) foi descartada por exigir um documento por cliente antes
+do primeiro uso.

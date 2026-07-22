@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   txDebitAmount, scorePayableCandidate, rankPayableCandidates, decidePayableOutcome,
-  MatchRule, TxForMatch, PayableCandidate,
+  payableValueCompatible, MatchRule, TxForMatch, PayableCandidate,
 } from '../domain/reconciliation/reconciliationDomain';
 
 const RULE: MatchRule = { amountTolerance: 0.01, dateWindowDays: 3, autoConfirmThreshold: 0.9, matchNetAmount: true };
@@ -79,5 +79,41 @@ describe('decidePayableOutcome', () => {
     const outcome = decidePayableOutcome(ranked, RULE);
     expect(outcome.kind).toBe('auto_confirm');
     if (outcome.kind === 'auto_confirm') expect(outcome.best.payableId).toBe('pay-1');
+  });
+});
+
+describe('similaridade de descrição no débito (0090)', () => {
+  const RULE_SEM: MatchRule = { ...RULE, descriptionWeight: 0.25 };
+
+  it('retrocompatível: sem similaridade o score não muda', () => {
+    const base = scorePayableCandidate(debit(), payable({ supplierDocument: null }), RULE_SEM);
+    expect(base?.score).toBe(0.9); // valor exato + data
+    expect(base?.matchedKeys).not.toContain('description_semantic');
+  });
+
+  it('similaridade alta soma peso×sim e marca a chave (sem documento do fornecedor)', () => {
+    const p = payable({ supplierDocument: null });
+    const base = scorePayableCandidate(debit(), p, RULE_SEM)!;
+    const sem = scorePayableCandidate(debit(), p, RULE_SEM, 0.8)!;
+    expect(sem.score).toBeCloseTo(Math.min(1, base.score + 0.25 * 0.8), 4);
+    expect(sem.matchedKeys).toContain('description_semantic');
+  });
+
+  it('desempata dois payables de mesmo valor pela descrição', () => {
+    const tx = debit({ occurredAt: null }); // sem data: só valor (0.5) + semântica
+    const wide: MatchRule = { ...RULE_SEM, autoConfirmThreshold: 0.6 };
+    const sims = new Map<string, number>([['a', 0.95], ['b', 0.05]]);
+    const ranked = rankPayableCandidates(tx, [
+      payable({ id: 'a', supplierDocument: null }),
+      payable({ id: 'b', supplierDocument: null }),
+    ], wide, sims);
+    expect(ranked[0].payableId).toBe('a');
+    expect(decidePayableOutcome(ranked, wide).kind).toBe('auto_confirm');
+  });
+
+  it('payableValueCompatible espelha a porteira de valor', () => {
+    expect(payableValueCompatible(debit(), payable(), RULE)).toBe(true);
+    expect(payableValueCompatible(debit(), payable({ openAmount: 45 }), RULE)).toBe(false);
+    expect(payableValueCompatible(debit({ amount: 39.9 }), payable(), RULE)).toBe(false); // crédito
   });
 });

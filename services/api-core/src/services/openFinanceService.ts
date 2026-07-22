@@ -17,6 +17,9 @@ import { isUniqueConstraintViolation } from '../lib/pgErrors';
 import { toDecimalString } from '../lib/money';
 import * as pluggy from '../lib/pluggyClient';
 import {
+  resolveCredentials, assertServiceEnabled, isServiceEnabled,
+} from './integrations/integrationService';
+import {
   normalizePluggyTransaction, syncWindowStart,
 } from '../domain/import/openFinanceDomain';
 
@@ -29,26 +32,36 @@ export class OpenFinanceError extends Error {
   ) { super(code); this.name = 'OpenFinanceError'; }
 }
 
-function assertEnabled(): void {
-  if (!pluggy.isOpenFinanceEnabled()) throw new OpenFinanceError('openfinance_disabled');
+/**
+ * Credenciais Pluggy DO TENANT (0091) — resolvidas em cascata (config própria →
+ * fallback de plataforma). Ausentes ⇒ openfinance_disabled, que as rotas
+ * traduzem em 503 e a UI mostra como "aguardando configuração", nunca erro.
+ */
+async function credentials(tenantId: string, db: DrizzleDB): Promise<pluggy.PluggyCredentials> {
+  const resolved = await resolveCredentials(tenantId, 'pluggy', db);
+  if (!resolved) throw new OpenFinanceError('openfinance_disabled');
+  return { clientId: resolved.values.client_id, clientSecret: resolved.values.client_secret };
 }
 
 /** Token pro widget Pluggy Connect; `simulated` liga o fluxo local- na UI. */
-export async function connectToken(): Promise<{ token: string; simulated: boolean }> {
-  assertEnabled();
-  return { token: await pluggy.createConnectToken(), simulated: pluggy.isSimulated() };
+export async function connectToken(
+  tenantId: string, db: DrizzleDB = _db,
+): Promise<{ token: string; simulated: boolean }> {
+  const creds = await credentials(tenantId, db);
+  return { token: await pluggy.createConnectToken(creds), simulated: pluggy.isSimulated(creds) };
 }
 
 export async function registerConnection(
   tenantId: string, companyId: string | null | undefined, itemId: string,
   actorUserId: string | null, db: DrizzleDB = _db,
 ) {
-  assertEnabled();
+  const creds = await credentials(tenantId, db);
+  await assertServiceEnabled(tenantId, 'pluggy', 'conexao_bancaria', db);
   if (!itemId?.trim()) throw new OpenFinanceError('item_id_required');
   const company = await resolveCompanyId(tenantId, companyId, db);
 
-  const item = await pluggy.getItem(itemId.trim());
-  const accounts = await pluggy.getAccounts(item.id);
+  const item = await pluggy.getItem(itemId.trim(), creds);
+  const accounts = await pluggy.getAccounts(item.id, creds);
 
   let conn;
   try {
@@ -122,7 +135,8 @@ export interface SyncResult {
 export async function syncConnection(
   tenantId: string, connectionId: string, db: DrizzleDB = _db,
 ): Promise<SyncResult> {
-  assertEnabled();
+  const creds = await credentials(tenantId, db);
+  await assertServiceEnabled(tenantId, 'pluggy', 'sincronizacao_extrato', db);
   const [conn] = await db.select().from(bankConnections)
     .where(and(eq(bankConnections.id, connectionId), eq(bankConnections.tenant_id, tenantId)));
   if (!conn || conn.status === 'disconnected') throw new OpenFinanceError('connection_not_found');
@@ -149,7 +163,7 @@ export async function syncConnection(
     // Saldo por conta (Tesouraria 0082): espelha o balance da Pluggy a cada
     // sync — inclusive de contas com sync de transações desabilitado (o saldo
     // do cartão importa para a posição de caixa mesmo sem conciliar fatura).
-    const remoteAccounts = await pluggy.getAccounts(conn.item_id);
+    const remoteAccounts = await pluggy.getAccounts(conn.item_id, creds);
     for (const ra of remoteAccounts) {
       if (ra.balance == null) continue;
       await db.update(bankConnectionAccounts).set({
@@ -161,7 +175,7 @@ export async function syncConnection(
     }
 
     for (const acc of accounts) {
-      const txs = await pluggy.getTransactions(acc.account_id, fromISO, toISO);
+      const txs = await pluggy.getTransactions(acc.account_id, fromISO, toISO, creds);
       for (const tx of txs) {
         total++;
         if (tx.status === 'PENDING') { skippedPending++; continue; }
@@ -202,8 +216,10 @@ export async function syncConnection(
   }
 
   // Conciliação da empresa — o motivo de tudo isso existir.
+  // Gate de serviço (0092): desligada, o extrato ENTRA no ledger normalmente e
+  // só a baixa fica manual. Por isso a checagem é aqui e não no topo do sync.
   let reconciliation: SyncResult['reconciliation'] = null;
-  if (inserted > 0) {
+  if (inserted > 0 && await isServiceEnabled(tenantId, 'pluggy', 'conciliacao_automatica', db)) {
     const r = await runReconciliation(tenantId, { companyId: conn.company_id }, db);
     reconciliation = { processed: r.processed, autoConfirmed: r.autoConfirmed };
   }
@@ -220,7 +236,9 @@ export async function syncConnection(
 
 /** Passo 0 do ciclo 23:59: sincroniza toda conexão ativa, erro isolado. */
 export async function syncAllActive(db: DrizzleDB = _db): Promise<{ synced: number; failed: number }> {
-  if (!pluggy.isOpenFinanceEnabled()) return { synced: 0, failed: 0 };
+  // 0091: sem guarda global de "Pluggy habilitada" — a credencial é por tenant.
+  // Tenant sem credencial faz syncConnection lançar openfinance_disabled, que o
+  // catch abaixo já isola como falha daquela conexão, sem parar as demais.
   // Toggle por tenant: desligar o módulo fiscal para o sync noturno também —
   // conexão criada antes do toggle não pode continuar sincronizando sozinha.
   const { rows: conns } = await db.execute<{ id: string; tenant_id: string }>(sql`

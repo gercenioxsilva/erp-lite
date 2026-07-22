@@ -207,7 +207,7 @@ export function OrdersPage() {
     try {
       const resp = await api.get<{ data: KitComponentRow[] }>(`/v1/materials/${kitId}/components`);
       comps = resp.data ?? [];
-    } catch { comps = []; }
+    } catch { /* mantém a lista vazia do inicializador */ }
 
     const expand = comps.length > 0 && await modal.confirm({
       title:        t('o.kit.title'),

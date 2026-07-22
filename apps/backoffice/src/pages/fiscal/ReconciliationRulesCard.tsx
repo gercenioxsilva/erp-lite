@@ -9,9 +9,13 @@ interface Rule {
   id: string; company_id: string | null;
   amount_tolerance: string; date_window_days: number;
   auto_confirm_threshold: string; match_net_amount: boolean;
+  description_weight: string; use_ai_matching: boolean;
 }
 
-const DEFAULTS = { amount_tolerance: '0.01', date_window_days: 3, auto_confirm_threshold: '0.90', match_net_amount: true };
+const DEFAULTS = {
+  amount_tolerance: '0.01', date_window_days: 3, auto_confirm_threshold: '0.90', match_net_amount: true,
+  description_weight: '0.25', use_ai_matching: false,
+};
 
 export function ReconciliationRulesCard({ canEdit }: { canEdit: boolean }) {
   const [rule, setRule] = useState<Rule | null>(null);
@@ -30,6 +34,8 @@ export function ReconciliationRulesCard({ canEdit }: { canEdit: boolean }) {
             date_window_days: tenantRule.date_window_days,
             auto_confirm_threshold: tenantRule.auto_confirm_threshold,
             match_net_amount: tenantRule.match_net_amount,
+            description_weight: tenantRule.description_weight ?? DEFAULTS.description_weight,
+            use_ai_matching: tenantRule.use_ai_matching ?? DEFAULTS.use_ai_matching,
           });
         }
       })
@@ -43,6 +49,8 @@ export function ReconciliationRulesCard({ canEdit }: { canEdit: boolean }) {
       date_window_days: Number(form.date_window_days),
       auto_confirm_threshold: Number(form.auto_confirm_threshold),
       match_net_amount: form.match_net_amount,
+      description_weight: Number(form.description_weight),
+      use_ai_matching: form.use_ai_matching,
     };
     try {
       const saved = rule
@@ -55,7 +63,7 @@ export function ReconciliationRulesCard({ canEdit }: { canEdit: boolean }) {
     } finally { setSaving(false); }
   }
 
-  const num = (k: 'amount_tolerance' | 'auto_confirm_threshold', label: string, step: string) => (
+  const num = (k: 'amount_tolerance' | 'auto_confirm_threshold' | 'description_weight', label: string, step: string) => (
     <label style={{ display: 'grid', gap: 2, fontSize: 12 }}>
       <span style={{ color: 'var(--muted, #64748b)' }}>{label}</span>
       <input type="number" step={step} value={form[k]} disabled={!canEdit}
@@ -84,7 +92,21 @@ export function ReconciliationRulesCard({ canEdit }: { canEdit: boolean }) {
             <option value="gross">Bruto (venda)</option>
           </select>
         </label>
+        {num('description_weight', 'Peso da descrição (0–1)', '0.05')}
+        <label style={{ display: 'grid', gap: 2, fontSize: 12 }}>
+          <span style={{ color: 'var(--muted, #64748b)' }}>Casar descrição com IA</span>
+          <select value={form.use_ai_matching ? 'on' : 'off'} disabled={!canEdit}
+            onChange={(e) => setForm({ ...form, use_ai_matching: e.target.value === 'on' })}
+            style={{ fontSize: 13, padding: '4px 6px', border: '1px solid var(--border, #e2e8f0)', borderRadius: 6 }}>
+            <option value="off">Desligado (só léxico)</option>
+            <option value="on">Ligado (Claude)</option>
+          </select>
+        </label>
       </div>
+      <p style={{ fontSize: 11, color: 'var(--muted, #94a3b8)', margin: 0 }}>
+        A descrição semântica ajuda a casar lançamentos sem NSU (ex.: PIX com nome do
+        pagador). Com peso 0 ela é ignorada; a IA só entra se o servidor tiver chave configurada.
+      </p>
       {canEdit && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="btn btn-sm" disabled={saving} onClick={() => void save()}>{saving ? 'Salvando…' : 'Salvar regra'}</button>
