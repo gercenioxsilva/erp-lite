@@ -5,6 +5,7 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { requireModule } from '../lib/requireModule';
+import { IntegrationServiceDisabledError } from '../services/integrations/integrationService';
 import { requirePermission } from '../lib/requirePermission';
 import { CompanyDomainError, companyResolutionErrorMessage } from '../services/companyService';
 import {
@@ -22,7 +23,18 @@ export const fiscalOpenFinanceRoutes: FastifyPluginAsync = async (fastify) => {
     if (err instanceof OpenFinanceError) {
       const status = err.code === 'openfinance_disabled' ? 503
         : err.code === 'connection_not_found' ? 404 : 422;
-      return reply.code(status).send({ error: err.code, ...err.payload });
+      // Corpo padrão de integração ausente (0091) — ver routes/fiscalApuracao.ts.
+      const missing = err.code === 'openfinance_disabled'
+        ? { reason: 'missing_credentials', provider: 'pluggy' } : {};
+      return reply.code(status).send({ error: err.code, ...missing, ...err.payload });
+    }
+    // Serviço desligado pelo tenant (0092) — 422: não falta credencial, falta
+    // autorização de uso. Ver o mesmo tratamento em routes/fiscalApuracao.ts.
+    if (err instanceof IntegrationServiceDisabledError) {
+      return reply.code(422).send({
+        error: err.code, provider: err.providerKey, service: err.serviceKey,
+        message: 'Esta operação está desativada nas configurações de integração.',
+      });
     }
     if (err instanceof CompanyDomainError) {
       return reply.badRequest(companyResolutionErrorMessage(err, 'Open Finance'));
@@ -44,8 +56,9 @@ export const fiscalOpenFinanceRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.post('/fiscal/openfinance/connect-token', guard('bank_accounts:manage'), async (request, reply) => {
+    const { tenantId } = (request as any).user;
     try {
-      return { data: await connectToken() };
+      return { data: await connectToken(tenantId) };
     } catch (err) { return handleError(err, reply); }
   });
 

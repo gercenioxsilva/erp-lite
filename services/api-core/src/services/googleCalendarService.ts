@@ -4,8 +4,9 @@
 // de eventos (syncSessionEvent) fica em módulo próprio, disparado fire-and-forget.
 //
 // Espelho de marketplaceConnectionService: sem axios, sem KMS (tokens em texto
-// puro nesta fase), feature-flag por env-unset (sem GOOGLE_CLIENT_ID → connect
-// responde erro amigável e o sync é no-op).
+// puro nesta fase). Feature-flag por CREDENCIAL AUSENTE (0091, antes era
+// env-unset): sem credencial do tenant nem da plataforma, o connect responde
+// erro amigável e o sync é no-op.
 
 import { eq, and } from 'drizzle-orm';
 import { db as _db } from '../db';
@@ -16,6 +17,7 @@ import {
   signState, verifyState, buildAuthorizationUrl, sessionToGoogleEvent, GoogleCalendarDomainError,
 } from '../domain/googleCalendar/googleCalendarDomain';
 import { getProfessionalOrThrow } from './schedulingProfessionalService';
+import { resolveCredentials } from './integrations/integrationService';
 import { SchedulingDomainError } from '../domain/scheduling/schedulingDomain';
 
 export { GoogleCalendarDomainError };
@@ -31,16 +33,31 @@ const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 function stateSecret(): string {
   return process.env.MARKETPLACE_STATE_SECRET || process.env.JWT_SECRET || 'dev-secret-change-in-production';
 }
-function clientId(): string { return process.env.GOOGLE_CLIENT_ID || ''; }
-function clientSecret(): string { return process.env.GOOGLE_CLIENT_SECRET || ''; }
 function redirectUri(): string {
   return process.env.GOOGLE_REDIRECT_URI
     || `${process.env.APP_URL || 'https://orquestraerp.com.br'}/v1/public/integrations/google/callback`;
 }
 
-/** Feature-flag: só está "configurada" quando o app tem as credenciais Google. */
-export function isGoogleCalendarConfigured(): boolean {
-  return Boolean(clientId() && clientSecret());
+interface GoogleOAuthCredentials { clientId: string; clientSecret: string }
+
+/**
+ * Credenciais OAuth DO TENANT (0091), com fallback para o app da plataforma.
+ * null = integração não configurada — quem chama decide entre erro de domínio
+ * (fluxos interativos) e no-op silencioso (sync fire-and-forget).
+ *
+ * O redirectUri continua de ENV: ele aponta para ESTA API, não para a conta
+ * Google do cliente. Cada tenant que usar app próprio precisa cadastrar essa
+ * mesma URL no console dele.
+ */
+async function googleCredentials(tenantId: string, db: DrizzleDB): Promise<GoogleOAuthCredentials | null> {
+  const resolved = await resolveCredentials(tenantId, 'google_calendar', db);
+  if (!resolved) return null;
+  return { clientId: resolved.values.client_id, clientSecret: resolved.values.client_secret };
+}
+
+/** Feature-flag por tenant: há credencial (própria ou de plataforma)? */
+export async function isGoogleCalendarConfigured(tenantId: string, db: DrizzleDB = _db): Promise<boolean> {
+  return (await googleCredentials(tenantId, db)) !== null;
 }
 
 // getProfessionalOrThrow lança SchedulingDomainError('professional_not_found');
@@ -56,11 +73,12 @@ async function ensureProfessional(professionalId: string, tenantId: string, db: 
 
 export async function getAuthorizationUrl(tenantId: string, professionalId: string, db: DrizzleDB = _db): Promise<string> {
   await ensureProfessional(professionalId, tenantId, db);
-  if (!isGoogleCalendarConfigured()) throw new GoogleCalendarDomainError('google_not_configured');
+  const creds = await googleCredentials(tenantId, db);
+  if (!creds) throw new GoogleCalendarDomainError('google_not_configured');
 
   const state = signState(professionalId, stateSecret());
   return buildAuthorizationUrl({
-    authUrl: GOOGLE_AUTH_URL, clientId: clientId(), redirectUri: redirectUri(), scope: GOOGLE_SCOPE, state,
+    authUrl: GOOGLE_AUTH_URL, clientId: creds.clientId, redirectUri: redirectUri(), scope: GOOGLE_SCOPE, state,
   });
 }
 
@@ -76,7 +94,6 @@ interface GoogleTokenResponse {
 export async function handleOAuthCallback(code: string, state: string, db: DrizzleDB = _db): Promise<CalendarConnection> {
   const verified = verifyState(state, stateSecret());
   if (!verified.valid) throw new GoogleCalendarDomainError('invalid_state', { reason: verified.reason });
-  if (!isGoogleCalendarConfigured()) throw new GoogleCalendarDomainError('google_not_configured');
 
   const professionalId = verified.professionalId!;
   // O state prova que o professional_id foi assinado por nós; precisamos do
@@ -84,13 +101,18 @@ export async function handleOAuthCallback(code: string, state: string, db: Drizz
   const professional = await loadProfessionalForConnect(professionalId, db);
   if (!professional) throw new GoogleCalendarDomainError('professional_not_found');
 
+  // Credencial só depois de carregar o profissional: este callback é PÚBLICO
+  // (sem JWT), então o tenant vem do state verificado, não da requisição.
+  const creds = await googleCredentials(professional.tenant_id, db);
+  if (!creds) throw new GoogleCalendarDomainError('google_not_configured');
+
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
-      client_id: clientId(),
-      client_secret: clientSecret(),
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       code,
       redirect_uri: redirectUri(),
     }),
@@ -191,15 +213,17 @@ export async function refreshIfExpired(conn: CalendarConnection, db: DrizzleDB =
   const exp = conn.token_expires_at ? new Date(conn.token_expires_at).getTime() : 0;
   // Margem de 60s para não usar um token que expira no meio da chamada.
   if (conn.access_token && exp - now > 60_000) return conn.access_token;
-  if (!conn.refresh_token || !isGoogleCalendarConfigured()) return conn.access_token ?? null;
+  if (!conn.refresh_token) return conn.access_token ?? null;
+  const creds = await googleCredentials(conn.tenant_id, db);
+  if (!creds) return conn.access_token ?? null;
 
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
-      client_id: clientId(),
-      client_secret: clientSecret(),
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       refresh_token: conn.refresh_token,
     }),
   });
@@ -225,8 +249,10 @@ export type SyncAction = 'upsert' | 'delete';
  * 'delete'  → remove o evento (se houver) e limpa google_event_id.
  */
 export async function syncSessionEvent(sessionId: string, action: SyncAction, db: DrizzleDB = _db): Promise<void> {
-  if (!isGoogleCalendarConfigured()) return;
-
+  // Sem guarda de "configurado" no topo: a credencial agora é por tenant e o
+  // tenant só é conhecido depois de carregar a sessão. Quem degrada é o
+  // refreshIfExpired abaixo — sem credencial ele devolve o token atual (ou
+  // null), e o `if (!accessToken) return` vira o no-op silencioso de antes.
   const [session] = await db.select().from(schedulingSessions).where(eq(schedulingSessions.id, sessionId));
   if (!session) return;
 

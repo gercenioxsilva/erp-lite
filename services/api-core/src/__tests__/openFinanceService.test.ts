@@ -11,6 +11,26 @@ vi.mock('../services/reconciliationService', () => ({
 vi.mock('../services/fiscalAuditService', () => ({
   record: vi.fn().mockResolvedValue(undefined),
 }));
+// 0091: a credencial Pluggy virou por tenant (com fallback de plataforma). Aqui
+// interessa o comportamento do SYNC, não a cascata de resolução — que tem teste
+// próprio. O mock preserva a semântica dirigida por env que estes casos usam.
+vi.mock('../services/integrations/integrationService', () => ({
+  resolveCredentials: vi.fn(async () => (
+    process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET
+      ? {
+          providerKey: 'pluggy', environment: 'sandbox', source: 'platform',
+          values: {
+            client_id: process.env.PLUGGY_CLIENT_ID,
+            client_secret: process.env.PLUGGY_CLIENT_SECRET,
+          },
+        }
+      : null
+  )),
+  // 0092: gate de serviço. Aqui todos ligados — é o default de quem não
+  // configurou nada (enabled_services NULL). O gate em si tem teste próprio.
+  isServiceEnabled: vi.fn(async () => true),
+  assertServiceEnabled: vi.fn(async () => undefined),
+}));
 
 import { syncConnection, connectToken, OpenFinanceError } from '../services/openFinanceService';
 import { runReconciliation } from '../services/reconciliationService';
@@ -64,13 +84,13 @@ describe('openFinanceService', () => {
     delete process.env.PLUGGY_CLIENT_SECRET;
   });
 
-  it('sem PLUGGY_* configurado → openfinance_disabled (gating por env)', async () => {
+  it('sem credencial resolvida → openfinance_disabled (vira 503, nunca 500)', async () => {
     delete process.env.PLUGGY_CLIENT_ID;
-    await expect(connectToken()).rejects.toMatchObject({ code: 'openfinance_disabled' });
+    await expect(connectToken('tenant-1')).rejects.toMatchObject({ code: 'openfinance_disabled' });
   });
 
   it('modo local-: connectToken sinaliza simulated=true para a UI', async () => {
-    const t = await connectToken();
+    const t = await connectToken('tenant-1');
     expect(t.simulated).toBe(true);
     expect(t.token).toBe('local-connect-token');
   });

@@ -29,6 +29,21 @@ const pool = process.env.DATABASE_URL
       ssl: _migrateLocal ? undefined : { rejectUnauthorized: false },
     });
 
+// ⚠ 0047_pos_module.sql está no repositório e FORA desta lista DE PROPÓSITO —
+// não é esquecimento, não adicione.
+//
+// Ela faz `INSERT ... SELECT id, 'pos', TRUE FROM tenants ON CONFLICT DO NOTHING`,
+// ou seja, LIGA o PDV para todo tenant que ainda não tenha linha em
+// tenant_modules. Era um backfill para os tenants que existiam quando o PDV
+// virou módulo opcional — e nunca chegou a rodar (não está na lista em nenhuma
+// branch). O próprio arquivo declara a intenção oposta para quem vem depois:
+// "Tenants NOVOS não recebem linha nesta migration → o módulo nasce
+// desabilitado (opt-in)".
+//
+// Incluí-la hoje ligaria o PDV retroativamente para todos os tenants criados
+// desde então, que estão corretamente sem o módulo. Isso é decisão de produto,
+// não correção de inventário. Se um dia for desejado, faça uma migration NOVA
+// com o recorte explícito de quais tenants devem receber o módulo.
 const migrations = [
   '0001_tenants.sql',
   '0002_users.sql',
@@ -134,6 +149,14 @@ const migrations = [
   '0087_service_visits_agenda.sql',
   '0088_service_visit_custom_fields.sql',
   '0089_transportadora_cancelamento_cce.sql',
+  // Vindas de feat/fiscal-reconciliation-semantic. Chegaram como 0086/0087/0088
+  // e colidiam com as três de cima; RENUMERADAS para 0090-0092 no merge, em vez
+  // de repetir número mais uma vez. Nenhuma delas jamais rodou em produção
+  // (não estavam em develop nem main), então renumerar foi seguro — só reaplica
+  // em banco de dev, e as três usam IF NOT EXISTS.
+  '0090_reconciliation_semantic.sql',
+  '0091_integrations.sql',
+  '0092_integration_services.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

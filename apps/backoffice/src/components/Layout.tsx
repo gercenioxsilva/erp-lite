@@ -276,6 +276,9 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/users',   label: t('nav.users'),   permission: 'users:view'     },
       { to: '/roles',   label: t('nav.roles'),   permission: 'roles:view'     },
       { to: '/company', label: t('nav.company'), permission: 'company:view'   },
+      // Integrações é configuração do tenant (credenciais de provedor externo),
+      // não um módulo de negócio — fica junto de Minha Empresa, no grupo Admin.
+      { to: '/integracoes', label: 'Integrações', permission: 'tenant_modules:manage' },
       { to: '/billing', label: t('nav.billing'), permission: 'billing:manage' },
     ] },
   ];

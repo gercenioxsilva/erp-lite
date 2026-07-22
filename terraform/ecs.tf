@@ -94,6 +94,43 @@ resource "aws_ecs_task_definition" "api_core" {
       # empresa (upload de certificado, teste de conexão); o registro da
       # empresa em si é ASSÍNCRONO via nfe_requests/nfe_results (regra 70).
       { name = "FOCUS_NFE_TOKEN", value = var.focus_nfe_token },
+
+      # ── Integrações (0091) ─────────────────────────────────────────────────
+      # Credencial de integração é POR TENANT (tabela integration_providers,
+      # editável na tela Integrações). O que segue é o FALLBACK DE PLATAFORMA,
+      # usado só por tenant que ainda não configurou a própria conta.
+      # Todas podem chegar vazias: ausente ⇒ a rota devolve 503 com corpo
+      # padronizado e a UI mostra "aguardando configuração", nunca um erro.
+      { name = "APP_URL", value = var.app_url },
+      { name = "MARKETPLACE_STATE_SECRET", value = var.marketplace_state_secret },
+
+      # Assistente fiscal + similaridade semântica na conciliação. NÃO é por
+      # tenant — o custo é da plataforma; o teto diário é que é por tenant.
+      { name = "ANTHROPIC_API_KEY", value = var.anthropic_api_key },
+      { name = "ANTHROPIC_MODEL", value = var.anthropic_model },
+      { name = "ASSISTANT_DAILY_CAP", value = var.assistant_daily_cap },
+
+      # Open Finance (Pluggy)
+      { name = "PLUGGY_CLIENT_ID", value = var.pluggy_client_id },
+      { name = "PLUGGY_CLIENT_SECRET", value = var.pluggy_client_secret },
+
+      # PGDAS-D / DAS (SERPRO Integra Contador) — all-or-nothing.
+      { name = "SERPRO_CONSUMER_KEY", value = var.serpro_consumer_key },
+      { name = "SERPRO_CONSUMER_SECRET", value = var.serpro_consumer_secret },
+      { name = "SERPRO_MTLS_PFX_BASE64", value = var.serpro_mtls_pfx_base64 },
+      { name = "SERPRO_MTLS_PFX_PASSWORD", value = var.serpro_mtls_pfx_password },
+      { name = "SERPRO_ENV", value = var.serpro_env },
+
+      # Google Calendar (módulo Agendamento)
+      { name = "GOOGLE_CLIENT_ID", value = var.google_client_id },
+      { name = "GOOGLE_CLIENT_SECRET", value = var.google_client_secret },
+      { name = "GOOGLE_REDIRECT_URI", value = var.google_redirect_uri },
+
+      # Buckets fiscais (s3-fiscal.tf) — faltavam: a aplicação já lia estas
+      # envs, mas nada as injetava, então o original importado nunca era
+      # arquivado em produção (sem erro visível, porque o código tolera).
+      { name = "FISCAL_IMPORTS_BUCKET", value = aws_s3_bucket.fiscal_imports.bucket },
+      { name = "FISCAL_DOCS_BUCKET", value = aws_s3_bucket.fiscal_docs.bucket },
     ]
 
     logConfiguration = {

@@ -25,8 +25,9 @@ import { isUniqueConstraintViolation } from '../lib/pgErrors';
 import { toNumber } from '../lib/money';
 import { windowCompetencias, SimplesDomainError } from '../domain/simples/simplesDomain';
 import {
-  SerproClient, SerproError, serproConfig, type Pessoa,
+  SerproClient, SerproError, type SerproConfig, type Pessoa,
 } from '../lib/serproClient';
+import { resolveCredentials, assertServiceEnabled } from './integrations/integrationService';
 import { resolveIdAtividade, TributoComparavel } from '../domain/pgdasd/atividadesDomain';
 import {
   buildTransdeclaracaoDados, serializeDados, competenciaToPa, TransdeclaracaoDados,
@@ -47,13 +48,35 @@ export class PgdasdDisabledError extends Error {
   constructor() { super('pgdasd_disabled'); this.name = 'PgdasdDisabledError'; }
 }
 
-function requireClient(transportOverride?: ConstructorParameters<typeof SerproClient>[1]): SerproClient {
-  const cfg = serproConfig();
-  if (!cfg) throw new PgdasdDisabledError();
+/**
+ * Cliente SERPRO com a credencial DO TENANT (0091). Cada empresa contrata a
+ * própria na loja SERPRO — por isso o envelope manda o CNPJ dela nos três
+ * papéis (contratante = autorPedidoDados = contribuinte): é auto-declaração,
+ * não declaração por terceiro, e não exige procuração e-CAC.
+ *
+ * Sem credencial (nem do tenant nem de plataforma) ⇒ PgdasdDisabledError, que a
+ * rota traduz em 503 e a UI mostra como "aguardando configuração".
+ */
+async function requireClient(
+  tenantId: string, db: DrizzleDB,
+  transportOverride?: ConstructorParameters<typeof SerproClient>[1],
+): Promise<SerproClient> {
+  const resolved = await resolveCredentials(tenantId, 'serpro', db);
+  if (!resolved) throw new PgdasdDisabledError();
+  const cfg: SerproConfig = {
+    // Catálogo fala 'sandbox|production'; a SERPRO fala 'trial|producao'.
+    env: resolved.environment === 'production' ? 'producao' : 'trial',
+    consumerKey:    resolved.values.consumer_key,
+    consumerSecret: resolved.values.consumer_secret,
+    pfxBase64:      resolved.values.pfx_base64,
+    pfxPassword:    resolved.values.pfx_password,
+  };
   return new SerproClient(cfg, transportOverride);
 }
 
-export function isPgdasdEnabled(): boolean { return serproConfig() !== null; }
+export async function isPgdasdEnabled(tenantId: string, db: DrizzleDB = _db): Promise<boolean> {
+  return (await resolveCredentials(tenantId, 'serpro', db)) !== null;
+}
 
 const onlyDigits = (s: string): string => s.replace(/\D/g, '');
 
@@ -138,7 +161,7 @@ function buildDados(ctx: PgdasdContext, opts: { indicadorTransmissao: boolean; t
 
 export async function getReadiness(tenantId: string, apuracaoId: string, db: DrizzleDB = _db): Promise<ReadinessResult & { enabled: boolean }> {
   const ctx = await loadContext(tenantId, apuracaoId, db);
-  return { ...evaluate(ctx), enabled: isPgdasdEnabled() };
+  return { ...evaluate(ctx), enabled: await isPgdasdEnabled(tenantId, db) };
 }
 
 /** Mostra o `dados` EXATO que a RFB receberia — sem rede, sem custo. */
@@ -192,7 +215,7 @@ export async function conferir(
   tenantId: string, apuracaoId: string, actorUserId: string | null,
   db: DrizzleDB = _db, transport?: ConstructorParameters<typeof SerproClient>[1],
 ): Promise<ConferenciaResult> {
-  const client = requireClient(transport);
+  const client = await requireClient(tenantId, db, transport);
   const ctx = await loadContext(tenantId, apuracaoId, db);
   const readiness = evaluate(ctx);
   if (!readiness.ready) {
@@ -236,7 +259,11 @@ export async function transmitir(
   tenantId: string, apuracaoId: string, actorUserId: string | null,
   db: DrizzleDB = _db, transport?: ConstructorParameters<typeof SerproClient>[1],
 ): Promise<TransmissaoResult> {
-  const client = requireClient(transport);
+  // Gate de serviço (0092): transmitir é o ato IRREVERSÍVEL perante a Receita.
+  // O tenant pode manter a SERPRO ligada só para conferência e DAS — checar
+  // ANTES de qualquer chamada, para não gastar chamada cobrada à toa.
+  await assertServiceEnabled(tenantId, 'serpro', 'transmitir_pgdasd', db);
+  const client = await requireClient(tenantId, db, transport);
   const ctx = await loadContext(tenantId, apuracaoId, db);
   const readiness = evaluate(ctx);
   if (!readiness.ready) {
@@ -308,7 +335,8 @@ export async function gerarDas(
   tenantId: string, transmissionId: string, actorUserId: string | null,
   db: DrizzleDB = _db, transport?: ConstructorParameters<typeof SerproClient>[1],
 ): Promise<{ pdfBase64: string; url: string | null; s3Key: string | null }> {
-  const client = requireClient(transport);
+  await assertServiceEnabled(tenantId, 'serpro', 'gerar_das', db);
+  const client = await requireClient(tenantId, db, transport);
   const [row] = await db.select().from(pgdasdTransmissions)
     .where(and(eq(pgdasdTransmissions.id, transmissionId), eq(pgdasdTransmissions.tenant_id, tenantId)));
   if (!row) throw new SimplesDomainError('transmissao_not_found', { transmissionId });

@@ -1,20 +1,25 @@
 // Cliente Pluggy (Open Finance) — transporte fino, molde serproClient/
-// anthropicClient: gated por env (ausente ⇒ rotas 503), auth com cache de
-// TTL lido da prática (apiKey vale ~2h; renovamos com margem), e modo de
-// SIMULAÇÃO `local-` (mesma convenção do token Focus/município local-):
-// PLUGGY_CLIENT_ID começando com 'local-' devolve dados sintéticos
-// determinísticos — dev/E2E sem conta Pluggy.
+// anthropicClient: auth com cache de TTL lido da prática (apiKey vale ~2h;
+// renovamos com margem) e modo de SIMULAÇÃO `local-` (mesma convenção do token
+// Focus/município local-): clientId começando com 'local-' devolve dados
+// sintéticos determinísticos — dev/E2E sem conta Pluggy.
+//
+// 0091: as credenciais deixaram de vir de process.env e passam a ser POR
+// TENANT — todas as funções recebem PluggyCredentials explicitamente. Quem
+// resolve (tenant → fallback de plataforma) é o integrationService; este
+// arquivo virou transporte puro, sem noção de "habilitado".
 
 import { PluggyTransaction } from '../domain/import/openFinanceDomain';
 
 const BASE_URL = () => process.env.PLUGGY_BASE_URL || 'https://api.pluggy.ai';
 
-export function isOpenFinanceEnabled(): boolean {
-  return Boolean(process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET);
+export interface PluggyCredentials {
+  clientId: string;
+  clientSecret: string;
 }
 
-export function isSimulated(): boolean {
-  return (process.env.PLUGGY_CLIENT_ID ?? '').startsWith('local-');
+export function isSimulated(creds: PluggyCredentials): boolean {
+  return creds.clientId.startsWith('local-');
 }
 
 export class PluggyError extends Error {
@@ -40,37 +45,40 @@ export interface PluggyAccount {
 }
 
 // apiKey da Pluggy vale ~2h — cache em módulo com margem de 5 min.
-let cachedApiKey: { key: string; expiresAt: number } | null = null;
+// CHAVEADO POR clientId (0091): com credencial por tenant, um cache único
+// entregaria a apiKey do tenant A para o tenant B — vazamento de extrato
+// bancário entre empresas. O clientId é o identificador natural da conta.
+const cachedApiKeys = new Map<string, { key: string; expiresAt: number }>();
 
-async function apiKey(): Promise<string> {
-  if (cachedApiKey && Date.now() < cachedApiKey.expiresAt) return cachedApiKey.key;
+async function apiKey(creds: PluggyCredentials): Promise<string> {
+  const cached = cachedApiKeys.get(creds.clientId);
+  if (cached && Date.now() < cached.expiresAt) return cached.key;
   const res = await fetch(`${BASE_URL()}/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientId: process.env.PLUGGY_CLIENT_ID,
-      clientSecret: process.env.PLUGGY_CLIENT_SECRET,
-    }),
+    body: JSON.stringify({ clientId: creds.clientId, clientSecret: creds.clientSecret }),
   });
   if (!res.ok) throw new PluggyError('pluggy_auth_failed', { status: res.status });
   const body = await res.json() as { apiKey?: string };
   if (!body.apiKey) throw new PluggyError('pluggy_auth_failed', { reason: 'sem apiKey na resposta' });
-  cachedApiKey = { key: body.apiKey, expiresAt: Date.now() + (2 * 60 - 5) * 60_000 };
+  cachedApiKeys.set(creds.clientId, {
+    key: body.apiKey, expiresAt: Date.now() + (2 * 60 - 5) * 60_000,
+  });
   return body.apiKey;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL()}${path}`, { headers: { 'X-API-KEY': await apiKey() } });
+async function get<T>(path: string, creds: PluggyCredentials): Promise<T> {
+  const res = await fetch(`${BASE_URL()}${path}`, { headers: { 'X-API-KEY': await apiKey(creds) } });
   if (!res.ok) throw new PluggyError('pluggy_request_failed', { status: res.status, path });
   return res.json() as Promise<T>;
 }
 
 /** Token de sessão do widget Pluggy Connect (frontend). */
-export async function createConnectToken(): Promise<string> {
-  if (isSimulated()) return 'local-connect-token';
+export async function createConnectToken(creds: PluggyCredentials): Promise<string> {
+  if (isSimulated(creds)) return 'local-connect-token';
   const res = await fetch(`${BASE_URL()}/connect_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-KEY': await apiKey() },
+    headers: { 'Content-Type': 'application/json', 'X-API-KEY': await apiKey(creds) },
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new PluggyError('pluggy_request_failed', { status: res.status, path: '/connect_token' });
@@ -79,31 +87,34 @@ export async function createConnectToken(): Promise<string> {
   return body.accessToken;
 }
 
-export async function getItem(itemId: string): Promise<PluggyItem> {
-  if (isSimulated()) return { id: itemId, connector: { name: 'Banco Simulado' }, status: 'UPDATED' };
-  return get<PluggyItem>(`/items/${itemId}`);
+export async function getItem(itemId: string, creds: PluggyCredentials): Promise<PluggyItem> {
+  if (isSimulated(creds)) return { id: itemId, connector: { name: 'Banco Simulado' }, status: 'UPDATED' };
+  return get<PluggyItem>(`/items/${itemId}`, creds);
 }
 
-export async function getAccounts(itemId: string): Promise<PluggyAccount[]> {
-  if (isSimulated()) {
+export async function getAccounts(itemId: string, creds: PluggyCredentials): Promise<PluggyAccount[]> {
+  if (isSimulated(creds)) {
     return [{
       id: `${itemId}-acc-1`, type: 'BANK', subtype: 'CHECKING_ACCOUNT',
       name: 'Conta Corrente Simulada', number: '****1234', currencyCode: 'BRL',
       balance: 15234.56,
     }];
   }
-  const body = await get<{ results: PluggyAccount[] }>(`/accounts?itemId=${encodeURIComponent(itemId)}`);
+  const body = await get<{ results: PluggyAccount[] }>(`/accounts?itemId=${encodeURIComponent(itemId)}`, creds);
   return body.results ?? [];
 }
 
 /** Todas as páginas de transações da conta na janela [from, to]. */
-export async function getTransactions(accountId: string, fromISO: string, toISO: string): Promise<PluggyTransaction[]> {
-  if (isSimulated()) return simulatedTransactions(accountId);
+export async function getTransactions(
+  accountId: string, fromISO: string, toISO: string, creds: PluggyCredentials,
+): Promise<PluggyTransaction[]> {
+  if (isSimulated(creds)) return simulatedTransactions(accountId);
   const out: PluggyTransaction[] = [];
   let page = 1;
   for (;;) {
     const body = await get<{ results: PluggyTransaction[]; page: number; totalPages: number }>(
       `/transactions?accountId=${encodeURIComponent(accountId)}&from=${fromISO}&to=${toISO}&pageSize=500&page=${page}`,
+      creds,
     );
     out.push(...(body.results ?? []));
     if (!body.totalPages || page >= body.totalPages) break;
