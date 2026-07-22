@@ -199,6 +199,11 @@ export function ServiceOrdersPage() {
     setDrawerOpen(true);
     setEditing(null);
     setEditMode(false);
+    // Zera o formulário de "Agendar Visita" ao abrir qualquer OS — sem isso,
+    // um valor digitado (e não enviado) numa OS anterior sobrevivia entre
+    // aberturas e podia virar passado só pelo tempo decorrido, disparando
+    // service_visit_scheduled_in_past num horário que "parecia" válido na tela.
+    setVisitTechId(''); setVisitAt(''); setVisitDuration('60');
     try {
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${id}`);
       setEditing(detail);
