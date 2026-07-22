@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api }     from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useI18n } from '../../i18n';
@@ -12,6 +11,7 @@ import { Can } from '../../rbac';
 import { SEGMENTS, getSegment } from '../../branding/segments';
 import { EngineKeysCard } from './EngineKeysCard';
 import { LeadCaptureKeysCard } from './LeadCaptureKeysCard';
+import { WhatsAppSettingsCard } from './WhatsAppSettingsCard';
 import { applyPalette, resetPalette } from '../../branding/BrandingProvider';
 
 interface Tenant {
@@ -1876,7 +1876,7 @@ export function CompanyPage() {
         </div>
       )}
 
-      {tab === 'integrations' && <><IntegrationsTab /><EngineKeysCard /><LeadCaptureKeysCard /></>}
+      {tab === 'integrations' && <><IntegrationsTab /><WhatsAppSettingsCard /><EngineKeysCard /><LeadCaptureKeysCard /></>}
       {tab === 'modules' && <ModulesTab />}
     </div>
   );
@@ -2006,147 +2006,6 @@ function IntegrationsTab() {
         })
       )}
 
-      <WhatsAppIntegrationSection />
-    </div>
-  );
-}
-
-// ── WhatsApp — Cobranças e Notificações ────────────────────────────────────
-// Conexão da conta (Account SID/Auth Token/número) vive aqui, mesmo padrão de
-// "Integrações" já usado pro Mercado Livre. Configuração de automações e log
-// de mensagens ficam na tela dedicada /whatsapp (WhatsAppPage.tsx) — a
-// credencial é o único dado que faz sentido junto do resto de "Minha Empresa".
-interface WhatsAppAccount {
-  id: string; provider: string; whatsapp_number: string | null; display_name: string | null;
-  status: 'pending' | 'connected' | 'disconnected';
-}
-
-function WhatsAppIntegrationSection() {
-  const { t } = useI18n();
-  const navigate = useNavigate();
-  const [enabled, setEnabled]   = useState(false);
-  const [account, setAccount]   = useState<WhatsAppAccount | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState('');
-  const [form, setForm] = useState({ whatsapp_number: '', account_sid: '', auth_token: '' });
-  const [testing, setTesting]   = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; reason?: string } | null>(null);
-
-  async function load() {
-    setLoading(true); setError('');
-    try {
-      const mod = await api.get<{ enabled: string[] }>('/v1/tenant/modules');
-      const on = mod.enabled.includes('whatsapp');
-      setEnabled(on);
-      if (on) {
-        const acc = await api.get<WhatsAppAccount | null>('/v1/whatsapp/account');
-        setAccount(acc);
-        if (acc) setForm(f => ({ ...f, whatsapp_number: acc.whatsapp_number ?? '' }));
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('comp.integrations.errLoad'));
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => { void load(); }, []);
-
-  async function handleConnect() {
-    setSaving(true); setError('');
-    try {
-      const acc = await api.patch<WhatsAppAccount>('/v1/whatsapp/account', form);
-      setAccount(acc);
-      setForm(f => ({ ...f, account_sid: '', auth_token: '' }));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('comp.whatsapp.errSave'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDisconnect() {
-    setSaving(true); setError('');
-    try {
-      await api.delete('/v1/whatsapp/account');
-      await load();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('comp.whatsapp.errSave'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleTestConnection() {
-    setTesting(true); setTestResult(null);
-    try {
-      const res = await api.post<{ ok: boolean; reason?: string }>('/v1/whatsapp/account/test', {});
-      setTestResult(res);
-    } catch (err: unknown) {
-      setTestResult({ ok: false, reason: err instanceof Error ? err.message : t('comp.whatsapp.testFailed') });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  if (loading) return null;
-  if (!enabled) return null; // módulo desligado — nada a mostrar aqui (ativa em "Módulos")
-
-  const connected = account?.status === 'connected';
-
-  return (
-    <div className="card" style={{ padding: 20, marginTop: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <strong>{t('comp.whatsapp.title')}</strong>
-        <span className={`badge ${connected ? 'badge-active' : 'badge-inactive'}`}>
-          {connected ? t('comp.integrations.connected') : t('comp.integrations.disconnected')}
-        </span>
-      </div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>{t('comp.whatsapp.subtitle')}</p>
-
-      {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {testResult && (
-        <div role="alert" className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: 16 }}>
-          {testResult.ok ? t('comp.whatsapp.testOk') : (testResult.reason || t('comp.whatsapp.testFailed'))}
-        </div>
-      )}
-
-      <div className="field">
-        <label>{t('comp.whatsapp.number')}</label>
-        <input value={form.whatsapp_number} placeholder="+5511999999999"
-          onChange={e => setForm(f => ({ ...f, whatsapp_number: e.target.value }))} />
-      </div>
-      <div className="field-row">
-        <div className="field">
-          <label>{t('comp.whatsapp.accountSid')}</label>
-          <input value={form.account_sid} placeholder={connected ? '••••••••' : 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'}
-            onChange={e => setForm(f => ({ ...f, account_sid: e.target.value }))} />
-        </div>
-        <div className="field">
-          <label>{t('comp.whatsapp.authToken')}</label>
-          <input type="password" value={form.auth_token} placeholder={connected ? '••••••••' : ''}
-            onChange={e => setForm(f => ({ ...f, auth_token: e.target.value }))} />
-        </div>
-      </div>
-
-      <div className="flex-gap" style={{ marginTop: 12 }}>
-        <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={saving} onClick={handleConnect}>
-          {saving ? t('c.saving') : connected ? t('comp.whatsapp.update') : t('comp.integrations.connect')}
-        </button>
-        {connected && (
-          <>
-            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} disabled={testing} onClick={handleTestConnection}>
-              {testing ? t('comp.whatsapp.testing') : t('comp.whatsapp.test')}
-            </button>
-            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={() => navigate('/whatsapp')}>
-              {t('comp.whatsapp.manage')}
-            </button>
-            <button className="btn btn-danger btn-sm" style={{ width: 'auto' }} disabled={saving} onClick={handleDisconnect}>
-              {t('comp.integrations.disconnect')}
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
