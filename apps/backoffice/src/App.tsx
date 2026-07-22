@@ -59,6 +59,7 @@ import { CostCentersPage }     from './pages/cost-centers/CostCentersPage';
 import { CostCenterDetailPage } from './pages/cost-centers/CostCenterDetailPage';
 import { PaymentPlansPage }    from './pages/payment-plans/PaymentPlansPage';
 import { SellersPage }       from './pages/sellers/SellersPage';
+import { TransportadorasPage } from './pages/transportadoras/TransportadorasPage';
 import { SellerDetailPage }  from './pages/sellers/SellerDetailPage';
 import { BillingPage }          from './pages/billing/BillingPage';
 import { BillingSuccessPage }   from './pages/billing/BillingSuccessPage';
@@ -178,6 +179,7 @@ function GuardedRoutes() {
         <Route path="/payment-plans"    element={gate('payment_plans:view', <PaymentPlansPage />)} />
         <Route path="/sellers"     element={gate('sellers:view', <SellersPage />)} />
         <Route path="/sellers/:id" element={gate('sellers:view', <SellerDetailPage />)} />
+        <Route path="/transportadoras" element={gate('transportadoras:view', <TransportadorasPage />)} />
         <Route path="/purchase-orders"   element={gate('purchase_orders:view', <PurchaseOrdersPage />)} />
         <Route path="/supplier-invoices" element={gate('supplier_invoices:view', <SupplierInvoicesPage />)} />
         <Route path="/dre"               element={gate('reports:view', <DREPage />)} />

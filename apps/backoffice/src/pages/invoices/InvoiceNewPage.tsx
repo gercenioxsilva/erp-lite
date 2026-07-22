@@ -26,6 +26,7 @@ interface CostCenter { id: string; code: string; name: string; }
 interface StockItem  { material_id: string; quantity: number; }
 interface SellerOption { id: string; name: string; }
 interface PaymentPlanOption { id: string; name: string; is_default: boolean; }
+interface TransportadoraOption { id: string; name: string; person_type: 'PJ' | 'PF'; }
 
 interface FormItem {
   _key: string; material_id: string; name: string;
@@ -122,6 +123,9 @@ export function InvoiceNewPage() {
   const [formSellerId,     setFormSellerId]     = useState('');
   const [paymentPlans,     setPaymentPlans]     = useState<PaymentPlanOption[]>([]);
   const [formPaymentPlanId, setFormPaymentPlanId] = useState('');
+  const [transportadoras,      setTransportadoras]      = useState<TransportadoraOption[]>([]);
+  const [formTransportadoraId, setFormTransportadoraId] = useState('');
+  const [formModalidadeFrete,  setFormModalidadeFrete]  = useState('9');
   // Multi-empresa (regra 40) — seletor só aparece com mais de 1 CNPJ cadastrado.
   // Filtrado por emite_nfe=true (regra 53) — só oferece empresas responsáveis
   // por NF-e de venda; NFC-e (POS) e outros documentos não entram aqui.
@@ -149,7 +153,8 @@ export function InvoiceNewPage() {
       api.get<SellerOption[]>('/v1/sellers/active').catch(() => [] as SellerOption[]),
       api.get<{ data: { id: string; razao_social: string; is_default: boolean; emite_nfe: boolean }[] }>('/v1/companies').catch(() => ({ data: [] })),
       api.get<{ data: PaymentPlanOption[] }>('/v1/payment-plans/active').catch(() => ({ data: [] as PaymentPlanOption[] })),
-    ]).then(([cl, mt, or, cfg, cc, sl, comp, pp]) => {
+      api.get<{ data: TransportadoraOption[] }>('/v1/transportadoras/active').catch(() => ({ data: [] as TransportadoraOption[] })),
+    ]).then(([cl, mt, or, cfg, cc, sl, comp, pp, tp]) => {
       if (cancelled) return;
       setClients(cl.data ?? []);
       setMaterials(mt.data ?? []);
@@ -157,6 +162,7 @@ export function InvoiceNewPage() {
       setNfeAmbiente(cfg.focus_ambiente ?? null);
       setCostCenters(cc.data ?? []);
       setSellers(Array.isArray(sl) ? sl : []);
+      setTransportadoras(tp.data ?? []);
       const planRows = pp.data ?? [];
       setPaymentPlans(planRows);
       // Plano padrão (regra 75) pré-selecionado numa nota avulsa — só
@@ -357,6 +363,8 @@ export function InvoiceNewPage() {
         seller_id: formSellerId || undefined,
         company_id: formCompanyId || undefined,
         payment_plan_id: formPaymentPlanId || undefined,
+        transportadora_id: formTransportadoraId || undefined,
+        modalidade_frete: formTransportadoraId ? Number(formModalidadeFrete) : undefined,
         // formTaxRegime pode estar vazio quando o cliente ainda não tem o
         // regime cadastrado (regra 61/74) — undefined deixa o backend cair
         // no próprio default em vez de gravar string vazia na nota.
@@ -479,6 +487,38 @@ export function InvoiceNewPage() {
                 ))}
               </select>
             </div>
+            {/* Transportadora (migration 0089) — opcional; sem escolha, o
+                grupo transporta nem entra no payload da NF-e (modalidade_frete
+                continua 9, "sem transporte", como sempre). */}
+            <div className="field">
+              <label htmlFor="inv-transportadora">{t('transp.title')}</label>
+              <select id="inv-transportadora" value={formTransportadoraId}
+                onChange={e => {
+                  setFormTransportadoraId(e.target.value);
+                  // '9' (sem transporte) só faz sentido sem transportadora —
+                  // ao escolher uma, troca pro default mais comum (CIF).
+                  if (e.target.value && formModalidadeFrete === '9') setFormModalidadeFrete('0');
+                  if (!e.target.value) setFormModalidadeFrete('9');
+                }}>
+                <option value="">{t('transp.none')}</option>
+                {transportadoras.map(tr => (
+                  <option key={tr.id} value={tr.id}>{tr.name}</option>
+                ))}
+              </select>
+            </div>
+            {formTransportadoraId && (
+              <div className="field">
+                <label htmlFor="inv-modalidade-frete">{t('transp.modalidadeFrete')}</label>
+                <select id="inv-modalidade-frete" value={formModalidadeFrete}
+                  onChange={e => setFormModalidadeFrete(e.target.value)}>
+                  <option value="0">{t('transp.modalidadeFrete.0')}</option>
+                  <option value="1">{t('transp.modalidadeFrete.1')}</option>
+                  <option value="2">{t('transp.modalidadeFrete.2')}</option>
+                  <option value="3">{t('transp.modalidadeFrete.3')}</option>
+                  <option value="4">{t('transp.modalidadeFrete.4')}</option>
+                </select>
+              </div>
+            )}
             {companies.length > 1 && (
               <div className="field">
                 <label htmlFor="inv-company">{t('comp.companies.emittingCompany')}</label>

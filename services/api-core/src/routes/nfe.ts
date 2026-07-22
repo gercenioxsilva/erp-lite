@@ -85,6 +85,43 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (!invoice) return reply.notFound('Nota fiscal não encontrada');
 
+    // Transportadora (migration 0089) — só busca quando a nota tem uma
+    // escolhida; sem isso, `transportadora` nem entra na mensagem (payload
+    // idêntico ao de sempre pra quem não usa a feature).
+    let transportadora: {
+      cnpj?: string; cpf?: string; nome: string; ie?: string;
+      endereco?: string; municipio?: string; uf?: string;
+      modalidade_frete: 0 | 1 | 2 | 3 | 4 | 9;
+    } | undefined;
+    let volumes: Array<{ quantidade?: number; especie?: string; marca?: string; numeracao?: string; peso_liquido?: number; peso_bruto?: number }> | undefined;
+
+    if (invoice.transportadora_id) {
+      const [{ rows: [t] }, { rows: vols }] = await Promise.all([
+        db.execute<any>(sql`SELECT * FROM transportadoras WHERE id = ${invoice.transportadora_id} AND tenant_id = ${tenantId}`),
+        db.execute<any>(sql`SELECT * FROM invoice_volumes WHERE invoice_id = ${id}`),
+      ]);
+      if (t) {
+        transportadora = {
+          cnpj: t.person_type === 'PJ' ? (t.document ?? undefined) : undefined,
+          cpf:  t.person_type === 'PF' ? (t.document ?? undefined) : undefined,
+          nome: t.name,
+          ie:   t.state_reg ?? undefined,
+          endereco: [t.street, t.street_number].filter(Boolean).join(', ') || undefined,
+          municipio: t.city ?? undefined,
+          uf: t.state ?? undefined,
+          modalidade_frete: (invoice.modalidade_frete ?? 9) as 0 | 1 | 2 | 3 | 4 | 9,
+        };
+      }
+      if (vols.length) {
+        volumes = vols.map((v: any) => ({
+          quantidade: v.quantidade ?? undefined, especie: v.especie ?? undefined,
+          marca: v.marca ?? undefined, numeracao: v.numeracao ?? undefined,
+          peso_liquido: v.peso_liquido != null ? Number(v.peso_liquido) : undefined,
+          peso_bruto:   v.peso_bruto   != null ? Number(v.peso_bruto)   : undefined,
+        }));
+      }
+    }
+
     // Resolve qual empresa/CNPJ emite esta nota (regra 40) — invoice.company_id
     // quando definido, senão a empresa padrão do tenant (mesmo comportamento
     // de antes para tenants que nunca usaram multi-empresa).
@@ -216,6 +253,9 @@ export const nfeRoutes: FastifyPluginAsync = async (fastify) => {
       // Observação digitada na tela de emissão (bug real: ficava só gravada
       // em invoices.notes, nunca saía no XML/DANFE de verdade).
       ...(invoice.notes ? { informacoes_adicionais_contribuinte: String(invoice.notes) } : {}),
+      // Transportadora (migration 0089) — aditivo, mesmo padrão de duplicatas.
+      ...(transportadora ? { transportadora } : {}),
+      ...(volumes ? { volumes } : {}),
     };
 
     await db.update(invoices)

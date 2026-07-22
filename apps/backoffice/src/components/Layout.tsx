@@ -245,6 +245,7 @@ export function Layout({ children }: { children: ReactNode }) {
       { to: '/cost-centers', label: t('nav.costCenters'), permission: 'cost_centers:view' },
       { to: '/payment-plans', label: t('nav.paymentPlans'), permission: 'payment_plans:view' },
       { to: '/sellers',      label: t('nav.sellers'),     permission: 'sellers:view'      },
+      { to: '/transportadoras', label: t('nav.transportadoras'), permission: 'transportadoras:view' },
     ] },
     { id: 'reports', label: t('nav.reports'), icon: IcoReports, permission: 'reports:view', children: [
       { to: '/reports',              label: 'Visão geral', end: true },

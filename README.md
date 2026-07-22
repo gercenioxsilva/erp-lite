@@ -11,7 +11,7 @@
 
 Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. Fatos que mudam com frequência (schema exato, lista de rotas) **apontam para o código-fonte em vez de serem copiados aqui** — copiar gera drift (este README já teve isso corrigido uma vez; não repetir).
 
-1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`, `contract_field_definitions`, `contract_field_values`, `api_keys`, `api_key_usage`, `payment_plans`, `payment_plan_installments`, `service_visit_field_definitions`, `service_visit_field_values`.
+1. **Nunca inventar tabelas ou colunas.** Fonte de verdade: `services/api-core/src/db/schema.ts` (definição Drizzle) + `services/api-core/db/migrations/00NN_*.sql` (histórico cumulativo, nunca destrutivo). Antes de usar qualquer tabela/coluna, `grep` o nome em `schema.ts` — nunca assumir que existe pela lembrança de uma feature. Tabelas existentes (nomes, para varredura rápida — schema completo de cada uma está em `schema.ts`): `tenants`, `users`, `materials`, `material_images`, `material_price_history`, `inventory`, `inventory_movements`, `clients`, `client_contacts`, `orders`, `order_items`, `invoices`, `invoice_items`, `nfe_configs`, `nfe_events`, `notification_configs`, `receivables`, `receivable_payments`, `payables`, `payable_payments`, `boletos`, `boleto_events`, `service_contracts`, `contract_billings`, `nfse_invoices`, `nfse_events`, `suppliers`, `supplier_contacts`, `proposals`, `proposal_items`, `cost_centers`, `cost_center_stock`, `cost_center_movements`, `sellers`, `commission_entries`, `tax_icms_interstate_rates`, `tax_icms_internal_rates`, `tax_fcp_rates`, `tax_st_rules`, `tax_simples_nacional_brackets`, `tax_ibs_cbs_rates`, `purchase_orders`, `purchase_order_items`, `supplier_invoices`, `supplier_invoice_items`, `dre_categories`, `tenant_modules`, `technicians`, `service_orders`, `service_order_items`, `service_visits`, `service_visit_photos`, `bank_accounts`, `marketplace_connections`, `material_marketplace_links`, `marketplace_webhook_events`, `plans`, `billing_events`, `simples_remessas`, `simples_remessa_items`, `simples_remessa_events`, `sales_pipeline_stages`, `sales_opportunities`, `sales_opportunity_activities`, `access_profiles`, `access_profile_permissions`, `access_profile_events`, `employees`, `payroll_runs`, `payroll_entries`, `payroll_tax_brackets`, `pos_terminals`, `pos_sessions`, `pos_cash_movements`, `pos_sales`, `pos_sale_items`, `pos_sale_payments`, `scheduling_settings`, `scheduling_professionals`, `scheduling_areas`, `scheduling_professional_areas`, `scheduling_availability_rules`, `scheduling_availability_exceptions`, `scheduling_package_templates`, `scheduling_client_packages`, `scheduling_sessions`, `scheduling_calendar_connections`, `scheduling_package_movements`, `whatsapp_accounts`, `whatsapp_message_templates`, `whatsapp_automations`, `whatsapp_messages`, `whatsapp_message_events`, `whatsapp_webhook_events`, `projects`, `project_professionals`, `contract_field_definitions`, `contract_field_values`, `api_keys`, `api_key_usage`, `payment_plans`, `payment_plan_installments`, `service_visit_field_definitions`, `service_visit_field_values`, `transportadoras`, `invoice_volumes`, `simples_remessa_volumes`, `nfe_correction_letters`.
 
 2. **Nunca inventar rotas de API.** Fonte de verdade: `grep -n "fastify\.\(get\|post\|patch\|delete\)(" services/api-core/src/routes/*.ts` — se uma rota não aparece nesse grep, ela não existe, crie antes de usar. Toda rota autenticada usa `onRequest: [(fastify as any).authenticate]` e extrai `tenantId` de `request.user.tenantId` (nunca do body/query, exceto a exceção legada documentada na regra 4). Domínios cobertos hoje (um arquivo de rota por domínio em `routes/`, nome do arquivo = nome do domínio): auth (login/registro/verificação de e-mail/reset de senha), clients (+ contacts + import + history 360°), materials (+ images + import + price-history + marketplace-links), stock, orders, invoices (+ emit/cancel/nfe-status/events), nfse, simples-remessas, tax (calculate + simples-effective-rate), nfe-config, companies (multi-empresa), bank-accounts, receivables (+ payments + emit-boleto), payables (+ payments), suppliers (+ contacts + payables), service-contracts (+ billings), users, access-profiles (RBAC), employees + payroll (RH), tenant (+ logo + modules), notification-config, proposals (+ send/convert/duplicate/cancel/print + portal público `/public/proposals/:token`), dashboard (+ cashflow), reports (overdue/top-products/commissions/dre), cost-centers (+ active/stock/movements/entries/adjustments), sellers (+ active/commissions), purchase-orders (+ approve/cancel), supplier-invoices (+ confirm/cancel/lookup-by-key/document), technicians (+ resend-invite), service-orders (+ visits/billing/print/cancel), technician (portal do técnico, `/v1/technician/*`, role-gated), integrations/mercadolivre (+ callback público + webhook público), subscription (Stripe, + webhook público), sales-pipeline (stages + opportunities + activities), pos (terminais/sessões/vendas), scheduling (+ scheduling-portal + scheduling-sessions + calendar-integration), whatsapp (account + templates + automations + messages + webhook público `/public/whatsapp/webhook`), projects (+ professionals + orders + service-orders + start/complete/cancel), engine (API do Motor Fiscal por chave `X-API-Key`, `/v1/engine/*`, sem JWT) + engine-keys (autoatendimento de chave, JWT), lead-capture (`POST /v1/public/leads` por chave `X-API-Key`, sem JWT) + lead-capture-keys (autoatendimento de chave, JWT), payment-plans (CRUD do catálogo de planos de pagamento + `/active`, regra 75).
 
@@ -209,6 +209,13 @@ Regras que toda IA assistindo este projeto DEVE seguir antes de gerar código. F
     - **Admin-only de verdade, não por convenção**: diferente de contrato (campos geridos por `contracts:edit`, qualquer perfil com essa permissão configura o schema), aqui existe um recurso RBAC **dedicado** — `service_visit_fields:view`/`service_visit_fields:manage` — que NUNCA entra nas listas explícitas de `MANAGER`/`USER`/`TECHNICIAN`/`PROFESSIONAL`/`CLIENT` em `roleMatrix.ts`. Só `OWNER` (`ALL_PERMISSION_KEYS`) e `ADMIN` (`ALL_PERMISSION_KEYS` menos `billing:manage`) ganham a permissão automaticamente — exatamente "owner + administradores do tenant", nunca quem só despacha visita (`service_orders:assign`) ou o próprio técnico (`portal:access`). Frontend: a aba "Campos da Visita Técnica" em Minha Empresa nem aparece na lista de tabs pra quem não tem `service_visit_fields:view` (`CompanyPage.tsx`) — reforço de UX em cima do reforço real, que é sempre o backend.
     - **Onde o valor nasce**: `TechnicianVisitDetailPage.tsx` (portal do técnico) renderiza o formulário dinâmico dentro do bloco `in_progress` (mesma janela de fotos/assinatura/relatório) — respostas só são enviadas junto de `POST /v1/technician/visits/:id/complete` (`custom_fields`, mesmo padrão de `report_notes`, nunca salvo incrementalmente). `completeVisit()` (`serviceVisitService.ts`) valida/persiste os campos ANTES de mudar o status pra `completed` — um campo obrigatório sem resposta lança `field_value_required` e a visita nunca fica "meio completa" (o técnico também vê essa checagem client-side antes do POST, mas o backend é sempre a autoridade).
     - **Onde o valor aparece pro operador do tenant**: `GET /v1/service-orders/:id` (drawer da OS, `ServiceOrdersPage.tsx`), `GET /v1/service-orders/:id/visits/:visitId` (mesmo endpoint, reaproveitado sob demanda pelo drawer de detalhe da Agenda do Técnico, regra 78, já que a listagem leve `GET /v1/service-orders/visits` não carrega campo nenhum de propósito) e `GET /v1/service-orders/:id/print` ("espelho do técnico", regra 38) — este último já formatado (`formatted_value`), mesmo padrão de impressão/e-mail de contrato.
+
+80. **Cancelamento de NF-e junto à SEFAZ (migration 0089) estende a máquina de estados de `invoices.nfe_status` (draft→queued→processing→authorized) com `cancel_pending`→`cancelled`|`cancel_rejected`, em vez de um campo paralelo.** Decisão deliberada: um único campo de verdade pro ciclo fiscal da nota, nunca dois campos que podem divergir — `invoices.status='cancelled'` (local, já existia) e `nfe_status` (fiscal) são eixos independentes por design. `POST /invoices/:id/cancel` continua cancelando localmente de forma **imediata e síncrona** pra qualquer nota (reversão de estoque via `applyEntry`/comissão via `cancelCommission`, comportamento de sempre); só quando `nfe_status==='authorized'` é que passa a **exigir `justificativa`** (mínimo 15 caracteres, regra SEFAZ, validada por `nfeCancellationDomain.ts`) e enfileira o cancelamento fiscal (`type:'nfe_cancel'`, mesma fila `nfe-requests`/mesmo Lambda de emissão — só um 4º/5º valor de `type`, sem infraestrutura nova, mesmo padrão da regra 70). `nfe_status` vai a `cancel_pending` dentro da MESMA transação do cancelamento local; se o `SendMessageCommand` falhar, reverte pra `authorized` na hora (nunca deixa a nota presa em `cancel_pending` sem ninguém processando, mesmo princípio de tolerância a falha já usado em `routes/nfe.ts`). `nfeResultsWorker.ts::processCancelResult()` fecha o ciclo: `cancel_status:'cancelled'` grava `nfe_cancel_protocol`/`nfe_cancel_date` e um `nfe_events` (`event_type:'cancellation'`); `'rejected'` (ex.: fora do prazo do SEFAZ) reverte `nfe_status` pra `authorized` sem desfazer o cancelamento local já feito — o tenant já decidiu cancelar, o sistema não volta atrás sozinho. Frontend: o botão "Cancelar" de sempre (`InvoicesPage.tsx`) passa a abrir o painel de NF-e com um formulário de justificativa quando a nota está `authorized`, em vez do `modal.confirm()` genérico (que não tem campo de texto) — nota nunca autorizada continua no fluxo simples de sempre, mesmo botão, dois caminhos.
+    - **Carta de Correção Eletrônica (CC-e)**: tabela própria `nfe_correction_letters` (não uma linha em `nfe_events`) — uma CC-e é documento fiscal de primeira classe com ciclo de vida e PDF próprios (SEFAZ exige poder reimprimir cada uma), diferente do log genérico de auditoria. `sequencia` por nota, sempre incremental via `nextSequence()` (`nfeCorrectionDomain.ts`), nunca reaproveitada mesmo se uma CC-e anterior foi rejeitada. Só nota `authorized` admite CC-e (`canIssueCorrection`) — o mesmo `nfe_status` que controla o cancelamento vira o guard natural aqui, sem checagem duplicada. Texto livre, 15-1000 caracteres (`validateCorrectionText`) — CC-e corrige só dado acessório (endereço, complemento), **nunca** valor/imposto/quantidade/dados das partes; isso não dá pra validar por regex, é convenção de uso, não trava de código. `POST/GET /invoices/:id/cce`, mesma fila `type:'cce'`, `nfeResultsWorker.ts::processCceResult()` atualiza a linha própria (nunca `nfe_events`).
+    - ⚠️ **Endpoints/nomes de campo do Focus pra cancelamento (`DELETE /v2/nfe/{ref}`, contrato já usado em `cancelarNFCe()`) e CC-e (`POST /v2/nfe/{ref}/carta_correcao`, campo `correcao`) seguem documentação pública geral — CC-e em particular não tem NENHUM precedente neste código pra confirmar; validar no primeiro teste real em homologação antes de produção**, mesma ressalva já aplicada a `duplicatas`/`informacoes_adicionais_contribuinte` (regras 75/77).
+
+81. **Transportadora (migration 0089): catálogo core por tenant (`transportadoras`, sem gate de módulo — mesmo precedente de `payment_plans`/regra 75), usado no grupo `transporta`/`vol` da NF-e de venda.** PJ (CNPJ) ou PF/autônomo (CPF) — mesma dualidade de `clients.person_type`, validada por `transportadoraDomain.ts` reaproveitando os validadores de CNPJ (`cnpjDomain.ts`) e CPF (`serviceVisitDomain.ts::isValidCPF`) já existentes, nunca duplicados. `invoices.transportadora_id` é nullable/`ON DELETE SET NULL`, mesmo padrão não-mágico de `seller_id`/`cost_center_id`/`payment_plan_id` — **sem herança automática do pedido** (frete é escolha da nota, não do pedido). `modalidade_frete` (enum SEFAZ 0-9, quem paga o frete) é campo **da nota**, não do cadastro da transportadora — a mesma transportadora serve pra uma venda CIF e outra FOB. `buildFocusPayload()` (lambda-fiscal) ganha o bloco `transportadora`/`volumes` de forma aditiva — nota sem transportadora mantém `modalidade_frete=9` ("sem transporte") e payload idêntico ao de sempre, zero regressão pra quem não usa. `invoice_volumes`/`simples_remessa_volumes` são tabelas **espelhadas e isoladas** por tipo de documento (nunca uma tabela compartilhada) — mesmo princípio de `nfe_events`/`simples_remessa_events` nunca se misturarem (regra 24).
+    - **Escopo desta entrega**: schema + payload + `routes/nfe.ts` (NF-e de venda) + `simplesRemessaService.ts` (Simples Remessa) já leem `transportadora_id`/`modalidade_frete`/volumes da nota/remessa e montam o payload do Focus corretamente para os dois tipos de documento. A tela (`TransportadorasPage.tsx`, CRUD completo, mesmo molde de `SellersPage.tsx`) e o `<select>` de transportadora/modalidade de frete em `InvoiceNewPage.tsx` cobrem só NF-e de venda; Simples Remessa e o formulário de volumes (peso/espécie/quantidade) ainda não têm UI própria — o backend está pronto pros dois, é trabalho de tela puro quando for priorizado, não uma lacuna de arquitetura.
 
 ---
 
@@ -538,6 +545,67 @@ sequenceDiagram
 
     Note over A,R: Status machine: draft → queued → processing → authorized
     Note over A,R: Em caso de erro: status='rejected', motivo em nfe_events (append-only)
+```
+
+---
+
+### Cancelamento de NF-e junto à SEFAZ e Carta de Correção Eletrônica (regra 80)
+
+```mermaid
+sequenceDiagram
+    actor U as Usuário
+    participant F as Frontend (React)
+    participant A as api-core (ECS)
+    participant Q as SQS nfe-requests
+    participant L as lambda-fiscal
+    participant FX as Focus NF-e API
+    participant R as SQS nfe-results
+
+    Note over U,A: Cancelamento — nota AUTORIZADA exige justificativa (≥15 chars)
+
+    U->>F: Clica "Cancelar junto à SEFAZ" + digita justificativa
+    F->>A: POST /v1/invoices/:id/cancel {justificativa}
+    A->>A: validateJustificativa() — 422 se < 15 chars, nada é tocado
+    A->>A: TRANSAÇÃO: invoices.status='cancelled' + nfe_status='cancel_pending'
+    A->>A: Reversão de estoque (applyEntry) + comissão (cancelCommission) — imediato, como sempre
+    A->>Q: sendMessage {type:'nfe_cancel', focus_ref: invoice_id, justificativa}
+    A-->>F: 200 {ok:true, status:'cancelled'}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    Note over L: Discrimina pelo campo type:'nfe_cancel'
+    L->>FX: DELETE /v2/nfe/{ref} {justificativa}
+    FX-->>L: {status: 'cancelado' | 'erro'}
+    L->>R: sendMessage — resultado do cancelamento
+
+    Note over A: nfeResultsWorker.processCancelResult()
+    R-->>A: Mensagem de resultado
+    alt SEFAZ confirma
+        A->>A: UPDATE invoices SET nfe_status='cancelled', nfe_cancel_protocol=...
+        A->>A: INSERT nfe_events (event_type='cancellation')
+    else SEFAZ rejeita (ex.: fora do prazo)
+        A->>A: UPDATE invoices SET nfe_status='authorized' (reverte só o lado fiscal)
+        A->>A: INSERT nfe_events (event_type='cancellation_rejected')
+    end
+
+    Note over U,A: Carta de Correção — só nota autorizada, texto 15-1000 chars, sequência incremental
+
+    U->>F: Abre "Carta de Correção" + digita o texto
+    F->>A: POST /v1/invoices/:id/cce {correction_text}
+    A->>A: validateCorrectionText() + canIssueCorrection(nfe_status)
+    A->>A: nextSequence() + INSERT nfe_correction_letters (status='pending')
+    A->>Q: sendMessage {type:'cce', sequencia, correction_text}
+    A-->>F: 202 {ok:true, sequencia, status:'pending'}
+
+    Q-->>L: Trigger SQS Event Source Mapping
+    L->>FX: POST /v2/nfe/{ref}/carta_correcao {correcao}
+    FX-->>L: {status}
+    L->>R: sendMessage — resultado da CC-e
+
+    Note over A: nfeResultsWorker.processCceResult()
+    R-->>A: Mensagem de resultado
+    A->>A: UPDATE nfe_correction_letters SET status='registered'|'rejected' (nunca nfe_events)
+
+    Note over A,FX: ⚠️ Endpoint/campos de cancelamento e CC-e ainda não confirmados contra uma emissão real em homologação (regra 80)
 ```
 
 ---
@@ -1239,12 +1307,13 @@ sequenceDiagram
 | Estoque | `/stock` | inventory, inventory_movements |
 | Pedidos | `/orders` | orders, order_items |
 | Propostas | `/proposals`, `/proposals/:id/print`, `/p/:token` | proposals, proposal_items |
-| Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events |
+| Notas Fiscais (NF-e) | `/invoices` | invoices, invoice_items, nfe_events, nfe_correction_letters, invoice_volumes |
 | NFS-e | `/nfse` | nfse_invoices, nfse_events |
-| Simples Remessa | `/simples-remessas` | simples_remessas, simples_remessa_items, simples_remessa_events |
+| Simples Remessa | `/simples-remessas` | simples_remessas, simples_remessa_items, simples_remessa_events, simples_remessa_volumes |
 | Contas a Receber | `/receivables` | receivables, receivable_payments, boletos |
 | Centro de Custo | `/cost-centers`, `/cost-centers/:id` | cost_centers, cost_center_stock, cost_center_movements |
 | Vendedores / Comissões | `/sellers`, `/sellers/:id` | sellers, commission_entries |
+| Transportadoras | `/transportadoras` | transportadoras |
 | Pedidos de Compra | `/purchase-orders` | purchase_orders, purchase_order_items |
 | NF-e de Entrada | `/supplier-invoices` | supplier_invoices, supplier_invoice_items |
 | DRE Gerencial | `/dre` | dre_categories + leitura de invoices/payables/nfse_invoices |

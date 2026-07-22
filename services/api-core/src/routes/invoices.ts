@@ -1,10 +1,14 @@
 import { FastifyPluginAsync } from 'fastify';
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { and, eq, sql } from 'drizzle-orm';
-import { db, invoices, invoiceItems, orders } from '../db';
+import { db, invoices, invoiceItems, orders, nfeEvents, nfeCorrectionLetters } from '../db';
 import { applyEntry } from '../services/costCenterStock';
 import { cancelCommission } from '../services/commissionService';
-import { resolveCompanyId, CompanyDomainError } from '../services/companyService';
+import { resolveCompanyId, companyResolutionErrorMessage, CompanyDomainError } from '../services/companyService';
 import { requirePermission } from '../lib/requirePermission';
+import { getSqsClient } from '../lib/sqsClient';
+import { validateJustificativa, requiresFiscalCancellation, NfeCancellationDomainError } from '../domain/nfeCancellation/nfeCancellationDomain';
+import { validateCorrectionText, canIssueCorrection, nextSequence, NfeCorrectionDomainError } from '../domain/nfeCorrection/nfeCorrectionDomain';
 
 interface InvoiceItemPayload {
   material_id?: string; name: string; ncm_code?: string; cfop?: string;
@@ -82,7 +86,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     // tenant_id ainda é aceito no body por retrocompatibilidade de contrato,
     // mas nunca é lido — o tenant vem sempre do JWT (request.user.tenantId).
     const { client_id, order_id, items, notes, serie = '1',
-            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id, payment_plan_id } = body;
+            tax_regime = 'lucro_presumido', origin_state = 'SP', cost_center_id, seller_id, company_id, payment_plan_id,
+            transportadora_id, modalidade_frete } = body;
     if (!client_id) return reply.badRequest('client_id is required');
     if (!Array.isArray(items) || !items.length) return reply.badRequest('At least one item is required');
 
@@ -150,6 +155,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
         cost_center_id: resolvedCostCenterId,
         seller_id: resolvedSellerId,
         payment_plan_id: resolvedPaymentPlanId,
+        // Transportadora (migration 0089) — mesmo padrão não-mágico de
+        // seller_id/cost_center_id, sem herança automática do pedido (frete
+        // é escolha da nota, não do pedido).
+        transportadora_id: transportadora_id || null,
+        modalidade_frete: modalidade_frete != null ? Number(modalidade_frete) : null,
       }).returning({ id: invoices.id, status: invoices.status, serie: invoices.serie });
 
       for (const it of items as InvoiceItemPayload[]) {
@@ -208,6 +218,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/invoices/:id/cancel', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:cancel')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id } = request.params as { id: string };
+    // request.body vem undefined quando a requisição não manda payload
+    // nenhum (ex.: cancelamento de nota nunca autorizada, sem justificativa)
+    // — nunca desestruturar direto, senão quebra com 500 em vez do 422 normal.
+    const { justificativa } = (request.body ?? {}) as { justificativa?: string };
     const [invoice] = await db.select({
       id:             invoices.id,
       order_id:       invoices.order_id,
@@ -215,14 +229,33 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
       nfe_status:     invoices.nfe_status,
       cost_center_id: invoices.cost_center_id,
       tenant_id:      invoices.tenant_id,
+      company_id:     invoices.company_id,
     }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
     if (!invoice)                       return reply.notFound('Nota fiscal não encontrada');
     if (invoice.status === 'cancelled') return reply.badRequest('Nota já cancelada');
 
-    const wasAuthorized = invoice.nfe_status === 'authorized';
+    // Só nota AUTORIZADA precisa (e pode) ser cancelada junto à SEFAZ — exige
+    // justificativa (≥15 chars, regra SEFAZ). Nota que nunca chegou a ser
+    // autorizada (draft/rejeitada/em processamento) segue o cancelamento
+    // local de sempre, sem tocar em nfe_status.
+    const wasAuthorized = requiresFiscalCancellation(invoice.nfe_status);
+    if (wasAuthorized) {
+      try {
+        validateJustificativa(justificativa);
+      } catch (err) {
+        if (err instanceof NfeCancellationDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
+        throw err;
+      }
+    }
 
     await db.transaction(async (tx) => {
-      await tx.update(invoices).set({ status: 'cancelled' }).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
+      await tx.update(invoices).set({
+        status: 'cancelled',
+        // Estende a mesma máquina de estados de nfe_status (nunca um campo
+        // paralelo) — 'cancel_pending' até o worker confirmar o cancelamento
+        // junto ao Focus/SEFAZ.
+        ...(wasAuthorized ? { nfe_status: 'cancel_pending', nfe_cancel_reason: justificativa!.trim() } : {}),
+      }).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
       if (invoice.order_id) {
         await tx.execute(sql`
           UPDATE orders SET status = 'confirmed'
@@ -274,6 +307,121 @@ export const invoicesRoutes: FastifyPluginAsync = async (fastify) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Cancelamento fiscal junto à SEFAZ (assíncrono, mesma fila de emissão) ──
+    if (wasAuthorized) {
+      try {
+        const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
+        if (!queueUrl) throw new Error('NFE_REQUESTS_QUEUE_URL não configurada');
+
+        const cfg = await resolveCompanyId(tenantId, invoice.company_id, db, 'nfe');
+        const focusToken = cfg.focus_ambiente === 1
+          ? (cfg.focus_token_producao    ?? undefined)
+          : (cfg.focus_token_homologacao ?? undefined);
+
+        const message = {
+          type: 'nfe_cancel' as const,
+          invoice_id: id, tenant_id: tenantId, focus_ref: id,
+          ambiente: cfg.focus_ambiente as 1 | 2, focus_token: focusToken,
+          justificativa: justificativa!.trim(),
+        };
+        await getSqsClient().send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message) }));
+      } catch (err) {
+        // Não conseguiu nem enfileirar — reverte nfe_status pra não deixar a
+        // nota presa em cancel_pending sem ninguém processando (mesmo
+        // princípio de tolerância a falha de routes/nfe.ts). O cancelamento
+        // LOCAL (status/estoque/comissão) já aconteceu e não é desfeito.
+        await db.update(invoices).set({ nfe_status: 'authorized' })
+          .where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId), eq(invoices.nfe_status, 'cancel_pending')));
+        await db.insert(nfeEvents).values({
+          invoice_id: id, tenant_id: tenantId, event_type: 'cancellation_enqueue_failed',
+          payload: { reason: String(err) },
+        });
+        console.error(JSON.stringify({ event: 'nfe_cancel_enqueue_error', invoice_id: id, error: String(err) }));
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     return { ok: true, status: 'cancelled' };
+  });
+
+  /* ── POST /v1/invoices/:id/cce — Carta de Correção Eletrônica ──────────── */
+  fastify.post('/invoices/:id/cce', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:correct')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id } = request.params as { id: string };
+    const { correction_text } = (request.body ?? {}) as { correction_text?: string };
+
+    try {
+      validateCorrectionText(correction_text);
+    } catch (err) {
+      if (err instanceof NfeCorrectionDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
+      throw err;
+    }
+
+    const [invoice] = await db.select({
+      id: invoices.id, nfe_status: invoices.nfe_status, company_id: invoices.company_id,
+    }).from(invoices).where(and(eq(invoices.id, id), eq(invoices.tenant_id, tenantId)));
+    if (!invoice) return reply.notFound('Nota fiscal não encontrada');
+    if (!canIssueCorrection(invoice.nfe_status))
+      return reply.code(422).send({ error: 'nfe_correction_requires_authorized', nfe_status: invoice.nfe_status });
+
+    const queueUrl = process.env.NFE_REQUESTS_QUEUE_URL;
+    if (!queueUrl) return reply.badRequest('Carta de correção não configurada neste ambiente');
+
+    let cfg;
+    try {
+      cfg = await resolveCompanyId(tenantId, invoice.company_id, db, 'nfe');
+    } catch (err) {
+      const msg = err instanceof CompanyDomainError ? companyResolutionErrorMessage(err, 'NF-e') : 'Configure os dados fiscais em Empresa → Fiscal antes de emitir carta de correção';
+      return reply.badRequest(msg);
+    }
+    const focusToken = cfg.focus_ambiente === 1
+      ? (cfg.focus_token_producao    ?? undefined)
+      : (cfg.focus_token_homologacao ?? undefined);
+
+    const { rows: seqRows } = await db.execute<{ sequencia: number }>(
+      sql`SELECT sequencia FROM nfe_correction_letters WHERE invoice_id = ${id}`,
+    );
+    const sequencia = nextSequence(seqRows.map(r => Number(r.sequencia)));
+    const trimmedText = correction_text!.trim();
+
+    const [row] = await db.insert(nfeCorrectionLetters).values({
+      invoice_id: id, tenant_id: tenantId, sequencia, correction_text: trimmedText, status: 'pending',
+    }).returning();
+
+    const message = {
+      type: 'cce' as const,
+      invoice_id: id, tenant_id: tenantId, focus_ref: id,
+      ambiente: cfg.focus_ambiente as 1 | 2, focus_token: focusToken,
+      sequencia, correction_text: trimmedText,
+    };
+
+    try {
+      await getSqsClient().send(new SendMessageCommand({ QueueUrl: queueUrl, MessageBody: JSON.stringify(message) }));
+    } catch (err) {
+      // Não conseguiu nem enfileirar — remove a linha recém-criada pra a
+      // sequência ficar livre pra um retry limpo (mesmo racional de
+      // routes/nfe.ts quando o send falha).
+      await db.delete(nfeCorrectionLetters).where(eq(nfeCorrectionLetters.id, row.id));
+      throw err;
+    }
+
+    return reply.code(202).send({ ok: true, id: row.id, sequencia, status: 'pending' });
+  });
+
+  /* ── GET /v1/invoices/:id/cce — lista as cartas de correção da nota ────── */
+  fastify.get('/invoices/:id/cce', { onRequest: [(fastify as any).authenticate], preHandler: [requirePermission('invoices:view')] }, async (request) => {
+    const tenantId = (request as any).user.tenantId;
+    const { id } = request.params as { id: string };
+
+    const rows = await db.select({
+      id: nfeCorrectionLetters.id, sequencia: nfeCorrectionLetters.sequencia,
+      correction_text: nfeCorrectionLetters.correction_text, status: nfeCorrectionLetters.status,
+      protocol: nfeCorrectionLetters.protocol, reject_reason: nfeCorrectionLetters.reject_reason,
+      pdf_s3_key: nfeCorrectionLetters.pdf_s3_key, created_at: nfeCorrectionLetters.created_at,
+    }).from(nfeCorrectionLetters)
+      .where(and(eq(nfeCorrectionLetters.invoice_id, id), eq(nfeCorrectionLetters.tenant_id, tenantId)))
+      .orderBy(sql`${nfeCorrectionLetters.sequencia} ASC`);
+
+    return { data: rows };
   });
 };

@@ -25,7 +25,7 @@ vi.mock('../../../lib/api', () => ({
 vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({
     tenantId: 'tenant-123',
-    user: { name: 'Test', role: 'owner', permissions: ['invoices:view', 'invoices:create', 'invoices:cancel', 'invoices:emit'] },
+    user: { name: 'Test', role: 'owner', permissions: ['invoices:view', 'invoices:create', 'invoices:cancel', 'invoices:emit', 'invoices:correct'] },
   }),
 }));
 
@@ -107,6 +107,103 @@ describe('InvoicesPage — botão único de emissão (regra 61)', () => {
 
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith(expect.stringContaining('/v1/invoices/inv-1/emit'), {});
+    });
+  });
+});
+
+const AUTHORIZED_INVOICE = {
+  id: 'inv-2', number: '00002', serie: '1', status: 'issued',
+  client_name: 'Beta Comércio', order_id: null, order_number: null,
+  subtotal: 200, tax_total: 0, total: 200, notes: null,
+  issue_date: '2026-06-01', created_at: '2026-06-01T10:00:00Z',
+  nfe_status: 'authorized', nfe_chave: '1234', nfe_reject_reason: null,
+};
+
+function setupAuthorizedMocks() {
+  // Checagens mais específicas (/nfe-events, /cce, /nfe) SEMPRE antes de
+  // '/v1/invoices' — esse prefixo genérico bate em qualquer sub-rota
+  // (.../inv-2/nfe, .../inv-2/cce), então precisa ser o último fallback.
+  mockGet.mockImplementation((url: string) => {
+    if (url.includes('/v1/clients'))     return Promise.resolve({ data: [] });
+    if (url.includes('/v1/nfe-config'))  return Promise.resolve({ focus_ambiente: null });
+    if (url.includes('/v1/cost-centers/active')) return Promise.resolve({ data: [] });
+    if (url.includes('/nfe-events'))     return Promise.resolve([]);
+    if (url.endsWith('/cce'))            return Promise.resolve({ data: [] });
+    if (url.includes('/nfe')) {
+      return Promise.resolve({
+        nfe_status: 'authorized', nfe_chave: '1234', nfe_protocol: '135000',
+        nfe_auth_date: '2026-06-01T12:00:00Z', nfe_reject_reason: null, nfe_attempts: 1, nfe_danfe_url: null,
+      });
+    }
+    if (url.includes('/v1/invoices'))    return Promise.resolve({ data: [AUTHORIZED_INVOICE], total: 1, page: 1, per_page: 20 });
+    return Promise.resolve({});
+  });
+}
+
+describe('InvoicesPage — cancelamento junto à SEFAZ e Carta de Correção (regra 0089)', () => {
+  beforeEach(() => { vi.clearAllMocks(); setupAuthorizedMocks(); });
+
+  it('nota autorizada: botão "Cancelar" na linha abre o painel com o formulário de justificativa pronto', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('Beta Comércio'));
+    const row = screen.getByText('Beta Comércio').closest('tr')!;
+    await user.click(within(row).getByRole('button', { name: t('inv.cancel') }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(t('nfe.cancelJustificativaPH'))).toBeInTheDocument();
+    });
+  });
+
+  it('justificativa curta demais não envia — mostra erro client-side', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('Beta Comércio'));
+    const row = screen.getByText('Beta Comércio').closest('tr')!;
+    await user.click(within(row).getByRole('button', { name: t('inv.cancel') }));
+    await waitFor(() => screen.getByPlaceholderText(t('nfe.cancelJustificativaPH')));
+
+    await user.type(screen.getByPlaceholderText(t('nfe.cancelJustificativaPH')), 'curto');
+    await user.click(screen.getByRole('button', { name: t('nfe.cancelSefazConfirm') }));
+
+    await waitFor(() => {
+      expect(screen.getByText(t('nfe.cancelJustificativaTooShort'))).toBeInTheDocument();
+    });
+    expect(mockPost).not.toHaveBeenCalledWith(expect.stringContaining('/cancel'), expect.anything());
+  });
+
+  it('justificativa válida: envia POST /cancel com o texto', async () => {
+    mockPost.mockResolvedValue({ ok: true, status: 'cancelled' });
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('Beta Comércio'));
+    const row = screen.getByText('Beta Comércio').closest('tr')!;
+    await user.click(within(row).getByRole('button', { name: t('inv.cancel') }));
+    await waitFor(() => screen.getByPlaceholderText(t('nfe.cancelJustificativaPH')));
+
+    await user.type(screen.getByPlaceholderText(t('nfe.cancelJustificativaPH')), 'Cliente desistiu da compra');
+    await user.click(screen.getByRole('button', { name: t('nfe.cancelSefazConfirm') }));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/v1/invoices/inv-2/cancel', { justificativa: 'Cliente desistiu da compra' });
+    });
+  });
+
+  it('nota autorizada: botão "Carta de Correção" abre o formulário e envia POST /cce', async () => {
+    mockPost.mockResolvedValue({ ok: true, id: 'cce-1', sequencia: 1, status: 'pending' });
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('Beta Comércio'));
+    const row = screen.getByText('Beta Comércio').closest('tr')!;
+    await user.click(within(row).getByRole('button', { name: t('nfe.viewPanel') }));
+    await waitFor(() => screen.getByRole('button', { name: t('nfe.cceNew') }));
+    await user.click(screen.getByRole('button', { name: t('nfe.cceNew') }));
+
+    await user.type(screen.getByPlaceholderText(t('nfe.cceTextPH')), 'Corrige o endereço de entrega do destinatário');
+    await user.click(screen.getByRole('button', { name: t('nfe.cceSubmit') }));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/v1/invoices/inv-2/cce', { correction_text: 'Corrige o endereço de entrega do destinatário' });
     });
   });
 });

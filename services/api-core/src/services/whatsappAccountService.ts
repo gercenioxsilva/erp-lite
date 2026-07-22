@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { db as _db } from '../db';
 import { whatsappAccounts } from '../db/schema';
 import { WhatsAppDomainError, assertProviderCredentials, type WhatsAppCredentials } from '../domain/whatsapp/whatsappDomain';
+import { testarConexaoProvider, type WhatsAppConnectionTestResult } from './whatsappConnectionClient';
 
 export { WhatsAppDomainError };
 
@@ -99,6 +100,19 @@ export async function upsertWhatsAppAccount(
 
   const [row] = await db.insert(whatsappAccounts).values({ tenant_id: tenantId, ...values }).returning();
   return row;
+}
+
+/**
+ * Teste síncrono de conexão — confirma que as credenciais salvas realmente
+ * autenticam no provedor, sem enviar mensagem nenhuma. `status='connected'`
+ * gravado no upsert só reflete presença de credencial (regra do upsert
+ * acima); este é o único ponto que de fato bate no Twilio, mesmo racional de
+ * testCompanyFiscalConnection em fiscalIntegrationService.ts pro Focus.
+ */
+export async function testWhatsAppConnection(tenantId: string, db: DrizzleDB = _db): Promise<WhatsAppConnectionTestResult> {
+  const account = await getWhatsAppAccount(tenantId, db);
+  if (!account) throw new WhatsAppDomainError('account_not_connected', { tenantId });
+  return testarConexaoProvider(account.provider, account.credentials as Record<string, string> | null);
 }
 
 export async function disconnectWhatsAppAccount(tenantId: string, db: DrizzleDB = _db): Promise<void> {
