@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ServiceOrdersPage } from '../ServiceOrdersPage';
 import ptBR from '../../../i18n/pt-BR';
@@ -58,7 +59,7 @@ describe('ServiceOrdersPage — modal Nova OS', () => {
   it('carrega clientes e materiais mesmo quando a lista de técnicos falha (403)', async () => {
     mockResponses('fail');
     const user = userEvent.setup();
-    render(<ServiceOrdersPage />);
+    render(<MemoryRouter><ServiceOrdersPage /></MemoryRouter>);
 
     await user.click(await screen.findByText(`+ ${t('so.new')}`));
 
@@ -118,7 +119,7 @@ function setupMocks(detail: unknown = DRAFT_DETAIL) {
 }
 
 function renderPage() {
-  return render(<ServiceOrdersPage />);
+  return render(<MemoryRouter><ServiceOrdersPage /></MemoryRouter>);
 }
 
 describe('ServiceOrdersPage — edição de OS (regra: editável só em draft)', () => {
@@ -167,6 +168,32 @@ describe('ServiceOrdersPage — edição de OS (regra: editável só em draft)',
         type: 'maintenance',
       }));
     });
+  });
+
+  // Bug real: um valor digitado em "Agendar Visita" e nunca enviado
+  // sobrevivia ao fechar/reabrir a OS — com o tempo, esse valor "parecia"
+  // válido na tela mas já estava no passado, disparando
+  // service_visit_scheduled_in_past numa data que o usuário nem escolheu de
+  // fato desta vez. openViewById precisa zerar o formulário de agendamento
+  // toda vez que uma OS é aberta, igual openCreate() já fazia.
+  it('reabrir a OS depois de digitar (sem enviar) um horário de visita não deixa o valor obsoleto no formulário', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => screen.getByText('#00001'));
+    await user.click(screen.getByText('#00001'));
+    await waitFor(() => screen.getByText('Trocar filtro de ar'));
+
+    const datetimeInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
+    await user.type(datetimeInput, '2026-01-10T16:00');
+    expect(datetimeInput.value).toBe('2026-01-10T16:00');
+
+    // Fecha sem agendar (✕ no cabeçalho do drawer) e reabre a mesma OS.
+    await user.click(screen.getByRole('button', { name: '✕' }));
+    await user.click(screen.getByText('#00001'));
+    await waitFor(() => screen.getByText('Trocar filtro de ar'));
+
+    const reopenedInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
+    expect(reopenedInput.value).toBe('');
   });
 });
 

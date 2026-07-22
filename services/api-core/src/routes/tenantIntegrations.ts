@@ -1,4 +1,4 @@
-// Integrações por tenant — /v1/tenant/integrations/* (0087).
+// Integrações por tenant — /v1/tenant/integrations/* (0091).
 //
 // Gating: LEITURA da lista exige só autenticação (a tela é de configuração, mas
 // as telas de feature também consultam o estado para decidir entre renderizar a

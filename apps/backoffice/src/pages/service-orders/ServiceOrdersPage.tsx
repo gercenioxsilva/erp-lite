@@ -1,22 +1,40 @@
 import { useEffect, useState, FormEvent } from 'react';
-import { api }      from '../../lib/api';
+import { useSearchParams } from 'react-router-dom';
+import { api, ApiError } from '../../lib/api';
 import { useAuth }  from '../../contexts/AuthContext';
 import { useI18n }  from '../../i18n';
 import { useModal } from '../../contexts/ModalContext';
 import { ProductPicker } from '../../ds/components/ProductPicker';
 import type { TKey } from '../../i18n/pt-BR';
-import { Can } from '../../rbac';
+import { Can, usePermissions } from '../../rbac';
+
+// Mensagem amigável para o conflito de horário do técnico (regra 78) — mesmo
+// padrão de conflictMessage() em SessionFormDrawer.tsx (Agendamento):
+// reaproveitado também pela Agenda do Técnico (ServiceOrdersAgendaPage.tsx).
+export function visitConflictMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status !== 422 || err.body?.error !== 'visit_conflict') return null;
+  const c = err.body?.conflicting as
+    | { technician_name?: string; scheduled_at?: string; ends_at?: string }
+    | undefined;
+  if (!c) return 'Esse técnico já tem uma visita nesse horário.';
+  const start = c.scheduled_at ? new Date(c.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  const end   = c.ends_at ? new Date(c.ends_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  return `${c.technician_name ?? 'Esse técnico'} já tem visita das ${start} às ${end}.`;
+}
 
 interface ServiceOrder {
   id: string; number: string; title: string; type: string; status: string;
   total: number; created_at: string; client_name: string | null;
 }
 interface ServiceOrderItemRow { id: string; material_id: string | null; description: string; quantity: number; unit_price: number; total: number; }
+interface VisitCustomFieldValue { field_definition_id: string; field_key: string; label: string; field_type: string; required: boolean; value: string | null; }
 interface VisitRow {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   technician_name: string | null; technician_current_name: string | null; report_notes: string | null;
   signed_by_name: string | null; signed_at: string | null;
   visit_link: string | null; link_valid: boolean;
+  custom_fields: VisitCustomFieldValue[];
 }
 interface VisitPhoto { id: string; caption: string | null; created_at: string; url: string; }
 interface VisitDetail extends VisitRow { photos: VisitPhoto[]; signature_url: string | null; }
@@ -37,6 +55,23 @@ interface CompanyOption { id: string; razao_social: string; is_default: boolean;
 interface MaterialOption { id: string; sku: string; name: string; unit: string; sale_price: number | null; description?: string | null; type?: string | null; }
 interface FormItem { _key: string; material_id: string; description: string; quantity: string; unit_price: string; }
 interface ListResp { data: ServiceOrder[]; total: number; page: number; per_page: number; }
+
+// ── Campos Personalizados de Visita Técnica (migration 0088) ────────────────
+// Schema por tenant, admin-only (só quem tem service_visit_fields:view/manage
+// enxerga o botão — owner/admin por padrão, roleMatrix.ts). Preenchido pelo
+// TÉCNICO no portal dele no momento da visita, não pelo backoffice — mesmo
+// molde de FieldDefinitionsModal em ContractsPage.tsx, mas vive junto do
+// módulo de Ordens de Serviço (não em Minha Empresa), pro mesmo padrão de
+// "campos personalizados moram junto do módulo que os usa".
+interface VisitFieldDefinition {
+  id:         string;
+  field_key:  string;
+  label:      string;
+  field_type: 'text' | 'decimal' | 'integer' | 'date' | 'boolean';
+  required:   boolean;
+  sort_order: number;
+}
+const VISIT_FIELD_TYPES: VisitFieldDefinition['field_type'][] = ['text', 'decimal', 'integer', 'date', 'boolean'];
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const STATUS_TABS = ['all', 'draft', 'scheduled', 'in_progress', 'completed', 'cancelled'] as const;
@@ -61,6 +96,11 @@ export function ServiceOrdersPage() {
   const { tenantId } = useAuth();
   const { t } = useI18n();
   const modal = useModal();
+  const { can } = usePermissions();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [fieldDefinitions, setFieldDefinitions] = useState<VisitFieldDefinition[]>([]);
+  const [fieldModalOpen,   setFieldModalOpen]   = useState(false);
 
   const [orders, setOrders]         = useState<ServiceOrder[]>([]);
   const [total, setTotal]           = useState(0);
@@ -85,8 +125,9 @@ export function ServiceOrdersPage() {
   const [materials, setMaterials]     = useState<MaterialOption[]>([]);
   const [companies, setCompanies]     = useState<CompanyOption[]>([]);
 
-  const [visitTechId, setVisitTechId] = useState('');
-  const [visitAt, setVisitAt]         = useState('');
+  const [visitTechId, setVisitTechId]   = useState('');
+  const [visitAt, setVisitAt]           = useState('');
+  const [visitDuration, setVisitDuration] = useState('60');
   const [schedulingVisit, setSchedulingVisit] = useState(false);
   const [copiedVisitId, setCopiedVisitId] = useState('');
   const [photosOpen, setPhotosOpen]       = useState(false);
@@ -115,6 +156,14 @@ export function ServiceOrdersPage() {
     } catch { /**/ } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [tenantId, statusFilter, search]);
+
+  async function loadFieldDefinitions() {
+    const resp = await api.get<{ data: VisitFieldDefinition[] }>('/v1/service-visit-fields').catch(() => ({ data: [] }));
+    setFieldDefinitions(resp.data);
+  }
+  // Só busca pra quem tem acesso — evita disparar um 403 pra quem nunca vê o
+  // botão de qualquer forma (mesmo racional do gate original em CompanyPage).
+  useEffect(() => { if (can('service_visit_fields:view')) void loadFieldDefinitions(); }, [can]);
 
   useEffect(() => {
     if (!drawerOpen || !tenantId) return;
@@ -145,18 +194,39 @@ export function ServiceOrdersPage() {
     setDrawerOpen(true);
   }
 
-  async function openView(o: ServiceOrder) {
+  async function openViewById(id: string) {
     setFormError('');
     setDrawerOpen(true);
     setEditing(null);
     setEditMode(false);
+    // Zera o formulário de "Agendar Visita" ao abrir qualquer OS — sem isso,
+    // um valor digitado (e não enviado) numa OS anterior sobrevivia entre
+    // aberturas e podia virar passado só pelo tempo decorrido, disparando
+    // service_visit_scheduled_in_past num horário que "parecia" válido na tela.
+    setVisitTechId(''); setVisitAt(''); setVisitDuration('60');
     try {
-      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${o.id}`);
+      const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${id}`);
       setEditing(detail);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : t('c.loading'));
     }
   }
+  async function openView(o: ServiceOrder) { return openViewById(o.id); }
+
+  // Deep-link "?edit=<id>" (regra 61/74) — vem da Agenda dos Técnicos (regra
+  // 78), "Ver Ordem de Serviço" no detalhe de uma visita. Busca direto por
+  // id (não depende da OS estar na página/filtro atual da listagem), mesmo
+  // padrão de ClientsPage.tsx/MaterialsPage.tsx.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !tenantId) return;
+    void openViewById(editId).finally(() => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, searchParams]);
 
   // Só entra em modo de edição a partir de uma OS já carregada em 'draft'
   // (regra 52-like: assertServiceOrderEditable no backend) — pré-preenche o
@@ -238,12 +308,17 @@ export function ServiceOrdersPage() {
     try {
       await api.post(`/v1/service-orders/${editing.id}/visits`, {
         technician_id: visitTechId, scheduled_at: new Date(visitAt).toISOString(),
+        duration_minutes: Number(visitDuration),
       });
       const detail = await api.get<ServiceOrderDetail>(`/v1/service-orders/${editing.id}`);
       setEditing(detail);
-      setVisitTechId(''); setVisitAt('');
+      setVisitTechId(''); setVisitAt(''); setVisitDuration('60');
       void load();
-    } catch (err: unknown) { modal.error(err); }
+    } catch (err: unknown) {
+      const conflict = visitConflictMessage(err);
+      if (conflict) setFormError(conflict);
+      else modal.error(err);
+    }
     finally { setSchedulingVisit(false); }
   }
 
@@ -318,11 +393,18 @@ export function ServiceOrdersPage() {
     <div>
       <div className="page-header">
         <h1>{t('so.title')}</h1>
-        <Can permission="service_orders:create">
-          <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
-            + {t('so.new')}
-          </button>
-        </Can>
+        <div className="flex-gap">
+          <Can permission="service_visit_fields:view">
+            <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setFieldModalOpen(true)}>
+              ⚙ {t('so.customFields.manage')}
+            </button>
+          </Can>
+          <Can permission="service_orders:create">
+            <button className="btn btn-primary btn-cta" style={{ width: 'auto' }} onClick={openCreate}>
+              + {t('so.new')}
+            </button>
+          </Can>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -420,6 +502,18 @@ export function ServiceOrdersPage() {
                         {v.signed_by_name && <div style={{ color: 'var(--muted)', marginTop: 4 }}>Assinado por {v.signed_by_name}</div>}
                         {v.report_notes && <div style={{ marginTop: 6 }}>{v.report_notes}</div>}
 
+                        {/* Respostas do formulário técnico dinâmico (migration 0088) —
+                            o que o técnico coletou em campo, visível pro operador do tenant. */}
+                        {v.custom_fields?.filter(f => f.value != null).length > 0 && (
+                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                            {v.custom_fields.filter(f => f.value != null).map(f => (
+                              <div key={f.field_definition_id} style={{ fontSize: 12 }}>
+                                <strong>{f.label}:</strong> {f.field_type === 'boolean' ? (f.value === 'true' ? t('c.yes') : t('c.no')) : f.value}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         {v.checked_in_at && (
                           <div style={{ marginTop: 8 }}>
                             <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
@@ -467,6 +561,17 @@ export function ServiceOrdersPage() {
                       <div className="field">
                         <label>{t('so.scheduledAt')}</label>
                         <input type="datetime-local" value={visitAt} onChange={e => setVisitAt(e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label>{t('so.duration')}</label>
+                        <select value={visitDuration} onChange={e => setVisitDuration(e.target.value)}>
+                          <option value="30">30 {t('so.durationMinutesSuffix')}</option>
+                          <option value="60">60 {t('so.durationMinutesSuffix')}</option>
+                          <option value="90">90 {t('so.durationMinutesSuffix')}</option>
+                          <option value="120">120 {t('so.durationMinutesSuffix')}</option>
+                          <option value="180">180 {t('so.durationMinutesSuffix')}</option>
+                          <option value="240">240 {t('so.durationMinutesSuffix')}</option>
+                        </select>
                       </div>
                     </div>
                     <Can permission="service_orders:assign">
@@ -735,6 +840,138 @@ export function ServiceOrdersPage() {
           </div>
         </div>
       )}
+
+      {fieldModalOpen && (
+        <VisitFieldDefinitionsModal
+          definitions={fieldDefinitions}
+          onClose={() => setFieldModalOpen(false)}
+          onChanged={() => void loadFieldDefinitions()}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Campos Personalizados de Visita Técnica — gerenciamento das definições ──
+// Só rótulo/obrigatoriedade são editáveis depois de criado — o tipo nunca
+// muda (corromperia a semântica de valores já salvos), mesma trava do
+// backend (serviceVisitFieldService.ts). Preenchido pelo TÉCNICO no portal
+// dele no momento da visita (TechnicianVisitDetailPage.tsx), nunca aqui.
+function VisitFieldDefinitionsModal({ definitions, onClose, onChanged }: {
+  definitions: VisitFieldDefinition[]; onClose: () => void; onChanged: () => void;
+}) {
+  const { t } = useI18n();
+  const modal = useModal();
+  const { can } = usePermissions();
+  const canManage = can('service_visit_fields:manage');
+
+  const [label, setLabel] = useState('');
+  const [fieldType, setFieldType] = useState<VisitFieldDefinition['field_type']>('text');
+  const [required, setRequired] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) { setError(t('comp.visitFields.errLabel')); return; }
+    setSaving(true); setError('');
+    try {
+      await api.post('/v1/service-visit-fields', { label, field_type: fieldType, required, sort_order: definitions.length });
+      setLabel(''); setFieldType('text'); setRequired(false);
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('comp.visitFields.errSave'));
+    } finally { setSaving(false); }
+  }
+
+  async function handleRemove(id: string) {
+    const ok = await modal.confirm({
+      title: t('comp.visitFields.remove'),
+      message: t('comp.visitFields.removeConfirm'),
+      confirmLabel: t('comp.visitFields.remove'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/v1/service-visit-fields/${id}`);
+      onChanged();
+    } catch (err: unknown) { modal.error(err); }
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="drawer" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="drawer-header">
+          <h2>{t('so.customFields.manage')}</h2>
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="drawer-body">
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>{t('comp.visitFields.hint')}</p>
+
+          {definitions.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>{t('comp.visitFields.empty')}</div>
+          ) : (
+            <table style={{ marginBottom: 20 }}>
+              <thead>
+                <tr>
+                  <th>{t('comp.visitFields.label')}</th>
+                  <th>{t('comp.visitFields.type')}</th>
+                  {canManage && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {definitions.map(def => (
+                  <tr key={def.id}>
+                    <td>{def.label}{def.required ? ' *' : ''}</td>
+                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t(`comp.visitFields.fieldType.${def.field_type}` as TKey)}</td>
+                    {canManage && (
+                      <td>
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => void handleRemove(def.id)}>
+                          {t('c.del')}
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {canManage && (
+            <>
+              <strong style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>{t('comp.visitFields.new')}</strong>
+              <form onSubmit={handleAdd} noValidate>
+                {error && <div className="alert alert-error" role="alert">{error}</div>}
+                <div className="field">
+                  <label>{t('comp.visitFields.label')} *</label>
+                  <input value={label} onChange={e => setLabel(e.target.value)}
+                    placeholder={t('comp.visitFields.labelPH')} required />
+                </div>
+                <div className="field-row">
+                  <div className="field">
+                    <label>{t('comp.visitFields.type')}</label>
+                    <select value={fieldType} onChange={e => setFieldType(e.target.value as VisitFieldDefinition['field_type'])}>
+                      {VISIT_FIELD_TYPES.map(ft => (
+                        <option key={ft} value={ft}>{t(`comp.visitFields.fieldType.${ft}` as TKey)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 10 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={required} style={{ width: 'auto' }}
+                        onChange={e => setRequired(e.target.checked)} />
+                      {t('comp.visitFields.required')}
+                    </label>
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={saving}>
+                  {saving ? t('c.saving') : t('comp.visitFields.add')}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

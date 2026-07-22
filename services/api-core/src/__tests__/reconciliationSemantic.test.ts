@@ -1,4 +1,4 @@
-// Serviço de similaridade semântica da conciliação (0086). Invariantes:
+// Serviço de similaridade semântica da conciliação (0090). Invariantes:
 // sempre resolve para todos os candidatos (via local), a IA só refina quando
 // habilitada, e falha de IA degrada para o local sem lançar.
 

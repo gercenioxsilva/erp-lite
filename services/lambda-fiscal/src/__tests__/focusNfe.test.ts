@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFocusPayload } from '../lib/focusNfe';
+import { buildFocusPayload, FocusNfeClient } from '../lib/focusNfe';
 import type { NfeEmitMessage, NfeItem } from '../lib/types';
 
 function makeItem(overrides: Partial<NfeItem> = {}): NfeItem {
@@ -183,5 +183,129 @@ describe('buildFocusPayload — ICMS CST 00 (tributado integralmente)', () => {
   it('não envia icms_modalidade_base_calculo para outros CSTs não-tributados integralmente (ex.: 40 — isenta)', () => {
     const payload = buildFocusPayload(makeMsg([makeItem({ icms_cst: '40' })])) as any;
     expect(payload.items[0].icms_modalidade_base_calculo).toBeUndefined();
+  });
+});
+
+describe('buildFocusPayload — duplicatas (Plano de Pagamento, regra 75)', () => {
+  it('nota sem plano de pagamento não inclui "duplicatas" no payload (comportamento inalterado)', () => {
+    const payload = buildFocusPayload(makeMsg()) as any;
+    expect(payload.duplicatas).toBeUndefined();
+  });
+
+  it('nota com plano de pagamento inclui o quadro de duplicatas com os mesmos campos da mensagem', () => {
+    const msg = makeMsg();
+    msg.duplicatas = [
+      { numero: '001', data_vencimento: '2026-07-20', valor: 33.34 },
+      { numero: '002', data_vencimento: '2026-08-19', valor: 33.33 },
+      { numero: '003', data_vencimento: '2026-09-18', valor: 33.33 },
+    ];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.duplicatas).toEqual(msg.duplicatas);
+  });
+
+  it('lista vazia de duplicatas não inclui a chave no payload (mesmo tratamento de ausente)', () => {
+    const msg = makeMsg();
+    msg.duplicatas = [];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.duplicatas).toBeUndefined();
+  });
+});
+
+describe('buildFocusPayload — informacoes_adicionais_contribuinte (observação da tela de emissão)', () => {
+  it('nota sem observação não inclui a chave no payload (comportamento inalterado)', () => {
+    const payload = buildFocusPayload(makeMsg()) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBeUndefined();
+  });
+
+  it('nota com observação inclui exatamente o texto digitado na tela de emissão', () => {
+    const msg = makeMsg();
+    msg.informacoes_adicionais_contribuinte = 'Entrega agendada para a tarde, portaria B.';
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBe('Entrega agendada para a tarde, portaria B.');
+  });
+
+  it('string vazia não inclui a chave no payload (mesmo tratamento de ausente)', () => {
+    const msg = makeMsg();
+    msg.informacoes_adicionais_contribuinte = '';
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.informacoes_adicionais_contribuinte).toBeUndefined();
+  });
+});
+
+describe('buildFocusPayload — transportadora e volumes (migration 0089)', () => {
+  it('nota sem transportadora mantém modalidade_frete=9 (comportamento inalterado)', () => {
+    const payload = buildFocusPayload(makeMsg()) as any;
+    expect(payload.modalidade_frete).toBe(9);
+    expect(payload.nome_transportadora).toBeUndefined();
+    expect(payload.volumes).toBeUndefined();
+  });
+
+  it('nota com transportadora PJ inclui o grupo transportadora e substitui modalidade_frete', () => {
+    const msg = makeMsg();
+    msg.transportadora = {
+      cnpj: '11.444.777/0001-61', nome: 'Transportadora Rápida', ie: '123456789',
+      endereco: 'Rod. BR-101, km 10', municipio: 'SAO PAULO', uf: 'SP',
+      modalidade_frete: 0,
+    };
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.modalidade_frete).toBe(0);
+    expect(payload.nome_transportadora).toBe('Transportadora Rápida');
+    expect(payload.cnpj_transportadora).toBe('11444777000161');
+    expect(payload.cpf_transportadora).toBeUndefined();
+  });
+
+  it('nota com transportadora PF (autônomo) usa cpf_transportadora, nunca cnpj', () => {
+    const msg = makeMsg();
+    msg.transportadora = { cpf: '111.444.777-35', nome: 'João Motorista', modalidade_frete: 1 };
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.cpf_transportadora).toBe('11144477735');
+    expect(payload.cnpj_transportadora).toBeUndefined();
+  });
+
+  it('volumes vazios não incluem a chave no payload (mesmo tratamento de duplicatas ausentes)', () => {
+    const msg = makeMsg();
+    msg.volumes = [];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.volumes).toBeUndefined();
+  });
+
+  it('volumes presentes mapeiam pros campos flat do Focus', () => {
+    const msg = makeMsg();
+    msg.volumes = [{ quantidade: 2, especie: 'Caixa', peso_liquido: 10.5, peso_bruto: 12 }];
+    const payload = buildFocusPayload(msg) as any;
+    expect(payload.volumes).toEqual([{
+      quantidade_volumes: 2, especie_volumes: 'Caixa', marca_volumes: undefined,
+      numeracao_volumes: undefined, peso_liquido_volumes: 10.5, peso_bruto_volumes: 12,
+    }]);
+  });
+});
+
+describe('FocusNfeClient — cancelar / cartaCorrecao (modo simulação local)', () => {
+  it('cancelar() devolve status "cancelado" pra token local-* comum', async () => {
+    const client = new FocusNfeClient('local-test', 2);
+    const result = await client.cancelar('inv-1', 'Cancelamento solicitado pelo cliente');
+    expect(result.status).toBe('cancelado');
+    expect(result.numero_protocolo).toBeTruthy();
+  });
+
+  it('cancelar() devolve erro simulado pra token local-reject', async () => {
+    const client = new FocusNfeClient('local-reject', 2);
+    const result = await client.cancelar('inv-1', 'Cancelamento solicitado pelo cliente');
+    expect(result.status).toBe('erro');
+    expect(result.erros?.length).toBeGreaterThan(0);
+  });
+
+  it('cartaCorrecao() devolve status "registrada" pra token local-* comum', async () => {
+    const client = new FocusNfeClient('local-test', 2);
+    const result = await client.cartaCorrecao('inv-1', 'Correção do endereço de entrega do destinatário');
+    expect(result.status).toBe('registrada');
+    expect(result.numero_protocolo).toBeTruthy();
+  });
+
+  it('cartaCorrecao() devolve erro simulado pra token local-reject', async () => {
+    const client = new FocusNfeClient('local-reject', 2);
+    const result = await client.cartaCorrecao('inv-1', 'Correção do endereço de entrega do destinatário');
+    expect(result.status).toBe('erro');
+    expect(result.erros?.length).toBeGreaterThan(0);
   });
 });

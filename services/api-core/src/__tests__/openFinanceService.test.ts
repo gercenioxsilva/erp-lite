@@ -11,7 +11,7 @@ vi.mock('../services/reconciliationService', () => ({
 vi.mock('../services/fiscalAuditService', () => ({
   record: vi.fn().mockResolvedValue(undefined),
 }));
-// 0087: a credencial Pluggy virou por tenant (com fallback de plataforma). Aqui
+// 0091: a credencial Pluggy virou por tenant (com fallback de plataforma). Aqui
 // interessa o comportamento do SYNC, não a cascata de resolução — que tem teste
 // próprio. O mock preserva a semântica dirigida por env que estes casos usam.
 vi.mock('../services/integrations/integrationService', () => ({
@@ -26,7 +26,7 @@ vi.mock('../services/integrations/integrationService', () => ({
         }
       : null
   )),
-  // 0088: gate de serviço. Aqui todos ligados — é o default de quem não
+  // 0092: gate de serviço. Aqui todos ligados — é o default de quem não
   // configurou nada (enabled_services NULL). O gate em si tem teste próprio.
   isServiceEnabled: vi.fn(async () => true),
   assertServiceEnabled: vi.fn(async () => undefined),

@@ -1,4 +1,4 @@
-// Similaridade semântica de descrição para a conciliação (0086).
+// Similaridade semântica de descrição para a conciliação (0090).
 //
 // Devolve, para uma transação (memo) e seus candidatos, um mapa
 // candidateId → similaridade 0..1, usado como componente do score no domínio.

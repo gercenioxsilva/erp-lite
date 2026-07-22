@@ -124,6 +124,43 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
   ]);
   if (!sr) throw new SimplesRemessaDomainError('remessa_not_found', { id });
 
+  // Transportadora (migration 0089) — mesmo racional aditivo de routes/nfe.ts:
+  // só busca quando a remessa tem uma escolhida, payload idêntico ao de
+  // sempre pra quem não usa a feature.
+  let transportadora: {
+    cnpj?: string; cpf?: string; nome: string; ie?: string;
+    endereco?: string; municipio?: string; uf?: string;
+    modalidade_frete: 0 | 1 | 2 | 3 | 4 | 9;
+  } | undefined;
+  let volumes: Array<{ quantidade?: number; especie?: string; marca?: string; numeracao?: string; peso_liquido?: number; peso_bruto?: number }> | undefined;
+
+  if (sr.transportadora_id) {
+    const [{ rows: [t] }, { rows: vols }] = await Promise.all([
+      db.execute<any>(sql`SELECT * FROM transportadoras WHERE id = ${sr.transportadora_id} AND tenant_id = ${tenantId}`),
+      db.execute<any>(sql`SELECT * FROM simples_remessa_volumes WHERE simples_remessa_id = ${id}`),
+    ]);
+    if (t) {
+      transportadora = {
+        cnpj: t.person_type === 'PJ' ? (t.document ?? undefined) : undefined,
+        cpf:  t.person_type === 'PF' ? (t.document ?? undefined) : undefined,
+        nome: t.name,
+        ie:   t.state_reg ?? undefined,
+        endereco: [t.street, t.street_number].filter(Boolean).join(', ') || undefined,
+        municipio: t.city ?? undefined,
+        uf: t.state ?? undefined,
+        modalidade_frete: (sr.modalidade_frete ?? 9) as 0 | 1 | 2 | 3 | 4 | 9,
+      };
+    }
+    if (vols.length) {
+      volumes = vols.map((v: any) => ({
+        quantidade: v.quantidade ?? undefined, especie: v.especie ?? undefined,
+        marca: v.marca ?? undefined, numeracao: v.numeracao ?? undefined,
+        peso_liquido: v.peso_liquido != null ? Number(v.peso_liquido) : undefined,
+        peso_bruto:   v.peso_bruto   != null ? Number(v.peso_bruto)   : undefined,
+      }));
+    }
+  }
+
   assertRemessaTransition(sr.status as SimplesRemessaStatus, 'pending');
   if (!items.length) throw new SimplesRemessaDomainError('remessa_sem_itens');
 
@@ -207,6 +244,9 @@ export async function emitSimplesRemessa(id: string, tenantId: string, db: Drizz
       ibs_base_calculo: taxSituation.ibs_cbs_base_calculo,
     })),
     pagamentos: [{ forma_pagamento: '99', valor_pagamento: 0 }],
+    // Transportadora (migration 0089) — aditivo, mesmo padrão de routes/nfe.ts.
+    ...(transportadora ? { transportadora } : {}),
+    ...(volumes ? { volumes } : {}),
   };
 
   await db.update(simplesRemessas)

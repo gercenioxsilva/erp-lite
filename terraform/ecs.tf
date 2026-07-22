@@ -95,7 +95,7 @@ resource "aws_ecs_task_definition" "api_core" {
       # empresa em si é ASSÍNCRONO via nfe_requests/nfe_results (regra 70).
       { name = "FOCUS_NFE_TOKEN", value = var.focus_nfe_token },
 
-      # ── Integrações (0087) ─────────────────────────────────────────────────
+      # ── Integrações (0091) ─────────────────────────────────────────────────
       # Credencial de integração é POR TENANT (tabela integration_providers,
       # editável na tela Integrações). O que segue é o FALLBACK DE PLATAFORMA,
       # usado só por tenant que ainda não configurou a própria conta.

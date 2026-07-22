@@ -1,4 +1,4 @@
--- Migration 0087: credenciais de integração por tenant + trilha de chamadas.
+-- Migration 0091: credenciais de integração por tenant + trilha de chamadas.
 --
 -- Contexto: até aqui toda credencial de integração vivia em ENV de plataforma
 -- (SERPRO_*, PLUGGY_*, FOCUS_NFE_TOKEN, GOOGLE_*), o que obriga redeploy do ECS

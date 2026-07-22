@@ -4,7 +4,7 @@
 // Focus/município local-): clientId começando com 'local-' devolve dados
 // sintéticos determinísticos — dev/E2E sem conta Pluggy.
 //
-// 0087: as credenciais deixaram de vir de process.env e passam a ser POR
+// 0091: as credenciais deixaram de vir de process.env e passam a ser POR
 // TENANT — todas as funções recebem PluggyCredentials explicitamente. Quem
 // resolve (tenant → fallback de plataforma) é o integrationService; este
 // arquivo virou transporte puro, sem noção de "habilitado".
@@ -45,7 +45,7 @@ export interface PluggyAccount {
 }
 
 // apiKey da Pluggy vale ~2h — cache em módulo com margem de 5 min.
-// CHAVEADO POR clientId (0087): com credencial por tenant, um cache único
+// CHAVEADO POR clientId (0091): com credencial por tenant, um cache único
 // entregaria a apiKey do tenant A para o tenant B — vazamento de extrato
 // bancário entre empresas. O clientId é o identificador natural da conta.
 const cachedApiKeys = new Map<string, { key: string; expiresAt: number }>();

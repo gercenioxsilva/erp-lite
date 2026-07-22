@@ -1,4 +1,4 @@
--- Migration 0086: conciliação — similaridade semântica de descrição.
+-- Migration 0090: conciliação — similaridade semântica de descrição.
 --
 -- Estende as regras (0072) com dois parâmetros por tenant/empresa:
 --  · description_weight  → peso do componente de similaridade de descrição no

@@ -1,4 +1,4 @@
--- Migration 0088: serviços habilitados por integração.
+-- Migration 0092: serviços habilitados por integração.
 --
 -- Até aqui os serviços de um provider ("Transmissão PGDAS-D", "Geração de DAS",
 -- "Consulta de declarações") eram só rótulos do catálogo — informativos, sem

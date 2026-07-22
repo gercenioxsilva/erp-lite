@@ -52,7 +52,7 @@ describe('scoring de conciliação', () => {
   });
 });
 
-describe('similaridade de descrição no scoring (0086)', () => {
+describe('similaridade de descrição no scoring (0090)', () => {
   // memo bancário sem NSU/autorização — só valor + data + descrição pontuam.
   const BANK: TxForMatch = {
     id: 'b1', source: 'bank', occurredAt: new Date('2026-07-03T12:00:00'),

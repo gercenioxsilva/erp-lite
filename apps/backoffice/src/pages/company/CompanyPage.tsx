@@ -128,9 +128,11 @@ export function CompanyPage() {
   const [bannerSaving, setBannerSaving] = useState(false);
   const bannerRef = useRef<HTMLInputElement>(null);
 
-  // Zona de risco — desativação em massa de produtos sem movimentação de
-  // estoque (nunca um DELETE físico, regra 8; mesmo soft-delete de sempre).
-  const [bulkDeactivating, setBulkDeactivating] = useState(false);
+  // Zona de risco — EXCLUSÃO FÍSICA em massa de produtos nunca referenciados
+  // em nenhum documento (regra 69, revisada): reset de emergência pra quando
+  // uma importação de planilha errada precisa ser apagada de vez, não só
+  // desativada.
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Upload de certificado/chave C6 (mTLS) — mesmo padrão de fileRef/bannerRef
   // acima, mas lendo como texto puro (readAsText), não base64: cert/key já são
@@ -858,24 +860,28 @@ export function CompanyPage() {
     } finally { setBannerSaving(false); }
   }
 
-  async function handleBulkDeactivateProducts() {
+  async function handleBulkDeleteUnusedProducts() {
     const ok = await modal.confirm({
-      title:        t('comp.bulkDeactivateProducts'),
-      message:      t('comp.bulkDeactivateConfirmMsg'),
-      confirmLabel: t('comp.bulkDeactivateProducts'),
+      title:        t('comp.bulkDeleteProducts'),
+      message:      t('comp.bulkDeleteConfirmMsg'),
+      confirmLabel: t('comp.bulkDeleteProducts'),
       danger:       true,
     });
     if (!ok) return;
-    setBulkDeactivating(true);
+    setBulkDeleting(true);
     try {
-      const result = await api.post<{ deactivated: number }>('/v1/materials/bulk-deactivate', {});
-      modal.success(t('comp.bulkDeactivateResult').replace('{n}', String(result.deactivated)));
+      const result = await api.post<{ deleted: number }>('/v1/materials/bulk-delete-unused', {});
+      modal.success(t('comp.bulkDeleteResult').replace('{n}', String(result.deleted)));
     } catch (err: unknown) {
       modal.error(err);
-    } finally { setBulkDeactivating(false); }
+    } finally { setBulkDeleting(false); }
   }
 
   if (loading) return <div className="spinner">{t('c.loading')}</div>;
+
+  const tabKeys: (typeof tab)[] = [
+    'general', 'branding', 'banking', 'fiscal', 'notifications', 'integrations', 'modules',
+  ];
 
   return (
     <div>
@@ -884,8 +890,8 @@ export function CompanyPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        {(['general', 'branding', 'banking', 'fiscal', 'notifications', 'integrations', 'modules'] as const).map(key => (
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)', flexWrap: 'wrap' }}>
+        {tabKeys.map(key => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', padding: '10px 20px', cursor: 'pointer',
             fontWeight: tab === key ? 700 : 400,
@@ -1110,12 +1116,12 @@ export function CompanyPage() {
             <h3 style={{ marginBottom: 4, color: 'var(--danger)' }}>{t('comp.dangerZone')}</h3>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
               <div style={{ maxWidth: 560 }}>
-                <strong style={{ display: 'block', marginBottom: 4 }}>{t('comp.bulkDeactivateProducts')}</strong>
-                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.bulkDeactivateProductsDesc')}</p>
+                <strong style={{ display: 'block', marginBottom: 4 }}>{t('comp.bulkDeleteProducts')}</strong>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{t('comp.bulkDeleteProductsDesc')}</p>
               </div>
               <button className="btn btn-danger btn-sm" style={{ width: 'auto' }}
-                disabled={bulkDeactivating} onClick={handleBulkDeactivateProducts}>
-                {bulkDeactivating ? t('c.saving') : t('comp.bulkDeactivateProducts')}
+                disabled={bulkDeleting} onClick={handleBulkDeleteUnusedProducts}>
+                {bulkDeleting ? t('c.saving') : t('comp.bulkDeleteProducts')}
               </button>
             </div>
           </div>
@@ -2024,6 +2030,8 @@ function WhatsAppIntegrationSection() {
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState('');
   const [form, setForm] = useState({ whatsapp_number: '', account_sid: '', auth_token: '' });
+  const [testing, setTesting]   = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; reason?: string } | null>(null);
 
   async function load() {
     setLoading(true); setError('');
@@ -2069,6 +2077,18 @@ function WhatsAppIntegrationSection() {
     }
   }
 
+  async function handleTestConnection() {
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await api.post<{ ok: boolean; reason?: string }>('/v1/whatsapp/account/test', {});
+      setTestResult(res);
+    } catch (err: unknown) {
+      setTestResult({ ok: false, reason: err instanceof Error ? err.message : t('comp.whatsapp.testFailed') });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   if (loading) return null;
   if (!enabled) return null; // módulo desligado — nada a mostrar aqui (ativa em "Módulos")
 
@@ -2085,6 +2105,11 @@ function WhatsAppIntegrationSection() {
       <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>{t('comp.whatsapp.subtitle')}</p>
 
       {error && <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+      {testResult && (
+        <div role="alert" className={`alert ${testResult.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: 16 }}>
+          {testResult.ok ? t('comp.whatsapp.testOk') : (testResult.reason || t('comp.whatsapp.testFailed'))}
+        </div>
+      )}
 
       <div className="field">
         <label>{t('comp.whatsapp.number')}</label>
@@ -2110,6 +2135,9 @@ function WhatsAppIntegrationSection() {
         </button>
         {connected && (
           <>
+            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} disabled={testing} onClick={handleTestConnection}>
+              {testing ? t('comp.whatsapp.testing') : t('comp.whatsapp.test')}
+            </button>
             <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} onClick={() => navigate('/whatsapp')}>
               {t('comp.whatsapp.manage')}
             </button>

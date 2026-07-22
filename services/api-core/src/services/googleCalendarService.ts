@@ -4,7 +4,7 @@
 // de eventos (syncSessionEvent) fica em módulo próprio, disparado fire-and-forget.
 //
 // Espelho de marketplaceConnectionService: sem axios, sem KMS (tokens em texto
-// puro nesta fase). Feature-flag por CREDENCIAL AUSENTE (0087, antes era
+// puro nesta fase). Feature-flag por CREDENCIAL AUSENTE (0091, antes era
 // env-unset): sem credencial do tenant nem da plataforma, o connect responde
 // erro amigável e o sync é no-op.
 
@@ -41,7 +41,7 @@ function redirectUri(): string {
 interface GoogleOAuthCredentials { clientId: string; clientSecret: string }
 
 /**
- * Credenciais OAuth DO TENANT (0087), com fallback para o app da plataforma.
+ * Credenciais OAuth DO TENANT (0091), com fallback para o app da plataforma.
  * null = integração não configurada — quem chama decide entre erro de domínio
  * (fluxos interativos) e no-op silencioso (sync fire-and-forget).
  *

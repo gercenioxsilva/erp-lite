@@ -1,4 +1,4 @@
-// Catálogo de integrações — FORMA em código, VALOR em banco (0087).
+// Catálogo de integrações — FORMA em código, VALOR em banco (0091).
 //
 // Por que não em tabela: "quais campos o provider X tem" é estrutura, não dado
 // do cliente. Em tabela, cada provider novo viraria migration + seed, e um seed
@@ -36,7 +36,7 @@ export interface CredentialField {
 }
 
 /**
- * Capacidade individual de um provider, ligável em separado (0088). A `key` é
+ * Capacidade individual de um provider, ligável em separado (0092). A `key` é
  * o que o gate no código consulta (assertServiceEnabled); o `label` é o que a
  * tela mostra. Nunca renomeie uma `key` já usada em produção — ela está gravada
  * em integration_providers.enabled_services.

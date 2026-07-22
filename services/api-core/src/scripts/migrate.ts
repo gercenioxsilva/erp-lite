@@ -130,9 +130,18 @@ const migrations = [
   '0083_scheduling_noshow_reminders.sql',
   '0084_lead_capture.sql',
   '0085_client_tax_regime.sql',
-  '0086_reconciliation_semantic.sql',
-  '0087_integrations.sql',
-  '0088_integration_services.sql',
+  '0086_payment_plans.sql',
+  '0087_service_visits_agenda.sql',
+  '0088_service_visit_custom_fields.sql',
+  '0089_transportadora_cancelamento_cce.sql',
+  // Vindas de feat/fiscal-reconciliation-semantic. Chegaram como 0086/0087/0088
+  // e colidiam com as três de cima; RENUMERADAS para 0090-0092 no merge, em vez
+  // de repetir número mais uma vez. Nenhuma delas jamais rodou em produção
+  // (não estavam em develop nem main), então renumerar foi seguro — só reaplica
+  // em banco de dev, e as três usam IF NOT EXISTS.
+  '0090_reconciliation_semantic.sql',
+  '0091_integrations.sql',
+  '0092_integration_services.sql',
 ];
 
 // Splits SQL into individual statements, correctly handling:

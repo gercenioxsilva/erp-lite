@@ -34,3 +34,6 @@ export type { WeeklyRule } from './components/AvailabilityWeekEditor';
 
 export { CalendarWeekGrid } from './components/CalendarWeekGrid';
 export type { CalendarSession } from './components/CalendarWeekGrid';
+
+export { TimeGrid } from './components/TimeGrid';
+export type { TimeGridColumn, TimeGridBlock } from './components/TimeGrid';

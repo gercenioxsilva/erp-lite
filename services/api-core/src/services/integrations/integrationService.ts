@@ -1,4 +1,4 @@
-// Credenciais de integração por tenant (0087) — resolução, CRUD e forma pública.
+// Credenciais de integração por tenant (0091) — resolução, CRUD e forma pública.
 //
 // RESOLUÇÃO EM CASCATA (resolveCredentials):
 //   1. linha do tenant com enabled=true e todas as obrigatórias preenchidas
@@ -94,10 +94,10 @@ function isComplete(key: ProviderKey, values: Record<string, string>): boolean {
   return requiredFields(key).every(f => Boolean(values[f.key]));
 }
 
-// ── Serviços habilitados (0088) ──────────────────────────────────────────────
+// ── Serviços habilitados (0092) ──────────────────────────────────────────────
 
 /**
- * NULL = todos habilitados (é o estado das linhas que existiam antes da 0088 —
+ * NULL = todos habilitados (é o estado das linhas que existiam antes da 0092 —
  * ver o cabeçalho da migration). Array = exatamente os listados.
  */
 export function serviceEnabledIn(enabledServices: string[] | null, serviceKey: string): boolean {

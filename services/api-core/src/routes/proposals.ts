@@ -415,7 +415,10 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /v1/proposals/:id/convert ───────────────────────────────────
   fastify.post('/proposals/:id/convert', { ...auth, preHandler: [requirePermission('proposals:edit')] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
-    const userId   = (request as any).user.id;
+    // Fix: era `.id` (chave inexistente no JWT, sempre undefined — created_by
+    // do pedido convertido nunca gravava o autor). O payload assinado em
+    // auth.ts é sempre {tenantId, userId, role}.
+    const userId   = (request as any).user.userId;
     const { id }   = request.params as { id: string };
 
     const { rows: [p] } = await db.execute<any>(sql`
@@ -424,10 +427,32 @@ export const proposalsRoutes: FastifyPluginAsync = async (fastify) => {
       WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
     `);
     if (!p) return reply.notFound('Proposal not found');
-    if (!['accepted','sent','viewed'].includes(p.status))
-      return reply.badRequest('Proposta precisa estar aceita ou enviada para converter em pedido');
+    // 'draft' entrou aqui: em alguns casos o aceite é decidido pelo próprio
+    // tenant (ex.: acordo verbal), sem passar pelo aceite do cliente no
+    // portal público (que só aceita sent/viewed) — ver bloco abaixo.
+    if (!['draft','accepted','sent','viewed'].includes(p.status))
+      return reply.badRequest('Proposta precisa estar em rascunho, aceita ou enviada para converter em pedido');
     if (p.converted_to_order_id) return reply.badRequest('Esta proposta já foi convertida em pedido');
     if (!p.client_id) return reply.badRequest('Proposta sem cliente não pode ser convertida');
+
+    // Rascunho nunca passou pelo aceite do cliente — registra aqui um
+    // aceite interno feito pelo próprio tenant antes de converter, com o
+    // mesmo rastro (accepted_at/accepted_by_*) que o aceite via portal
+    // público deixaria, só que identificando o usuário autenticado em vez
+    // do nome/e-mail informado pelo cliente (routes/public.ts, /accept).
+    if (p.status === 'draft') {
+      const { rows: [user] } = await db.execute<{ name: string | null; email: string }>(sql`
+        SELECT name, email FROM users WHERE id = ${userId} AND tenant_id = ${tenantId}
+      `);
+      await db.execute(sql`
+        UPDATE proposals SET
+          status = 'accepted', accepted_at = NOW(),
+          accepted_by_name  = ${user?.name || 'Tenant'},
+          accepted_by_email = ${user?.email || null},
+          accepted_notes    = ${'Aceite interno registrado pelo tenant — proposta convertida diretamente do rascunho, sem passar pelo portal do cliente.'}
+        WHERE id = ${id}
+      `);
+    }
 
     const { rows: [{ max_order }] } = await db.execute<any>(sql`
       SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) AS max_order FROM orders WHERE tenant_id = ${tenantId}

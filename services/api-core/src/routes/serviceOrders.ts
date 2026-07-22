@@ -6,10 +6,14 @@ import { requirePermission } from '../lib/requirePermission';
 import {
   createServiceOrder, updateServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
 } from '../services/serviceOrderService';
-import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../services/serviceVisitService';
+import {
+  scheduleVisit, rescheduleVisit, cancelVisit, buildVisitLink, ServiceVisitDomainError,
+} from '../services/serviceVisitService';
 import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
 import { getPresignedReadUrl } from '../services/servicePhotoStorageService';
 import { billServiceOrder, ServiceOrderBillingDomainError } from '../services/serviceOrderBillingService';
+import { getFieldValuesForVisit } from '../services/serviceVisitFieldService';
+import { formatFieldValueForDisplay } from '../domain/customFields/customFieldDomain';
 
 export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('service_orders')] };
@@ -109,7 +113,10 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Link de roteamento do técnico (regra 38) — exposto aqui para reenvio manual
     // (ex.: WhatsApp) pelo backoffice; o link em si nunca concede acesso sozinho.
-    const visitsWithLink = visits.map((v: any) => {
+    // custom_fields (migration 0088): respostas do formulário técnico dinâmico
+    // já coletadas em campo — visíveis aqui pro operador do tenant conferir o
+    // que o técnico preencheu, sem precisar abrir o portal dele.
+    const visitsWithLink = await Promise.all(visits.map(async (v: any) => {
       const { routing_token, token_expires_at, ...rest } = v;
       return {
         ...rest,
@@ -117,8 +124,9 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
         link_valid: routing_token
           ? isRoutingTokenValid(new Date(token_expires_at), v.status)
           : false,
+        custom_fields: await getFieldValuesForVisit(v.id, tenantId, db),
       };
-    });
+    }));
 
     return { ...so, items, visits: visitsWithLink };
   });
@@ -191,9 +199,17 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
         id: p.id, caption: p.caption, created_at: p.created_at,
         url: await getPresignedReadUrl(p.s3_key),
       })));
+      // custom_fields (migration 0088) — mesmo padrão de formatação de
+      // impressão já usado pra contrato (regra 71): formatted_value pronto
+      // pra exibição, nunca reformatado no frontend.
+      const customFields = await getFieldValuesForVisit(v.id, tenantId, db);
       return {
         ...rest, photos,
         signature_url: signature_s3_key ? await getPresignedReadUrl(signature_s3_key) : null,
+        custom_fields: customFields.map(f => ({
+          label: f.label, field_type: f.field_type,
+          value: f.value, formatted_value: formatFieldValueForDisplay(f.field_type, f.value),
+        })),
       };
     }));
 
@@ -204,7 +220,9 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/service-orders/:id/visits', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
-    const { technician_id, scheduled_at } = request.body as { technician_id: string; scheduled_at: string };
+    const { technician_id, scheduled_at, duration_minutes } = request.body as {
+      technician_id: string; scheduled_at: string; duration_minutes?: number;
+    };
 
     if (!technician_id) return reply.badRequest('technician_id é obrigatório');
     if (!scheduled_at)  return reply.badRequest('scheduled_at é obrigatório');
@@ -212,12 +230,60 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const visit = await scheduleVisit({
         tenantId, serviceOrderId: id, technicianId: technician_id, scheduledAt: new Date(scheduled_at),
+        durationMinutes: duration_minutes ? Number(duration_minutes) : undefined,
       });
       return reply.code(201).send(visit);
     } catch (err) {
       if (err instanceof ServiceVisitDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
       throw err;
     }
+  });
+
+  // ── GET /v1/service-orders/visits ────────────────────────────────────────
+  // Agenda do Técnico (regra 78): leitura por período, opcionalmente filtrada
+  // por técnico — alimenta o calendário estilo Google Agenda no backoffice.
+  // Rota estática (não aninhada em /:id) — find-my-way (roteador do Fastify)
+  // sempre prioriza rota estática sobre parametrizada, então nunca colide com
+  // GET /service-orders/:id mesmo que ambas comecem com o mesmo prefixo.
+  fastify.get('/service-orders/visits', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:view') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { technician_id, from, to } = request.query as { technician_id?: string; from?: string; to?: string };
+
+    if (!from) return reply.badRequest('from é obrigatório (YYYY-MM-DD)');
+    if (!to)   return reply.badRequest('to é obrigatório (YYYY-MM-DD)');
+
+    const technicianFilter = technician_id ? sql`AND sv.technician_id = ${technician_id}` : sql``;
+
+    const { rows } = await db.execute<any>(sql`
+      SELECT sv.id, sv.service_order_id, sv.scheduled_at, sv.duration_minutes, sv.status,
+             sv.technician_id, t.name AS technician_name,
+             so.number AS service_order_number, so.title AS service_order_title,
+             COALESCE(c.company_name, c.full_name) AS client_name
+      FROM service_visits sv
+      JOIN technicians t ON t.id = sv.technician_id
+      JOIN service_orders so ON so.id = sv.service_order_id
+      LEFT JOIN clients c ON c.id = so.client_id
+      WHERE sv.tenant_id = ${tenantId}
+        AND sv.scheduled_at >= ${from}::date
+        AND sv.scheduled_at < (${to}::date + interval '1 day')
+        ${technicianFilter}
+      ORDER BY sv.scheduled_at
+    `);
+
+    const data = rows.map((r: any) => {
+      const scheduledAt = new Date(r.scheduled_at);
+      const endsAt = new Date(scheduledAt.getTime() + r.duration_minutes * 60_000);
+      return {
+        id: r.id, service_order_id: r.service_order_id,
+        service_order_number: r.service_order_number, service_order_title: r.service_order_title,
+        technician_id: r.technician_id, technician_name: r.technician_name,
+        client_name: r.client_name,
+        scheduled_at: scheduledAt.toISOString(), ends_at: endsAt.toISOString(),
+        duration_minutes: r.duration_minutes, status: r.status,
+      };
+    });
+
+    return { data };
   });
 
   // ── GET /v1/service-orders/:id/visits/:visitId ───────────────────────────
@@ -246,8 +312,52 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     })));
 
     const signatureUrl = visit.signature_s3_key ? await getPresignedReadUrl(visit.signature_s3_key) : null;
+    const customFields = await getFieldValuesForVisit(visitId, tenantId, db);
 
-    return { ...visit, photos, signature_url: signatureUrl };
+    return { ...visit, photos, signature_url: signatureUrl, custom_fields: customFields };
+  });
+
+  // ── PATCH /v1/service-orders/:id/visits/:visitId ─────────────────────────
+  // Reagendar (mudar data/hora/duração) — extensão da Agenda do Técnico
+  // (regra 78). Mesma checagem atômica de conflito de POST .../visits, só
+  // elegível em status='scheduled'.
+  fastify.patch('/service-orders/:id/visits/:visitId', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { visitId } = request.params as { visitId: string };
+    const { scheduled_at, duration_minutes } = request.body as { scheduled_at: string; duration_minutes?: number };
+
+    if (!scheduled_at) return reply.badRequest('scheduled_at é obrigatório');
+
+    try {
+      const visit = await rescheduleVisit({
+        visitId, tenantId, scheduledAt: new Date(scheduled_at),
+        durationMinutes: duration_minutes ? Number(duration_minutes) : undefined,
+      });
+      return visit;
+    } catch (err) {
+      if (err instanceof ServiceVisitDomainError) {
+        return reply.code(err.code === 'visit_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
+  });
+
+  // ── POST /v1/service-orders/:id/visits/:visitId/cancel ───────────────────
+  // Cancelar visita — extensão da Agenda do Técnico (regra 78). Nunca mexe
+  // no status da OS (pode ter outras visitas ativas).
+  fastify.post('/service-orders/:id/visits/:visitId/cancel', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { visitId } = request.params as { visitId: string };
+
+    try {
+      await cancelVisit({ visitId, tenantId });
+      return { ok: true, status: 'cancelled' };
+    } catch (err) {
+      if (err instanceof ServiceVisitDomainError) {
+        return reply.code(err.code === 'visit_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 
   // ── POST /v1/service-orders/:id/cancel ───────────────────────────────────

@@ -150,8 +150,8 @@ variable "stripe_webhook_secret" {
   default     = ""
 }
 
-# ── Integrações (0087) ────────────────────────────────────────────────────────
-# ATENÇÃO ao ler o que segue: desde a migration 0087, credencial de integração é
+# ── Integrações (0091) ────────────────────────────────────────────────────────
+# ATENÇÃO ao ler o que segue: desde a migration 0091, credencial de integração é
 # configurada POR TENANT na tela Integrações do backoffice e vive no banco. As
 # variáveis abaixo são FALLBACK DE PLATAFORMA — valem só para tenants que ainda
 # não configuraram a própria conta.

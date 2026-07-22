@@ -21,14 +21,16 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   stock:            { label: 'Estoque',              actions: { view: 'Ver estoque', adjust: 'Ajustar/movimentar estoque' } },
   suppliers:        { label: 'Fornecedores',         actions: { view: 'Listar/ver fornecedores', create: 'Criar fornecedor', edit: 'Editar fornecedor', delete: 'Excluir fornecedor' } },
   orders:           { label: 'Pedidos',              actions: { view: 'Listar/ver pedidos', create: 'Criar pedido', edit: 'Editar pedido', delete: 'Excluir pedido' } },
-  invoices:         { label: 'Notas Fiscais (NF-e)', actions: { view: 'Ver notas', create: 'Criar nota', emit: 'Emitir/transmitir NF-e', cancel: 'Cancelar NF-e' } },
+  invoices:         { label: 'Notas Fiscais (NF-e)', actions: { view: 'Ver notas', create: 'Criar nota', emit: 'Emitir/transmitir NF-e', cancel: 'Cancelar NF-e', correct: 'Emitir carta de correção (CC-e)' } },
   nfse:             { label: 'NFS-e',                actions: { view: 'Ver NFS-e', create: 'Criar NFS-e', emit: 'Emitir NFS-e', cancel: 'Cancelar NFS-e' } },
   contracts:        { label: 'Contratos',            actions: { view: 'Ver contratos', create: 'Criar contrato', edit: 'Editar contrato', delete: 'Excluir contrato' } },
   proposals:        { label: 'Propostas',            actions: { view: 'Ver propostas', create: 'Criar proposta', edit: 'Editar proposta', delete: 'Excluir proposta', send: 'Enviar/publicar proposta' } },
   receivables:      { label: 'Recebíveis',           actions: { view: 'Ver recebíveis', create: 'Criar recebível', edit: 'Editar recebível', delete: 'Excluir recebível', export: 'Exportar recebíveis' } },
   payables:         { label: 'Pagáveis',             actions: { view: 'Ver pagáveis', create: 'Criar pagável', edit: 'Editar pagável', delete: 'Excluir pagável', export: 'Exportar pagáveis' } },
   cost_centers:     { label: 'Centros de Custo',     actions: { view: 'Ver centros de custo', create: 'Criar centro de custo', edit: 'Editar centro de custo', delete: 'Excluir centro de custo' } },
+  payment_plans:    { label: 'Planos de Pagamento',  actions: { view: 'Ver planos de pagamento', create: 'Criar plano de pagamento', edit: 'Editar plano de pagamento', delete: 'Excluir plano de pagamento' } },
   sellers:          { label: 'Vendedores',           actions: { view: 'Ver vendedores', create: 'Criar vendedor', edit: 'Editar vendedor', delete: 'Excluir vendedor' } },
+  transportadoras:  { label: 'Transportadoras',       actions: { view: 'Ver transportadoras', create: 'Criar transportadora', edit: 'Editar transportadora', delete: 'Excluir transportadora' } },
   purchase_orders:  { label: 'Ordens de Compra',     actions: { view: 'Ver ordens de compra', create: 'Criar ordem de compra', edit: 'Editar ordem de compra', delete: 'Excluir ordem de compra' } },
   supplier_invoices:{ label: 'Faturas de Fornecedor',actions: { view: 'Ver faturas', create: 'Criar fatura', edit: 'Editar fatura', delete: 'Excluir fatura' } },
   company:          { label: 'Empresa',              actions: { view: 'Ver dados da empresa', edit: 'Editar dados da empresa' } },
@@ -38,6 +40,13 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   service_orders:   { label: 'Ordens de Serviço',    actions: { view: 'Ver OS', create: 'Criar OS', edit: 'Editar OS', delete: 'Excluir OS', assign: 'Atribuir técnico/visita' } },
   projects:         { label: 'Projetos',              actions: { view: 'Ver projetos', create: 'Criar projeto', edit: 'Editar/gerenciar projeto (profissionais, vínculos, status)', delete: 'Excluir projeto' } },
   technicians:      { label: 'Técnicos',             actions: { view: 'Ver técnicos', create: 'Criar técnico', edit: 'Editar técnico', delete: 'Excluir técnico' } },
+  // Campos personalizados de Visita Técnica — recurso próprio (não reaproveita
+  // service_orders:edit) porque precisa ficar restrito a administradores do
+  // tenant (owner + admin, via ALL_PERMISSION_KEYS em roleMatrix.ts), nunca a
+  // quem só despacha visitas no dia a dia (manager/user têm service_orders:edit
+  // mas não ganham este). Preencher os VALORES continua sob service_orders:assign
+  // (backoffice) / portal:access (técnico) — só a CONFIGURAÇÃO do schema é admin-only.
+  service_visit_fields: { label: 'Campos Personalizados de Visita', actions: { view: 'Ver campos personalizados de visita', manage: 'Criar/editar/remover campos personalizados de visita' } },
   reports:          { label: 'Relatórios',           actions: { view: 'Ver relatórios', export: 'Exportar relatórios' } },
   billing:          { label: 'Assinatura/Cobrança',  actions: { view: 'Ver cobrança', manage: 'Gerenciar assinatura/plano' } },
   tenant_modules:   { label: 'Módulos',              actions: { view: 'Ver módulos', manage: 'Habilitar/desabilitar módulos' } },

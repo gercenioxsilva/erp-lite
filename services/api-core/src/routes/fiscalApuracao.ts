@@ -41,14 +41,14 @@ export const fiscalApuracaoRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(422).send({ error: err.code, ...err.payload });
     }
     // SERPRO sem credencial (nem do tenant nem de plataforma) → 503 com o corpo
-    // PADRÃO de integração ausente (0087): `reason` é o que o frontend usa para
+    // PADRÃO de integração ausente (0091): `reason` é o que o frontend usa para
     // renderizar o aviso "aguardando configuração" em vez de um erro vermelho.
     if (err instanceof PgdasdDisabledError) {
       return reply.code(503).send({
         error: 'pgdasd_disabled', reason: 'missing_credentials', provider: 'serpro',
       });
     }
-    // Serviço desligado pelo próprio tenant (0088) — 422, não 503: não falta
+    // Serviço desligado pelo próprio tenant (0092) — 422, não 503: não falta
     // credencial, falta autorização de uso. Mensagem diz o que fazer.
     if (err instanceof IntegrationServiceDisabledError) {
       return reply.code(422).send({

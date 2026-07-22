@@ -24,7 +24,7 @@ import { scoreDescriptions, SemanticCandidate } from './reconciliationSemanticSe
 
 export type DrizzleDB = typeof _db;
 
-// Defaults espelham as colunas de reconciliation_rules (0072 + 0086), para o
+// Defaults espelham as colunas de reconciliation_rules (0072 + 0090), para o
 // comportamento ser o mesmo com ou sem regra salva. O peso 0.25 liga o
 // componente LEXICAL (grátis); a IA só entra com use_ai_matching explícito.
 const DEFAULT_RULE: MatchRule = {

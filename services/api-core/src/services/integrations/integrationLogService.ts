@@ -1,4 +1,4 @@
-// Trilha append-only de chamadas às integrações (0087) — alimenta a listagem
+// Trilha append-only de chamadas às integrações (0091) — alimenta a listagem
 // "Logs de integração" no rodapé da tela de Integrações.
 //
 // Regra dura: gravar log NUNCA pode derrubar a operação que está sendo logada.

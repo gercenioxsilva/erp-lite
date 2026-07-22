@@ -1,12 +1,13 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import { eq, and, sql } from 'drizzle-orm';
 import { getSqsClient } from '../lib/sqsClient';
-import { db, invoices, invoiceItems, nfeEvents, nfseInvoices, nfseEvents, simplesRemessaEvents, fiscalIntegrationEvents } from '../db';
+import { db, invoices, invoiceItems, nfeEvents, nfeCorrectionLetters, nfseInvoices, nfseEvents, simplesRemessaEvents, fiscalIntegrationEvents } from '../db';
 import { sendNotificationIfEnabled } from '../lib/notificationsClient';
 import { applyExit } from '../services/costCenterStock';
 import { accrueCommission } from '../services/commissionService';
 import { applyRemessaStockMovement } from '../services/simplesRemessaService';
-import { createReceivableFromInvoice } from '../services/receivableService';
+import { createReceivableFromInvoice, createReceivablesFromInvoiceWithPlan } from '../services/receivableService';
+import { getPlanWithInstallments } from '../services/paymentPlanService';
 import { recordRevenue } from '../services/fiscalRevenueService';
 import { postEntry, resolveRegime } from '../services/accountingService';
 import { linesForAuthorization } from '../domain/accounting/accountingDomain';
@@ -85,6 +86,25 @@ interface RemessaResultMessage {
   nfe_reject_reason?:  string;
 }
 
+interface NfeCancelResultMessage {
+  type:                  'nfe_cancel';
+  invoice_id:            string;
+  tenant_id:             string;
+  cancel_status:         'cancelled' | 'rejected';
+  cancel_protocol?:      string;
+  cancel_reject_reason?: string;
+}
+
+interface CceResultMessage {
+  type:               'cce';
+  invoice_id:          string;
+  tenant_id:            string;
+  sequencia:            number;
+  cce_status:           'registered' | 'rejected';
+  cce_protocol?:        string;
+  cce_reject_reason?:   string;
+}
+
 interface CompanyRegistrationResultMessage {
   type:                    'company_registration';
   registration_id:         string;
@@ -129,6 +149,10 @@ async function poll(queueUrl: string): Promise<void> {
             await processNfseResult(body as NfseResultMessage);
           } else if (body.type === 'remessa') {
             await processRemessaResult(body as RemessaResultMessage);
+          } else if (body.type === 'nfe_cancel') {
+            await processCancelResult(body as NfeCancelResultMessage);
+          } else if (body.type === 'cce') {
+            await processCceResult(body as CceResultMessage);
           } else if (body.type === 'fiscal_consolidation_run') {
             // Ciclo agendado 23:59 (EventBridge → esta fila): consolida →
             // valida → emite por tenant com o módulo fiscal habilitado.
@@ -164,8 +188,9 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
       tenant_id: string; serie: string; number: string | null;
       client_id: string | null; total: string; company_id: string | null;
       client_name: string | null; client_email: string | null;
+      payment_plan_id: string | null;
     }>(sql`
-      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id,
+      SELECT i.tenant_id, i.serie, i.number, i.client_id, i.total, i.company_id, i.payment_plan_id,
              COALESCE(c.company_name, c.full_name) AS client_name,
              c.email AS client_email
       FROM invoices i
@@ -289,15 +314,34 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
     // recebível. Faltava aqui: só o caminho legado POST /invoices/:id/issue
     // (que nunca passa pelo SEFAZ de verdade) criava isso — regra 60.
     try {
-      const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      await createReceivableFromInvoice({
-        tenantId:    result.tenant_id,
-        invoiceId:   invoice_id,
-        clientId:    inv.client_id,
-        amount:      inv.total,
-        description: `NF-e nº ${number} (série ${inv.serie})`,
-        dueDate,
-      }, db);
+      // Plano de Pagamento (regra 75, migration 0086): nota com plano gera N
+      // recebíveis (schedule ancorado em authAt — mesmo racional "fuso fiscal
+      // BR" já usado acima, nunca o relógio do worker); sem plano, caminho
+      // idêntico ao de sempre (heurística fixa de +30 dias).
+      if (inv.payment_plan_id) {
+        const plan = await getPlanWithInstallments(inv.tenant_id, inv.payment_plan_id, db);
+        await createReceivablesFromInvoiceWithPlan({
+          tenantId:    result.tenant_id,
+          invoiceId:   invoice_id,
+          clientId:    inv.client_id,
+          amount:      Number(inv.total),
+          description: `NF-e nº ${number} (série ${inv.serie})`,
+          baseDate:    authAt.toISOString().slice(0, 10),
+          installments: plan.installments.map(i => ({
+            installment_number: i.installment_number, days_offset: i.days_offset, percentage: Number(i.percentage),
+          })),
+        }, db);
+      } else {
+        const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        await createReceivableFromInvoice({
+          tenantId:    result.tenant_id,
+          invoiceId:   invoice_id,
+          clientId:    inv.client_id,
+          amount:      inv.total,
+          description: `NF-e nº ${number} (série ${inv.serie})`,
+          dueDate,
+        }, db);
+      }
     } catch (recvErr) {
       console.error(JSON.stringify({ event: 'receivable_creation_error', invoice_id, error: String(recvErr) }));
     }
@@ -379,6 +423,64 @@ export async function processResult(result: NfeResultMessage): Promise<void> {
         data:      { invoice_number: rejInv.number ?? '', reject_reason: nfe_reject_reason ?? '' },
       }).catch(err => console.warn(JSON.stringify({ event: 'notification_enqueue_warn', error: String(err) })));
     }
+  }
+}
+
+/**
+ * Resultado do cancelamento junto à SEFAZ (migration 0089) — o cancelamento
+ * LOCAL (invoices.status, estoque, comissão) já aconteceu de forma síncrona
+ * em routes/invoices.ts antes desta mensagem existir; aqui só confirmamos
+ * (ou revertemos) o lado fiscal de nfe_status.
+ */
+export async function processCancelResult(result: NfeCancelResultMessage): Promise<void> {
+  const { invoice_id, tenant_id, cancel_status, cancel_protocol, cancel_reject_reason } = result;
+
+  if (cancel_status === 'cancelled') {
+    await db.update(invoices)
+      .set({ nfe_status: 'cancelled', nfe_cancel_protocol: cancel_protocol ?? null, nfe_cancel_date: new Date() })
+      .where(and(eq(invoices.id, invoice_id), eq(invoices.nfe_status, 'cancel_pending')));
+    await db.insert(nfeEvents).values({
+      invoice_id, tenant_id, event_type: 'cancellation', protocol: cancel_protocol, payload: null,
+    });
+    console.info(JSON.stringify({ event: 'nfe_cancel_result_cancelled', invoice_id, cancel_protocol }));
+  } else {
+    // SEFAZ rejeitou o cancelamento (ex.: fora do prazo) — nunca deixa a nota
+    // presa em cancel_pending; volta pra authorized (o local já foi
+    // cancelado antes e continua, só o lado fiscal reverte).
+    await db.update(invoices)
+      .set({ nfe_status: 'authorized', nfe_cancel_reject_reason: cancel_reject_reason ?? null })
+      .where(and(eq(invoices.id, invoice_id), eq(invoices.nfe_status, 'cancel_pending')));
+    await db.insert(nfeEvents).values({
+      invoice_id, tenant_id, event_type: 'cancellation_rejected', payload: { reason: cancel_reject_reason ?? null },
+    });
+    console.warn(JSON.stringify({ event: 'nfe_cancel_result_rejected', invoice_id, reason: cancel_reject_reason }));
+  }
+}
+
+/**
+ * Resultado da Carta de Correção Eletrônica (migration 0089) — atualiza a
+ * linha própria em nfe_correction_letters (nunca nfe_events — CC-e é
+ * documento de primeira classe, não log de auditoria).
+ */
+export async function processCceResult(result: CceResultMessage): Promise<void> {
+  const { invoice_id, tenant_id, sequencia, cce_status, cce_protocol, cce_reject_reason } = result;
+
+  if (cce_status === 'registered') {
+    await db.update(nfeCorrectionLetters)
+      .set({ status: 'registered', protocol: cce_protocol ?? null, updated_at: new Date() })
+      .where(and(
+        eq(nfeCorrectionLetters.invoice_id, invoice_id), eq(nfeCorrectionLetters.tenant_id, tenant_id),
+        eq(nfeCorrectionLetters.sequencia, sequencia),
+      ));
+    console.info(JSON.stringify({ event: 'cce_result_registered', invoice_id, sequencia, cce_protocol }));
+  } else {
+    await db.update(nfeCorrectionLetters)
+      .set({ status: 'rejected', reject_reason: cce_reject_reason ?? null, updated_at: new Date() })
+      .where(and(
+        eq(nfeCorrectionLetters.invoice_id, invoice_id), eq(nfeCorrectionLetters.tenant_id, tenant_id),
+        eq(nfeCorrectionLetters.sequencia, sequencia),
+      ));
+    console.warn(JSON.stringify({ event: 'cce_result_rejected', invoice_id, sequencia, reason: cce_reject_reason }));
   }
 }
 

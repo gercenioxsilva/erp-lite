@@ -82,7 +82,7 @@ describe('decidePayableOutcome', () => {
   });
 });
 
-describe('similaridade de descrição no débito (0086)', () => {
+describe('similaridade de descrição no débito (0090)', () => {
   const RULE_SEM: MatchRule = { ...RULE, descriptionWeight: 0.25 };
 
   it('retrocompatível: sem similaridade o score não muda', () => {

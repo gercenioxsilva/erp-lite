@@ -303,6 +303,11 @@ export const orders = pgTable('orders', {
   // cost_center_id acima; vinculado/desvinculado via POST|DELETE
   // /v1/projects/:id/orders, nunca por aqui (PATCH /orders/:id só edita em 'draft').
   project_id: uuid('project_id'),
+  // Plano de Pagamento (migration 0086, regra 75) — escolhido no pedido,
+  // sem .references() aqui de propósito (mesmo padrão de cost_center_id/
+  // seller_id acima: payment_plans é declarada mais adiante neste arquivo,
+  // FK real vive na migration).
+  payment_plan_id: uuid('payment_plan_id'),
 });
 
 // ── order_items ───────────────────────────────────────────────────────────────
@@ -364,6 +369,23 @@ export const invoices = pgTable('invoices', {
   cost_center_id: uuid('cost_center_id'),
   // Vendedor (migration 0036)
   seller_id: uuid('seller_id'),
+  // Plano de Pagamento (migration 0086, regra 75) — herdado do pedido de
+  // origem (mesmo padrão de cost_center_id/seller_id acima); é a fonte de
+  // verdade lida por routes/nfe.ts e nfeResultsWorker.ts pra gerar as
+  // parcelas de receivables e o quadro de duplicatas da NF-e.
+  payment_plan_id: uuid('payment_plan_id'),
+  // Cancelamento junto à SEFAZ (migration 0089) — nfe_status ganha os
+  // valores 'cancel_pending'/'cancelled'/'cancel_rejected', estendendo a
+  // mesma máquina de estados de sempre (draft→queued→processing→authorized).
+  nfe_cancel_protocol:      varchar('nfe_cancel_protocol', { length: 50 }),
+  nfe_cancel_date:          timestamp('nfe_cancel_date', { withTimezone: true }),
+  nfe_cancel_reason:        text('nfe_cancel_reason'),
+  nfe_cancel_reject_reason: text('nfe_cancel_reject_reason'),
+  // Transportadora (migration 0089) — nullable, ON DELETE SET NULL, mesmo
+  // padrão de payment_plan_id/seller_id/cost_center_id. modalidade_frete é
+  // escolha por nota (enum SEFAZ 0-9), nunca herdada do cadastro.
+  transportadora_id: uuid('transportadora_id'),
+  modalidade_frete:  smallint('modalidade_frete'),
 });
 
 // ── invoice_items ─────────────────────────────────────────────────────────────
@@ -582,6 +604,66 @@ export const nfeEvents = pgTable('nfe_events', {
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── nfe_correction_letters (migration 0089) ─────────────────────────────────
+// Carta de Correção Eletrônica (CC-e) — documento fiscal de primeira classe
+// com ciclo de vida e PDF próprios, por isso tabela dedicada (não uma linha
+// em nfe_events, que é log genérico de auditoria). sequencia é por nota,
+// incremental, nunca reaproveitado mesmo se uma CC-e for rejeitada.
+export const nfeCorrectionLetters = pgTable('nfe_correction_letters', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  invoice_id:      uuid('invoice_id').notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  tenant_id:       uuid('tenant_id').notNull(),
+  sequencia:       smallint('sequencia').notNull(),
+  correction_text: varchar('correction_text', { length: 1000 }).notNull(),
+  status:          varchar('status', { length: 20 }).notNull().default('pending'), // pending | registered | rejected
+  protocol:        varchar('protocol', { length: 50 }),
+  reject_reason:   text('reject_reason'),
+  pdf_s3_key:      varchar('pdf_s3_key', { length: 500 }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── transportadoras (migration 0089) ────────────────────────────────────────
+// Catálogo core por tenant (sem gate de módulo, mesmo precedente de
+// payment_plans/regra 75). PJ (CNPJ) ou PF/autônomo (CPF) — mesma dualidade
+// de clients.person_type.
+export const transportadoras = pgTable('transportadoras', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  person_type:   varchar('person_type', { length: 2 }).notNull().default('PJ'), // 'PJ' | 'PF'
+  name:          varchar('name', { length: 160 }).notNull(),
+  document:      varchar('document', { length: 20 }),
+  state_reg:     varchar('state_reg', { length: 20 }),
+  rntc:          varchar('rntc', { length: 20 }),
+  street:        varchar('street', { length: 255 }),
+  street_number: varchar('street_number', { length: 20 }),
+  complement:    varchar('complement', { length: 100 }),
+  neighborhood:  varchar('neighborhood', { length: 100 }),
+  city:          varchar('city', { length: 100 }),
+  state:         varchar('state', { length: 2 }),
+  zip_code:      varchar('zip_code', { length: 9 }),
+  phone:         varchar('phone', { length: 20 }),
+  email:         varchar('email', { length: 255 }),
+  is_active:     boolean('is_active').notNull().default(true),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── invoice_volumes (migration 0089) ────────────────────────────────────────
+// Grupo vol da NF-e — tabela isolada (nunca compartilhada com Remessa, mesmo
+// princípio de nfe_events/simples_remessa_events nunca se misturarem).
+export const invoiceVolumes = pgTable('invoice_volumes', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  invoice_id:   uuid('invoice_id').notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  quantidade:   integer('quantidade'),
+  especie:      varchar('especie', { length: 60 }),
+  marca:        varchar('marca', { length: 60 }),
+  numeracao:    varchar('numeracao', { length: 60 }),
+  peso_liquido: decimal('peso_liquido', { precision: 15, scale: 3 }),
+  peso_bruto:   decimal('peso_bruto',   { precision: 15, scale: 3 }),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── simples_remessas (migration 0055, regra 51) ────────────────────────────────
 // NF-e de Simples Remessa (conserto/demonstração/comodato/industrialização/
 // amostra grátis/devolução) — documento fiscal NÃO ONEROSO, distinto de venda
@@ -622,6 +704,9 @@ export const simplesRemessas = pgTable('simples_remessas', {
   created_by:        uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Transportadora (migration 0089) — mesmo racional de invoices.transportadora_id.
+  transportadora_id: uuid('transportadora_id'),
+  modalidade_frete:  smallint('modalidade_frete'),
 });
 
 export const simplesRemessaItems = pgTable('simples_remessa_items', {
@@ -643,6 +728,20 @@ export const simplesRemessaItems = pgTable('simples_remessa_items', {
   cbs_rate:   decimal('cbs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
   cbs_value:  decimal('cbs_value', { precision: 15, scale: 2 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── simples_remessa_volumes (migration 0089) ────────────────────────────────
+// Espelho de invoice_volumes, isolado por tipo de documento (regra 24).
+export const simplesRemessaVolumes = pgTable('simples_remessa_volumes', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  simples_remessa_id:  uuid('simples_remessa_id').notNull().references(() => simplesRemessas.id, { onDelete: 'cascade' }),
+  quantidade:   integer('quantidade'),
+  especie:      varchar('especie', { length: 60 }),
+  marca:        varchar('marca', { length: 60 }),
+  numeracao:    varchar('numeracao', { length: 60 }),
+  peso_liquido: decimal('peso_liquido', { precision: 15, scale: 3 }),
+  peso_bruto:   decimal('peso_bruto',   { precision: 15, scale: 3 }),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Append-only (mesmo padrão de nfeEvents/nfseEvents) — nunca UPDATE/DELETE.
@@ -687,6 +786,15 @@ export const receivables = pgTable('receivables', {
   // definição, já que service_orders é declarada mais adiante neste arquivo).
   // UNIQUE parcial (na migration) garante no máximo 1 receivable por OS.
   service_order_id: uuid('service_order_id'),
+  // Parcelamento por Plano de Pagamento (migration 0086, regra 75) — mesmo
+  // padrão de payables.installment_number/total/group_id (regra 47).
+  // installment_number NUNCA é NULL (default 1): o UNIQUE parcial em
+  // (invoice_id, installment_number) depende disso pra continuar garantindo
+  // "no máximo 1 recebível por nota" no caso sem plano (NULL não bloqueia
+  // duplicata em UNIQUE no Postgres).
+  installment_number:   smallint('installment_number').notNull().default(1),
+  installment_total:    smallint('installment_total').notNull().default(1),
+  installment_group_id: uuid('installment_group_id'),
 });
 
 // ── boletos ───────────────────────────────────────────────────────────────────
@@ -947,6 +1055,33 @@ export const contractFieldValues = pgTable('contract_field_values', {
   updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── service_visit_field_definitions / service_visit_field_values ───────────────
+// Mesmo desenho EAV de contractFieldDefinitions/contractFieldValues (migration
+// 0072) aplicado a service_visits — schema por tenant, preenchido pelo técnico
+// no portal dele, no momento da visita (migration 0088).
+export const serviceVisitFieldDefinitions = pgTable('service_visit_field_definitions', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  field_key:   varchar('field_key', { length: 60 }).notNull(),
+  label:       varchar('label', { length: 120 }).notNull(),
+  field_type:  varchar('field_type', { length: 20 }).notNull(),
+  required:    boolean('required').notNull().default(false),
+  sort_order:  smallint('sort_order').notNull().default(0),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const serviceVisitFieldValues = pgTable('service_visit_field_values', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  service_visit_id:    uuid('service_visit_id').notNull().references(() => serviceVisits.id, { onDelete: 'cascade' }),
+  field_definition_id: uuid('field_definition_id').notNull().references(() => serviceVisitFieldDefinitions.id, { onDelete: 'cascade' }),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  value:               text('value'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── notification_configs ──────────────────────────────────────────────────────
 export const notificationConfigs = pgTable('notification_configs', {
   tenant_id:              uuid('tenant_id').primaryKey().references(() => tenants.id, { onDelete: 'cascade' }),
@@ -1144,6 +1279,33 @@ export const salesOpportunityActivities = pgTable('sales_opportunity_activities'
   description:    text('description'),
   created_by:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Plano de Pagamento  (migration 0086, regra 75) — catálogo por tenant
+// ("À Vista", "3x sem juros", "30/60/90 dias corridos"), escolhido no pedido
+// de venda, herdado pela nota fiscal. Todo tenant nasce com "À Vista" (seed
+// na migration + em routes/auth.ts pra tenant novo).
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const paymentPlans = pgTable('payment_plans', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  name:        varchar('name', { length: 80 }).notNull(),
+  description: varchar('description', { length: 255 }),
+  is_active:   boolean('is_active').notNull().default(true),
+  is_default:  boolean('is_default').notNull().default(false),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const paymentPlanInstallments = pgTable('payment_plan_installments', {
+  id:                 uuid('id').primaryKey().defaultRandom(),
+  payment_plan_id:    uuid('payment_plan_id').notNull().references(() => paymentPlans.id, { onDelete: 'cascade' }),
+  installment_number: smallint('installment_number').notNull(),
+  days_offset:        smallint('days_offset').notNull(),
+  percentage:         decimal('percentage', { precision: 5, scale: 2 }).notNull(),
+  created_at:         timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1652,6 +1814,7 @@ export const serviceVisits = pgTable('service_visits', {
   service_order_id:  uuid('service_order_id').notNull().references(() => serviceOrders.id, { onDelete: 'cascade' }),
   technician_id:     uuid('technician_id').notNull().references(() => technicians.id, { onDelete: 'restrict' }),
   scheduled_at:      timestamp('scheduled_at', { withTimezone: true }).notNull(),
+  duration_minutes:  smallint('duration_minutes').notNull().default(60),
   status:            varchar('status', { length: 20 }).notNull().default('scheduled'),
   routing_token:     varchar('routing_token', { length: 64 }).notNull(),
   token_expires_at:  timestamp('token_expires_at', { withTimezone: true }).notNull(),
@@ -2700,7 +2863,7 @@ export const bankConnections = pgTable('bank_connections', {
   updated_at:     timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ── integrações por tenant (0087) ────────────────────────────────────────────
+// ── integrações por tenant (0091) ────────────────────────────────────────────
 // Credencial de integração vive aqui, não em ENV — ENV é só fallback de
 // plataforma. O catálogo de campos/serviços fica em services/integrations/
 // catalog.ts (forma em código, valor em banco).
@@ -2711,7 +2874,7 @@ export const integrationProviders = pgTable('integration_providers', {
   environment:  varchar('environment', { length: 20 }).notNull().default('sandbox'),
   enabled:      boolean('enabled').notNull().default(false),
   credentials:  jsonb('credentials').notNull().default({}),
-  // 0088 — NULL = todos os serviços do catálogo; [] = nenhum; [...] = os listados.
+  // 0092 — NULL = todos os serviços do catálogo; [] = nenhum; [...] = os listados.
   enabled_services: jsonb('enabled_services').$type<string[] | null>(),
   last_ping_at:      timestamp('last_ping_at', { withTimezone: true }),
   last_ping_ok:      boolean('last_ping_ok'),

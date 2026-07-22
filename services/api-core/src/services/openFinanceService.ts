@@ -33,7 +33,7 @@ export class OpenFinanceError extends Error {
 }
 
 /**
- * Credenciais Pluggy DO TENANT (0087) — resolvidas em cascata (config própria →
+ * Credenciais Pluggy DO TENANT (0091) — resolvidas em cascata (config própria →
  * fallback de plataforma). Ausentes ⇒ openfinance_disabled, que as rotas
  * traduzem em 503 e a UI mostra como "aguardando configuração", nunca erro.
  */
@@ -216,7 +216,7 @@ export async function syncConnection(
   }
 
   // Conciliação da empresa — o motivo de tudo isso existir.
-  // Gate de serviço (0088): desligada, o extrato ENTRA no ledger normalmente e
+  // Gate de serviço (0092): desligada, o extrato ENTRA no ledger normalmente e
   // só a baixa fica manual. Por isso a checagem é aqui e não no topo do sync.
   let reconciliation: SyncResult['reconciliation'] = null;
   if (inserted > 0 && await isServiceEnabled(tenantId, 'pluggy', 'conciliacao_automatica', db)) {
@@ -236,7 +236,7 @@ export async function syncConnection(
 
 /** Passo 0 do ciclo 23:59: sincroniza toda conexão ativa, erro isolado. */
 export async function syncAllActive(db: DrizzleDB = _db): Promise<{ synced: number; failed: number }> {
-  // 0087: sem guarda global de "Pluggy habilitada" — a credencial é por tenant.
+  // 0091: sem guarda global de "Pluggy habilitada" — a credencial é por tenant.
   // Tenant sem credencial faz syncConnection lançar openfinance_disabled, que o
   // catch abaixo já isola como falha daquela conexão, sem parar as demais.
   // Toggle por tenant: desligar o módulo fiscal para o sync noturno também —

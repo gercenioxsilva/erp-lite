@@ -132,6 +132,65 @@ export class FocusNfeClient {
     }
     throw new Error(`Timeout aguardando Focus NF-e após ${timeoutMs}ms — ref=${ref}`);
   }
+
+  /** DELETE /v2/nfe/{ref} — cancelamento junto à SEFAZ, mesmo contrato já
+   *  usado pra NFC-e (services/api-core/src/services/fiscal/focusNfe.ts::
+   *  cancelarNFCe). `justificativa` já validada (≥15 chars) pelo chamador. */
+  async cancelar(ref: string, justificativa: string): Promise<FocusResponse> {
+    if (this.simulate) {
+      if (this.simulateReject) {
+        return {
+          status: 'erro',
+          erros: [{ codigo: '573', mensagem: 'Rejeição simulada (homologação local): fora do prazo de cancelamento' }],
+        };
+      }
+      return {
+        status:           'cancelado',
+        numero_protocolo: '135' + onlyDigits(ref).padEnd(12, '0').slice(0, 12),
+      };
+    }
+
+    try {
+      const res = await this.http.delete(`/v2/nfe/${encodeURIComponent(ref)}`, { data: { justificativa } });
+      return res.data as FocusResponse;
+    } catch (err) {
+      const e = err as AxiosError<FocusResponse>;
+      if (e.response?.data) return e.response.data;
+      throw err;
+    }
+  }
+
+  /**
+   * POST /v2/nfe/{ref}/carta_correcao — Carta de Correção Eletrônica (CC-e).
+   *
+   * ⚠️ Endpoint e nome de campo (`correcao`) seguem a documentação pública do
+   * Focus NF-e v2 pelo meu conhecimento geral — sem nenhum precedente no
+   * restante deste código pra confirmar contra uma emissão real; validar no
+   * primeiro teste em homologação antes de qualquer uso em produção.
+   */
+  async cartaCorrecao(ref: string, correcao: string): Promise<FocusResponse> {
+    if (this.simulate) {
+      if (this.simulateReject) {
+        return {
+          status: 'erro',
+          erros: [{ codigo: '999', mensagem: 'Rejeição simulada (homologação local): CC-e' }],
+        };
+      }
+      return {
+        status:           'registrada',
+        numero_protocolo: '135' + onlyDigits(ref).padEnd(12, '0').slice(0, 12),
+      };
+    }
+
+    try {
+      const res = await this.http.post(`/v2/nfe/${encodeURIComponent(ref)}/carta_correcao`, { correcao });
+      return res.data as FocusResponse;
+    } catch (err) {
+      const e = err as AxiosError<FocusResponse>;
+      if (e.response?.data) return e.response.data;
+      throw err;
+    }
+  }
 }
 
 // ── Focus NF-e payload builder (formato flat — Focus NF-e v2) ────────────────
@@ -273,6 +332,47 @@ export function buildFocusPayload(msg: NfeEmitMessage): object {
     if (d.indicador_ie === 1 && d.inscricao_estadual) {
       payload.inscricao_estadual_destinatario = onlyDigits(d.inscricao_estadual);
     }
+  }
+
+  // Plano de Pagamento (regra 75) — só entra no payload quando a nota tem
+  // duplicatas (mensagem sem payment plan não ganha a chave, payload
+  // idêntico ao de sempre pra quem não usa a feature).
+  if (msg.duplicatas?.length) {
+    payload.duplicatas = msg.duplicatas.map(d => ({
+      numero: d.numero, data_vencimento: d.data_vencimento, valor: d.valor,
+    }));
+  }
+
+  // Observação digitada na tela de emissão — só entra no payload quando
+  // presente (nota sem observação não muda 1 byte do payload de sempre).
+  if (msg.informacoes_adicionais_contribuinte) {
+    payload.informacoes_adicionais_contribuinte = msg.informacoes_adicionais_contribuinte;
+  }
+
+  // Transportadora (regra em README) — só entra no payload quando a nota tem
+  // uma transportadora escolhida; sem isso, modalidade_frete continua fixo
+  // em 9 acima ("sem transporte"), payload idêntico ao de sempre pra quem
+  // não usa a feature.
+  if (msg.transportadora) {
+    const t = msg.transportadora;
+    payload.modalidade_frete = t.modalidade_frete;
+    payload.nome_transportadora = t.nome;
+    if (t.cnpj) payload.cnpj_transportadora = normalizeCNPJ(t.cnpj);
+    if (t.cpf)  payload.cpf_transportadora  = onlyDigits(t.cpf);
+    if (t.ie)         payload.inscricao_estadual_transportadora = t.ie;
+    if (t.endereco)   payload.endereco_transportadora  = t.endereco;
+    if (t.municipio)  payload.municipio_transportadora = t.municipio;
+    if (t.uf)         payload.uf_transportadora         = t.uf;
+  }
+  if (msg.volumes?.length) {
+    payload.volumes = msg.volumes.map(v => ({
+      quantidade_volumes: v.quantidade,
+      especie_volumes:    v.especie,
+      marca_volumes:      v.marca,
+      numeracao_volumes:  v.numeracao,
+      peso_liquido_volumes: v.peso_liquido,
+      peso_bruto_volumes:   v.peso_bruto,
+    }));
   }
 
   return payload;

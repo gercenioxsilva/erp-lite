@@ -1,4 +1,4 @@
-// Contrato de /v1/tenant/integrations/* (backend 0087).
+// Contrato de /v1/tenant/integrations/* (backend 0091).
 //
 // A API NUNCA devolve o valor de uma credencial — só `filled: boolean` e um
 // rabicho mascarado (`••••a1b2`). Por isso a tela nunca tem estado "valor
@@ -27,7 +27,7 @@ export interface PublicCredentialField {
   maskedHint: string | null;
 }
 
-/** Capacidade individual do provider, ligável em separado (backend 0088). */
+/** Capacidade individual do provider, ligável em separado (backend 0092). */
 export interface PublicProviderService {
   key: string;
   label: string;

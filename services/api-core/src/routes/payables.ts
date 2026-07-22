@@ -4,6 +4,7 @@ import { db, payables, payablePayments, suppliers, dreCategories } from '../db';
 import { requirePermission } from '../lib/requirePermission';
 import { postEntry, resolveRegime, reverseEntry } from '../services/accountingService';
 import { linesForPayablePayment, DRE_TO_ACCOUNT } from '../domain/accounting/accountingDomain';
+import { isValidISODate } from '../lib/dateValidation';
 
 const VALID_CATEGORIES = ['rent', 'utilities', 'payroll', 'supplies', 'services', 'taxes', 'other'] as const;
 const VALID_METHODS    = ['pix', 'bank_transfer', 'cash', 'credit_card', 'debit_card', 'boleto', 'check', 'other'] as const;
@@ -158,6 +159,16 @@ export const payablesRoutes: FastifyPluginAsync = async (fastify) => {
       .where(and(eq(payables.id, id), eq(payables.tenant_id, tenantId)));
     if (!existing) return reply.notFound('Conta a pagar não encontrada');
     if (existing.status === 'cancelled') return reply.badRequest('Não é possível editar uma conta cancelada');
+
+    // Alterar o vencimento (regra 82): nunca numa conta já quitada (mesmo
+    // racional de receivables — não faz sentido reagendar o que já foi
+    // pago), e sempre validando o formato (evita 500 do Postgres com uma
+    // string malformada numa coluna `date`). Payables não têm boleto/banco
+    // envolvido, então não há trava equivalente à de receivables.
+    if (body.due_date !== undefined) {
+      if (existing.status === 'paid') return reply.badRequest('Não é possível alterar o vencimento de uma conta já paga');
+      if (typeof body.due_date !== 'string' || !isValidISODate(body.due_date)) return reply.badRequest('due_date inválida (formato esperado: YYYY-MM-DD)');
+    }
 
     const patch: Record<string, unknown> = {};
     if (body.description          !== undefined) patch.description          = body.description;

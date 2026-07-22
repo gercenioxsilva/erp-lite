@@ -49,7 +49,7 @@ export class PgdasdDisabledError extends Error {
 }
 
 /**
- * Cliente SERPRO com a credencial DO TENANT (0087). Cada empresa contrata a
+ * Cliente SERPRO com a credencial DO TENANT (0091). Cada empresa contrata a
  * própria na loja SERPRO — por isso o envelope manda o CNPJ dela nos três
  * papéis (contratante = autorPedidoDados = contribuinte): é auto-declaração,
  * não declaração por terceiro, e não exige procuração e-CAC.
@@ -259,7 +259,7 @@ export async function transmitir(
   tenantId: string, apuracaoId: string, actorUserId: string | null,
   db: DrizzleDB = _db, transport?: ConstructorParameters<typeof SerproClient>[1],
 ): Promise<TransmissaoResult> {
-  // Gate de serviço (0088): transmitir é o ato IRREVERSÍVEL perante a Receita.
+  // Gate de serviço (0092): transmitir é o ato IRREVERSÍVEL perante a Receita.
   // O tenant pode manter a SERPRO ligada só para conferência e DAS — checar
   // ANTES de qualquer chamada, para não gastar chamada cobrada à toa.
   await assertServiceEnabled(tenantId, 'serpro', 'transmitir_pgdasd', db);

@@ -1,4 +1,4 @@
-// Ping de integração — "esta credencial funciona AGORA?" (0087).
+// Ping de integração — "esta credencial funciona AGORA?" (0091).
 //
 // Princípios:
 //  · BARATO: nenhum ping pode custar dinheiro nem sujar dado. Na SERPRO só

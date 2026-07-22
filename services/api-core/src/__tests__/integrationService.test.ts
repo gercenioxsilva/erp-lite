@@ -1,8 +1,8 @@
-// Regras puras das integrações (0087/0088) — as que, se quebrarem, quebram
+// Regras puras das integrações (0091/0092) — as que, se quebrarem, quebram
 // silenciosamente em produção:
 //   · mergeCredentials: "vazio mantém" é o que permite editar UMA chave sem
 //     reenviar as outras (a API nunca devolve o valor para reenviar).
-//   · serviceEnabledIn: NULL = TODOS. Errar isso desliga, no deploy da 0088,
+//   · serviceEnabledIn: NULL = TODOS. Errar isso desliga, no deploy da 0092,
 //     toda integração já configurada.
 //   · redact: nenhum segredo pode chegar em integration_logs.
 
@@ -41,7 +41,7 @@ describe('mergeCredentials', () => {
 });
 
 describe('serviceEnabledIn', () => {
-  it('NULL = todos habilitados (linhas anteriores à 0088 não podem desligar)', () => {
+  it('NULL = todos habilitados (linhas anteriores à 0092 não podem desligar)', () => {
     expect(serviceEnabledIn(null, 'transmitir_pgdasd')).toBe(true);
     expect(serviceEnabledIn(null, 'qualquer_coisa')).toBe(true);
   });

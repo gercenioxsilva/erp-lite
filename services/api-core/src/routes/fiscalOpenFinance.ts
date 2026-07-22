@@ -23,12 +23,12 @@ export const fiscalOpenFinanceRoutes: FastifyPluginAsync = async (fastify) => {
     if (err instanceof OpenFinanceError) {
       const status = err.code === 'openfinance_disabled' ? 503
         : err.code === 'connection_not_found' ? 404 : 422;
-      // Corpo padrão de integração ausente (0087) — ver routes/fiscalApuracao.ts.
+      // Corpo padrão de integração ausente (0091) — ver routes/fiscalApuracao.ts.
       const missing = err.code === 'openfinance_disabled'
         ? { reason: 'missing_credentials', provider: 'pluggy' } : {};
       return reply.code(status).send({ error: err.code, ...missing, ...err.payload });
     }
-    // Serviço desligado pelo tenant (0088) — 422: não falta credencial, falta
+    // Serviço desligado pelo tenant (0092) — 422: não falta credencial, falta
     // autorização de uso. Ver o mesmo tratamento em routes/fiscalApuracao.ts.
     if (err instanceof IntegrationServiceDisabledError) {
       return reply.code(422).send({

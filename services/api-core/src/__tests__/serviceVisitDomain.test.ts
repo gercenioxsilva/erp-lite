@@ -6,8 +6,16 @@ import {
   canUploadPhoto,
   canCaptureSignature,
   canComplete,
+  canRescheduleVisit,
+  canCancelVisit,
   isValidCPF,
   validateServiceVisitCreate,
+  visitTimeRange,
+  visitRangesOverlap,
+  visitConflictsWith,
+  findVisitConflict,
+  isBlockingVisitStatus,
+  DEFAULT_VISIT_DURATION_MINUTES,
   ServiceVisitDomainError,
 } from '../domain/serviceVisit/serviceVisitDomain';
 
@@ -71,6 +79,22 @@ describe('elegibilidade de ações', () => {
     expect(canComplete('in_progress', false)).toBe(false);
     expect(canComplete('scheduled', true)).toBe(false);
   });
+
+  it('canRescheduleVisit só quando scheduled — depois de check-in a visita já está acontecendo', () => {
+    expect(canRescheduleVisit('scheduled')).toBe(true);
+    expect(canRescheduleVisit('in_progress')).toBe(false);
+    expect(canRescheduleVisit('completed')).toBe(false);
+    expect(canRescheduleVisit('cancelled')).toBe(false);
+    expect(canRescheduleVisit('no_show')).toBe(false);
+  });
+
+  it('canCancelVisit em scheduled ou in_progress, nunca em estado terminal', () => {
+    expect(canCancelVisit('scheduled')).toBe(true);
+    expect(canCancelVisit('in_progress')).toBe(true);
+    expect(canCancelVisit('completed')).toBe(false);
+    expect(canCancelVisit('cancelled')).toBe(false);
+    expect(canCancelVisit('no_show')).toBe(false);
+  });
 });
 
 describe('isValidCPF', () => {
@@ -108,5 +132,86 @@ describe('validateServiceVisitCreate', () => {
     } catch (e) {
       expect(e).toMatchObject({ code: 'service_visit_scheduled_in_past' });
     }
+  });
+});
+
+describe('agenda do técnico — conflito de horário (regra 78)', () => {
+  it('DEFAULT_VISIT_DURATION_MINUTES é 60', () => {
+    expect(DEFAULT_VISIT_DURATION_MINUTES).toBe(60);
+  });
+
+  it('visitTimeRange soma a duração em minutos ao início', () => {
+    const range = visitTimeRange(new Date('2026-07-20T13:00:00Z'), 90);
+    expect(range.start.toISOString()).toBe('2026-07-20T13:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-07-20T14:30:00.000Z');
+  });
+
+  it('isBlockingVisitStatus só scheduled/in_progress seguram horário', () => {
+    expect(isBlockingVisitStatus('scheduled')).toBe(true);
+    expect(isBlockingVisitStatus('in_progress')).toBe(true);
+    expect(isBlockingVisitStatus('completed')).toBe(false);
+    expect(isBlockingVisitStatus('cancelled')).toBe(false);
+    expect(isBlockingVisitStatus('no_show')).toBe(false);
+  });
+
+  describe('visitRangesOverlap — intervalo meio-aberto [start, end)', () => {
+    it('sobreposição parcial conflita', () => {
+      const a = visitTimeRange(new Date('2026-07-20T09:00:00Z'), 60); // 09:00–10:00
+      const b = visitTimeRange(new Date('2026-07-20T09:30:00Z'), 60); // 09:30–10:30
+      expect(visitRangesOverlap(a, b)).toBe(true);
+    });
+
+    it('terminar às 10:00 não conflita com começar às 10:00 (meio-aberto)', () => {
+      const a = visitTimeRange(new Date('2026-07-20T09:00:00Z'), 60); // 09:00–10:00
+      const b = visitTimeRange(new Date('2026-07-20T10:00:00Z'), 60); // 10:00–11:00
+      expect(visitRangesOverlap(a, b)).toBe(false);
+    });
+
+    it('intervalos totalmente separados não conflitam', () => {
+      const a = visitTimeRange(new Date('2026-07-20T09:00:00Z'), 30);
+      const b = visitTimeRange(new Date('2026-07-20T14:00:00Z'), 30);
+      expect(visitRangesOverlap(a, b)).toBe(false);
+    });
+  });
+
+  describe('visitConflictsWith', () => {
+    const candidate = { technicianId: 'tech-1', range: visitTimeRange(new Date('2026-07-20T09:00:00Z'), 60) };
+
+    it('mesmo técnico + horário sobreposto + status scheduled conflita', () => {
+      const existing = {
+        technicianId: 'tech-1',
+        range: visitTimeRange(new Date('2026-07-20T09:30:00Z'), 30),
+        status: 'scheduled' as const,
+      };
+      expect(visitConflictsWith(candidate, existing)).toBe(true);
+    });
+
+    it('técnico diferente nunca conflita, mesmo com horário idêntico', () => {
+      const existing = {
+        technicianId: 'tech-2',
+        range: visitTimeRange(new Date('2026-07-20T09:00:00Z'), 60),
+        status: 'scheduled' as const,
+      };
+      expect(visitConflictsWith(candidate, existing)).toBe(false);
+    });
+
+    it('status terminal (cancelled/completed/no_show) libera o horário', () => {
+      for (const status of ['cancelled', 'completed', 'no_show'] as const) {
+        const existing = { technicianId: 'tech-1', range: candidate.range, status };
+        expect(visitConflictsWith(candidate, existing)).toBe(false);
+      }
+    });
+  });
+
+  describe('findVisitConflict', () => {
+    it('devolve a primeira visita conflitante, ou null se nenhuma', () => {
+      const candidate = { technicianId: 'tech-1', range: visitTimeRange(new Date('2026-07-20T09:00:00Z'), 60) };
+      const existing = [
+        { id: 'v1', technicianId: 'tech-1', range: visitTimeRange(new Date('2026-07-20T07:00:00Z'), 60), status: 'completed' as const },
+        { id: 'v2', technicianId: 'tech-1', range: visitTimeRange(new Date('2026-07-20T09:15:00Z'), 30), status: 'scheduled' as const },
+      ];
+      expect(findVisitConflict(candidate, existing)?.id).toBe('v2');
+      expect(findVisitConflict(candidate, [existing[0]])).toBeNull();
+    });
   });
 });
