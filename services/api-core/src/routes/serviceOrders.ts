@@ -10,6 +10,8 @@ import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../servi
 import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
 import { getPresignedReadUrl } from '../services/servicePhotoStorageService';
 import { billServiceOrder, ServiceOrderBillingDomainError } from '../services/serviceOrderBillingService';
+import { getFieldValuesForVisit } from '../services/serviceVisitFieldService';
+import { formatFieldValueForDisplay } from '../domain/customFields/customFieldDomain';
 
 export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
   const auth = { onRequest: [(fastify as any).authenticate], preHandler: [requireModule('service_orders')] };
@@ -109,7 +111,10 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Link de roteamento do técnico (regra 38) — exposto aqui para reenvio manual
     // (ex.: WhatsApp) pelo backoffice; o link em si nunca concede acesso sozinho.
-    const visitsWithLink = visits.map((v: any) => {
+    // custom_fields (migration 0088): respostas do formulário técnico dinâmico
+    // já coletadas em campo — visíveis aqui pro operador do tenant conferir o
+    // que o técnico preencheu, sem precisar abrir o portal dele.
+    const visitsWithLink = await Promise.all(visits.map(async (v: any) => {
       const { routing_token, token_expires_at, ...rest } = v;
       return {
         ...rest,
@@ -117,8 +122,9 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
         link_valid: routing_token
           ? isRoutingTokenValid(new Date(token_expires_at), v.status)
           : false,
+        custom_fields: await getFieldValuesForVisit(v.id, tenantId, db),
       };
-    });
+    }));
 
     return { ...so, items, visits: visitsWithLink };
   });
@@ -191,9 +197,17 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
         id: p.id, caption: p.caption, created_at: p.created_at,
         url: await getPresignedReadUrl(p.s3_key),
       })));
+      // custom_fields (migration 0088) — mesmo padrão de formatação de
+      // impressão já usado pra contrato (regra 71): formatted_value pronto
+      // pra exibição, nunca reformatado no frontend.
+      const customFields = await getFieldValuesForVisit(v.id, tenantId, db);
       return {
         ...rest, photos,
         signature_url: signature_s3_key ? await getPresignedReadUrl(signature_s3_key) : null,
+        custom_fields: customFields.map(f => ({
+          label: f.label, field_type: f.field_type,
+          value: f.value, formatted_value: formatFieldValueForDisplay(f.field_type, f.value),
+        })),
       };
     }));
 
@@ -296,8 +310,9 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     })));
 
     const signatureUrl = visit.signature_s3_key ? await getPresignedReadUrl(visit.signature_s3_key) : null;
+    const customFields = await getFieldValuesForVisit(visitId, tenantId, db);
 
-    return { ...visit, photos, signature_url: signatureUrl };
+    return { ...visit, photos, signature_url: signatureUrl, custom_fields: customFields };
   });
 
   // ── POST /v1/service-orders/:id/cancel ───────────────────────────────────

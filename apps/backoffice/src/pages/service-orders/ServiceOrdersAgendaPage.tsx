@@ -19,6 +19,7 @@ import { visitConflictMessage } from './ServiceOrdersPage';
 interface TechnicianOption { id: string; name: string; is_active: boolean; }
 interface OrderOption { id: string; number: string; title: string; status: string; }
 type VisitStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'no_show';
+interface VisitCustomFieldValue { field_definition_id: string; label: string; field_type: string; value: string | null; }
 interface AgendaVisit {
   id:                    string;
   service_order_id:      string;
@@ -68,6 +69,7 @@ export function ServiceOrdersAgendaPage() {
   const [loadError, setLoadError]     = useState('');
 
   const [detail, setDetail] = useState<AgendaVisit | null>(null);
+  const [detailCustomFields, setDetailCustomFields] = useState<VisitCustomFieldValue[]>([]);
 
   const [createOpen, setCreateOpen]         = useState(false);
   const [createOrders, setCreateOrders]     = useState<OrderOption[]>([]);
@@ -155,7 +157,15 @@ export function ServiceOrdersAgendaPage() {
 
   function handleBlockClick(id: string) {
     const v = visits.find(x => x.id === id);
-    if (v) setDetail(v);
+    if (!v) return;
+    setDetail(v);
+    // Respostas do formulário técnico dinâmico (migration 0088) não vêm na
+    // listagem leve da agenda (regra 78) — busca sob demanda só quando o
+    // detalhe é aberto, mesmo endpoint já usado por ServiceOrdersPage.tsx.
+    setDetailCustomFields([]);
+    api.get<{ custom_fields: VisitCustomFieldValue[] }>(`/v1/service-orders/${v.service_order_id}/visits/${id}`)
+      .then(r => setDetailCustomFields(r.custom_fields ?? []))
+      .catch(() => setDetailCustomFields([]));
   }
 
   function handleSlotClick(columnKey: string, time: string) {
@@ -291,6 +301,17 @@ export function ServiceOrdersAgendaPage() {
               <DetailRow label={t('soa.client')} value={detail.client_name ?? '—'} />
               <DetailRow label={t('so.technician')} value={detail.technician_name} />
               <DetailRow label={t('soa.when')} value={`${formatDateBR(localDateKey(detail.scheduled_at))} · ${localHm(detail.scheduled_at)}–${localHm(detail.ends_at)}`} />
+              {detailCustomFields.filter(f => f.value != null).length > 0 && (
+                <>
+                  <div style={{ marginTop: 14, marginBottom: 6, fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    {t('tp.customFieldsTitle')}
+                  </div>
+                  {detailCustomFields.filter(f => f.value != null).map(f => (
+                    <DetailRow key={f.field_definition_id} label={f.label}
+                      value={f.field_type === 'boolean' ? (f.value === 'true' ? t('c.yes') : t('c.no')) : f.value} />
+                  ))}
+                </>
+              )}
             </div>
             <div className="drawer-footer">
               <Link to={`/service-orders?edit=${detail.service_order_id}`} className="btn btn-primary" style={{ width: 'auto', textDecoration: 'none', textAlign: 'center' }}>

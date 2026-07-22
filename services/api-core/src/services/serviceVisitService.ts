@@ -26,6 +26,10 @@ import {
 } from '../domain/serviceVisit/serviceVisitDomain';
 import { canCompleteServiceOrder } from '../domain/serviceOrder/serviceOrderDomain';
 import { sendSystemNotification } from '../lib/notificationsClient';
+import {
+  listVisitFieldDefinitions, getFieldValuesForVisit, setFieldValuesForVisit,
+  type VisitFieldValueInput,
+} from './serviceVisitFieldService';
 
 export type DrizzleDB = typeof _db;
 export { ServiceVisitDomainError };
@@ -204,7 +208,16 @@ export async function getVisitForTechnician(visitId: string, technicianUserId: s
     ? (await db.select().from(clients).where(eq(clients.id, order.client_id)))[0]
     : null;
 
-  return { visit, order, client };
+  // Campos personalizados de visita (regra a documentar): o portal precisa
+  // da lista COMPLETA de definições ativas (pra renderizar o formulário,
+  // mesmo campo sem resposta ainda) cruzada com os valores já salvos (se o
+  // técnico está reabrindo a visita depois de já ter respondido algo).
+  const [fieldDefinitions, fieldValues] = await Promise.all([
+    listVisitFieldDefinitions(tenantId, db),
+    getFieldValuesForVisit(visitId, tenantId, db),
+  ]);
+
+  return { visit, order, client, fieldDefinitions, fieldValues };
 }
 
 export async function listVisitsForTechnician(technicianUserId: string, tenantId: string, db: DrizzleDB = _db) {
@@ -255,6 +268,7 @@ export interface CompleteVisitArgs {
   technicianUserId:  string;
   tenantId:          string;
   reportNotes?:      string | null;
+  customFields?:     VisitFieldValueInput[];
 }
 
 export async function completeVisit(args: CompleteVisitArgs, db: DrizzleDB = _db) {
@@ -264,6 +278,14 @@ export async function completeVisit(args: CompleteVisitArgs, db: DrizzleDB = _db
     throw new ServiceVisitDomainError('visit_cannot_complete', { status: visit.status });
   }
   assertServiceVisitTransition(visit.status as ServiceVisitStatus, 'completed');
+
+  // Campos personalizados são validados/salvos ANTES de tocar o status —
+  // um campo obrigatório sem resposta lança CustomFieldDomainError
+  // ('field_value_required') e a visita nunca chega a ficar "completed" sem
+  // as respostas exigidas pelo tenant.
+  if (args.customFields?.length) {
+    await setFieldValuesForVisit(args.visitId, args.tenantId, args.customFields, db);
+  }
 
   await db.update(serviceVisits).set({
     status:          'completed',

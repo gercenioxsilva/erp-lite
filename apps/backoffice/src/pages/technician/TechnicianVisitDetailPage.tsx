@@ -17,7 +17,17 @@ interface ClientInfo {
   street: string | null; street_number: string | null; complement: string | null;
   neighborhood: string | null; city: string | null; state: string | null; zip_code: string | null;
 }
-interface VisitResponse { visit: VisitDetail; order: OrderInfo | null; client: ClientInfo | null; }
+// Formulário técnico dinâmico (migration 0088) — schema definido pelo
+// admin do tenant em Minha Empresa → Campos da Visita Técnica; o técnico
+// preenche as respostas aqui, no momento da visita.
+interface VisitFieldDefinition {
+  id: string; label: string; field_type: 'text' | 'decimal' | 'integer' | 'date' | 'boolean'; required: boolean;
+}
+interface VisitFieldValue { field_definition_id: string; value: string | null; }
+interface VisitResponse {
+  visit: VisitDetail; order: OrderInfo | null; client: ClientInfo | null;
+  fieldDefinitions: VisitFieldDefinition[]; fieldValues: VisitFieldValue[];
+}
 
 // Monta o endereço completo pra exibição e pra query do link de mapa —
 // omite partes ausentes em vez de deixar buracos tipo "Rua X,  - Bairro".
@@ -41,6 +51,7 @@ export function TechnicianVisitDetailPage() {
   const [checkingIn, setCheckingIn] = useState(false);
   const [reportNotes, setReportNotes] = useState('');
   const [completing, setCompleting] = useState(false);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
@@ -59,6 +70,11 @@ export function TechnicianVisitDetailPage() {
       setData(r);
       setReportNotes(r.visit.report_notes || '');
       setSignatureConfirmed(!!r.visit.signature_s3_key);
+      // Pré-preenche com respostas já salvas — o técnico pode reabrir a
+      // visita (ex.: perdeu conexão) e não perde o que já respondeu.
+      const values: Record<string, string> = {};
+      for (const v of r.fieldValues) if (v.value != null) values[v.field_definition_id] = v.value;
+      setCustomFieldValues(values);
       setState('ready');
     } catch {
       setState('not_found');
@@ -143,9 +159,24 @@ export function TechnicianVisitDetailPage() {
   }
 
   async function handleComplete() {
+    // Validação client-side dos campos obrigatórios do formulário técnico —
+    // mesmo espírito do required nativo usado em ContractsPage.tsx, mas
+    // manual aqui porque este bloco não é um <form> (mistura fotos/
+    // assinatura/relatório, cada um com o próprio fluxo de salvamento).
+    // O backend valida de novo (nunca confia só no client), mas travar aqui
+    // evita o roundtrip e mostra o campo faltante em pt-BR.
+    const missing = (data?.fieldDefinitions ?? []).find(def => def.required && !customFieldValues[def.id]?.trim());
+    if (missing) { setError(`${missing.label}: ${t('tp.fieldRequired')}`); return; }
+
     setCompleting(true); setError('');
     try {
-      await api.post(`/v1/technician/visits/${id}/complete`, { report_notes: reportNotes || undefined });
+      await api.post(`/v1/technician/visits/${id}/complete`, {
+        report_notes: reportNotes || undefined,
+        custom_fields: (data?.fieldDefinitions ?? []).map(def => ({
+          field_definition_id: def.id,
+          value: customFieldValues[def.id]?.trim() || null,
+        })),
+      });
       await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : t('tp.complete'));
@@ -261,6 +292,33 @@ export function TechnicianVisitDetailPage() {
             )}
           </div>
 
+          {/* ── Formulário técnico dinâmico (migration 0088) ── */}
+          {data.fieldDefinitions.length > 0 && (
+            <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+              <strong style={{ display: 'block', marginBottom: 10 }}>{t('tp.customFieldsTitle')}</strong>
+              {data.fieldDefinitions.map(def => (
+                <div className="field" key={def.id}>
+                  <label>{def.label}{def.required ? ' *' : ''}</label>
+                  {def.field_type === 'boolean' ? (
+                    <select
+                      value={customFieldValues[def.id] ?? ''}
+                      onChange={e => setCustomFieldValues(v => ({ ...v, [def.id]: e.target.value }))}>
+                      <option value="">—</option>
+                      <option value="true">{t('c.yes')}</option>
+                      <option value="false">{t('c.no')}</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={def.field_type === 'date' ? 'date' : (def.field_type === 'decimal' || def.field_type === 'integer') ? 'number' : 'text'}
+                      step={def.field_type === 'decimal' ? '0.01' : undefined}
+                      value={customFieldValues[def.id] ?? ''}
+                      onChange={e => setCustomFieldValues(v => ({ ...v, [def.id]: e.target.value }))} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* ── Relatório + finalizar ── */}
           <div className="card" style={{ padding: 18, marginBottom: 16 }}>
             <div className="field">
@@ -279,6 +337,20 @@ export function TechnicianVisitDetailPage() {
           <div className="alert alert-success" style={{ marginBottom: 12 }}>{t('tp.visitCompleted')}</div>
           {visit.report_notes && <p style={{ fontSize: 14 }}>{visit.report_notes}</p>}
           {visit.signed_by_name && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Assinado por {visit.signed_by_name}</p>}
+          {data.fieldValues.length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              {data.fieldValues.map(fv => {
+                const def = data.fieldDefinitions.find(d => d.id === fv.field_definition_id);
+                if (!def || fv.value == null) return null;
+                const display = def.field_type === 'boolean' ? (fv.value === 'true' ? t('c.yes') : t('c.no')) : fv.value;
+                return (
+                  <div key={fv.field_definition_id} style={{ fontSize: 13, marginBottom: 4 }}>
+                    <strong>{def.label}:</strong> {display}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </TechnicianLayout>

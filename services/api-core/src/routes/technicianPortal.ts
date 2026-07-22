@@ -15,6 +15,7 @@ import {
   createPresignedSignatureUpload, confirmSignature,
   PhotoStorageError,
 } from '../services/servicePhotoStorageService';
+import { CustomFieldDomainError } from '../domain/customFields/customFieldDomain';
 import { db } from '../db';
 
 export const technicianPortalRoutes: FastifyPluginAsync = async (fastify) => {
@@ -30,6 +31,9 @@ export const technicianPortalRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(422).send({ error: err.code, ...err.payload });
     }
     if (err instanceof PhotoStorageError) return reply.code(422).send({ error: err.code });
+    // Campos personalizados do formulário técnico (migration 0088) — ex.:
+    // 'field_value_required' quando um campo obrigatório fica sem resposta.
+    if (err instanceof CustomFieldDomainError) return reply.code(422).send({ error: err.code, ...err.payload });
     throw err;
   }
 
@@ -61,12 +65,21 @@ export const technicianPortalRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /v1/technician/visits/:id/complete ──────────────────────────────
+  // custom_fields (migration 0088): respostas do formulário técnico
+  // dinâmico — validadas contra o schema do tenant dentro de completeVisit()
+  // ANTES do status virar 'completed' (campo obrigatório sem resposta
+  // bloqueia a conclusão, nunca uma visita "meio completa").
   fastify.post('/technician/visits/:id/complete', auth, async (request, reply) => {
     const tenantId = (request as any).user.tenantId;
     const { id }   = request.params as { id: string };
-    const { report_notes } = request.body as { report_notes?: string };
+    const { report_notes, custom_fields } = request.body as {
+      report_notes?: string; custom_fields?: { field_definition_id: string; value: string | null }[];
+    };
     try {
-      await completeVisit({ visitId: id, technicianUserId: currentTechnicianUserId(request), tenantId, reportNotes: report_notes }, db);
+      await completeVisit({
+        visitId: id, technicianUserId: currentTechnicianUserId(request), tenantId,
+        reportNotes: report_notes, customFields: custom_fields,
+      }, db);
       return { ok: true, status: 'completed' };
     } catch (err) { return handleVisitError(err, reply); }
   });

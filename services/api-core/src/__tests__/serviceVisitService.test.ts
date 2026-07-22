@@ -9,7 +9,7 @@ import { getTableName } from 'drizzle-orm';
 
 vi.mock('../lib/notificationsClient', () => ({ sendSystemNotification: vi.fn().mockResolvedValue(undefined) }));
 
-import { scheduleVisit } from '../services/serviceVisitService';
+import { scheduleVisit, completeVisit, getVisitForTechnician } from '../services/serviceVisitService';
 import { ServiceVisitDomainError } from '../domain/serviceVisit/serviceVisitDomain';
 
 const TENANT = 'tenant-1';
@@ -33,9 +33,11 @@ function makeDb(opts: MockOpts) {
   const calls: string[] = [];
   const selectQueue = [...(opts.selectQueue ?? [])];
 
+  const deletes: Array<{ table: string }> = [];
+
   const chainable = (provider: () => any, capture?: (method: string, args: any[]) => void) => {
     const obj: any = {};
-    for (const m of ['from', 'where', 'orderBy', 'limit', 'offset', 'leftJoin', 'set', 'values', 'returning']) {
+    for (const m of ['from', 'where', 'orderBy', 'limit', 'offset', 'leftJoin', 'innerJoin', 'set', 'values', 'returning']) {
       obj[m] = (...args: any[]) => { capture?.(m, args); return obj; };
     }
     obj.then = (res: any, rej: any) => Promise.resolve().then(provider).then(res, rej);
@@ -65,6 +67,12 @@ function makeDb(opts: MockOpts) {
         (m, args) => { if (m === 'set') updates.push({ table: name, set: args[0] }); },
       );
     }),
+    delete: vi.fn((table: any) => {
+      const name = getTableName(table);
+      calls.push(`delete:${name}`);
+      deletes.push({ table: name });
+      return chainable(() => undefined);
+    }),
     execute: vi.fn(async (query: any) => {
       const text = JSON.stringify(query?.queryChunks ?? query ?? '');
       if (/pg_advisory_xact_lock/.test(text)) { calls.push('execute:lock'); }
@@ -73,7 +81,7 @@ function makeDb(opts: MockOpts) {
     }),
   };
 
-  return { db, inserts, updates, calls };
+  return { db, inserts, updates, deletes, calls };
 }
 
 const ORDER_ROW = { id: ORDER, tenant_id: TENANT, status: 'draft', title: 'Reparo do ar-condicionado' };
@@ -139,5 +147,80 @@ describe('scheduleVisit — conflito atômico de horário (regra 78)', () => {
   it('technician_not_found_or_inactive quando o técnico não existe/está inativo', async () => {
     const { db } = makeDb({ selectQueue: [[ORDER_ROW], []] });
     await expect(scheduleVisit(args, db)).rejects.toMatchObject({ code: 'technician_not_found_or_inactive' });
+  });
+});
+
+// ── Campos personalizados de Visita Técnica (migration 0088) ────────────────
+
+const TECHNICIAN_USER_ROW = { id: TECH, tenant_id: TENANT, user_id: 'user-1', name: 'João Técnico', cpf: '11144477735' };
+const VISIT_IN_PROGRESS = {
+  id: 'visit-1', tenant_id: TENANT, technician_id: TECH, service_order_id: ORDER,
+  status: 'in_progress', checked_in_at: new Date(), scheduled_at: FUTURE, duration_minutes: 60,
+};
+const FIELD_DEF_REQUIRED = {
+  id: 'def-1', tenant_id: TENANT, field_key: 'tem_internet_no_local', label: 'Tem internet no local?',
+  field_type: 'boolean', required: true,
+};
+
+describe('completeVisit — campos personalizados de visita (migration 0088)', () => {
+  const args = { visitId: 'visit-1', technicianUserId: 'user-1', tenantId: TENANT };
+
+  it('completa normalmente sem customFields — comportamento anterior à feature preservado', async () => {
+    const { db, updates, calls } = makeDb({
+      selectQueue: [[TECHNICIAN_USER_ROW], [VISIT_IN_PROGRESS], [{ status: 'completed' }]],
+    });
+
+    await completeVisit(args, db);
+
+    expect(updates.some(u => u.table === 'service_visits' && u.set.status === 'completed')).toBe(true);
+    expect(calls.some(c => c.startsWith('delete:'))).toBe(false); // nunca toca campos personalizados sem customFields
+  });
+
+  it('valida e persiste os campos ANTES de marcar a visita como completed', async () => {
+    const { db, inserts, updates, calls } = makeDb({
+      selectQueue: [[TECHNICIAN_USER_ROW], [VISIT_IN_PROGRESS], [FIELD_DEF_REQUIRED], [{ status: 'completed' }]],
+    });
+
+    await completeVisit({ ...args, customFields: [{ field_definition_id: 'def-1', value: 'true' }] }, db);
+
+    expect(inserts.some(i => i.table === 'service_visit_field_values' && i.values[0]?.value === 'true')).toBe(true);
+    expect(updates.some(u => u.table === 'service_visits' && u.set.status === 'completed')).toBe(true);
+    const fieldWriteIdx = calls.indexOf('delete:service_visit_field_values');
+    const statusUpdateIdx = calls.indexOf('update:service_visits');
+    expect(fieldWriteIdx).toBeGreaterThanOrEqual(0);
+    expect(fieldWriteIdx).toBeLessThan(statusUpdateIdx);
+  });
+
+  it('campo obrigatório sem resposta bloqueia a conclusão — visita nunca fica "completed"', async () => {
+    const { db, updates } = makeDb({
+      selectQueue: [[TECHNICIAN_USER_ROW], [VISIT_IN_PROGRESS], [FIELD_DEF_REQUIRED]],
+    });
+
+    await expect(completeVisit({ ...args, customFields: [{ field_definition_id: 'def-1', value: '' }] }, db))
+      .rejects.toMatchObject({ code: 'field_value_required' });
+
+    expect(updates).toHaveLength(0); // status da visita nunca é tocado
+  });
+});
+
+describe('getVisitForTechnician — formulário técnico dinâmico (migration 0088)', () => {
+  it('devolve fieldDefinitions (schema ativo do tenant) e fieldValues (já respondidos nesta visita)', async () => {
+    const orderRow = { id: ORDER, tenant_id: TENANT, client_id: 'client-1', title: 'Reparo' };
+    const clientRow = { id: 'client-1', company_name: 'ACME' };
+    const fieldValueRow = {
+      field_definition_id: 'def-1', field_key: 'tem_internet_no_local', label: 'Tem internet no local?',
+      field_type: 'boolean', required: true, value: 'true',
+    };
+    const { db } = makeDb({
+      selectQueue: [
+        [TECHNICIAN_USER_ROW], [VISIT_IN_PROGRESS], [orderRow], [clientRow],
+        [FIELD_DEF_REQUIRED], [fieldValueRow],
+      ],
+    });
+
+    const result = await getVisitForTechnician('visit-1', 'user-1', TENANT, db);
+
+    expect(result.fieldDefinitions).toEqual([FIELD_DEF_REQUIRED]);
+    expect(result.fieldValues).toEqual([fieldValueRow]);
   });
 });
