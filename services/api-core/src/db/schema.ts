@@ -2244,6 +2244,14 @@ export const whatsappAutomations = pgTable('whatsapp_automations', {
   config:       jsonb('config').notNull().default({}),
   created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Visibilidade do disparo automático (migration 0093) — resultado da
+  // última tentativa REAL de envio (só quando enabled=true e passou da
+  // checagem de idempotência); null enquanto a automação nunca tentou
+  // disparar ainda. 'skipped' + last_skip_reason (código do
+  // WhatsAppDomainError) é o que faltava pra não ser mais silencioso.
+  last_attempt_at:     timestamp('last_attempt_at', { withTimezone: true }),
+  last_attempt_status: varchar('last_attempt_status', { length: 20 }),
+  last_skip_reason:    varchar('last_skip_reason', { length: 50 }),
 });
 
 // 1 linha por mensagem enviada. Referências pro documento de origem são

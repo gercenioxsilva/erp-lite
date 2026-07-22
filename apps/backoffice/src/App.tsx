@@ -96,7 +96,6 @@ import { PackageTemplatesPage }     from './pages/scheduling/PackageTemplatesPag
 import { SchedulingClientDetailPage } from './pages/scheduling/SchedulingClientDetailPage';
 import { SchedulingSettingsPage }   from './pages/scheduling/SchedulingSettingsPage';
 import { SchedulingOnboardingPage } from './pages/scheduling/SchedulingOnboardingPage';
-import { WhatsAppPage } from './pages/whatsapp/WhatsAppPage';
 import { PortalLayout }       from './pages/portal/PortalLayout';
 import { PortalLoginPage }    from './pages/portal/PortalLoginPage';
 import { PortalHomePage }     from './pages/portal/PortalHomePage';
@@ -199,7 +198,6 @@ function GuardedRoutes() {
         {/* TODO(follow-up RBAC): sales-pipeline é módulo novo de develop, sem chave
             no catálogo ainda — ver nota acima em simples-remessa. */}
         <Route path="/sales-pipeline"  element={<SalesPipelinePage />} />
-        <Route path="/whatsapp"  element={gate('whatsapp:view', <WhatsAppPage />)} />
         <Route path="/technicians"     element={gate('technicians:view', <TechniciansPage />)} />
         {/* RH Simplificado (módulo 'hr', mergeado de develop) — gated pelo
             catálogo RBAC; /access-profiles foi superseded pela tela /roles. */}

@@ -33,6 +33,7 @@ export async function listAutomations(tenantId: string, dbc: DrizzleDB = _db): P
   return TEMPLATE_KEYS.map(key => byKey.get(key) ?? {
     id: '', tenant_id: tenantId, template_key: key, enabled: false, config: {},
     created_at: now, updated_at: now,
+    last_attempt_at: null, last_attempt_status: null, last_skip_reason: null,
   } as WhatsAppAutomation);
 }
 
@@ -82,6 +83,21 @@ async function alreadyDispatched(
   return Boolean(existing);
 }
 
+/** Grava o resultado da última tentativa REAL de disparo (regra 83) — nunca
+ *  lança; uma falha aqui não pode derrubar o fluxo de negócio que originou
+ *  o disparo, mesmo racional do resto desta função. */
+async function recordDispatchAttempt(
+  tenantId: string, templateKey: TemplateKey, status: 'sent' | 'skipped', reason: string | null,
+): Promise<void> {
+  try {
+    await db.update(whatsappAutomations)
+      .set({ last_attempt_at: new Date(), last_attempt_status: status, last_skip_reason: reason })
+      .where(and(eq(whatsappAutomations.tenant_id, tenantId), eq(whatsappAutomations.template_key, templateKey)));
+  } catch (err) {
+    console.warn(JSON.stringify({ event: 'whatsapp_attempt_record_error', tenant_id: tenantId, template_key: templateKey, error: String(err) }));
+  }
+}
+
 async function dispatch(
   tenantId: string, templateKey: TemplateKey, clientId: string,
   variables: Record<string, string>,
@@ -90,17 +106,27 @@ async function dispatch(
   try {
     if (!(await isAutomationEnabled(tenantId, templateKey))) return;
     if (await alreadyDispatched(tenantId, templateKey, refs)) return;
-    await sendTemplateMessage({
-      tenantId, clientId, templateKey, variables,
-      receivableId: refs.receivableId ?? null,
-      invoiceId:    refs.invoiceId ?? null,
-      proposalId:   refs.proposalId ?? null,
-    });
+    try {
+      await sendTemplateMessage({
+        tenantId, clientId, templateKey, variables,
+        receivableId: refs.receivableId ?? null,
+        invoiceId:    refs.invoiceId ?? null,
+        proposalId:   refs.proposalId ?? null,
+      });
+      await recordDispatchAttempt(tenantId, templateKey, 'sent', null);
+    } catch (err) {
+      // Elegibilidade não atendida (conta não conectada, template não aprovado,
+      // cliente sem opt-in, telefone inválido) é esperado e comum — nunca deve
+      // subir como erro pro chamador (nfeResultsWorker, rota de pagamento etc.),
+      // mas agora fica visível na tela (regra 83), não só num log perdido.
+      const reason = err instanceof WhatsAppDomainError ? err.code : 'unknown_error';
+      console.warn(JSON.stringify({ event: 'whatsapp_automation_skip', tenant_id: tenantId, template_key: templateKey, error: String(err) }));
+      await recordDispatchAttempt(tenantId, templateKey, 'skipped', reason);
+    }
   } catch (err) {
-    // Elegibilidade não atendida (conta não conectada, template não aprovado,
-    // cliente sem opt-in, telefone inválido) é esperado e comum — nunca deve
-    // subir como erro pro chamador (nfeResultsWorker, rota de pagamento etc.).
-    console.warn(JSON.stringify({ event: 'whatsapp_automation_skip', tenant_id: tenantId, template_key: templateKey, error: String(err) }));
+    // Falha ao sequer checar elegibilidade (ex.: banco indisponível) — mesmo
+    // princípio de nunca subir pro chamador.
+    console.warn(JSON.stringify({ event: 'whatsapp_dispatch_error', tenant_id: tenantId, template_key: templateKey, error: String(err) }));
   }
 }
 
