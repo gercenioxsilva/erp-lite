@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n/pt-BR';
+import { useModal } from '../../contexts/ModalContext';
 import { Can, usePermissions } from '../../rbac';
 import { Drawer, TimeGrid } from '../../ds';
 import type { TimeGridColumn, TimeGridBlock } from '../../ds';
@@ -19,6 +20,7 @@ import { visitConflictMessage } from './ServiceOrdersPage';
 interface TechnicianOption { id: string; name: string; is_active: boolean; }
 interface OrderOption { id: string; number: string; title: string; status: string; }
 type VisitStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'no_show';
+interface VisitCustomFieldValue { field_definition_id: string; label: string; field_type: string; value: string | null; }
 interface AgendaVisit {
   id:                    string;
   service_order_id:      string;
@@ -55,6 +57,7 @@ const DURATIONS = ['30', '60', '90', '120', '180', '240'];
 
 export function ServiceOrdersAgendaPage() {
   const { t } = useI18n();
+  const modal = useModal();
   const { can } = usePermissions();
   const canAssign = can('service_orders:assign');
 
@@ -68,6 +71,14 @@ export function ServiceOrdersAgendaPage() {
   const [loadError, setLoadError]     = useState('');
 
   const [detail, setDetail] = useState<AgendaVisit | null>(null);
+  const [detailCustomFields, setDetailCustomFields] = useState<VisitCustomFieldValue[]>([]);
+
+  const [rescheduling, setRescheduling]         = useState(false);
+  const [rescheduleDate, setRescheduleDate]     = useState('');
+  const [rescheduleTime, setRescheduleTime]     = useState('');
+  const [rescheduleDuration, setRescheduleDuration] = useState('60');
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleError, setRescheduleError]   = useState('');
 
   const [createOpen, setCreateOpen]         = useState(false);
   const [createOrders, setCreateOrders]     = useState<OrderOption[]>([]);
@@ -155,7 +166,57 @@ export function ServiceOrdersAgendaPage() {
 
   function handleBlockClick(id: string) {
     const v = visits.find(x => x.id === id);
-    if (v) setDetail(v);
+    if (!v) return;
+    setDetail(v);
+    // Respostas do formulário técnico dinâmico (migration 0088) não vêm na
+    // listagem leve da agenda (regra 78) — busca sob demanda só quando o
+    // detalhe é aberto, mesmo endpoint já usado por ServiceOrdersPage.tsx.
+    setDetailCustomFields([]);
+    api.get<{ custom_fields: VisitCustomFieldValue[] }>(`/v1/service-orders/${v.service_order_id}/visits/${id}`)
+      .then(r => setDetailCustomFields(r.custom_fields ?? []))
+      .catch(() => setDetailCustomFields([]));
+  }
+
+  function startReschedule() {
+    if (!detail) return;
+    setRescheduleDate(localDateKey(detail.scheduled_at));
+    setRescheduleTime(localHm(detail.scheduled_at));
+    setRescheduleDuration(String(detail.duration_minutes));
+    setRescheduleError('');
+    setRescheduling(true);
+  }
+
+  async function submitReschedule() {
+    if (!detail) return;
+    if (!rescheduleDate || !rescheduleTime) { setRescheduleError(t('so.scheduledAt') + ' *'); return; }
+    setRescheduleSaving(true); setRescheduleError('');
+    try {
+      await api.patch(`/v1/service-orders/${detail.service_order_id}/visits/${detail.id}`, {
+        scheduled_at: new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString(),
+        duration_minutes: Number(rescheduleDuration),
+      });
+      setRescheduling(false);
+      setDetail(null);
+      void loadVisits();
+    } catch (err: unknown) {
+      const conflict = visitConflictMessage(err);
+      setRescheduleError(conflict ?? (err instanceof Error ? err.message : t('cl.errSave')));
+    } finally { setRescheduleSaving(false); }
+  }
+
+  async function handleCancelVisit(v: AgendaVisit) {
+    const ok = await modal.confirm({
+      title:        t('soa.cancelVisit'),
+      message:      t('soa.cancelVisitConfirm'),
+      confirmLabel: t('soa.cancelVisit'),
+      danger:       true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/v1/service-orders/${v.service_order_id}/visits/${v.id}/cancel`, {});
+      setDetail(null);
+      void loadVisits();
+    } catch (err: unknown) { modal.error(err); }
   }
 
   function handleSlotClick(columnKey: string, time: string) {
@@ -279,9 +340,9 @@ export function ServiceOrdersAgendaPage() {
       </div>
 
       {/* ── Drawer de detalhe da visita ────────────────────────────────── */}
-      <Drawer open={detail !== null} onClose={() => setDetail(null)} title={t('soa.detailTitle')}
-        subTitle={detail ? `${localHm(detail.scheduled_at)}–${localHm(detail.ends_at)}` : undefined}>
-        {detail && (
+      <Drawer open={detail !== null} onClose={() => { setDetail(null); setRescheduling(false); }} title={t('soa.detailTitle')}
+        subTitle={detail && !rescheduling ? `${localHm(detail.scheduled_at)}–${localHm(detail.ends_at)}` : undefined}>
+        {detail && !rescheduling && (
           <>
             <div className="drawer-body">
               <div style={{ marginBottom: 14 }}>
@@ -291,11 +352,65 @@ export function ServiceOrdersAgendaPage() {
               <DetailRow label={t('soa.client')} value={detail.client_name ?? '—'} />
               <DetailRow label={t('so.technician')} value={detail.technician_name} />
               <DetailRow label={t('soa.when')} value={`${formatDateBR(localDateKey(detail.scheduled_at))} · ${localHm(detail.scheduled_at)}–${localHm(detail.ends_at)}`} />
+              {detailCustomFields.filter(f => f.value != null).length > 0 && (
+                <>
+                  <div style={{ marginTop: 14, marginBottom: 6, fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    {t('tp.customFieldsTitle')}
+                  </div>
+                  {detailCustomFields.filter(f => f.value != null).map(f => (
+                    <DetailRow key={f.field_definition_id} label={f.label}
+                      value={f.field_type === 'boolean' ? (f.value === 'true' ? t('c.yes') : t('c.no')) : f.value} />
+                  ))}
+                </>
+              )}
             </div>
-            <div className="drawer-footer">
-              <Link to={`/service-orders?edit=${detail.service_order_id}`} className="btn btn-primary" style={{ width: 'auto', textDecoration: 'none', textAlign: 'center' }}>
+            <div className="drawer-footer" style={{ flexWrap: 'wrap' }}>
+              <Link to={`/service-orders?edit=${detail.service_order_id}`} className="btn btn-secondary" style={{ width: 'auto', textDecoration: 'none', textAlign: 'center' }}>
                 {t('soa.viewServiceOrder')}
               </Link>
+              {canAssign && detail.status === 'scheduled' && (
+                <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={startReschedule}>
+                  {t('soa.reschedule')}
+                </button>
+              )}
+              {canAssign && (detail.status === 'scheduled' || detail.status === 'in_progress') && (
+                <button type="button" className="btn btn-danger" style={{ width: 'auto' }} onClick={() => void handleCancelVisit(detail)}>
+                  {t('soa.cancelVisit')}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── Sub-view de reagendamento (mesma visita, mesmo drawer) ──── */}
+        {detail && rescheduling && (
+          <>
+            <div className="drawer-body">
+              {rescheduleError && <div className="alert alert-error" role="alert">{rescheduleError}</div>}
+              <div className="field-row">
+                <div className="field">
+                  <label>{t('soa.date')}</label>
+                  <input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t('soa.time')}</label>
+                  <input type="time" value={rescheduleTime} onChange={e => setRescheduleTime(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t('so.duration')}</label>
+                  <select value={rescheduleDuration} onChange={e => setRescheduleDuration(e.target.value)}>
+                    {DURATIONS.map(d => <option key={d} value={d}>{d} {t('so.durationMinutesSuffix')}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="drawer-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setRescheduling(false)} disabled={rescheduleSaving}>
+                {t('c.cancel')}
+              </button>
+              <button type="button" className="btn btn-primary" style={{ width: 'auto' }} disabled={rescheduleSaving} onClick={() => void submitReschedule()}>
+                {rescheduleSaving ? t('c.saving') : t('soa.reschedule')}
+              </button>
             </div>
           </>
         )}

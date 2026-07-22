@@ -28,11 +28,13 @@ interface ServiceOrder {
   total: number; created_at: string; client_name: string | null;
 }
 interface ServiceOrderItemRow { id: string; material_id: string | null; description: string; quantity: number; unit_price: number; total: number; }
+interface VisitCustomFieldValue { field_definition_id: string; field_key: string; label: string; field_type: string; required: boolean; value: string | null; }
 interface VisitRow {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   technician_name: string | null; technician_current_name: string | null; report_notes: string | null;
   signed_by_name: string | null; signed_at: string | null;
   visit_link: string | null; link_valid: boolean;
+  custom_fields: VisitCustomFieldValue[];
 }
 interface VisitPhoto { id: string; caption: string | null; created_at: string; url: string; }
 interface VisitDetail extends VisitRow { photos: VisitPhoto[]; signature_url: string | null; }
@@ -458,6 +460,18 @@ export function ServiceOrdersPage() {
                         <div style={{ color: 'var(--muted)' }}>{fmtDateTime(v.scheduled_at)}</div>
                         {v.signed_by_name && <div style={{ color: 'var(--muted)', marginTop: 4 }}>Assinado por {v.signed_by_name}</div>}
                         {v.report_notes && <div style={{ marginTop: 6 }}>{v.report_notes}</div>}
+
+                        {/* Respostas do formulário técnico dinâmico (migration 0088) —
+                            o que o técnico coletou em campo, visível pro operador do tenant. */}
+                        {v.custom_fields?.filter(f => f.value != null).length > 0 && (
+                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                            {v.custom_fields.filter(f => f.value != null).map(f => (
+                              <div key={f.field_definition_id} style={{ fontSize: 12 }}>
+                                <strong>{f.label}:</strong> {f.field_type === 'boolean' ? (f.value === 'true' ? t('c.yes') : t('c.no')) : f.value}
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {v.checked_in_at && (
                           <div style={{ marginTop: 8 }}>

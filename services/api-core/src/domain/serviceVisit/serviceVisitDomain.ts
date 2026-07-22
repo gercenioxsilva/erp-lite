@@ -60,6 +60,19 @@ export function canComplete(status: ServiceVisitStatus, hasCheckedIn: boolean): 
   return status === 'in_progress' && hasCheckedIn;
 }
 
+/** Reagendar (mudar data/hora/duração) só faz sentido antes do técnico
+ *  chegar — depois de check-in a visita já está acontecendo de verdade. */
+export function canRescheduleVisit(status: ServiceVisitStatus): boolean {
+  return status === 'scheduled';
+}
+
+/** Mesma elegibilidade da transição pra 'cancelled' em VALID_TRANSITIONS
+ *  (scheduled/in_progress) — função dedicada só pra dar uma mensagem de
+ *  domínio própria (`visit_cannot_cancel`) em vez do genérico de transição. */
+export function canCancelVisit(status: ServiceVisitStatus): boolean {
+  return status === 'scheduled' || status === 'in_progress';
+}
+
 // ── CPF ───────────────────────────────────────────────────────────────────────
 // Mesmo algoritmo de apps/backoffice/src/lib/brazil.ts (isValidCPF) — replicado
 // aqui porque backend e frontend são projetos TypeScript separados sem lib

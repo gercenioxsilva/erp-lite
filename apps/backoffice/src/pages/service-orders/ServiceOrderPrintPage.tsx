@@ -6,10 +6,12 @@ import { useI18n }  from '../../i18n';
 import type { TKey } from '../../i18n/pt-BR';
 
 interface VisitPhoto { id: string; caption: string | null; created_at: string; url: string; }
+interface PrintCustomField { label: string; field_type: string; value: string | null; formatted_value: string; }
 interface PrintVisit {
   id: string; status: string; scheduled_at: string; checked_in_at: string | null; checked_out_at: string | null;
   report_notes: string | null; signed_by_name: string | null; signed_at: string | null;
   technician_name: string | null; photos: VisitPhoto[]; signature_url: string | null;
+  custom_fields: PrintCustomField[];
 }
 interface PrintServiceOrder {
   id: string; number: string; title: string; description: string | null; type: string; status: string; created_at: string;
@@ -139,6 +141,17 @@ export function ServiceOrderPrintPage() {
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 2 }}>{t('tp.reportNotes')}</div>
               <p style={{ fontSize: 14, margin: 0, whiteSpace: 'pre-wrap' }}>{v.report_notes}</p>
+            </div>
+          )}
+
+          {v.custom_fields?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{t('tp.customFieldsTitle')}</div>
+              {v.custom_fields.map((f, i) => (
+                <div key={i} style={{ fontSize: 13, marginBottom: 2 }}>
+                  <strong>{f.label}:</strong> {f.formatted_value}
+                </div>
+              ))}
             </div>
           )}
 

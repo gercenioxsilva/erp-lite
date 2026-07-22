@@ -39,6 +39,13 @@ const CATALOG_SPEC: Record<string, { label: string; actions: Record<string, stri
   service_orders:   { label: 'Ordens de Serviço',    actions: { view: 'Ver OS', create: 'Criar OS', edit: 'Editar OS', delete: 'Excluir OS', assign: 'Atribuir técnico/visita' } },
   projects:         { label: 'Projetos',              actions: { view: 'Ver projetos', create: 'Criar projeto', edit: 'Editar/gerenciar projeto (profissionais, vínculos, status)', delete: 'Excluir projeto' } },
   technicians:      { label: 'Técnicos',             actions: { view: 'Ver técnicos', create: 'Criar técnico', edit: 'Editar técnico', delete: 'Excluir técnico' } },
+  // Campos personalizados de Visita Técnica — recurso próprio (não reaproveita
+  // service_orders:edit) porque precisa ficar restrito a administradores do
+  // tenant (owner + admin, via ALL_PERMISSION_KEYS em roleMatrix.ts), nunca a
+  // quem só despacha visitas no dia a dia (manager/user têm service_orders:edit
+  // mas não ganham este). Preencher os VALORES continua sob service_orders:assign
+  // (backoffice) / portal:access (técnico) — só a CONFIGURAÇÃO do schema é admin-only.
+  service_visit_fields: { label: 'Campos Personalizados de Visita', actions: { view: 'Ver campos personalizados de visita', manage: 'Criar/editar/remover campos personalizados de visita' } },
   reports:          { label: 'Relatórios',           actions: { view: 'Ver relatórios', export: 'Exportar relatórios' } },
   billing:          { label: 'Assinatura/Cobrança',  actions: { view: 'Ver cobrança', manage: 'Gerenciar assinatura/plano' } },
   tenant_modules:   { label: 'Módulos',              actions: { view: 'Ver módulos', manage: 'Habilitar/desabilitar módulos' } },

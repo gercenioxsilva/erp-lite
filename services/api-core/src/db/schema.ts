@@ -966,6 +966,33 @@ export const contractFieldValues = pgTable('contract_field_values', {
   updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── service_visit_field_definitions / service_visit_field_values ───────────────
+// Mesmo desenho EAV de contractFieldDefinitions/contractFieldValues (migration
+// 0072) aplicado a service_visits — schema por tenant, preenchido pelo técnico
+// no portal dele, no momento da visita (migration 0088).
+export const serviceVisitFieldDefinitions = pgTable('service_visit_field_definitions', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  tenant_id:   uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  field_key:   varchar('field_key', { length: 60 }).notNull(),
+  label:       varchar('label', { length: 120 }).notNull(),
+  field_type:  varchar('field_type', { length: 20 }).notNull(),
+  required:    boolean('required').notNull().default(false),
+  sort_order:  smallint('sort_order').notNull().default(0),
+  is_active:   boolean('is_active').notNull().default(true),
+  created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:  timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const serviceVisitFieldValues = pgTable('service_visit_field_values', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  service_visit_id:    uuid('service_visit_id').notNull().references(() => serviceVisits.id, { onDelete: 'cascade' }),
+  field_definition_id: uuid('field_definition_id').notNull().references(() => serviceVisitFieldDefinitions.id, { onDelete: 'cascade' }),
+  tenant_id:           uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  value:               text('value'),
+  created_at:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── notification_configs ──────────────────────────────────────────────────────
 export const notificationConfigs = pgTable('notification_configs', {
   tenant_id:              uuid('tenant_id').primaryKey().references(() => tenants.id, { onDelete: 'cascade' }),

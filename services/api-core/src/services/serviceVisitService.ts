@@ -15,6 +15,8 @@ import {
   assertServiceVisitTransition,
   canCheckIn,
   canComplete,
+  canRescheduleVisit,
+  canCancelVisit,
   isRoutingTokenValid,
   validateServiceVisitCreate,
   visitTimeRange,
@@ -26,6 +28,10 @@ import {
 } from '../domain/serviceVisit/serviceVisitDomain';
 import { canCompleteServiceOrder } from '../domain/serviceOrder/serviceOrderDomain';
 import { sendSystemNotification } from '../lib/notificationsClient';
+import {
+  listVisitFieldDefinitions, getFieldValuesForVisit, setFieldValuesForVisit,
+  type VisitFieldValueInput,
+} from './serviceVisitFieldService';
 
 export type DrizzleDB = typeof _db;
 export { ServiceVisitDomainError };
@@ -182,6 +188,80 @@ export async function scheduleVisit(args: ScheduleVisitArgs, db: DrizzleDB = _db
   return visit;
 }
 
+export interface RescheduleVisitArgs {
+  visitId:          string;
+  tenantId:         string;
+  scheduledAt:      Date;
+  durationMinutes?: number;
+}
+
+/**
+ * Reagenda uma visita já criada (data/hora/duração) — lado do backoffice,
+ * mesma checagem atômica de conflito de scheduleVisit() (advisory lock +
+ * findVisitConflict), excluindo a PRÓPRIA visita da lista de bloqueadores
+ * (senão ela sempre "conflitaria consigo mesma"). Só elegível em
+ * status='scheduled' (canRescheduleVisit) — depois do check-in a visita já
+ * está acontecendo de verdade, mudar data/hora não faz sentido.
+ */
+export async function rescheduleVisit(args: RescheduleVisitArgs, db: DrizzleDB = _db) {
+  validateServiceVisitCreate({ scheduledAt: args.scheduledAt });
+
+  const [visit] = await db.select().from(serviceVisits)
+    .where(and(eq(serviceVisits.id, args.visitId), eq(serviceVisits.tenant_id, args.tenantId)));
+  if (!visit) throw new ServiceVisitDomainError('visit_not_found');
+  if (!canRescheduleVisit(visit.status as ServiceVisitStatus)) {
+    throw new ServiceVisitDomainError('visit_cannot_reschedule', { status: visit.status });
+  }
+
+  const [technician] = await db.select().from(technicians).where(eq(technicians.id, visit.technician_id));
+
+  const durationMinutes = args.durationMinutes ?? visit.duration_minutes;
+  const candidateRange = visitTimeRange(args.scheduledAt, durationMinutes);
+
+  return db.transaction(async (tx) => {
+    const txDb = tx as unknown as DrizzleDB;
+    await lockTechnicianAgenda(txDb, visit.technician_id);
+
+    const blockers = (await loadTechnicianBlockers(txDb, args.tenantId, visit.technician_id))
+      .filter(b => b.id !== args.visitId);
+    const hit = findVisitConflict({ technicianId: visit.technician_id, range: candidateRange }, blockers);
+    if (hit) throwVisitConflict(hit, technician?.name ?? '');
+
+    const [v] = await txDb.update(serviceVisits).set({
+      scheduled_at:      args.scheduledAt,
+      duration_minutes:  durationMinutes,
+      updated_at:         new Date(),
+    }).where(eq(serviceVisits.id, args.visitId)).returning();
+    return v;
+  });
+}
+
+export interface CancelVisitArgs {
+  visitId:  string;
+  tenantId: string;
+}
+
+/**
+ * Cancela uma visita — lado do backoffice. Libera o horário do técnico na
+ * agenda (status='cancelled' sai de BLOCKING_VISIT_STATUSES, regra 78).
+ * Nunca mexe no status da OS: uma OS pode ter outras visitas ainda ativas,
+ * mesma filosofia de scheduleVisit() só tocar a OS na transição
+ * draft→scheduled, nunca sincronizar o status inteiro por completo.
+ */
+export async function cancelVisit(args: CancelVisitArgs, db: DrizzleDB = _db) {
+  const [visit] = await db.select().from(serviceVisits)
+    .where(and(eq(serviceVisits.id, args.visitId), eq(serviceVisits.tenant_id, args.tenantId)));
+  if (!visit) throw new ServiceVisitDomainError('visit_not_found');
+
+  if (!canCancelVisit(visit.status as ServiceVisitStatus)) {
+    throw new ServiceVisitDomainError('visit_cannot_cancel', { status: visit.status });
+  }
+  assertServiceVisitTransition(visit.status as ServiceVisitStatus, 'cancelled');
+
+  await db.update(serviceVisits).set({ status: 'cancelled', updated_at: new Date() })
+    .where(eq(serviceVisits.id, args.visitId));
+}
+
 // ── Autorização — técnico logado só enxerga as próprias visitas ─────────────
 
 async function assertTechnicianOwnsVisit(visitId: string, technicianUserId: string, tenantId: string, db: DrizzleDB) {
@@ -204,7 +284,16 @@ export async function getVisitForTechnician(visitId: string, technicianUserId: s
     ? (await db.select().from(clients).where(eq(clients.id, order.client_id)))[0]
     : null;
 
-  return { visit, order, client };
+  // Campos personalizados de visita (regra a documentar): o portal precisa
+  // da lista COMPLETA de definições ativas (pra renderizar o formulário,
+  // mesmo campo sem resposta ainda) cruzada com os valores já salvos (se o
+  // técnico está reabrindo a visita depois de já ter respondido algo).
+  const [fieldDefinitions, fieldValues] = await Promise.all([
+    listVisitFieldDefinitions(tenantId, db),
+    getFieldValuesForVisit(visitId, tenantId, db),
+  ]);
+
+  return { visit, order, client, fieldDefinitions, fieldValues };
 }
 
 export async function listVisitsForTechnician(technicianUserId: string, tenantId: string, db: DrizzleDB = _db) {
@@ -255,6 +344,7 @@ export interface CompleteVisitArgs {
   technicianUserId:  string;
   tenantId:          string;
   reportNotes?:      string | null;
+  customFields?:     VisitFieldValueInput[];
 }
 
 export async function completeVisit(args: CompleteVisitArgs, db: DrizzleDB = _db) {
@@ -264,6 +354,14 @@ export async function completeVisit(args: CompleteVisitArgs, db: DrizzleDB = _db
     throw new ServiceVisitDomainError('visit_cannot_complete', { status: visit.status });
   }
   assertServiceVisitTransition(visit.status as ServiceVisitStatus, 'completed');
+
+  // Campos personalizados são validados/salvos ANTES de tocar o status —
+  // um campo obrigatório sem resposta lança CustomFieldDomainError
+  // ('field_value_required') e a visita nunca chega a ficar "completed" sem
+  // as respostas exigidas pelo tenant.
+  if (args.customFields?.length) {
+    await setFieldValuesForVisit(args.visitId, args.tenantId, args.customFields, db);
+  }
 
   await db.update(serviceVisits).set({
     status:          'completed',

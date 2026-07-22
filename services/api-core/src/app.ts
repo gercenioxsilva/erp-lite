@@ -66,6 +66,7 @@ import { posRoutes }           from './routes/pos';
 import { tenantModulesRoutes }     from './routes/tenantModules';
 import { techniciansRoutes }       from './routes/technicians';
 import { serviceOrdersRoutes }     from './routes/serviceOrders';
+import { serviceVisitFieldsRoutes } from './routes/serviceVisitFields';
 import { projectsRoutes }          from './routes/projects';
 import { technicianPortalRoutes }  from './routes/technicianPortal';
 import { rbacRoutes }            from './routes/rbac';
@@ -193,6 +194,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tenantModulesRoutes,      { prefix: '/v1' });
   await app.register(techniciansRoutes,        { prefix: '/v1' });
   await app.register(serviceOrdersRoutes,      { prefix: '/v1' });
+  await app.register(serviceVisitFieldsRoutes, { prefix: '/v1' });
   await app.register(projectsRoutes,           { prefix: '/v1' });
   await app.register(technicianPortalRoutes,   { prefix: '/v1' });
   await app.register(rbacRoutes,               { prefix: '/v1' });
