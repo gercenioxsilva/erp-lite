@@ -29,12 +29,6 @@ export function LeadCaptureKeysCard() {
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Sem a permissão o backend recusaria de qualquer forma (403) — esconder o
-  // card é só UX; a autoridade é sempre o requirePermission da rota.
-  if (!can('lead_capture:manage')) return null;
-  // Módulo 'lead_capture' desabilitado na aba Módulos → card some (padrão ML/Engine).
-  if (!loading && !moduleEnabled) return null;
-
   async function load() {
     setLoading(true); setError('');
     try {
@@ -48,6 +42,20 @@ export function LeadCaptureKeysCard() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
+
+  // ── Gates DEPOIS de todos os hooks (React #300) ─────────────────────────
+  // Estes dois `return null` já estiveram ACIMA do useEffect, e serviam tela
+  // branca em /company: no 1º render `loading` é true, a 2ª condição é falsa e
+  // o useEffect roda (9 hooks); quando load() descobre o módulo desligado e faz
+  // setLoading(false), o 2º render sai aqui e o useEffect nunca é alcançado
+  // (8 hooks) → "Rendered fewer hooks than expected" derruba a árvore inteira.
+  // Regra: nenhum return condicional antes do último hook.
+
+  // Sem a permissão o backend recusaria de qualquer forma (403) — esconder o
+  // card é só UX; a autoridade é sempre o requirePermission da rota.
+  if (!can('lead_capture:manage')) return null;
+  // Módulo 'lead_capture' desabilitado na aba Módulos → card some (padrão ML/Engine).
+  if (!loading && !moduleEnabled) return null;
 
   async function handleCreate() {
     if (!newName.trim()) { setError('Dê um nome à chave (ex.: "Landing Page — Captação")'); return; }
