@@ -1,7 +1,7 @@
 import type { SQSHandler } from 'aws-lambda';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
-import { processRecord, processNfseRecord, processRemessaRecord } from './services/nfeService';
+import { processRecord, processNfseRecord, processRemessaRecord, processCancelRecord, processCceRecord } from './services/nfeService';
 import { processAbrasfRecord } from './services/abrasfTransport';
 import { processCompanyRegistrationRecord } from './services/companyRegistrationService';
 
@@ -29,6 +29,10 @@ export const handler: SQSHandler = async (event) => {
         await processNfseRecord(app, record);
       } else if (body.type === 'remessa') {
         await processRemessaRecord(app, record);
+      } else if (body.type === 'nfe_cancel') {
+        await processCancelRecord(app, record);
+      } else if (body.type === 'cce') {
+        await processCceRecord(app, record);
       } else if (body.type === 'company_registration') {
         await processCompanyRegistrationRecord(app, record);
       } else {

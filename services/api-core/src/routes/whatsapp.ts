@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import {
-  getWhatsAppAccount, upsertWhatsAppAccount, disconnectWhatsAppAccount, WhatsAppDomainError,
+  getWhatsAppAccount, upsertWhatsAppAccount, disconnectWhatsAppAccount, testWhatsAppConnection, WhatsAppDomainError,
 } from '../services/whatsappAccountService';
 import { listTemplates, upsertTemplateRegistration } from '../services/whatsappTemplateService';
 import { listAutomations, upsertAutomation } from '../services/whatsappAutomationService';
@@ -54,6 +54,20 @@ export const whatsappRoutes: FastifyPluginAsync = async (fastify) => {
         } : undefined,
       });
       return maskAccount(account);
+    } catch (err) {
+      return handleDomainError(err, reply);
+    }
+  });
+
+  /* ── POST /v1/whatsapp/account/test ──────────────────────────────────── */
+  // Teste SÍNCRONO de conexão — confirma que account_sid/auth_token
+  // realmente autenticam no Twilio, sem enviar mensagem (nunca lança erro
+  // HTTP pra falha de conectividade, mesmo padrão de
+  // POST /companies/:id/fiscal-integration/test).
+  fastify.post('/whatsapp/account/test', { ...auth, preHandler: [...auth.preHandler, requirePermission('whatsapp:view')] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    try {
+      return await testWhatsAppConnection(tenantId);
     } catch (err) {
       return handleDomainError(err, reply);
     }

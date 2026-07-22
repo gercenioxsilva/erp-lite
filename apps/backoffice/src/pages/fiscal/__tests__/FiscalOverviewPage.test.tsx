@@ -4,9 +4,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { FiscalOverviewPage } from '../FiscalOverviewPage';
 
-const { mockGet, mockNavigate } = vi.hoisted(() => ({ mockGet: vi.fn(), mockNavigate: vi.fn() }));
+const { mockGet, mockNavigate, MockApiError } = vi.hoisted(() => {
+  class MockApiError extends Error {
+    status: number;
+    body?: Record<string, unknown>;
+    constructor(message: string, status: number, body?: Record<string, unknown>) {
+      super(message);
+      this.status = status;
+      this.body = body;
+    }
+  }
+  return { mockGet: vi.fn(), mockNavigate: vi.fn(), MockApiError };
+});
 
-vi.mock('../../../lib/api', () => ({ api: { get: mockGet } }));
+vi.mock('../../../lib/api', () => ({ api: { get: mockGet }, ApiError: MockApiError }));
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -103,5 +114,16 @@ describe('FiscalOverviewPage', () => {
 
     const cards = await screen.findAllByTestId('fiscal-overview-card');
     expect(cards).toHaveLength(2);
+  });
+
+  it('mostra aviso de módulo desligado (nunca o erro genérico) quando o backend devolve 403 ModuleNotEnabled', async () => {
+    mockGet.mockRejectedValue(new MockApiError('Módulo "fiscal" não está habilitado para este tenant.', 403, { error: 'ModuleNotEnabled' }));
+    render(<MemoryRouter><FiscalOverviewPage /></MemoryRouter>);
+
+    expect(await screen.findByText('O módulo Gestão Fiscal está desabilitado para este tenant.')).toBeInTheDocument();
+    expect(screen.queryByText('Não foi possível carregar o painel fiscal.')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Ir para Minha Empresa → Módulos' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/company');
   });
 });

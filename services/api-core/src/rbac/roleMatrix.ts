@@ -37,6 +37,7 @@ const keysOfActions = (modules: string[], actions: string[]): string[] =>
 const OPERATIONAL = [
   'clients', 'materials', 'stock', 'suppliers', 'orders', 'invoices', 'nfse',
   'contracts', 'proposals', 'receivables', 'payables', 'cost_centers', 'sellers',
+  'transportadoras',
   'purchase_orders', 'supplier_invoices', 'pos', 'service_orders', 'technicians',
   'scheduling', 'scheduling_areas', 'scheduling_professionals', 'scheduling_packages',
 ];
