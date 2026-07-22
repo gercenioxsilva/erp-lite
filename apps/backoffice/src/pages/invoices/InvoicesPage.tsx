@@ -45,6 +45,10 @@ interface NfeEvent {
   payload: Record<string, unknown>;
   created_at: string;
 }
+interface CceItem {
+  id: string; sequencia: number; correction_text: string; status: string;
+  protocol: string | null; reject_reason: string | null; created_at: string;
+}
 interface ClientOption   { id: string; company_name: string | null; full_name: string | null; }
 
 interface ListResp { data: Invoice[]; total: number; page: number; per_page: number; }
@@ -102,6 +106,19 @@ export function InvoicesPage() {
   const [nfeLoading,    setNfeLoading]  = useState(false);
   const [nfeEmitting,   setNfeEmitting] = useState(false);
   const [nfeError,      setNfeError]    = useState('');
+
+  /* Cancelamento junto à SEFAZ (regra 0089) — só quando nfe_status='authorized' */
+  const [showCancelForm,      setShowCancelForm]      = useState(false);
+  const [cancelJustificativa, setCancelJustificativa] = useState('');
+  const [cancelSaving,        setCancelSaving]        = useState(false);
+  const [cancelError,         setCancelError]         = useState('');
+
+  /* Carta de Correção Eletrônica (regra 0089) */
+  const [cceList,     setCceList]     = useState<CceItem[]>([]);
+  const [showCceForm, setShowCceForm] = useState(false);
+  const [cceText,     setCceText]     = useState('');
+  const [cceSaving,   setCceSaving]   = useState(false);
+  const [cceError,    setCceError]    = useState('');
 
   const perPage = 20;
 
@@ -179,6 +196,13 @@ export function InvoicesPage() {
     }, 3000);
   }
 
+  async function loadCceList(invoiceId: string) {
+    try {
+      const r = await api.get<{ data: CceItem[] }>(`/v1/invoices/${invoiceId}/cce`);
+      setCceList(r.data);
+    } catch { setCceList([]); }
+  }
+
   function openNfePanel(inv: Invoice) {
     stopNfePoll();
     setNfePanelInv(inv);
@@ -186,11 +210,17 @@ export function InvoicesPage() {
     setNfeDetail(null);
     setNfeEvents([]);
     setNfeError('');
+    setCceList([]);
+    setShowCancelForm(false); setCancelJustificativa(''); setCancelError('');
+    setShowCceForm(false); setCceText(''); setCceError('');
     setNfeLoading(true);
     loadNfeData(inv.id)
       .then(detail => {
         if (detail.nfe_status === 'pending' || detail.nfe_status === 'processing') {
           startNfePoll(inv.id);
+        }
+        if (detail.nfe_status === 'authorized') {
+          void loadCceList(inv.id);
         }
       })
       .catch(() => {})
@@ -204,6 +234,37 @@ export function InvoicesPage() {
     setNfeDetail(null);
     setNfeEvents([]);
     setNfeError('');
+    setCceList([]);
+    setShowCancelForm(false); setCancelJustificativa(''); setCancelError('');
+    setShowCceForm(false); setCceText(''); setCceError('');
+  }
+
+  /* ── Cancelamento junto à SEFAZ (regra 0089) ─────────────────────────── */
+  async function submitCancelSefaz() {
+    if (!nfePanelInv) return;
+    if (cancelJustificativa.trim().length < 15) { setCancelError(t('nfe.cancelJustificativaTooShort')); return; }
+    setCancelSaving(true); setCancelError('');
+    try {
+      await api.post(`/v1/invoices/${nfePanelInv.id}/cancel`, { justificativa: cancelJustificativa.trim() });
+      closeNfePanel();
+      void load();
+    } catch (err: unknown) {
+      setCancelError(err instanceof Error ? err.message : t('nfe.cancelSefazErr'));
+    } finally { setCancelSaving(false); }
+  }
+
+  /* ── Carta de Correção Eletrônica (regra 0089) ───────────────────────── */
+  async function submitCce() {
+    if (!nfePanelInv) return;
+    if (cceText.trim().length < 15) { setCceError(t('nfe.cceTextTooShort')); return; }
+    setCceSaving(true); setCceError('');
+    try {
+      await api.post(`/v1/invoices/${nfePanelInv.id}/cce`, { correction_text: cceText.trim() });
+      setCceText(''); setShowCceForm(false);
+      await loadCceList(nfePanelInv.id);
+    } catch (err: unknown) {
+      setCceError(err instanceof Error ? err.message : t('nfe.cceErr'));
+    } finally { setCceSaving(false); }
   }
 
   async function emitNfe(invoiceId: string) {
@@ -228,13 +289,21 @@ export function InvoicesPage() {
   }
 
   /* ── Cancel ── */
-  async function handleCancel(id: string) {
+  // Nota autorizada exige justificativa (SEFAZ) — abre o painel de NF-e com
+  // o formulário pronto em vez do confirm genérico (que não tem campo de
+  // texto). Nota nunca autorizada continua no fluxo simples de sempre.
+  async function handleCancel(inv: Invoice) {
+    if (inv.nfe_status === 'authorized') {
+      openNfePanel(inv);
+      setShowCancelForm(true);
+      return;
+    }
     const ok = await modal.confirm({
       title: t('inv.cancel'), message: t('inv.cancelMsg'),
       confirmLabel: t('inv.cancel'), danger: true,
     });
     if (!ok) return;
-    try { await api.post(`/v1/invoices/${id}/cancel`, {}); void load(); }
+    try { await api.post(`/v1/invoices/${inv.id}/cancel`, {}); void load(); }
     catch (err: unknown) { modal.error(err); }
   }
 
@@ -388,7 +457,7 @@ export function InvoicesPage() {
                       </button>
                       {inv.status !== 'cancelled' && (
                         <Can permission="invoices:cancel">
-                          <button className="btn btn-danger btn-sm" onClick={() => handleCancel(inv.id)}>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleCancel(inv)}>
                             {t('inv.cancel')}
                           </button>
                         </Can>
@@ -489,6 +558,92 @@ export function InvoicesPage() {
                             className="btn btn-secondary btn-sm" style={{ width: 'auto', display: 'inline-flex' }}>
                             {t('nfe.danfe')}
                           </a>
+                        )}
+                        <div className="flex-gap" style={{ marginTop: 4 }}>
+                          <Can permission="invoices:cancel">
+                            <button className="btn btn-danger btn-sm" style={{ width: 'auto' }}
+                              onClick={() => setShowCancelForm(v => !v)}>
+                              {t('nfe.cancelSefaz')}
+                            </button>
+                          </Can>
+                          <Can permission="invoices:correct">
+                            <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                              onClick={() => setShowCceForm(v => !v)}>
+                              {t('nfe.cceNew')}
+                            </button>
+                          </Can>
+                        </div>
+
+                        {showCancelForm && (
+                          <div className="card" style={{ padding: 12, background: '#fff5f5', border: '1px solid #fecaca' }}>
+                            {cancelError && <div role="alert" className="alert alert-error" style={{ marginBottom: 10 }}>{cancelError}</div>}
+                            <div className="field">
+                              <label>{t('nfe.cancelJustificativa')} *</label>
+                              <textarea rows={3} value={cancelJustificativa}
+                                onChange={e => setCancelJustificativa(e.target.value)}
+                                placeholder={t('nfe.cancelJustificativaPH')} />
+                            </div>
+                            <div className="flex-gap">
+                              <button className="btn btn-danger btn-sm" style={{ width: 'auto' }}
+                                disabled={cancelSaving} onClick={() => void submitCancelSefaz()}>
+                                {cancelSaving ? t('c.saving') : t('nfe.cancelSefazConfirm')}
+                              </button>
+                              <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                onClick={() => setShowCancelForm(false)}>
+                                {t('c.cancel')}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {(showCceForm || cceList.length > 0) && (
+                          <div className="card" style={{ padding: 12 }}>
+                            {cceList.length > 0 && (
+                              <table style={{ marginBottom: showCceForm ? 12 : 0 }}>
+                                <thead>
+                                  <tr>
+                                    <th>{t('nfe.cceSeq')}</th>
+                                    <th>{t('nfe.cceStatus')}</th>
+                                    <th>{t('nfe.cceText')}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {cceList.map(c => (
+                                    <tr key={c.id}>
+                                      <td>{c.sequencia}</td>
+                                      <td>
+                                        <span className={`badge ${c.status === 'registered' ? 'badge-active' : c.status === 'rejected' ? 'badge-inactive' : 'badge-service'}`}>
+                                          {t(`nfe.cceStatus.${c.status}` as TKey)}
+                                        </span>
+                                      </td>
+                                      <td style={{ fontSize: 12, maxWidth: 260 }}>{c.correction_text}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                            {showCceForm && (
+                              <>
+                                {cceError && <div role="alert" className="alert alert-error" style={{ marginBottom: 10 }}>{cceError}</div>}
+                                <div className="field">
+                                  <label>{t('nfe.cceTextLabel')} *</label>
+                                  <textarea rows={3} value={cceText}
+                                    onChange={e => setCceText(e.target.value)}
+                                    placeholder={t('nfe.cceTextPH')} />
+                                </div>
+                                <div className="flex-gap">
+                                  <button className="btn btn-primary btn-sm" style={{ width: 'auto' }}
+                                    disabled={cceSaving} onClick={() => void submitCce()}>
+                                    {cceSaving ? t('c.saving') : t('nfe.cceSubmit')}
+                                  </button>
+                                  <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }}
+                                    onClick={() => setShowCceForm(false)}>
+                                    {t('c.cancel')}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
