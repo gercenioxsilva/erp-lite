@@ -374,6 +374,18 @@ export const invoices = pgTable('invoices', {
   // verdade lida por routes/nfe.ts e nfeResultsWorker.ts pra gerar as
   // parcelas de receivables e o quadro de duplicatas da NF-e.
   payment_plan_id: uuid('payment_plan_id'),
+  // Cancelamento junto à SEFAZ (migration 0089) — nfe_status ganha os
+  // valores 'cancel_pending'/'cancelled'/'cancel_rejected', estendendo a
+  // mesma máquina de estados de sempre (draft→queued→processing→authorized).
+  nfe_cancel_protocol:      varchar('nfe_cancel_protocol', { length: 50 }),
+  nfe_cancel_date:          timestamp('nfe_cancel_date', { withTimezone: true }),
+  nfe_cancel_reason:        text('nfe_cancel_reason'),
+  nfe_cancel_reject_reason: text('nfe_cancel_reject_reason'),
+  // Transportadora (migration 0089) — nullable, ON DELETE SET NULL, mesmo
+  // padrão de payment_plan_id/seller_id/cost_center_id. modalidade_frete é
+  // escolha por nota (enum SEFAZ 0-9), nunca herdada do cadastro.
+  transportadora_id: uuid('transportadora_id'),
+  modalidade_frete:  smallint('modalidade_frete'),
 });
 
 // ── invoice_items ─────────────────────────────────────────────────────────────
@@ -592,6 +604,66 @@ export const nfeEvents = pgTable('nfe_events', {
   created_at:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── nfe_correction_letters (migration 0089) ─────────────────────────────────
+// Carta de Correção Eletrônica (CC-e) — documento fiscal de primeira classe
+// com ciclo de vida e PDF próprios, por isso tabela dedicada (não uma linha
+// em nfe_events, que é log genérico de auditoria). sequencia é por nota,
+// incremental, nunca reaproveitado mesmo se uma CC-e for rejeitada.
+export const nfeCorrectionLetters = pgTable('nfe_correction_letters', {
+  id:              uuid('id').primaryKey().defaultRandom(),
+  invoice_id:      uuid('invoice_id').notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  tenant_id:       uuid('tenant_id').notNull(),
+  sequencia:       smallint('sequencia').notNull(),
+  correction_text: varchar('correction_text', { length: 1000 }).notNull(),
+  status:          varchar('status', { length: 20 }).notNull().default('pending'), // pending | registered | rejected
+  protocol:        varchar('protocol', { length: 50 }),
+  reject_reason:   text('reject_reason'),
+  pdf_s3_key:      varchar('pdf_s3_key', { length: 500 }),
+  created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:      timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── transportadoras (migration 0089) ────────────────────────────────────────
+// Catálogo core por tenant (sem gate de módulo, mesmo precedente de
+// payment_plans/regra 75). PJ (CNPJ) ou PF/autônomo (CPF) — mesma dualidade
+// de clients.person_type.
+export const transportadoras = pgTable('transportadoras', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  tenant_id:     uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  person_type:   varchar('person_type', { length: 2 }).notNull().default('PJ'), // 'PJ' | 'PF'
+  name:          varchar('name', { length: 160 }).notNull(),
+  document:      varchar('document', { length: 20 }),
+  state_reg:     varchar('state_reg', { length: 20 }),
+  rntc:          varchar('rntc', { length: 20 }),
+  street:        varchar('street', { length: 255 }),
+  street_number: varchar('street_number', { length: 20 }),
+  complement:    varchar('complement', { length: 100 }),
+  neighborhood:  varchar('neighborhood', { length: 100 }),
+  city:          varchar('city', { length: 100 }),
+  state:         varchar('state', { length: 2 }),
+  zip_code:      varchar('zip_code', { length: 9 }),
+  phone:         varchar('phone', { length: 20 }),
+  email:         varchar('email', { length: 255 }),
+  is_active:     boolean('is_active').notNull().default(true),
+  created_at:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── invoice_volumes (migration 0089) ────────────────────────────────────────
+// Grupo vol da NF-e — tabela isolada (nunca compartilhada com Remessa, mesmo
+// princípio de nfe_events/simples_remessa_events nunca se misturarem).
+export const invoiceVolumes = pgTable('invoice_volumes', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  invoice_id:   uuid('invoice_id').notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  quantidade:   integer('quantidade'),
+  especie:      varchar('especie', { length: 60 }),
+  marca:        varchar('marca', { length: 60 }),
+  numeracao:    varchar('numeracao', { length: 60 }),
+  peso_liquido: decimal('peso_liquido', { precision: 15, scale: 3 }),
+  peso_bruto:   decimal('peso_bruto',   { precision: 15, scale: 3 }),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── simples_remessas (migration 0055, regra 51) ────────────────────────────────
 // NF-e de Simples Remessa (conserto/demonstração/comodato/industrialização/
 // amostra grátis/devolução) — documento fiscal NÃO ONEROSO, distinto de venda
@@ -632,6 +704,9 @@ export const simplesRemessas = pgTable('simples_remessas', {
   created_by:        uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   created_at:        timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Transportadora (migration 0089) — mesmo racional de invoices.transportadora_id.
+  transportadora_id: uuid('transportadora_id'),
+  modalidade_frete:  smallint('modalidade_frete'),
 });
 
 export const simplesRemessaItems = pgTable('simples_remessa_items', {
@@ -653,6 +728,20 @@ export const simplesRemessaItems = pgTable('simples_remessa_items', {
   cbs_rate:   decimal('cbs_rate',  { precision: 6,  scale: 3 }).notNull().default('0'),
   cbs_value:  decimal('cbs_value', { precision: 15, scale: 2 }).notNull().default('0'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── simples_remessa_volumes (migration 0089) ────────────────────────────────
+// Espelho de invoice_volumes, isolado por tipo de documento (regra 24).
+export const simplesRemessaVolumes = pgTable('simples_remessa_volumes', {
+  id:                  uuid('id').primaryKey().defaultRandom(),
+  simples_remessa_id:  uuid('simples_remessa_id').notNull().references(() => simplesRemessas.id, { onDelete: 'cascade' }),
+  quantidade:   integer('quantidade'),
+  especie:      varchar('especie', { length: 60 }),
+  marca:        varchar('marca', { length: 60 }),
+  numeracao:    varchar('numeracao', { length: 60 }),
+  peso_liquido: decimal('peso_liquido', { precision: 15, scale: 3 }),
+  peso_bruto:   decimal('peso_bruto',   { precision: 15, scale: 3 }),
+  created_at:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Append-only (mesmo padrão de nfeEvents/nfseEvents) — nunca UPDATE/DELETE.

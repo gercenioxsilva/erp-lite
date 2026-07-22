@@ -8,6 +8,7 @@ import type { FocusResponse, FocusNfseResponse } from '../lib/focusNfe';
 import type {
   NfeEmitMessage, NfeResultMessage, NfseEmitMessage, NfseResultMessage,
   RemessaEmitMessage, RemessaResultMessage,
+  NfeCancelEmitMessage, NfeCancelResultMessage, CceEmitMessage, CceResultMessage,
 } from '../lib/types';
 
 /** Constrói um motivo de rejeição legível a partir da resposta do Focus.
@@ -100,6 +101,79 @@ export async function processRecord(app: FastifyInstance, record: SQSRecord): Pr
 
     resultMsg = { invoice_id, tenant_id, nfe_status: 'rejected', nfe_reject_reason: reason };
     app.log.warn({ event: 'nfe_rejected', invoice_id, reason });
+  }
+
+  await app.sqs.send(new SendMessageCommand({
+    QueueUrl:    app.config.nfeResultsQueueUrl,
+    MessageBody: JSON.stringify(resultMsg),
+  }));
+}
+
+/**
+ * Cancelamento de NF-e junto à SEFAZ (migration 0089) — o cancelamento local
+ * (invoices.status, reversão de estoque/comissão) já aconteceu de forma
+ * síncrona em api-core antes desta mensagem existir; aqui só formalizamos o
+ * lado fiscal via DELETE /v2/nfe/{ref}.
+ */
+export async function processCancelRecord(app: FastifyInstance, record: SQSRecord): Promise<void> {
+  const msg: NfeCancelEmitMessage = JSON.parse(record.body);
+  const { invoice_id, tenant_id, focus_ref, ambiente, justificativa } = msg;
+
+  app.log.info({ event: 'nfe_cancel_start', invoice_id, tenant_id, focus_ref });
+
+  const token = msg.focus_token || app.config.focusToken;
+  if (!token) throw new Error(`No Focus NF-e token for tenant ${tenant_id} — set FOCUS_NFE_TOKEN or configure per-tenant token`);
+
+  const focus  = new FocusNfeClient(token, ambiente);
+  const result = await focus.cancelar(focus_ref, justificativa);
+
+  let resultMsg: NfeCancelResultMessage;
+  if (result.status === 'cancelado') {
+    resultMsg = {
+      type: 'nfe_cancel', invoice_id, tenant_id, cancel_status: 'cancelled',
+      cancel_protocol: result.numero_protocolo ?? result.protocolo,
+    };
+    app.log.info({ event: 'nfe_cancel_authorized', invoice_id, cancel_protocol: resultMsg.cancel_protocol });
+  } else {
+    const reason = describeRejection(result);
+    resultMsg = { type: 'nfe_cancel', invoice_id, tenant_id, cancel_status: 'rejected', cancel_reject_reason: reason };
+    app.log.warn({ event: 'nfe_cancel_rejected', invoice_id, reason });
+  }
+
+  await app.sqs.send(new SendMessageCommand({
+    QueueUrl:    app.config.nfeResultsQueueUrl,
+    MessageBody: JSON.stringify(resultMsg),
+  }));
+}
+
+/**
+ * Carta de Correção Eletrônica (migration 0089) — POST /v2/nfe/{ref}/
+ * carta_correcao. Texto/sequência já validados pelo domínio em api-core
+ * antes de enfileirar; aqui só transmitimos.
+ */
+export async function processCceRecord(app: FastifyInstance, record: SQSRecord): Promise<void> {
+  const msg: CceEmitMessage = JSON.parse(record.body);
+  const { invoice_id, tenant_id, focus_ref, ambiente, sequencia, correction_text } = msg;
+
+  app.log.info({ event: 'cce_start', invoice_id, tenant_id, focus_ref, sequencia });
+
+  const token = msg.focus_token || app.config.focusToken;
+  if (!token) throw new Error(`No Focus NF-e token for tenant ${tenant_id} — set FOCUS_NFE_TOKEN or configure per-tenant token`);
+
+  const focus  = new FocusNfeClient(token, ambiente);
+  const result = await focus.cartaCorrecao(focus_ref, correction_text);
+
+  let resultMsg: CceResultMessage;
+  if (!result.erros?.length && result.status !== 'erro') {
+    resultMsg = {
+      type: 'cce', invoice_id, tenant_id, sequencia, cce_status: 'registered',
+      cce_protocol: result.numero_protocolo ?? result.protocolo,
+    };
+    app.log.info({ event: 'cce_registered', invoice_id, sequencia, cce_protocol: resultMsg.cce_protocol });
+  } else {
+    const reason = describeRejection(result);
+    resultMsg = { type: 'cce', invoice_id, tenant_id, sequencia, cce_status: 'rejected', cce_reject_reason: reason };
+    app.log.warn({ event: 'cce_rejected', invoice_id, sequencia, reason });
   }
 
   await app.sqs.send(new SendMessageCommand({
