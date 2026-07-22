@@ -149,4 +149,39 @@ describe('WhatsAppSettingsCard — consolidação em Minha Empresa > Integraçõ
     await user.click(screen.getByText(t('wa.manual.toggle')));
     expect(screen.getByText(t('wa.manual.step1Title'))).toBeInTheDocument();
   });
+
+  // O provedor (Twilio) já mandava o motivo real da falha via webhook de
+  // status (ErrorMessage → whatsapp_messages.status_reason) — a API sempre
+  // devolveu esse campo, mas a aba Mensagens só mostrava o badge genérico
+  // "Falhou", sem dizer o porquê. Achado ao investigar um caso real em
+  // produção (nota fiscal com status Falhou e nenhuma pista na tela).
+  it('mostra o motivo real da falha (status_reason do provedor) abaixo do badge "Falhou" na aba Mensagens', async () => {
+    mockAuth(['whatsapp:view', 'whatsapp:manage']);
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/v1/tenant/modules') return Promise.resolve({ enabled: ['whatsapp'] });
+      if (url === '/v1/whatsapp/account') return Promise.resolve(ACCOUNT_CONNECTED);
+      if (url === '/v1/whatsapp/automations') return Promise.resolve({ data: AUTOMATIONS });
+      if (url === '/v1/whatsapp/templates') return Promise.resolve({ data: TEMPLATES });
+      if (url.startsWith('/v1/whatsapp/messages')) return Promise.resolve({
+        data: [{
+          id: 'msg-1', template_key: 'fiscal_document_authorized', phone_e164: '+5511988887777',
+          status: 'failed',
+          status_reason: 'Twilio error 63016: Failed to send freeform message because you are outside the allowed window',
+          client_name: 'Gercenio Xavier da Silva', created_at: '2026-07-22T15:18:58Z',
+        }],
+        total: 1,
+      });
+      return Promise.resolve({});
+    });
+    const { WhatsAppSettingsCard: Card } = await import('../WhatsAppSettingsCard');
+    render(<Card />);
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByText(t('wa.tabMessages'))).toBeInTheDocument());
+    await user.click(screen.getByText(t('wa.tabMessages')));
+
+    await waitFor(() => expect(screen.getByText('Gercenio Xavier da Silva')).toBeInTheDocument());
+    expect(screen.getByText(t('wa.messageStatus.failed'))).toBeInTheDocument();
+    expect(screen.getByText(/Twilio error 63016/)).toBeInTheDocument();
+  });
 });

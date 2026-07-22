@@ -471,7 +471,16 @@ function MessagesTab() {
     { key: 'client', header: t('wa.client'), render: m => m.client_name ?? m.phone_e164 },
     { key: 'template', header: t('wa.template'), render: m => templateLabel(t, m.template_key) },
     { key: 'status', header: t('c.status'), render: m => (
-      <Badge variant={STATUS_BADGE[m.status] ?? 'service'}>{t(`wa.messageStatus.${m.status}` as TKey)}</Badge>
+      <div>
+        <Badge variant={STATUS_BADGE[m.status] ?? 'service'}>{t(`wa.messageStatus.${m.status}` as TKey)}</Badge>
+        {/* Motivo real do provedor (Twilio ErrorMessage, gravado via webhook de
+            status em whatsapp_messages.status_reason) — já vinha da API, só
+            nunca tinha sido exibido; sem isso "Falhou" não dizia nada sobre o
+            porquê. */}
+        {(m.status === 'failed' || m.status === 'undelivered') && m.status_reason && (
+          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0', maxWidth: 260 }}>{m.status_reason}</p>
+        )}
+      </div>
     ) },
     { key: 'created_at', header: t('wa.sentAt'), render: m => new Date(m.created_at).toLocaleString('pt-BR') },
   ];
