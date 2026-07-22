@@ -6,6 +6,8 @@ import {
   canUploadPhoto,
   canCaptureSignature,
   canComplete,
+  canRescheduleVisit,
+  canCancelVisit,
   isValidCPF,
   validateServiceVisitCreate,
   visitTimeRange,
@@ -76,6 +78,22 @@ describe('elegibilidade de ações', () => {
     expect(canComplete('in_progress', true)).toBe(true);
     expect(canComplete('in_progress', false)).toBe(false);
     expect(canComplete('scheduled', true)).toBe(false);
+  });
+
+  it('canRescheduleVisit só quando scheduled — depois de check-in a visita já está acontecendo', () => {
+    expect(canRescheduleVisit('scheduled')).toBe(true);
+    expect(canRescheduleVisit('in_progress')).toBe(false);
+    expect(canRescheduleVisit('completed')).toBe(false);
+    expect(canRescheduleVisit('cancelled')).toBe(false);
+    expect(canRescheduleVisit('no_show')).toBe(false);
+  });
+
+  it('canCancelVisit em scheduled ou in_progress, nunca em estado terminal', () => {
+    expect(canCancelVisit('scheduled')).toBe(true);
+    expect(canCancelVisit('in_progress')).toBe(true);
+    expect(canCancelVisit('completed')).toBe(false);
+    expect(canCancelVisit('cancelled')).toBe(false);
+    expect(canCancelVisit('no_show')).toBe(false);
   });
 });
 

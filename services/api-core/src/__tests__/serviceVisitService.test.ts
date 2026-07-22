@@ -9,7 +9,9 @@ import { getTableName } from 'drizzle-orm';
 
 vi.mock('../lib/notificationsClient', () => ({ sendSystemNotification: vi.fn().mockResolvedValue(undefined) }));
 
-import { scheduleVisit, completeVisit, getVisitForTechnician } from '../services/serviceVisitService';
+import {
+  scheduleVisit, rescheduleVisit, cancelVisit, completeVisit, getVisitForTechnician,
+} from '../services/serviceVisitService';
 import { ServiceVisitDomainError } from '../domain/serviceVisit/serviceVisitDomain';
 
 const TENANT = 'tenant-1';
@@ -222,5 +224,86 @@ describe('getVisitForTechnician — formulário técnico dinâmico (migration 00
 
     expect(result.fieldDefinitions).toEqual([FIELD_DEF_REQUIRED]);
     expect(result.fieldValues).toEqual([fieldValueRow]);
+  });
+});
+
+// ── Reagendamento e cancelamento (lado do backoffice, Agenda do Técnico) ────
+
+const VISIT_SCHEDULED = {
+  id: 'visit-2', tenant_id: TENANT, technician_id: TECH, service_order_id: ORDER,
+  status: 'scheduled', scheduled_at: FUTURE, duration_minutes: 60,
+};
+
+describe('rescheduleVisit — muda data/hora com checagem atômica de conflito', () => {
+  const NEW_TIME = new Date(FUTURE.getTime() + 24 * 60 * 60 * 1000);
+
+  it('reagenda normalmente quando o novo horário está livre', async () => {
+    const { db, updates } = makeDb({ selectQueue: [[VISIT_SCHEDULED], [TECH_ROW], []] });
+
+    await rescheduleVisit({ visitId: 'visit-2', tenantId: TENANT, scheduledAt: NEW_TIME }, db);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ table: 'service_visits' });
+    expect(updates[0].set.scheduled_at.getTime()).toBe(NEW_TIME.getTime());
+    expect(updates[0].set.duration_minutes).toBe(60); // mantém a duração atual quando não informada
+  });
+
+  it('exclui a própria visita da checagem — nunca "conflita consigo mesma"', async () => {
+    // O único bloqueador na agenda é a PRÓPRIA visita sendo reagendada.
+    const selfAsBlocker = { id: 'visit-2', scheduled_at: FUTURE, duration_minutes: 60, status: 'scheduled' };
+    const { db, updates } = makeDb({ selectQueue: [[VISIT_SCHEDULED], [TECH_ROW], [selfAsBlocker]] });
+
+    await rescheduleVisit({ visitId: 'visit-2', tenantId: TENANT, scheduledAt: NEW_TIME }, db);
+
+    expect(updates).toHaveLength(1); // não lançou visit_conflict
+  });
+
+  it('lança visit_conflict quando o novo horário colide com OUTRA visita do técnico', async () => {
+    const otherBlocker = { id: 'visit-other', scheduled_at: NEW_TIME, duration_minutes: 60, status: 'scheduled' };
+    const { db, updates } = makeDb({ selectQueue: [[VISIT_SCHEDULED], [TECH_ROW], [otherBlocker]] });
+
+    await expect(rescheduleVisit({ visitId: 'visit-2', tenantId: TENANT, scheduledAt: NEW_TIME }, db))
+      .rejects.toMatchObject({ code: 'visit_conflict', payload: { conflicting: { visit_id: 'visit-other' } } });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('visit_not_found quando a visita não existe no tenant', async () => {
+    const { db } = makeDb({ selectQueue: [[]] });
+    await expect(rescheduleVisit({ visitId: 'visit-x', tenantId: TENANT, scheduledAt: NEW_TIME }, db))
+      .rejects.toMatchObject({ code: 'visit_not_found' });
+  });
+
+  it('visit_cannot_reschedule quando a visita não está mais scheduled (ex.: já em andamento)', async () => {
+    const { db } = makeDb({ selectQueue: [[VISIT_IN_PROGRESS]] });
+    await expect(rescheduleVisit({ visitId: 'visit-1', tenantId: TENANT, scheduledAt: NEW_TIME }, db))
+      .rejects.toMatchObject({ code: 'visit_cannot_reschedule' });
+  });
+});
+
+describe('cancelVisit — libera o horário do técnico, nunca mexe no status da OS', () => {
+  it('cancela normalmente quando scheduled', async () => {
+    const { db, updates } = makeDb({ selectQueue: [[VISIT_SCHEDULED]] });
+    await cancelVisit({ visitId: 'visit-2', tenantId: TENANT }, db);
+    expect(updates).toEqual([{ table: 'service_visits', set: expect.objectContaining({ status: 'cancelled' }) }]);
+  });
+
+  it('cancela normalmente quando in_progress', async () => {
+    const { db, updates } = makeDb({ selectQueue: [[VISIT_IN_PROGRESS]] });
+    await cancelVisit({ visitId: 'visit-1', tenantId: TENANT }, db);
+    expect(updates[0].set.status).toBe('cancelled');
+  });
+
+  it('visit_not_found quando a visita não existe no tenant', async () => {
+    const { db } = makeDb({ selectQueue: [[]] });
+    await expect(cancelVisit({ visitId: 'visit-x', tenantId: TENANT }, db))
+      .rejects.toMatchObject({ code: 'visit_not_found' });
+  });
+
+  it('visit_cannot_cancel quando a visita já está num estado terminal (completed)', async () => {
+    const completedVisit = { ...VISIT_IN_PROGRESS, id: 'visit-3', status: 'completed' };
+    const { db, updates } = makeDb({ selectQueue: [[completedVisit]] });
+    await expect(cancelVisit({ visitId: 'visit-3', tenantId: TENANT }, db))
+      .rejects.toMatchObject({ code: 'visit_cannot_cancel' });
+    expect(updates).toHaveLength(0);
   });
 });

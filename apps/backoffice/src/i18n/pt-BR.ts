@@ -1678,6 +1678,9 @@ const ptBR = {
   'soa.date':           'Data',
   'soa.time':           'Hora',
   'soa.createTitle':    'Agendar Visita',
+  'soa.reschedule':        'Reagendar',
+  'soa.cancelVisit':       'Cancelar visita',
+  'soa.cancelVisitConfirm': 'Cancelar esta visita? O horário volta a ficar livre na agenda do técnico. Esta ação não pode ser desfeita.',
 
   // ── Técnicos ──────────────────────────────────────────────────────────────
   'tech.title':        'Técnicos',

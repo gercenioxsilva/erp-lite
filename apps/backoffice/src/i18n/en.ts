@@ -1681,6 +1681,9 @@ const en: Record<TKey, string> = {
   'soa.date':           'Date',
   'soa.time':           'Time',
   'soa.createTitle':    'Schedule Visit',
+  'soa.reschedule':        'Reschedule',
+  'soa.cancelVisit':       'Cancel visit',
+  'soa.cancelVisitConfirm': 'Cancel this visit? The time slot goes back to being free on the technician\'s agenda. This action cannot be undone.',
 
   // ── Technicians ───────────────────────────────────────────────────────────
   'tech.title':        'Technicians',

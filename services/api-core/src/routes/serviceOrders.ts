@@ -6,7 +6,9 @@ import { requirePermission } from '../lib/requirePermission';
 import {
   createServiceOrder, updateServiceOrder, transitionServiceOrder, ServiceOrderDomainError,
 } from '../services/serviceOrderService';
-import { scheduleVisit, buildVisitLink, ServiceVisitDomainError } from '../services/serviceVisitService';
+import {
+  scheduleVisit, rescheduleVisit, cancelVisit, buildVisitLink, ServiceVisitDomainError,
+} from '../services/serviceVisitService';
 import { isRoutingTokenValid } from '../domain/serviceVisit/serviceVisitDomain';
 import { getPresignedReadUrl } from '../services/servicePhotoStorageService';
 import { billServiceOrder, ServiceOrderBillingDomainError } from '../services/serviceOrderBillingService';
@@ -313,6 +315,49 @@ export const serviceOrdersRoutes: FastifyPluginAsync = async (fastify) => {
     const customFields = await getFieldValuesForVisit(visitId, tenantId, db);
 
     return { ...visit, photos, signature_url: signatureUrl, custom_fields: customFields };
+  });
+
+  // ── PATCH /v1/service-orders/:id/visits/:visitId ─────────────────────────
+  // Reagendar (mudar data/hora/duração) — extensão da Agenda do Técnico
+  // (regra 78). Mesma checagem atômica de conflito de POST .../visits, só
+  // elegível em status='scheduled'.
+  fastify.patch('/service-orders/:id/visits/:visitId', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { visitId } = request.params as { visitId: string };
+    const { scheduled_at, duration_minutes } = request.body as { scheduled_at: string; duration_minutes?: number };
+
+    if (!scheduled_at) return reply.badRequest('scheduled_at é obrigatório');
+
+    try {
+      const visit = await rescheduleVisit({
+        visitId, tenantId, scheduledAt: new Date(scheduled_at),
+        durationMinutes: duration_minutes ? Number(duration_minutes) : undefined,
+      });
+      return visit;
+    } catch (err) {
+      if (err instanceof ServiceVisitDomainError) {
+        return reply.code(err.code === 'visit_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
+  });
+
+  // ── POST /v1/service-orders/:id/visits/:visitId/cancel ───────────────────
+  // Cancelar visita — extensão da Agenda do Técnico (regra 78). Nunca mexe
+  // no status da OS (pode ter outras visitas ativas).
+  fastify.post('/service-orders/:id/visits/:visitId/cancel', { ...auth, preHandler: [ ...(auth.preHandler ?? []), requirePermission('service_orders:assign') ] }, async (request, reply) => {
+    const tenantId = (request as any).user.tenantId;
+    const { visitId } = request.params as { visitId: string };
+
+    try {
+      await cancelVisit({ visitId, tenantId });
+      return { ok: true, status: 'cancelled' };
+    } catch (err) {
+      if (err instanceof ServiceVisitDomainError) {
+        return reply.code(err.code === 'visit_not_found' ? 404 : 422).send({ error: err.code, ...err.payload });
+      }
+      throw err;
+    }
   });
 
   // ── POST /v1/service-orders/:id/cancel ───────────────────────────────────
